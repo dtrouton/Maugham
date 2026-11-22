@@ -6,7 +6,7 @@ import MaughamCore
 /// literals.
 ///
 /// A problem is a `TectonicLogParser.Diagnostic` that names its piece
-/// (`pieceID != nil`; `DepartmentCompileState.problems(in:)`). Each row names
+/// (`pieceID != nil`; `CompileRunState.problems(in:)`). Each row names
 /// the piece by its TITLE, never its id: the id is a binder key the writer has
 /// never seen, and a list of them would be a list nobody could act on.
 enum PublishProblems {

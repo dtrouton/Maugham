@@ -19,8 +19,8 @@ would pass the translation-coverage gate before committing to a full compile.
 
 ## The in-app pipeline
 
-**You are not the only translator on this book.** Maugham's Publish desk has a
-Run of its own, and one press of it is seven legs: the edition's translator
+**You are not the only translator on this book.** Each edition in Maugham has a
+Run of its own (Run Whole Book, at the head of the edition's To resolve), and one press of it is seven legs: the edition's translator
 writes, a **blind reader** (target text only, so it can say the prose does not
 read like this language and can never say it is wrong) reads and notes, the
 translator fixes, the reader reads again, the translator fixes again, a

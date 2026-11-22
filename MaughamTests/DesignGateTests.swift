@@ -381,12 +381,12 @@ final class DesignGateTests: XCTestCase {
     /// The button is about the NEWEST round — the one `latestLine` describes —
     /// so the row's sentence and its control are about the same thing.
     func test_theDesignRowOffersAWayToSeeTheNewestProposal() {
-        let row = DepartmentDesignRow.resolve(
+        let row = DesignRoundState.resolve(
             designerName: "Tschichold", proposals: [Self.proposal()],
             runState: .idle, session: .free, hasOpenProposalRound: false)
         XCTAssertTrue(row.offersShow)
 
-        let empty = DepartmentDesignRow.resolve(
+        let empty = DesignRoundState.resolve(
             designerName: "Tschichold", proposals: [],
             runState: .idle, session: .free, hasOpenProposalRound: false)
         XCTAssertFalse(empty.offersShow,
@@ -399,7 +399,7 @@ final class DesignGateTests: XCTestCase {
     /// it is deliberately not folded into `refusal`, which disables the two
     /// verbs that would contend for the session.
     func test_showIsNotRefusedByARoundInFlight() {
-        let row = DepartmentDesignRow.resolve(
+        let row = DesignRoundState.resolve(
             designerName: "Tschichold", proposals: [Self.proposal()],
             runState: .running(round: 2, language: nil),
             session: .busy(round: 2), hasOpenProposalRound: true)
@@ -407,16 +407,6 @@ final class DesignGateTests: XCTestCase {
         XCTAssertTrue(row.offersShow, "reading a staged proposal contends with "
                       + "nothing — only Run and Request Changes do")
         XCTAssertFalse(row.canRun, "…and the verbs that DO contend still refuse")
-    }
-
-    /// A desk with no round draws no Show at all.
-    func test_aDeskWithNoRoundDrawsNoShow() async throws {
-        let window = mountDesk(proposals: [], showProposal: { })
-        _ = try await settling(in: window)
-
-        let labels = try axButtonLabels(in: window)
-        XCTAssertFalse(labels.contains(DepartmentDesignRow.showAccessibilityLabel),
-                       "buttons published: \(labels.sorted())")
     }
 
     // MARK: - Mounted: the gate itself
@@ -647,7 +637,7 @@ final class DesignGateTests: XCTestCase {
             "Maugham/Views/ProjectWindow.swift": """
             struct ProjectWindow: View {
                 var body: some View { EmptyView() }
-                func actions() { DepartmentDesignRow.sendChanges(words, to: designer) }
+                func actions() { DesignRoundState.sendChanges(words, to: designer) }
             }
             """,
             "Maugham/Views/ProjectWindow+Centre.swift": """
@@ -664,8 +654,8 @@ final class DesignGateTests: XCTestCase {
                 }
             }
             """,
-            "Maugham/Views/Publish/DepartmentDesignRow.swift": """
-            enum DepartmentDesignRow { static func sendChanges() { designer.requestChanges(words) } }
+            "Maugham/Views/Publish/DesignRoundState.swift": """
+            enum DesignRoundState { static func sendChanges() { designer.requestChanges(words) } }
             """,
             "Maugham/Views/SomeSiblingView.swift": """
             struct SomeSiblingView { func f() { _ = designer.requestChanges(words) } }
@@ -688,35 +678,19 @@ final class DesignGateTests: XCTestCase {
             }
             """), "nor is a gate in another surface's arm")
         XCTAssertTrue(try SourceTree.windowCodeLines(base: base)
-            .contains { $0.contains("DepartmentDesignRow.sendChanges") },
+            .contains { $0.contains("DesignRoundState.sendChanges") },
             "the wiring reads the window's files")
         XCTAssertEqual(try Self.requestChangesCallers(under: "Maugham/Views", base: base),
-                       ["Maugham/Views/Publish/DepartmentDesignRow.swift",
+                       ["Maugham/Views/Publish/DesignRoundState.swift",
                         "Maugham/Views/SomeSiblingView.swift"],
                        "the widened census sees a second caller outside the window")
-    }
-
-    /// **The desk still reads no store** (tripwire 4). The Show affordance is a
-    /// closure the host fills, exactly as every other verb on the desk is, so
-    /// growing it must not put `DesignProposalStore` on a `body` path — which is
-    /// why the pane's own closure takes no argument and the host supplies the
-    /// proposal.
-    func test_theShowAffordanceLeavesThePanesCensusTrue() throws {
-        let code = SourceScan.codeLines(
-            of: try Self.source(of: "Views/Publish/DepartmentPane.swift"))
-
-        XCTAssertTrue(code.contains { $0.contains("showProposal") },
-                      "the pane must draw the affordance")
-        XCTAssertFalse(code.contains { $0.contains("DesignProposalStore") },
-                       "the pane may not name the store it would have to read "
-                       + "to know which proposal Show is about (tripwire 4)")
     }
 
     // MARK: - The verbs: what a proposal offers (Task 6, no window)
 
     /// **A proposal waiting on the writer offers Approve** — and Request Changes
     /// only while the session that made it can still be asked to revise it, which
-    /// is the desk's own rule (`DepartmentDesignRow.offersRequestChanges`): outside
+    /// is the desk's own rule (`DesignRoundState.offersRequestChanges`): outside
     /// that window the honest verb is a fresh Run, which lives on the desk.
     func test_aPendingProposalOffersApproveAndIterationWhileTheRoundIsOpen() {
         XCTAssertEqual(
@@ -785,7 +759,7 @@ final class DesignGateTests: XCTestCase {
                        + "failure this whole surface is written against")
     }
 
-    /// **A status from a newer build is carried raw**, `DepartmentDesignRow
+    /// **A status from a newer build is carried raw**, `DesignRoundState
     /// .statusWord`'s discipline: printing "unknown" over it would tell the
     /// writer their proposal is broken when it is merely from the future.
     func test_aStatusFromANewerBuildIsNamedRatherThanCalledBroken() throws {
@@ -1241,7 +1215,7 @@ final class DesignGateTests: XCTestCase {
     /// put a second caller where it does not look.
     func test_requestChangesHasOneSpellingAndBothSurfacesReachIt() throws {
         XCTAssertEqual(try Self.requestChangesCallers(under: "Maugham/Views"),
-                       ["Maugham/Views/Publish/DepartmentDesignRow.swift"],
+                       ["Maugham/Views/Publish/DesignRoundState.swift"],
                        "the orchestrator's verb is called from `sendChanges` and "
                        + "nowhere else in this department")
 
@@ -1273,17 +1247,16 @@ final class DesignGateTests: XCTestCase {
         }
     }
 
-    /// **The desk re-derives when the gate acts.** The other half of the
-    /// write-back: `ProjectWindow`'s state feeds the gate, and the desk in the
-    /// right column has its own listing keyed on the designer's run state — which
-    /// a promotion never touches.
-    func test_theDeskListensForTheGatesVerdict() throws {
+    /// **To resolve re-reads when the gate acts** (moved from the desk, shell
+    /// p4 Task 7): the Source edition's head and list read the proposals, and
+    /// a promotion touches neither the designer's run state nor the manifest.
+    func test_toResolveListensForTheGatesVerdict() throws {
         let code = SourceScan.codeLines(
-            of: try Self.source(of: "Views/Publish/DepartmentPaneHost.swift"))
+            of: try Self.source(of: "Views/Resolve/ResolvePane.swift"))
         XCTAssertTrue(
             code.contains { $0.contains("maughamDesignProposalsChanged") },
-            "the desk must hear a promotion, or its Design row keeps describing "
-            + "a status the proposal no longer has")
+            "To resolve must hear a promotion, or the Source edition's head keeps "
+            + "describing a status the proposal no longer has")
     }
 
     // MARK: - Fixtures
@@ -1385,23 +1358,10 @@ final class DesignGateTests: XCTestCase {
     }
 
     /// A mutable cell an escaping closure can write into from the main actor.
-    /// `DepartmentRunTests.Box`'s twin.
+    /// `TranslationRunTests.Box`'s twin.
     private final class Box<Value> {
         var value: Value
         init(_ value: Value) { self.value = value }
-    }
-
-    private func mountDesk(proposals: [DesignProposalStore.Proposal],
-                           showProposal: @escaping () -> Void) -> NSWindow {
-        let row = DepartmentDesignRow.resolve(
-            designerName: "Tschichold", proposals: proposals,
-            runState: .idle, session: .free, hasOpenProposalRound: false)
-        return mount(AnyView(DepartmentPane(title: "The Project", languages: [],
-                                            unreadable: [],
-                                            translationOffers: .unrestricted,
-                                            design: row,
-                                            showProposal: showProposal)),
-                     width: 340)
     }
 
     private func mount(_ view: AnyView, width: CGFloat) -> NSWindow {

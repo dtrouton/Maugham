@@ -16,12 +16,12 @@ import Observation
 /// here would be discarded and rebuilt anyway), and the same two toolchain
 /// versions, which this task folded into `PublishToolchain`.
 ///
-/// **Model, not view.** Nothing here draws; `DepartmentCompileState` holds
+/// **Model, not view.** Nothing here draws; `CompileRunState` holds
 /// every sentence and every decision, so the surface Task 5 builds takes values
 /// and holds no orchestrator.
 @Observable
 @MainActor
-final class DeskCompileRunner {
+final class CompileRunner {
 
     /// **What a press asks for.** Deliberately narrower than
     /// `PublishOrchestrator.compile`: no `label`, no `version`, no `dryRun`, no
@@ -49,7 +49,7 @@ final class DeskCompileRunner {
         }
     }
 
-    private(set) var state = DepartmentCompileState()
+    private(set) var state = CompileRunState()
 
     /// The compile in flight. It is what `start` guards on rather than
     /// `state.phase`, because a refusal replaces the phase while the run it
@@ -84,7 +84,7 @@ final class DeskCompileRunner {
         guard task == nil else {
             // The run in flight is untouched: only the phase changes, and
             // `isRunning` is stored precisely so this cannot read as idle.
-            state.phase = .refused(DepartmentCompileState.alreadyRunning)
+            state.phase = .refused(CompileRunState.alreadyRunning)
             return
         }
 
@@ -93,7 +93,7 @@ final class DeskCompileRunner {
         self.stores = stores
 
         ownJob.set(nil)
-        state = DepartmentCompileState(
+        state = CompileRunState(
             phase: .running(format: request.format,
                             languages: request.languages,
                             imprint: request.imprint),
@@ -109,7 +109,7 @@ final class DeskCompileRunner {
             // `Task.cancel()`, so a later press never cancels the
             // orchestrator's own awaits out from under its outcome.
             guard !ownJob.isCancelRequested else {
-                self?.finish(with: DepartmentCompileState.settled(after: .cancelled))
+                self?.finish(with: CompileRunState.settled(after: .cancelled))
                 return
             }
             let orchestrator = PublishOrchestrator(
@@ -123,7 +123,7 @@ final class DeskCompileRunner {
                 mintGate: stores.mintGate,
                 maughamVersion: PublishToolchain.maughamVersion,
                 tectonicVersion: PublishToolchain.tectonicVersion)
-            let settled: DepartmentCompileState
+            let settled: CompileRunState
             do {
                 let outcome = try await orchestrator.compile(
                     format: request.format,
@@ -143,12 +143,12 @@ final class DeskCompileRunner {
                     onJobRegistered: { [ownJob, jobManager = stores.jobManager] id in
                         if ownJob.register(id) { Task { _ = await jobManager.cancel(jobID: id) } }
                     })
-                settled = DepartmentCompileState.settled(after: outcome)
+                settled = CompileRunState.settled(after: outcome)
             } catch {
                 // `compile` throws for the things that are not outcomes at all
                 // — an unreadable config directory, a snapshot that could not
                 // be written. The desk says so rather than staying blank.
-                settled = DepartmentCompileState(
+                settled = CompileRunState(
                     phase: .failed(error.localizedDescription), isRunning: false)
             }
             self?.finish(with: settled)
@@ -175,7 +175,7 @@ final class DeskCompileRunner {
     ///
     /// Cancelling sets the token the orchestrator polls at its one checkpoint,
     /// after the render and before the snapshot: nothing durable is committed
-    /// and the outcome comes back `.cancelled`, which `DepartmentCompileState
+    /// and the outcome comes back `.cancelled`, which `CompileRunState
     /// .settled(after:)` draws as an idle desk with a sentence rather than as a
     /// failure.
     ///
@@ -192,7 +192,7 @@ final class DeskCompileRunner {
 
     // MARK: -
 
-    private func finish(with settled: DepartmentCompileState) {
+    private func finish(with settled: CompileRunState) {
         task = nil
         // The desk has no compile of its own any more, so its Cancel has
         // nothing to aim at. Left set, a press after the compile had settled

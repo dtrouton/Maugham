@@ -197,6 +197,60 @@ final class PulledUpFitsTheColumnTests: XCTestCase {
             + offenders.joined(separator: "\n"))
     }
 
+    // MARK: - An edition's Brief, in every state (shell p4 Task 7)
+
+    /// **An edition's Brief fits the narrowest column in every state**: a
+    /// translated edition with its whole cast named long and a proposed brief
+    /// pending, an edition nobody is cast for, and the Source with a long
+    /// designer's name and proposals for two languages it has no edition of —
+    /// each unlocked and locked, once loaded.
+    func test_anEditionsBriefFitsTheNarrowestColumnInEveryState() async throws {
+        let f = try await makeFixture()
+        let width = Self.narrowest
+        let long = "Guadalupe Nettel de la Cruz y Ocampo Bioy Casares"
+        let translator = try await f.store.translatorRole(for: "es")
+        try await f.store.renameProductionRole(id: translator.id, to: long)
+        for mint in [f.store.readerRole(for:), f.store.collatorRole(for:)] {
+            let role = try await mint("es")
+            try await f.store.renameProductionRole(id: role.id, to: long)
+        }
+        try await f.store.renameProductionRole(id: f.store.designerRole().id, to: long)
+        for language in ["es", "it", "pt-br"] {
+            _ = try StatementProposalStore(projectURL: f.store.url).stage(.init(
+                kind: .editionBrief(language),
+                markdown: "A long proposed brief for the edition, with enough prose to wrap.",
+                rationale: "The narrator's register wants a careful hand in this language.",
+                proposedAt: Date(), author: "Claude"))
+        }
+        let source = BriefEditionView.sourceLanguage(store: f.store)
+        XCTAssertEqual(EditionCastVerbs.proposalsWithoutAnEdition(
+            StatementProposalStore(projectURL: f.store.url).pendingAll(),
+            editions: TreeEditionRows.languages(store: f.store)), ["it", "pt-br"],
+            "premise: the Source lists two proposals with no edition")
+        var offenders: [String] = []
+        for (name, language) in [("a cast edition", "es"), ("an uncast edition", "xx"),
+                                 ("the Source", source)] {
+            for locked in [false, true] {
+                let subject = WindowSubject(open: .edition(language: language),
+                                            faces: .edition(language: language))
+                let probe = RightColumnFixture.Probe(position: .brief, subject: subject)
+                let (overflow, _) = try await overflowOnceSettled(
+                    RightColumnFixture.column(store: f.store, documentStore: f.documentStore,
+                                              probe: probe, width: width, isLocked: locked)
+                        .environment(f.preferences),
+                    width: width)
+                if !overflow.isEmpty {
+                    offenders.append("\(name)\(locked ? " (locked)" : ""): "
+                                     + overflow.prefix(3).joined(separator: "; "))
+                }
+                for window in windows { window.contentView = NSView(frame: .zero) }
+                windows.removeAll()
+            }
+        }
+        XCTAssertEqual(offenders, [],
+            "an edition's Brief runs past the \(width)pt column:\n" + offenders.joined(separator: "\n"))
+    }
+
     // MARK: - The fixture
 
     private struct Fixture {

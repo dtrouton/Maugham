@@ -3,7 +3,7 @@ import MaughamCore
 
 /// **What the desk asks before it makes a book** (imprints P3 Task 5).
 ///
-/// `DeskCompileRunner.Request` has four fields and the sheet has four
+/// `CompileRunner.Request` has four fields and the sheet has four
 /// questions, one per field, in the order a writer answers them: what format,
 /// which editions go in it, and — once — whether a stale translation is
 /// allowed through. The imprint is the fourth and is *shown rather than asked*,
@@ -14,7 +14,7 @@ import MaughamCore
 /// **It takes values and closures, exactly as the pane does** (tripwire 4). The
 /// language list is the desk's own rows, the book's tag is `metadata.language`
 /// read once by the host — nothing here opens a config or walks a manuscript.
-struct DepartmentCompileSheet: View {
+struct CompileSheet: View {
 
     /// The editions on the desk, in the order the rows are drawn. The book's
     /// own language is NOT among them — it is offered separately below,
@@ -25,7 +25,7 @@ struct DepartmentCompileSheet: View {
     let bookLanguage: String
     /// Which imprint the desk is standing on, read-only. `nil` is the book.
     let imprint: String?
-    let onCompile: (DeskCompileRunner.Request) -> Void
+    let onCompile: (CompileRunner.Request) -> Void
     let onCancel: () -> Void
 
     @State private var format: PublishConfig.Format = .pdf
@@ -43,7 +43,7 @@ struct DepartmentCompileSheet: View {
     /// Task 5, `EditionCompileAsk`) with its own language checked instead.
     init(languages: [String], bookLanguage: String, imprint: String?,
          initiallyIncludesBook: Bool = true, initiallySelected: Set<String> = [],
-         onCompile: @escaping (DeskCompileRunner.Request) -> Void,
+         onCompile: @escaping (CompileRunner.Request) -> Void,
          onCancel: @escaping () -> Void) {
         self.languages = languages
         self.bookLanguage = bookLanguage
@@ -59,44 +59,44 @@ struct DepartmentCompileSheet: View {
     /// the untranslated body, so naming it here is how a source-only compile
     /// gets a status line that says which language that is, rather than an
     /// empty list that has nothing honest to print.
-    private var request: DeskCompileRunner.Request {
+    private var request: CompileRunner.Request {
         var tags: [String] = []
         if includesBook { tags.append(bookLanguage) }
         tags += languages.filter { selected.contains($0) }
-        return DeskCompileRunner.Request(format: format, languages: tags,
+        return CompileRunner.Request(format: format, languages: tags,
                                          imprint: imprint, allowStale: allowStale)
     }
 
     /// Nothing checked is not "the book by default" — it is a writer who has
     /// unchecked everything, and an empty list would quietly compile the source
     /// book anyway (`LanguageSet` reads it as `[nil]`). Refused in words as
-    /// well as by a disabled button, on `DepartmentCastSheet`'s rule.
+    /// well as by a disabled button, on `EditionCastSheet`'s rule.
     private var refusal: String? {
-        request.languages.isEmpty ? DepartmentCompileSheetCopy.pickAnEdition : nil
+        request.languages.isEmpty ? CompileSheetCopy.pickAnEdition : nil
     }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text(DepartmentCompileSheetCopy.title)
+            Text(CompileSheetCopy.title)
                 .font(.headline)
-            Text(DepartmentCompileSheetCopy.subjectLine(imprint: imprint))
+            Text(CompileSheetCopy.subjectLine(imprint: imprint))
                 .font(.callout)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
 
-            Picker(DepartmentCompileSheetCopy.formatLabel, selection: $format) {
+            Picker(CompileSheetCopy.formatLabel, selection: $format) {
                 ForEach(PublishConfig.Format.allCases, id: \.self) { option in
-                    Text(DepartmentCompileSheetCopy.formatTitle(option)).tag(option)
+                    Text(CompileSheetCopy.formatTitle(option)).tag(option)
                 }
             }
             .pickerStyle(.segmented)
 
             VStack(alignment: .leading, spacing: 4) {
-                Text(DepartmentCompileSheetCopy.editionsLabel)
+                Text(CompileSheetCopy.editionsLabel)
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .textCase(.uppercase)
-                Toggle(DepartmentCompileSheetCopy.bookLanguageTitle(bookLanguage),
+                Toggle(CompileSheetCopy.bookLanguageTitle(bookLanguage),
                        isOn: $includesBook)
                 ForEach(languages, id: \.self) { language in
                     Toggle(TranslationReviewIndicator
@@ -110,8 +110,8 @@ struct DepartmentCompileSheet: View {
                 }
             }
 
-            Toggle(DepartmentCompileSheetCopy.allowStaleTitle, isOn: $allowStale)
-                .help(DepartmentCompileSheetCopy.allowStaleHelp)
+            Toggle(CompileSheetCopy.allowStaleTitle, isOn: $allowStale)
+                .help(CompileSheetCopy.allowStaleHelp)
 
             if let refusal {
                 Text(refusal)
@@ -123,8 +123,8 @@ struct DepartmentCompileSheet: View {
 
             HStack {
                 Spacer()
-                Button(DepartmentCompileSheetCopy.cancelTitle, action: onCancel)
-                Button(DepartmentCompileState.compileTitle) { onCompile(request) }
+                Button(CompileSheetCopy.cancelTitle, action: onCancel)
+                Button(CompileRunState.compileTitle) { onCompile(request) }
                     .keyboardShortcut(.defaultAction)
                     .buttonStyle(.borderedProminent)
                     .disabled(refusal != nil)
@@ -135,9 +135,9 @@ struct DepartmentCompileSheet: View {
     }
 }
 
-/// **The sheet's own words**, split out on `DepartmentCastCopy`'s precedent —
+/// **The sheet's own words**, split out on `EditionCastCopy`'s precedent —
 /// a truth table a test can assert without mounting anything.
-enum DepartmentCompileSheetCopy {
+enum CompileSheetCopy {
 
     static let title = "Compile this book"
 

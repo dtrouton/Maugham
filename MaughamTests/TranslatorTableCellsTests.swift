@@ -426,7 +426,7 @@ final class TranslatorTableCellsTests: CellTranslationBookTestCase {
         XCTAssertTrue(try TranslationStore.loadMerged(
             forDocId: record.id, language: "es", in: projectURL).isEmpty,
             "the table's batch is all-or-nothing")
-        XCTAssertTrue(DepartmentRunState.reportLine(.ingested(outcome))?.contains(refusal) == true,
+        XCTAssertTrue(TranslationRunState.reportLine(.ingested(outcome))?.contains(refusal) == true,
                       "the desk's row says it")
     }
 
@@ -639,15 +639,15 @@ final class TranslatorTableCellsTests: CellTranslationBookTestCase {
     /// The desk's copy names table cells beside paragraphs, and alone when a
     /// round had only cells; the round report counts them.
     func test_theDeskAndTheRoundReportCountTableCells() {
-        XCTAssertEqual(DepartmentRunState.translating(3, cells: 4),
+        XCTAssertEqual(TranslationRunState.translating(3, cells: 4),
                        "Translating 3 paragraphs and 4 table cells\u{2026}")
-        XCTAssertEqual(DepartmentRunState.translating(0, cells: 1), "Translating 1 table cell\u{2026}")
-        XCTAssertEqual(DepartmentRunState.translating(2), "Translating 2 paragraphs\u{2026}")
-        XCTAssertEqual(DepartmentRunState.landedLine(entries: 2, queries: 1, cells: 3),
+        XCTAssertEqual(TranslationRunState.translating(0, cells: 1), "Translating 1 table cell\u{2026}")
+        XCTAssertEqual(TranslationRunState.translating(2), "Translating 2 paragraphs\u{2026}")
+        XCTAssertEqual(TranslationRunState.landedLine(entries: 2, queries: 1, cells: 3),
                        "2 paragraphs translated \u{00b7} 3 table cells labelled \u{00b7} 1 question asked")
-        XCTAssertEqual(DepartmentRunState.landedLine(entries: 0, queries: 0, cells: 1),
+        XCTAssertEqual(TranslationRunState.landedLine(entries: 0, queries: 0, cells: 1),
                        "1 table cell labelled")
-        XCTAssertEqual(DepartmentRunState.landedLine(entries: 0, queries: 0),
+        XCTAssertEqual(TranslationRunState.landedLine(entries: 0, queries: 0),
                        "The round wrote nothing and asked nothing.")
 
         var round = TranslationRound(number: 1, language: "es", docId: "doc-a", startedAt: Date())

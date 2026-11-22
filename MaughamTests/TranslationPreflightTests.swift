@@ -159,7 +159,7 @@ final class TranslationPreflightTests: XCTestCase {
                       "…and calls it what it is: \(sentence)")
 
         // …and that is what the row draws where the figure would have been.
-        XCTAssertEqual(DepartmentRunState.preflightLine(budgets.answer(for: "es")), sentence)
+        XCTAssertEqual(TranslationRunState.preflightLine(budgets.answer(for: "es")), sentence)
     }
 
     /// The control: a readable set answers with figures, and the row draws the
@@ -181,7 +181,7 @@ final class TranslationPreflightTests: XCTestCase {
         let words = try XCTUnwrap(byLanguage["es"])
         XCTAssertGreaterThan(words, 0, "premise: the chapter has words in it")
         XCTAssertEqual(budgets.answer(for: "es"), .words(words))
-        XCTAssertEqual(DepartmentRunState.preflightLine(budgets.answer(for: "es")),
+        XCTAssertEqual(TranslationRunState.preflightLine(budgets.answer(for: "es")),
                        "7 legs · ~\(words.formatted(.number)) words briefed")
     }
 
@@ -204,7 +204,7 @@ final class TranslationPreflightTests: XCTestCase {
                        "the file that would not open is not one language's problem")
     }
 
-    /// One open, registered chapter — `DepartmentRunTests.makeProject`'s shape,
+    /// One open, registered chapter — `TranslationRunTests.makeProject`'s shape,
     /// private here for the same reason its own copy is private there.
     @MainActor
     private func makeProject() async throws -> Fixture {

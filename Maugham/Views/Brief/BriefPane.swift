@@ -61,9 +61,6 @@ struct BriefPane: View {
     /// and hands the request over (`ProjectWindow.showStrain`).
     let onShowStrain: (ResolveRequest) -> Void
     let onOpenBrief: (BinderSubject) -> Void
-    /// The Department desk for an edition — where its cast is changed. Nil
-    /// draws no way there.
-    let onOpenDesk: ((_ language: String) -> Void)?
     /// The window's tree: Details' sheets and cached publishing answer, and
     /// the fold index the empty-fold hint asks. Nil draws neither.
     let tree: BinderTreeSectionsState?
@@ -81,7 +78,6 @@ struct BriefPane: View {
          onPullUp: @escaping (PulledUp) -> Void,
          onShowStrain: @escaping (ResolveRequest) -> Void,
          onOpenBrief: @escaping (BinderSubject) -> Void,
-         onOpenDesk: ((_ language: String) -> Void)? = nil,
          tree: BinderTreeSectionsState? = nil) {
         self.store = store
         self.documentStore = documentStore
@@ -94,7 +90,6 @@ struct BriefPane: View {
         self.onPullUp = onPullUp
         self.onShowStrain = onShowStrain
         self.onOpenBrief = onOpenBrief
-        self.onOpenDesk = onOpenDesk
         self.tree = tree
         _contents = State(initialValue: .empty(scope))
     }
@@ -141,8 +136,7 @@ struct BriefPane: View {
                 // Not scrolled: the edition brief's own pane holds an editor
                 // that takes the height it is given.
                 BriefEditionView(store: store, documentStore: documentStore,
-                                 language: language, onPullUp: onPullUp,
-                                 onOpenDesk: onOpenDesk.map { open in { open(language) } })
+                                 language: language, onPullUp: onPullUp)
                     .id(language)
             case .elsewhere:
                 quietPane(Self.elsewhereLine)

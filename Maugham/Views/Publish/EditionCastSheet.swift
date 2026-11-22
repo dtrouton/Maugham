@@ -1,8 +1,9 @@
 import SwiftUI
 import MaughamCore
 
-/// **What the desk is asking the writer about one of the book's people**
-/// (publish-department P4 Task 9, generalized by cast-management 2026-08-21).
+/// **What Maugham is asking the writer about one of the book's people**
+/// (publish-department P4 Task 9, generalized by cast-management 2026-08-21;
+/// asked from an edition's Brief and the Editions `+` since shell p4 Task 7).
 ///
 /// It began as one question — *who translates into this language?* — asked when
 /// a Run would otherwise have minted a translator with `name: nil`, whose
@@ -16,9 +17,9 @@ import MaughamCore
 /// place where a name is trimmed, one place where blank is refused, and one
 /// visible act composed of `translatorRole(for:)` + `renameProductionRole` —
 /// never a nameless role left standing for the writer to find later.
-struct DepartmentCastPrompt: Equatable, Identifiable {
+struct EditionCastPrompt: Equatable, Identifiable {
 
-    /// Which question the desk is asking.
+    /// Which question is being asked.
     enum Ask: Equatable {
         /// **Name the translator a Run is waiting on.** `docId` is the document
         /// Global Constraint 1 resolved when Run was pressed — captured here
@@ -42,7 +43,7 @@ struct DepartmentCastPrompt: Equatable, Identifiable {
         /// takes a language tag, because it is the only one where the language
         /// is not already known.
         case addLanguage
-        /// **Say who somebody on the desk is.** `currentName` is what the field
+        /// **Say who somebody on the book is.** `currentName` is what the field
         /// starts with and what the sheet's own words are about; it is EMPTY for
         /// a row that has nobody yet (an unlisted language nothing has minted a
         /// role for), which is a naming rather than a renaming and says so.
@@ -55,7 +56,7 @@ struct DepartmentCastPrompt: Equatable, Identifiable {
         /// The edition a RUN is waiting on, for either shape of run — the one
         /// thing the sheet itself needs to tell the two naming asks from the
         /// two renaming ones, so its preset-filling arm does not have to grow a
-        /// second copy per verb the desk gains.
+        /// second copy per verb.
         var languageAwaitingARun: String? {
             switch self {
             case .nameForRun(let language, _), .nameForBookRun(let language, _):
@@ -66,7 +67,7 @@ struct DepartmentCastPrompt: Equatable, Identifiable {
         }
     }
 
-    /// Who a rename is about. The desk has two kinds of person on it and they
+    /// Who a rename is about. The book has two kinds of person and they
     /// reach `renameProductionRole` by different routes — a language's whole
     /// cast (translator, reader, collator) through its language, the designer
     /// through `ProjectStore.designerRole()` — so the ask names the kind rather
@@ -95,31 +96,31 @@ struct DepartmentCastPrompt: Equatable, Identifiable {
     var title: String {
         switch ask {
         case .nameForRun(let language, _), .nameForBookRun(let language, _):
-            return DepartmentCastCopy.nameForRunTitle(language: language)
+            return EditionCastCopy.nameForRunTitle(language: language)
         case .addLanguage:
-            return DepartmentCastCopy.addLanguageTitle
+            return EditionCastCopy.addLanguageTitle
         case .rename(let subject, let currentName):
             guard !currentName.isEmpty else {
-                return DepartmentCastCopy.nameSubjectTitle(subject: subject)
+                return EditionCastCopy.nameSubjectTitle(subject: subject)
             }
-            return DepartmentCastCopy.renameTitle(currentName: currentName)
+            return EditionCastCopy.renameTitle(currentName: currentName)
         }
     }
 
     var confirmTitle: String {
         switch ask {
-        case .nameForRun, .nameForBookRun: return DepartmentCastCopy.nameAndRunTitle
-        case .addLanguage: return DepartmentCastCopy.addConfirmTitle
+        case .nameForRun, .nameForBookRun: return EditionCastCopy.nameAndRunTitle
+        case .addLanguage: return EditionCastCopy.addConfirmTitle
         case .rename(_, let currentName):
             return currentName.isEmpty
-                ? DepartmentCastCopy.nameConfirmTitle
-                : DepartmentCastCopy.renameConfirmTitle
+                ? EditionCastCopy.nameConfirmTitle
+                : EditionCastCopy.renameConfirmTitle
         }
     }
 
     /// What the name field starts with — the current name for a rename, nothing
     /// for the asks about somebody who has none yet. (`.addLanguage` fills
-    /// itself in as the tag is typed; see `DepartmentCastSheet`.)
+    /// itself in as the tag is typed; see `EditionCastSheet`.)
     var initialName: String {
         if case .rename(_, let currentName) = ask { return currentName }
         return ""
@@ -145,6 +146,11 @@ struct DepartmentCastPrompt: Equatable, Identifiable {
         return true
     }
 
+    /// **The tag Add Language starts with** — a proposed brief's language,
+    /// so "Add Italian…" opens on `it` with its preset cast filled in. Empty
+    /// for every other ask.
+    var proposedTag: String = ""
+
     init(ask: Ask, currentReader: String? = nil, currentCollator: String? = nil) {
         self.ask = ask
         self.currentReader = currentReader
@@ -156,7 +162,7 @@ struct DepartmentCastPrompt: Equatable, Identifiable {
 /// and the name they typed. Both already trimmed, and the tag already
 /// lowercased — `TranslationRecord.isValidLanguageTag` is lowercase-only and
 /// every other reader of a language tag agrees with it.
-struct DepartmentCastAnswer: Equatable {
+struct EditionCastAnswer: Equatable {
     let language: String?
     let name: String
     let reader: String?
@@ -177,9 +183,9 @@ struct DepartmentCastAnswer: Equatable {
 /// sheet has already accepted: a blank name and an unusable tag both disable it,
 /// and both say why in the sheet rather than leaving a dead button to be puzzled
 /// over.
-struct DepartmentCastSheet: View {
-    let prompt: DepartmentCastPrompt
-    let onConfirm: (DepartmentCastAnswer) -> Void
+struct EditionCastSheet: View {
+    let prompt: EditionCastPrompt
+    let onConfirm: (EditionCastAnswer) -> Void
     let onCancel: () -> Void
 
     @State private var name = ""
@@ -231,10 +237,10 @@ struct DepartmentCastSheet: View {
     /// first question first.
     private var refusal: String? {
         if prompt.takesLanguageTag, tagTouched, !tagIsUsable {
-            return DepartmentCastCopy.unusableTag(
+            return EditionCastCopy.unusableTag(
                 tag.trimmingCharacters(in: .whitespacesAndNewlines))
         }
-        if nameTouched, trimmedName.isEmpty { return DepartmentCastCopy.nameRequired }
+        if nameTouched, trimmedName.isEmpty { return EditionCastCopy.nameRequired }
         return nil
     }
 
@@ -244,12 +250,12 @@ struct DepartmentCastSheet: View {
     private var explanation: String {
         switch prompt.ask {
         case .nameForRun, .nameForBookRun:
-            return DepartmentCastCopy.explanation
+            return EditionCastCopy.explanation
         case .addLanguage:
-            return DepartmentCastCopy.addExplanation(
+            return EditionCastCopy.addExplanation(
                 preset: ProductionRole.defaultTranslatorName(language: trimmedTag))
         case .rename(let subject, _):
-            return DepartmentCastCopy.renameExplanation(subject: subject)
+            return EditionCastCopy.renameExplanation(subject: subject)
         }
     }
 
@@ -262,7 +268,7 @@ struct DepartmentCastSheet: View {
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
             if prompt.takesLanguageTag {
-                TextField(DepartmentCastCopy.tagPlaceholder, text: $tag)
+                TextField(EditionCastCopy.tagPlaceholder, text: $tag)
                     .textFieldStyle(.roundedBorder)
                     .onChange(of: tag) { _, _ in
                         tagTouched = true
@@ -289,17 +295,17 @@ struct DepartmentCastSheet: View {
                         }
                     }
             }
-            TextField(DepartmentCastCopy.placeholder, text: $name)
+            TextField(EditionCastCopy.placeholder, text: $name)
                 .textFieldStyle(.roundedBorder)
                 .onChange(of: name) { _, _ in nameTouched = true }
             if prompt.takesCast {
-                Text(DepartmentCastCopy.castExplanation)
+                Text(EditionCastCopy.castExplanation)
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
-                TextField(DepartmentCastCopy.readerPlaceholder, text: $reader)
+                TextField(EditionCastCopy.readerPlaceholder, text: $reader)
                     .textFieldStyle(.roundedBorder)
-                TextField(DepartmentCastCopy.collatorPlaceholder, text: $collator)
+                TextField(EditionCastCopy.collatorPlaceholder, text: $collator)
                     .textFieldStyle(.roundedBorder)
             }
             if let refusal {
@@ -311,9 +317,9 @@ struct DepartmentCastSheet: View {
             }
             HStack {
                 Spacer()
-                Button(DepartmentCastCopy.cancelTitle, action: onCancel)
+                Button(EditionCastCopy.cancelTitle, action: onCancel)
                 Button(prompt.confirmTitle) {
-                    onConfirm(DepartmentCastAnswer(
+                    onConfirm(EditionCastAnswer(
                         language: prompt.takesLanguageTag ? trimmedTag : nil,
                         name: trimmedName,
                         reader: trimmedOrNil(reader),
@@ -332,6 +338,11 @@ struct DepartmentCastSheet: View {
         // language's own preset when nobody has named them yet.
         .onAppear {
             name = prompt.initialName
+            // The tag's own `onChange` fills the preset cast in, as typing
+            // it would.
+            if prompt.takesLanguageTag, !prompt.proposedTag.isEmpty {
+                tag = prompt.proposedTag
+            }
             reader = prompt.currentReader ?? ""
             collator = prompt.currentCollator ?? ""
             if let language = prompt.ask.languageAwaitingARun {
@@ -346,9 +357,9 @@ struct DepartmentCastSheet: View {
     }
 }
 
-/// **The sheet's own words**, split out on `DepartmentDesk`'s precedent — a
-/// truth table of strings a test can assert without mounting anything.
-enum DepartmentCastCopy {
+/// **The sheet's own words** — a truth table of strings a test can assert
+/// without mounting anything.
+enum EditionCastCopy {
 
     // MARK: - Naming the translator a Run is waiting on (P4 Task 9)
 
@@ -381,8 +392,8 @@ enum DepartmentCastCopy {
         + "original. A preset language fills them in; leave one blank to change "
         + "nothing about them."
 
-    /// What the desk's one notice slot says when the writer backs out —
-    /// `DepartmentRunState.cancelledLine`'s shape, but said before the run
+    /// What the notice line says when the writer backs out —
+    /// `TranslationRunState.cancelledLine`'s shape, but said before the run
     /// rather than during it: nothing was translated, and nothing was even
     /// asked for, because naming the translator is the one thing standing in
     /// front of the click.
@@ -392,9 +403,8 @@ enum DepartmentCastCopy {
             + " edition needs a named translator before a round can run."
     }
 
-    /// What the notice says when the mint or the rename itself failed —
-    /// `DepartmentPaneHost.briefRefusal`'s shape, naming the edition for the
-    /// same reason: a writer with three of them needs to know which one.
+    /// What the notice says when the mint or the rename itself failed, naming
+    /// the edition: a writer with three of them needs to know which one.
     static func mintFailed(language: String) -> String {
         "Couldn\u{2019}t name the "
             + TranslationReviewIndicator.displayLabel(forLanguageTag: language)
@@ -434,23 +444,28 @@ enum DepartmentCastCopy {
         "A name can\u{2019}t be blank \u{2014} every byline in the book prints "
         + "somebody."
 
-    /// The desk's one notice slot, when the writer backs out of adding a
-    /// language: nothing was minted and no edition was started.
+    /// The notice line, when the writer backs out of adding a language:
+    /// nothing was minted and no edition was started.
     static let addCancelledLine =
         "Nothing added \u{2014} the book\u{2019}s editions are as they were."
 
     /// **Adding a language the book already has is neither an error nor a
-    /// duplicate** — the edition is already on the desk, so the honest answer
-    /// names it and stops. `translatorRole(for:)` is idempotent and would have
-    /// found the same person anyway; what this prevents is a rename the writer
-    /// did not know they were performing.
-    static func alreadyOnTheDesk(language: String) -> String {
-        "The "
+    /// duplicate** — the edition is already under Editions, so the honest
+    /// answer names it and stops. What this prevents is a rename the writer
+    /// did not know they were performing; the edition's Brief is where its
+    /// cast is changed.
+    static func alreadyAnEdition(language: String) -> String {
+        "The book already has an edition in "
             + TranslationReviewIndicator.displayLabel(forLanguageTag: language)
-            + " edition is already on the desk."
+            + ". Change its cast on its Brief."
     }
 
-    // MARK: - Renaming somebody on the desk (cast-management)
+    /// A cast verb this Mac may not perform, refused at the act (the surface
+    /// hides it; this is the act's own door, asked again).
+    static let mayNotCast =
+        "Your part in this book doesn\u{2019}t include naming its cast."
+
+    // MARK: - Renaming somebody (cast-management)
 
     static func renameTitle(currentName: String) -> String {
         "Rename \(currentName)"
@@ -461,7 +476,7 @@ enum DepartmentCastCopy {
     /// minted a role for. The designer arm is unreachable (every project has
     /// Tschichold from the moment it exists) and total rather than clever.
     static func nameSubjectTitle(
-        subject: DepartmentCastPrompt.RenameSubject) -> String {
+        subject: EditionCastPrompt.RenameSubject) -> String {
         switch subject {
         case .edition(let language): return nameForRunTitle(language: language)
         case .designer: return "Who designs this book?"
@@ -476,7 +491,7 @@ enum DepartmentCastCopy {
     /// annotation and every proposal already signed stays theirs. A writer who
     /// suspects otherwise will not rename anybody.
     static func renameExplanation(
-        subject: DepartmentCastPrompt.RenameSubject) -> String {
+        subject: EditionCastPrompt.RenameSubject) -> String {
         switch subject {
         case .edition(let language):
             return "Whatever stands here signs the "
@@ -493,10 +508,10 @@ enum DepartmentCastCopy {
         }
     }
 
-    /// The desk's one notice slot, when the writer backs out of a rename.
+    /// The notice line, when the writer backs out of a rename.
     static func renameCancelledLine(currentName: String) -> String {
         currentName.isEmpty
-            ? "Nothing named \u{2014} the desk is as it was."
+            ? "Nothing named \u{2014} the cast is as it was."
             : "Nothing renamed \u{2014} they are still \(currentName)."
     }
 

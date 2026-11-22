@@ -1,15 +1,15 @@
 import Foundation
 import MaughamCore
 
-/// **The run half of the department desk, as decisions rather than as a view**
-/// (publish-department P4 Task 3).
+/// **A translation run, as decisions rather than as a view**
+/// (publish-department P4 Task 3; the Department desk that first drew it went
+/// in shell p4 Task 7, and an edition's To resolve head draws it now).
 ///
 /// Task 2 gave every edition a row and a door; this file is about the verb on it.
 /// Everything a Run button does before it is pressed — whether it may be pressed,
 /// why not, what the row says while a round is in flight and what it says when one
 /// ends — is a pure function here, so the whole surface is drivable from literals
-/// and `DepartmentPane` goes on taking values and holding no store
-/// (`DepartmentPaneTests.test_theSourceReadsNoStoreAtAll`).
+/// and the head that draws it takes values.
 ///
 /// **`ReviewRoundCockpit`'s idiom, on the desk.** The cockpit resolves a
 /// window-wide `runState` down to one document's phase with a `where runDocId ==
@@ -29,7 +29,7 @@ import MaughamCore
 /// the TREE's subject, not about the desk — and the answer is either a document or
 /// a sentence saying what to do instead. There is no third state and no `nil`: a
 /// refusal that carries no words is the dead control RULING-35 is about.
-enum DepartmentRunTarget: Equatable {
+enum TranslationRunTarget: Equatable {
 
     /// The tree names a manuscript document, and the window has it open.
     case ready(docId: String, title: String)
@@ -83,7 +83,7 @@ enum DepartmentRunTarget: Equatable {
     /// closure so this rule is drivable with no store — the store is the host's.
     static func resolve(subject: BinderSubject?,
                         structure: [StructureItem],
-                        isOpen: (String) -> Bool) -> DepartmentRunTarget {
+                        isOpen: (String) -> Bool) -> TranslationRunTarget {
         guard let id = subject?.itemID,
               let item = TreeWalk.find(id: id, in: structure),
               item.type == .document,
@@ -104,7 +104,7 @@ enum DepartmentRunTarget: Equatable {
 /// exactly what Global Constraint 2 forbids a surface to leave at that. So the desk
 /// reads the same question the orchestrator asks itself, and answers it in words on
 /// every row before a click can be swallowed.
-enum DepartmentRunSession: Equatable {
+enum TranslationRunSession: Equatable {
     case free
     /// A run is under way. `language` is `nil` in the window between the click and
     /// the send, while the identity is minted and the round gathered:
@@ -121,7 +121,7 @@ enum DepartmentRunSession: Equatable {
     /// P4 verb, and the probe mounts that pass no pipeline).
     static func read(runState: TranslatorOrchestrator.RunState,
                      isRunning: Bool,
-                     pipeline: TranslationPipeline.Status = .idle) -> DepartmentRunSession {
+                     pipeline: TranslationPipeline.Status = .idle) -> TranslationRunSession {
         if case .running(_, let language, _, _) = pipeline {
             return .busy(language: language)
         }
@@ -137,7 +137,7 @@ enum DepartmentRunSession: Equatable {
 
 /// **Everything one language row draws about running**, resolved for that row's
 /// own edition of the chapter the window is on.
-struct DepartmentRunState: Equatable {
+struct TranslationRunState: Equatable {
 
     /// **What the last thing the run verb did means for THIS edition of THIS
     /// chapter.**
@@ -213,7 +213,7 @@ struct DepartmentRunState: Equatable {
     /// Run Whole Book refuses for a busy session and for an empty set — never
     /// for a missing open chapter, which the book does not need.
     var bookRefusal: String? {
-        if let refusal, refusal != DepartmentRunTarget.openAChapter { return refusal }
+        if let refusal, refusal != TranslationRunTarget.openAChapter { return refusal }
         if bookDocumentCount == 0 { return Self.nothingInTheBook }
         return nil
     }
@@ -270,8 +270,8 @@ struct DepartmentRunState: Equatable {
     /// queue left the open chapter would say nothing for eleven of twelve
     /// rounds.
     static func resolve(language: String,
-                        target: DepartmentRunTarget,
-                        session: DepartmentRunSession,
+                        target: TranslationRunTarget,
+                        session: TranslationRunSession,
                         runState: TranslatorOrchestrator.RunState,
                         lastRun: TranslatorOrchestrator.RunSummary?,
                         pipeline: TranslationPipeline.Status = .idle,
@@ -281,7 +281,7 @@ struct DepartmentRunState: Equatable {
                         bookPreflight: TranslationPreflight.Budgets.Answer? = nil,
                         bookDocumentCount: Int = 0,
                         now: Date = Date())
-    -> DepartmentRunState {
+    -> TranslationRunState {
         let docId = target.docId
         var phase = Phase.idle
         if case .running(_, let runLanguage, let leg, let book) = pipeline, runLanguage == language {
@@ -309,7 +309,7 @@ struct DepartmentRunState: Equatable {
             return reportLine(summary.outcome)
         }
 
-        return DepartmentRunState(phase: phase, report: report,
+        return TranslationRunState(phase: phase, report: report,
                                   refusal: refusal(target: target, session: session),
                                   latestRound: latestRound, trend: trend,
                                   chapterPreflight: chapterPreflight,
@@ -324,8 +324,8 @@ struct DepartmentRunState: Equatable {
     /// on this desk will do — and because the writer who moved the tree off the
     /// chapter mid-round would otherwise be told to open a chapter while their
     /// round is still translating one.
-    static func refusal(target: DepartmentRunTarget,
-                        session: DepartmentRunSession) -> String? {
+    static func refusal(target: TranslationRunTarget,
+                        session: TranslationRunSession) -> String? {
         if case .busy(let language) = session {
             return busyReason(language: language)
         }
@@ -349,13 +349,13 @@ struct DepartmentRunState: Equatable {
     /// The briefing's OTHER `nil` arm — a document whose current paragraphs cannot
     /// be resolved — needs no message because it cannot be reached from here:
     /// `currentParagraphState` answers an open document straight off the registry,
-    /// and an open document is precisely what `DepartmentRunTarget.ready` means.
-    /// `DepartmentRunTests.test_theBriefingAbandonIsClosedByTheOpenDocumentGate`
+    /// and an open document is precisely what `TranslationRunTarget.ready` means.
+    /// `TranslationRunTests.test_theBriefingAbandonIsClosedByTheOpenDocumentGate`
     /// is what holds that shut, rather than this paragraph.
     @MainActor
     static func preflight(language: String,
-                          target: DepartmentRunTarget,
-                          session: DepartmentRunSession) -> String? {
+                          target: TranslationRunTarget,
+                          session: TranslationRunSession) -> String? {
         if let refusal = refusal(target: target, session: session) { return refusal }
         guard (try? TranslationWritePipeline.validate(language: language)) != nil else {
             return unusableTag(language: language)
@@ -425,7 +425,7 @@ struct DepartmentRunState: Equatable {
     /// The offer, naming the chapter it would translate — the one thing a
     /// project-scope desk cannot say in its rows, since every row is about the
     /// whole book's coverage and the run is about one chapter of it.
-    static func runHelp(language: String, target: DepartmentRunTarget) -> String {
+    static func runHelp(language: String, target: TranslationRunTarget) -> String {
         let edition = TranslationReviewIndicator.displayLabel(forLanguageTag: language)
         guard let title = target.title else {
             return "Translate a chapter into \(edition)."
@@ -589,7 +589,8 @@ struct DepartmentRunState: Equatable {
 
 // MARK: - The record of finished runs
 
-/// **What the desk remembers about rounds that have ended** (P4 Task 3).
+/// **What the window remembers about rounds that have ended** (P4 Task 3; the
+/// desk that first read it is gone — plan 4 Task 9's chapter run reads it).
 ///
 /// `TranslatorOrchestrator.RunSummary`'s own doc names the destination — "for
 /// whoever keeps the record (P4's desk)" — and this is it. It is window-scoped
@@ -600,7 +601,7 @@ struct DepartmentRunState: Equatable {
 ///
 /// **Keyed by the pair, because a run is a pair.** A log keyed by language alone
 /// would let a Spanish round on chapter 2 overwrite the report the writer is still
-/// reading about chapter 1 — and `DepartmentRunState.resolve` checks the docId
+/// reading about chapter 1 — and `TranslationRunState.resolve` checks the docId
 /// again on the way out, so a key that ever went wrong shows nothing rather than
 /// showing the wrong chapter's round.
 ///

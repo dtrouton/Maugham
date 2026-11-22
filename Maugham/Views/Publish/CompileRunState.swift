@@ -3,10 +3,10 @@ import Foundation
 /// **What the desk's Compile button has to say for itself**, as decisions
 /// rather than as a view (imprints P3 Task 4).
 ///
-/// `DepartmentRunState`'s shape, one verb over: everything the surface draws
+/// `TranslationRunState`'s shape, one verb over: everything the surface draws
 /// about a compile — whether one is in flight, what it is compiling, what the
 /// last one produced and why a press was refused — is a value here, so
-/// `DeskCompileRunner` holds one field and the pane goes on taking values.
+/// `CompileRunner` holds one field and the pane goes on taking values.
 ///
 /// **Every phase carries its own words.** A compile that refuses in silence is
 /// the dead control RULING-35 is about, and this surface has four ways to
@@ -14,7 +14,7 @@ import Foundation
 /// config does not define, a duplicate the mint gate turns away, and a cancel.
 /// None of them is a failure and none of them may be drawn as one. (Count the
 /// refusal arms in `settled(after:)`, not this sentence.)
-struct DepartmentCompileState: Equatable {
+struct CompileRunState: Equatable {
 
     /// **What the last press did.**
     ///
@@ -51,7 +51,7 @@ struct DepartmentCompileState: Equatable {
     var isRunning: Bool = false
 
     /// What the last finished compile said, when the phase itself has nothing
-    /// to say. `nil` before any. `DepartmentRunState.report`'s job: a cancel
+    /// to say. `nil` before any. `TranslationRunState.report`'s job: a cancel
     /// and a dry run both settle the desk back to `.idle`, and an idle desk
     /// that just swallowed a press without a word is indistinguishable from a
     /// button that did nothing.
@@ -77,7 +77,7 @@ struct DepartmentCompileState: Equatable {
     /// left problems behind, whatever else the line says.
     var offersShowProblems: Bool { !problems.isEmpty }
 
-    /// **The desk's one line**, in `DepartmentRunState`'s order: what is
+    /// **The desk's one line**, in `TranslationRunState`'s order: what is
     /// happening now outranks what happened last.
     var statusLine: String? {
         switch phase {
@@ -106,7 +106,7 @@ struct DepartmentCompileState: Equatable {
 
     /// **Whether the last press ended badly** — `.failed` and nothing else.
     ///
-    /// `DepartmentRunState.isFailure`'s rule, in this surface's currency: a
+    /// `TranslationRunState.isFailure`'s rule, in this surface's currency: a
     /// refusal is not a failure (nothing broke, a press arrived at the wrong
     /// moment or a name was mistyped) and a cancel is the writer's own act. A
     /// red line over either sends them looking for a fault that is not there.
@@ -123,10 +123,10 @@ struct DepartmentCompileState: Equatable {
     /// assertable from literals — and so the runner's `Task` has one line of
     /// judgment in it rather than a switch nobody can reach without compiling a
     /// book.
-    static func settled(after outcome: PublishOrchestrator.Outcome) -> DepartmentCompileState {
+    static func settled(after outcome: PublishOrchestrator.Outcome) -> CompileRunState {
         switch outcome {
         case .completed(let publication, let warnings):
-            return DepartmentCompileState(phase: .completed(publication), isRunning: false,
+            return CompileRunState(phase: .completed(publication), isRunning: false,
                                           problems: Self.problems(in: warnings))
 
         case .failed(let errors, let logExcerpt):
@@ -137,7 +137,7 @@ struct DepartmentCompileState: Equatable {
             // to read the list, so the line counts the errors and says where.
             if logExcerpt.hasPrefix(PublishOrchestrator.publishProblemsLogExcerpt) {
                 let errorCount = problems.filter { $0.level == .error }.count
-                return DepartmentCompileState(
+                return CompileRunState(
                     phase: .refused(Self.refusedForProblems(
                         errorCount > 0 ? errorCount : problems.count)),
                     isRunning: false, problems: problems, judgedTheManuscript: true)
@@ -163,27 +163,27 @@ struct DepartmentCompileState: Equatable {
                             PublishOrchestrator.mintInFlightLogExcerpt,
                             PublishOrchestrator.unproducibleFormatLogExcerpt]
             if refusals.contains(where: logExcerpt.hasPrefix) {
-                return DepartmentCompileState(phase: .refused(message), isRunning: false)
+                return CompileRunState(phase: .refused(message), isRunning: false)
             }
             // A typesetter or packaging failure carries the book's problems
             // after its own errors; the line is the tool's, and the problems
             // stay reachable behind Show Problems.
-            return DepartmentCompileState(
+            return CompileRunState(
                 phase: .failed(message), isRunning: false, problems: problems,
                 judgedTheManuscript: PublishOrchestrator.reachedTheProblemGate(logExcerpt: logExcerpt))
 
         case .cancelled:
-            return DepartmentCompileState(phase: .idle, isRunning: false,
+            return CompileRunState(phase: .idle, isRunning: false,
                                           report: Self.cancelledLine)
 
         case .dryRunPassed(let warnings):
-            // The desk never asks for one — `DeskCompileRunner` passes
+            // The desk never asks for one — `CompileRunner` passes
             // `dryRun: false` and has no control that could change it. The arm
             // exists because the switch is exhaustive, and it says the true
             // thing rather than pretending a book was made. Its problems are
             // kept all the same: dropping them would be the one outcome whose
             // problems Show Problems could not reach.
-            return DepartmentCompileState(phase: .idle, isRunning: false,
+            return CompileRunState(phase: .idle, isRunning: false,
                                           report: Self.dryRunLine,
                                           problems: Self.problems(in: warnings))
         }
@@ -224,8 +224,8 @@ struct DepartmentCompileState: Equatable {
     /// gate passed clean settles with `[]`, and the list clears
     /// (`judgedTheManuscript`). The host hands a non-nil answer to
     /// `PublishCentreModel.refreshProblems(_:)`.
-    static func settledProblems(from old: DepartmentCompileState,
-                                to new: DepartmentCompileState)
+    static func settledProblems(from old: CompileRunState,
+                                to new: CompileRunState)
     -> [TectonicLogParser.Diagnostic]? {
         guard old.isRunning, !new.isRunning else { return nil }
         switch new.phase {
@@ -250,7 +250,7 @@ struct DepartmentCompileState: Equatable {
         + "one lands, then the next."
 
     /// A cancel is the writer's own act and is never drawn as a failure
-    /// (`DepartmentRunState.cancelledLine`'s rule, in this surface's currency).
+    /// (`TranslationRunState.cancelledLine`'s rule, in this surface's currency).
     /// It names what did NOT happen, because a cancelled compile can leave an
     /// artifact half-written and the writer needs to know it did not.
     static let cancelledLine = "Compile cancelled. Nothing was published."
@@ -291,7 +291,7 @@ struct DepartmentCompileState: Equatable {
         let editions = languages.isEmpty
             ? ""
             : " (" + languages.joined(separator: " + ") + ")"
-        return "Compiling \(subject) as \(DepartmentCompileSheetCopy.formatTitle(format))"
+        return "Compiling \(subject) as \(CompileSheetCopy.formatTitle(format))"
             + editions + "\u{2026}"
     }
 

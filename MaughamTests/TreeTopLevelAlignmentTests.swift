@@ -149,15 +149,15 @@ final class TreeTopLevelAlignmentTests: XCTestCase {
         XCTAssertGreaterThan(research.titleInk, research.chevron.maxX - 1,
                              "the title must clear its chevron")
 
-        // And the `+` menus still share their trailing edge.
+        // And the `+` menus share their trailing edge — Editions' too, its
+        // Add Language (shell p4 Task 7).
         let menus = Shot.descendants(of: shot.content)
             .filter { String(describing: type(of: $0)).contains("SwiftUIPopupButton") }
             .map { $0.convert($0.bounds, to: shot.content) }
-        XCTAssertEqual(menus.count, 2, "premise: Research's `+` and the Palette's")
-        if menus.count == 2 {
-            XCTAssertEqual(menus[0].maxX, menus[1].maxX, accuracy: 1,
-                           "the `+` menus end at \(menus.map(\.maxX))")
-        }
+        XCTAssertEqual(menus.count, 3, "premise: Research's `+`, the Palette's and the Editions'")
+        let ends = menus.map(\.maxX)
+        XCTAssertLessThanOrEqual((ends.max() ?? 0) - (ends.min() ?? 0), 1,
+                                 "the `+` menus end at \(ends)")
     }
 
     /// **Each section's rows sit beneath its title, at one depth**: a

@@ -127,8 +127,7 @@ final class RightColumnMountingTests: XCTestCase {
         ("v", "MaughamEvent.postPullUp(.visualLanguage)"),
         ("h", "MaughamEvent.postPullUp(.historyOfTheFaces)"),
         ("e", "MaughamEvent.postShowPieceFold()"),
-        ("l", "MaughamEvent.postTranslationReviewPosition()"),
-        ("k", "MaughamEvent.postDeskPosition()"),
+        ("l", "MaughamEvent.postResolve(.questions)"),
     ]
 
     /// **Each item is titled for what its key does** (owner's ruling, Task 9
@@ -147,8 +146,7 @@ final class RightColumnMountingTests: XCTestCase {
         ("v", commandOption, "Pull Up Visual Language"),
         ("h", commandOption, "Pull Up History"),
         ("e", commandOption, "Open the Piece's Fold"),
-        ("l", commandOption, "To Resolve: Translation Review"),
-        ("k", commandOption, "To Resolve: Department Desk"),
+        ("l", commandOption, "To Resolve: Questions"),
     ]
 
     /// What disagrees between a View menu and the map: a key bound to
@@ -218,6 +216,14 @@ final class RightColumnMountingTests: XCTestCase {
             ".focusedSceneValue(\\.pieceFoldIsOffered, ProjectWindow.foldPiece( subject: subject ?? .book, "
             + "structure: store?.manifest.structure ?? []) != nil)"),
             "the window no longer says whether it has a piece whose fold can open: \(observer)")
+        // ⌘⌥K is titled for the edition it shows and disabled with none
+        // (shell p4 Task 7): its item reads the window's focused title.
+        XCTAssertTrue(flat.contains(
+            #"Button(title ?? EditionWiring.keyTitleWithNoEdition) { MaughamEvent.postShowEditionResolve() } .keyboardShortcut("k", modifiers: [.command, .option]) .disabled(title == nil)"#),
+            "⌘⌥K lost its item, its key or its enablement")
+        XCTAssertTrue(flat.contains("@FocusedValue(\\.editionKeyTitle) private var title"))
+        XCTAssertEqual(Self.action(for: "k", modifiers: Self.commandOption, in: keys), [],
+                       "⌘⌥K is bound once, by its focused item")
 
         // The planted offender: ⌘⌥H bound to Brief.
         let planted = app.replacingOccurrences(
@@ -731,7 +737,7 @@ final class RightColumnMountingTests: XCTestCase {
         // A plain position post asks for nothing.
         XCTAssertEqual(ProjectWindow.positionAsk(
             in: [MaughamEvent.positionKey: "resolve"], shows: .resolve),
-            ProjectWindow.PositionAsk(request: nil, explains: nil))
+            ProjectWindow.PositionAsk(request: nil))
 
         // The receiver sets the request only from the ask.
         let receiver = Self.flat(try SourceTree.declaration(
@@ -744,69 +750,83 @@ final class RightColumnMountingTests: XCTestCase {
         XCTAssertTrue(receiver.contains("translationLanguage: translationLanguage,"))
     }
 
-    /// **⌘⌥L outside translation review** (appraisal 5): To resolve shows,
-    /// with one line saying how to get to what the key names — the old
-    /// Translation pane's sentence — until the writer moves on. Over the
-    /// review itself, no line. (⌘⌥K's desk line went with the desk, shell p4
-    /// Task 6: ⌘⌥K is To resolve, an edition's own list where one is faced.)
-    func test_theTranslationKeyExplainsHowToGetThere() throws {
-        let userInfo: [AnyHashable: Any] = [
-            MaughamEvent.positionKey: RightColumnPosition.resolve.rawValue,
-            MaughamEvent.explainsKey: RightColumn.ResolveHint.translationReview.rawValue]
-        XCTAssertEqual(ProjectWindow.position(in: userInfo), .resolve)
-        XCTAssertEqual(ProjectWindow.positionAsk(in: userInfo, shows: .resolve).explains, .translationReview)
-        XCTAssertNil(ProjectWindow.positionAsk(in: userInfo, shows: .translationReview).explains,
-                     "in review the pane itself shows")
-        XCTAssertNil(ProjectWindow.positionAsk(
-            in: [MaughamEvent.positionKey: "resolve"], shows: .resolve).explains,
-            "⌘1 explains nothing")
-        XCTAssertNil(ProjectWindow.positionAsk(
-            in: [MaughamEvent.positionKey: "resolve", MaughamEvent.explainsKey: "desk"],
-            shows: .resolve).explains, "the desk's old hint, or any this build cannot read, says nothing")
-
-        let ground = RightColumn.hintStandsOver(position: .resolve, subject: Self.piece,
-                                                translationLanguage: nil)
-        let asked = RightColumn.AskedHint(hint: .translationReview, ground: ground)
-        XCTAssertEqual(RightColumn.shownHint(asked, ground: ground, shown: .resolve), .translationReview)
-        XCTAssertNil(RightColumn.shownHint(nil, ground: ground, shown: .resolve))
-        XCTAssertNil(RightColumn.shownHint(asked, ground: ground, shown: .translationReview))
-        XCTAssertNil(RightColumn.shownHint(asked, ground: ground, shown: .brief(.book)))
-        XCTAssertTrue(RightColumn.ResolveHint.translationReview.line.contains("Translation Review…"),
-                      "the line names the menu item that enters review")
-
-        // It stands over one position, one subject and "not in review": any
-        // of the three changing clears it.
-        XCTAssertNotEqual(ground, RightColumn.hintStandsOver(
-            position: .brief, subject: Self.piece, translationLanguage: nil))
-        XCTAssertNotEqual(ground, RightColumn.hintStandsOver(
-            position: .resolve, subject: .book, translationLanguage: nil))
-        XCTAssertNotEqual(ground, RightColumn.hintStandsOver(
-            position: .resolve, subject: Self.piece, translationLanguage: "es"))
-
-        // The posts, the receiver's write and the column's clear.
+    /// **⌘⌥L is To resolve on Questions, ⌘⌥K the edition's To resolve**
+    /// (shell p4 Task 7, call 8; the hint lines went with the desk). ⌘⌥L
+    /// posts To resolve with the Questions filter, handed over wherever the
+    /// list shows; ⌘⌥K posts its own event, and the receiver moves the faces
+    /// to the edition `editionForTheKey` names.
+    func test_theTranslationKeysSayWhatTheyDo() throws {
         var received: [Notification] = []
         let token = NotificationCenter.default.addObserver( // adr-0021-ok: capture-only observer inspecting the exact scoped Notification ⌘⌥L and ⌘⌥K post
-            forName: .maughamSetRightColumn, object: nil, queue: nil
-        ) { received.append($0) }
+            forName: nil, object: nil, queue: nil
+        ) { note in
+            if note.name == .maughamSetRightColumn || note.name == .maughamShowEditionResolve {
+                received.append(note)
+            }
+        }
         defer { NotificationCenter.default.removeObserver(token) }
-        MaughamEvent.postTranslationReviewPosition()
-        MaughamEvent.postDeskPosition()
-        XCTAssertEqual(received.count, 2)
-        XCTAssertEqual(received.map { ProjectWindow.position(in: $0.userInfo) }, [.resolve, .resolve])
-        XCTAssertEqual(received.map { ProjectWindow.positionAsk(in: $0.userInfo, shows: .resolve).explains },
-                       [.translationReview, nil], "⌘⌥K asks for To resolve and explains nothing")
+        MaughamEvent.postResolve(.questions)
+        MaughamEvent.postShowEditionResolve()
+        XCTAssertEqual(received.map(\.name), [.maughamSetRightColumn, .maughamShowEditionResolve])
+        XCTAssertEqual(ProjectWindow.position(in: received[0].userInfo), .resolve)
+        XCTAssertEqual(ProjectWindow.positionAsk(in: received[0].userInfo, shows: .resolve).request,
+                       .filter(.questions))
+        XCTAssertEqual(received[1].userInfo?[MaughamEvent.scopeKindKey] as? String,
+                       EventScope.keyWindow.kindString, "⌘⌥K acts on the key window only")
+
+        // The hint plumbing is gone from the column and the receiver.
+        let column = Self.flat(try SourceTree.sourceOfType("RightColumn", under: ["Maugham"]))
+        for gone in ["ResolveHint", "shownHint", "resolveHint"] {
+            XCTAssertFalse(column.contains(gone), "the column still carries \(gone)")
+        }
         let receiver = Self.flat(try SourceTree.declaration(
             named: "onKeyWindowCommand(.maughamSetRightColumn, window: window) { note in",
             under: "Maugham"))
-        XCTAssertTrue(receiver.contains("resolveHint = ask.explains.map {"))
-        XCTAssertTrue(receiver.contains("RightColumn.hintStandsOver(position: asked,"),
-                      "the receiver records the ground it asked over")
-        let column = Self.flat(try SourceTree.sourceOfType("RightColumn", under: ["Maugham"]))
-        for token in ["if let hint = Self.shownHint(",
-                      "Text(hint.line)",
-                      "resolveHint = Self.hint(asked: resolveHint, groundNow: now)"] {
-            XCTAssertTrue(column.contains(token), "the column lost \(token)")
+        XCTAssertFalse(receiver.contains("explains"), receiver)
+    }
+
+    /// **Which edition ⌘⌥K shows, on every ground**: the edition open in the
+    /// centre, else the language the piece is read in, else the edition the
+    /// faces are on, else the Source; nothing (a disabled item) in a book
+    /// with no editions. The menu's title names it.
+    func test_cmdOptKShowsTheReadingEditionsToResolve() {
+        let editions = [TreeEditionRows.Row(language: "en", title: "English", isSource: true),
+                        TreeEditionRows.Row(language: "sr", title: "Serbian", isSource: false),
+                        TreeEditionRows.Row(language: "es", title: "Spanish", isSource: false)]
+        func key(_ subject: WindowSubject, reading: String? = nil,
+                 _ rows: [TreeEditionRows.Row] = editions) -> String? {
+            EditionWiring.editionForTheKey(subject: subject, readingLanguage: reading, editions: rows)?.language
         }
+        let spanishOpen = WindowSubject(open: .edition(language: "es"), faces: .item("ch-1"))
+        XCTAssertEqual(key(spanishOpen, reading: "sr"), "es", "the edition open in the centre leads")
+        XCTAssertEqual(key(Self.piece, reading: "SR"), "sr", "the piece read in Serbian")
+        XCTAssertEqual(key(Self.piece, reading: "fr"), "en",
+                       "a language the book has no edition of is not an edition: the Source")
+        XCTAssertEqual(key(WindowSubject(open: .item("ch-1"), faces: .edition(language: "es"))), "es",
+                       "the faces already on an edition stay there")
+        func onAnEdition(_ subject: WindowSubject) -> Bool {
+            if case .edition = subject.open { return true }
+            if case .edition = subject.faces { return true }
+            return false
+        }
+        for subject in Self.subjects where !onAnEdition(subject) {
+            XCTAssertEqual(key(subject), "en", "\(subject): the Source edition")
+        }
+        for subject in Self.subjects {
+            XCTAssertNil(key(subject, []), "\(subject): no editions, nothing to show")
+        }
+        XCTAssertEqual(EditionWiring.keyTitle(editions[1]), "To Resolve: Serbian Edition")
+        XCTAssertNil(EditionWiring.keyTitle(nil), "with no edition the item is disabled")
+
+        // The receiver: the faces move to that edition and To resolve shows.
+        var subject = Self.piece
+        let row = EditionWiring.editionForTheKey(subject: subject, readingLanguage: "sr", editions: editions)
+        subject = ProjectWindow.facesForABrief(.edition(language: row!.language), subject: subject)
+        XCTAssertEqual(subject.faces, .edition(language: "sr"))
+        XCTAssertEqual(subject.open, .item("ch-1"), "the centre stays on the piece being read")
+        XCTAssertEqual(RightColumnContent.of(position: .resolve, subject: subject, translationLanguage: nil,
+                                             structure: structure, projectType: .novel), .resolve,
+                       "an edition's faces are To resolve's own list")
     }
 
     /// **⌘⌥I and ⌘⌥N put the keys in their field** (appraisal 5): each posts
@@ -872,55 +892,6 @@ final class RightColumnMountingTests: XCTestCase {
         XCTAssertFalse(GoingForView.takesTheKeys(.reading, offersEdit: false))
         XCTAssertFalse(GoingForView.takesTheKeys(.inTheCentre, offersEdit: true))
         XCTAssertFalse(GoingForView.takesTheKeys(.unreadable, offersEdit: true))
-    }
-
-    /// **⌘⌥L's line survives the position change that shows it** (final
-    /// wave; Task 9's re-review A). The receiver selects To resolve and sets
-    /// the hint in one handler; the column's `onChange(of: hintStandsOver…)`
-    /// then sees the position change. Modelled in that order through the
-    /// column's own reducer: from Brief (the common path) the line shows, and
-    /// the next move clears it for good.
-    func test_theTranslationKeysLineSurvivesThePositionChangeThatShowsIt() {
-        func ground(_ position: RightColumnPosition, _ subject: WindowSubject = Self.piece,
-                    review: String? = nil) -> RightColumn.HintGround {
-            RightColumn.hintStandsOver(position: position, subject: subject, translationLanguage: review)
-        }
-        func asked(_ position: RightColumnPosition, _ subject: WindowSubject = Self.piece)
-            -> RightColumn.AskedHint {
-            RightColumn.AskedHint(hint: .translationReview, ground: ground(position, subject))
-        }
-        var position: RightColumnPosition = .brief
-        var hint: RightColumn.AskedHint? = nil
-        var lastGround = ground(position)
-        // The column's `onChange`: fires only when the ground changed.
-        func columnObserves() {
-            let now = ground(position)
-            guard now != lastGround else { return }
-            lastGround = now
-            hint = RightColumn.hint(asked: hint, groundNow: now)
-        }
-
-        // ⌘⌥L on Brief: the receiver's two writes, then the column's update.
-        position = .resolve
-        hint = asked(.resolve)
-        columnObserves()
-        XCTAssertEqual(RightColumn.shownHint(hint, ground: ground(position), shown: .resolve),
-                       .translationReview,
-                       "the line shows after the position change that it came with")
-
-        // The writer moves on: gone, and it does not come back on return.
-        position = .brief
-        columnObserves()
-        XCTAssertNil(hint)
-        position = .resolve
-        columnObserves()
-        XCTAssertNil(RightColumn.shownHint(hint, ground: ground(position), shown: .resolve))
-
-        // A subject change, and entering review, clear it too.
-        hint = asked(.resolve)
-        lastGround = ground(.resolve)
-        XCTAssertNil(RightColumn.hint(asked: hint, groundNow: ground(.resolve, .book)))
-        XCTAssertNil(RightColumn.hint(asked: hint, groundNow: ground(.resolve, review: "es")))
     }
 
     /// ⌘⌥E opens the fold of the faces' piece, else the open one — History's

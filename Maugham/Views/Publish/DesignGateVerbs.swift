@@ -42,7 +42,7 @@ extension DesignGate {
         var title: String {
             switch self {
             case .approve: return "Approve"
-            case .requestChanges: return DepartmentDesignRow.requestChangesTitle
+            case .requestChanges: return DesignRoundState.requestChangesTitle
             case .revert: return "Revert"
             case .finalize: return "Finalize"
             }
@@ -70,7 +70,7 @@ extension DesignGate {
                     + "current templates are backed up first, and Revert puts "
                     + "them back."
             case .requestChanges:
-                return DepartmentDesignRow.requestChangesHelp
+                return DesignRoundState.requestChangesHelp
             case .revert:
                 return "Take this promotion back. Your original templates are "
                     + "restored from the backup, and this round is marked "
@@ -359,7 +359,7 @@ struct DesignGateConfirmation: Identifiable {
 
 /// **The gate's actions seam** (P4 Task 6).
 ///
-/// Closures rather than stores, `DepartmentPane`'s rule for `DepartmentPane`'s
+/// Closures rather than stores, `EditionHeadVerbs`' rule for its
 /// reason: the gate takes a value and reads no disk on a body path (tripwire 4),
 /// and every one of these verbs reaches something that belongs to the window —
 /// the project's `CompileJobManager`, the warm designer session. Defaults that
@@ -373,7 +373,7 @@ struct DesignGateActions {
     var finalize: (DesignProposalStore.Proposal) async -> DesignGateOutcome
         = { _ in .refused(DesignGate.notWired) }
     /// **The desk's own verb, called and not restated** — the refusal sentence,
-    /// or `nil` when the words went. `DepartmentDesignRow.sendChanges` is the one
+    /// or `nil` when the words went. `DesignRoundState.sendChanges` is the one
     /// spelling both surfaces reach.
     var requestChanges: (String) -> String? = { _ in DesignGate.notWired }
 }

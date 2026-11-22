@@ -70,7 +70,7 @@ struct TranslationRoundReportView: View {
 
     /// **What the last verb said** — a refusal in its own words, or the
     /// confirmation that it worked. The surface's ONE transient channel
-    /// (`DesignGateView.notice`'s shape, `DepartmentPane`'s rule): a click that
+    /// (`DesignGateView.notice`'s shape): a click that
     /// produces nothing visible is the silent no-op Global Constraint 2 exists
     /// against.
     @State private var notice: String?

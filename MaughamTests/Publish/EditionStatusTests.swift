@@ -62,7 +62,7 @@ final class EditionStatusTests: XCTestCase {
     /// derives coverage from, and P1b is what made skipping it unsafe: chapter
     /// 2 holds the translator's Spanish file AND a second actor's that will not
     /// open, so a skip reports the pipeline's half as the whole edition. The
-    /// desk draws this value directly — `DepartmentPane.unreadable` is a row
+    /// Status draws this value directly — `EditionStatusRows.notices` is a row
     /// per entry above the language rows — so composing it correctly here is
     /// composing the writer's line correctly, with no window in it.
     func test_anUnreadableTranslationFileDegradesTheChapterByFileName() async throws {

@@ -543,7 +543,7 @@ final class TranslationPipeline {
                 return Self.ran(outcome)
             case .nothingToTranslate: return .skipped(skipReason)
             case .cancelled: return .cancelled
-            case .failed(let failure): return .failed(DepartmentRunState.failureCopy(failure))
+            case .failed(let failure): return .failed(TranslationRunState.failureCopy(failure))
             }
         }
     }

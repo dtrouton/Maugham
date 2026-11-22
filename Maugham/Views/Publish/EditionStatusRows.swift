@@ -9,6 +9,12 @@ import MaughamCore
 /// path reaches the disk (tripwire 4).
 enum EditionStatusRows {
 
+    /// **What a chapter the read could not open is called** (issue #43,
+    /// F-D): the writer's own title, the failure's sentence beneath.
+    static func couldNotRead(_ title: String) -> String {
+        "Couldn\u{2019}t read \(title)"
+    }
+
     struct Row: Equatable, Identifiable {
         let piece: StructureItem
         /// This edition's figures for the piece, or nil where the walk has
@@ -184,6 +190,6 @@ enum EditionStatusRows {
     /// line, RULING-54): an edition whose walk could not open a chapter does
     /// not show it as empty.
     static func notices(_ unreadable: [EditionStatus.UnreadableDocument]) -> [(headline: String, detail: String)] {
-        unreadable.map { (DepartmentDesk.couldNotRead($0.title), $0.reason) }
+        unreadable.map { (EditionStatusRows.couldNotRead($0.title), $0.reason) }
     }
 }

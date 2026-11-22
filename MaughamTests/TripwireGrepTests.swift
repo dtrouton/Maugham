@@ -751,7 +751,7 @@ final class TripwireGrepTests: XCTestCase {
     /// grow a fifth spelling of the toolchain's versions.
     private var toolchainCensusDirs: [URL] {
         // `Views/Publish` joined the list in imprints P3 Task 5, when
-        // `DeskCompileRunner` became the second production construction of
+        // `CompileRunner` became the second production construction of
         // `PublishOrchestrator` — a compile stamp is minted in this directory
         // now, so a fifth spelling could grow here too.
         ["Publish", "MCP", "Compiler", "Views/Publish"].map {
@@ -2438,7 +2438,7 @@ final class TripwireGrepTests: XCTestCase {
     static let pressThenWaitRepresentatives: Set<String> = [
         "AnnotationsPaneChoiceTests.swift test_theSheetCommitsTheWriterSentence",
         "AnnotationsPaneChoiceTests.swift test_theSheetRefusesABlankHeadingBeforeTheVerbIsCalled",
-        "DepartmentPaneTests.swift test_theSheetOffersTheBooksOwnLanguageCheckedAndCompilesIt",
+        "EditionLanguagesTests.swift test_theSheetOffersTheBooksOwnLanguageCheckedAndCompilesIt",
         "LetterSectionTests.swift test_addToIntentCallsTheHostsHandler",
         "PracticeSectionTests.swift test_pressingAHotspotRowOpensThatRowsOwnChapter",
         "ReviewRoundCockpitTests.swift test_clearingTheAskReachesTheHostAndStartsNoRun",
@@ -2516,7 +2516,7 @@ final class TripwireGrepTests: XCTestCase {
     /// presses — followed, later in the same body, by a wait — a
     /// `selfWaitTokens` line outside a string literal, or a call to an in-file
     /// helper that waits. Order matters: a helper that waits for its control to
-    /// be DRAWN and then presses it (`DepartmentRunTests.pressRowControl`)
+    /// be DRAWN and then presses it (the desk suite's old `pressRowControl`)
     /// waits on the premise, not the effect. A helper calling a self-waiting
     /// helper is one. Test functions are never helpers. Same file only, as the
     /// click arm's reasoning has it: a call is read by its spelling, and the

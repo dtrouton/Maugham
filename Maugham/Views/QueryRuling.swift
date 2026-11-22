@@ -24,8 +24,8 @@ import MaughamCore
 /// **The language is the question's, and there is no picker.** A query knows
 /// which edition it belongs to; asking the writer would let a Spanish decision
 /// be filed under the French brief with nothing red. `.editionBrief(lang)` at
-/// `.project` scope is the brief's own address — the same one `DepartmentPaneHost`
-/// opens and `TranslatorEnvironment` briefs from.
+/// `.project` scope is the brief's own address — the same one an edition's Brief
+/// mounts and `TranslatorEnvironment` briefs from.
 ///
 /// **`world:` is not a parameter, and that is the discipline made structural.**
 /// `RulingPerformer`'s cache holds *intent* readings; nothing derives a world

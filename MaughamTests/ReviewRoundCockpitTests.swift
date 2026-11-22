@@ -1162,8 +1162,8 @@ final class ReviewRoundCockpitTests: XCTestCase {
     static let oneSpellingSurfaces = [
         "Views/Resolve/CheckNarrativeCopy.swift",
         "Views/Review/ReviewRoundCockpit.swift",
-        "Views/Publish/DepartmentRunState.swift",
-        "Views/Publish/DepartmentDesignRow.swift",
+        "Views/Publish/TranslationRunState.swift",
+        "Views/Publish/DesignRoundState.swift",
     ]
 
     /// The arms a restated `switch` over `CompilerRunFailure` cannot avoid
@@ -1908,7 +1908,7 @@ final class ReviewRoundCockpitTests: XCTestCase {
     }
 
     /// **Drive a SwiftUI `TextField`'s binding from outside the responder
-    /// chain** — `DepartmentRunTests`' idiom: setting `stringValue` and posting
+    /// chain** — `TranslationRunTests`' idiom: setting `stringValue` and posting
     /// the notification its delegate listens for is what a real keystroke does
     /// once it reaches the field, without this host having to be the active app.
     private func type(_ text: String, into field: NSTextField) {

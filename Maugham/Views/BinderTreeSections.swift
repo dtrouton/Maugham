@@ -68,7 +68,10 @@ struct BinderTreeSections: View {
         paletteSection
         // Last, after the Palette (shell p1 Task 3): one row per language,
         // the source first — `TreeEditionRows`.
-        TreeEditionRows(rows: state.editionRows)
+        TreeEditionRows(rows: state.editionRows,
+                        mayAddLanguage: store.documentStore.map {
+                            EditionCastVerbs.mayAddLanguage(documentStore: $0)
+                        } ?? false)
     }
 
     // MARK: - Research

@@ -2471,7 +2471,7 @@ final class DiagnosticsPaneTests: XCTestCase {
     }
 
     /// **Drive a SwiftUI `TextField`'s binding from outside the responder
-    /// chain** — `DepartmentRunTests`' idiom: setting `stringValue` and posting
+    /// chain** — `TranslationRunTests`' idiom: setting `stringValue` and posting
     /// the notification its delegate listens for is what a real keystroke does
     /// once it reaches the field, without this host having to be the active app.
     private func type(_ text: String, into field: NSTextField) {

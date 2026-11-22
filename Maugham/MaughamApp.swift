@@ -293,19 +293,17 @@ struct MaughamApp: App {
                     .keyboardShortcut("a", modifiers: [.command, .option])
                 Button("To Resolve: Mine") { MaughamEvent.postResolve(.mine) }
                     .keyboardShortcut("t", modifiers: [.command, .option])
-                // ⌘⌥L: the translation review shows in To resolve while
-                // review is on; outside it, To resolve says how to enter it.
-                Button("To Resolve: Translation Review") { MaughamEvent.postTranslationReviewPosition() }
+                // ⌘⌥L (it was the translation pane's key): To resolve on
+                // Questions — a translator's questions, wherever the faces
+                // are (shell p4 Task 7, call 8).
+                Button("To Resolve: Questions") { MaughamEvent.postResolve(.questions) }
                     .keyboardShortcut("l", modifiers: [.command, .option])
-                // **⌘⌥K, and every letter of "Department" was already
-                // spoken for**: D is Diagnostics, E References, P Palette,
-                // A Annotations, R Research, T Tasks — and M, the last one
-                // left in the word, is the system's own Minimize All. So the
-                // letter comes from the surface's name in the design: the
-                // department *desk*, which shows in To resolve while an
-                // edition is the faces; with none, To resolve says so.
-                Button("To Resolve: Department Desk") { MaughamEvent.postDeskPosition() }
-                    .keyboardShortcut("k", modifiers: [.command, .option])
+                // ⌘⌥K (it was the Department desk's key): the To resolve of
+                // the edition the window reads in, else the Source's, its
+                // title naming which (`EditionWiring.editionForTheKey`);
+                // disabled in a book with no editions. Plan 5's menu review
+                // may revisit both.
+                FocusedEditionResolveButton()
                 Divider()
                 Button("Brief") { MaughamEvent.postPosition(.brief) }
                     .keyboardShortcut("2", modifiers: .command)
@@ -880,6 +878,16 @@ private struct FocusedPullUpPreviousButton: View {
         Button("Pull Up Previous") { MaughamEvent.postPullUpPrevious() }
             .keyboardShortcut("[", modifiers: .command)
             .disabled(offered != true)
+    }
+}
+
+/// View ▸ ⌘⌥K: titled for the edition it shows, disabled with none.
+private struct FocusedEditionResolveButton: View {
+    @FocusedValue(\.editionKeyTitle) private var title
+    var body: some View {
+        Button(title ?? EditionWiring.keyTitleWithNoEdition) { MaughamEvent.postShowEditionResolve() }
+            .keyboardShortcut("k", modifiers: [.command, .option])
+            .disabled(title == nil)
     }
 }
 

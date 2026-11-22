@@ -219,10 +219,9 @@ enum EditionStatus {
     /// must never accidentally acquire a scope.
     ///
     /// `reusingFigures`: the table rows a previous pass counted, folded in
-    /// again instead of recounting them — the desk passes them while a round
-    /// is running, whose per-ingest events would otherwise recount every
-    /// table per event (`DepartmentPaneHost.refillsBudgets`' precedent; the
-    /// round's end re-derives).
+    /// again instead of recounting them, for a caller re-reading while a round
+    /// runs, whose per-ingest events would otherwise recount every table per
+    /// event (the round's end re-derives).
     static func languageRows(
         in store: ProjectStore, projectURL: URL, documentIds: [String],
         reusingFigures: FigureReport? = nil, options: ReadOptions = .init()
@@ -589,8 +588,8 @@ enum EditionStatus {
     /// The per-document rows folded into one row per language.
     ///
     /// Pure and `nonisolated` so the fold is assertable on its own, without a
-    /// project on disk — the shape `CanvasMembership` and `DepartmentDesk` both
-    /// take for the same reason.
+    /// project on disk — the shape `CanvasMembership` takes for the same
+    /// reason.
     ///
     /// The translator is a fact about the LANGUAGE rather than about any one
     /// document, so every row for a language already carries the same name and

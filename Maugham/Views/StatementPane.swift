@@ -366,7 +366,7 @@ struct StatementPane: View {
     @State private var pendingProposal: StatementProposalStore.Proposal?
     /// Bumped by `.maughamStatementProposalsChanged` so the `.task` re-keys and
     /// re-reads the slot. A counter rather than an `await` in the notification
-    /// closure, `DepartmentPaneHost`'s idiom: the `.task` owns cancellation.
+    /// closure: the `.task` owns cancellation.
     @State private var proposalReloads = 0
     /// What the gate last said — a refusal, or the sentence an adoption or a
     /// discard left behind. Sticky until the slot itself changes, because the

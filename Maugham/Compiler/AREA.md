@@ -69,7 +69,7 @@ Every file in `Maugham/Compiler/` appears once.
 - `GlossBriefing.swift` / `GlossReport.swift` — the gloss spot-check; no source field.
 - `SpotCheck.swift` — Gloss and Ask the Collator: `gloss`, `askTheCollator`, `neighbours(of:in:)`, `narrow(_:to:)`.
 - `BriefingDoctrine.swift` — directives and the glossary read off statement markdown (`Directives`, `GlossaryTable`).
-- `TranslationPreflight.swift` — the desk's "7 legs · ~N words briefed" figure (`budgets`, `budget`, `wordCount`, `cellWords`: the briefed table cells).
+- `TranslationPreflight.swift` — a round's "7 legs · ~N words briefed" figure (`budgets`, `budget`, `wordCount`, `cellWords`: the briefed table cells); no surface draws it since the desk went.
 
 ### `Maugham/Models/` files routed here
 - `Maugham/Models/AuthorReader.swift` — who reads a CHECK: the coach, a first reader, or nobody (tripwire 34).
@@ -78,7 +78,7 @@ Every file in `Maugham/Compiler/` appears once.
 - `Maugham/Models/CompilerModelChoice.swift` — the depth menu; `exhaustive` (`fable`) is last in the enum and the menu.
 
 ### Outside this folder
-- Views (`Maugham/Views/AREA.md`): `CompilerRunModifier.swift` (run keys, two teardown arms), `Maugham/Views/Resolve/CheckNarrative.swift`, `Maugham/Views/Review/ReviewRoundCockpit.swift`, `LetterKeep.swift`, `LetterSection.swift`, `LessonLedgerVerbs.swift` (with `LessonOffer`), `FirstReaderRuling.swift`, `BibleStratum.swift`, `RulingsStratum.swift`; the desk's `Maugham/Views/Publish/DepartmentPaneHost.swift`, `Maugham/Views/Publish/DepartmentRunState.swift` (`DepartmentRunSession`, `TranslationRunLog`) and `Maugham/Views/Publish/DesignGateVerbs.swift`.
+- Views (`Maugham/Views/AREA.md`): `CompilerRunModifier.swift` (run keys, two teardown arms), `Maugham/Views/Resolve/CheckNarrative.swift`, `Maugham/Views/Review/ReviewRoundCockpit.swift`, `LetterKeep.swift`, `LetterSection.swift`, `LessonLedgerVerbs.swift` (with `LessonOffer`), `FirstReaderRuling.swift`, `BibleStratum.swift`, `RulingsStratum.swift`; `Maugham/Views/Publish/TranslationRunStart.swift`, `Maugham/Views/Publish/TranslationRunState.swift` (`TranslationRunSession`, `TranslationRunLog`) and `Maugham/Views/Publish/DesignGateVerbs.swift`.
 - Publish: `Maugham/Publish/ElementCensus.swift`, `Maugham/Publish/SamplePageSelection.swift`, `Maugham/Publish/SampleCompiler.swift`, `Maugham/Publish/ProposalPromotion.swift` (the designer's other four files; documented here).
 - Stores: `Maugham/Stores/ProjectSession.swift` (owns the roster; `attachWindow` configures every service), `Maugham/Stores/ProjectSessionRegistry.swift`, `Maugham/Stores/DesignProposalStore.swift`, `Maugham/Stores/TranslationRoundStore.swift`.
 - MCP: `Maugham/MCP/Tools/TranslationWritePipeline.swift`, the translator's one word door.
@@ -287,8 +287,8 @@ Every file in `Maugham/Compiler/` appears once.
 - **Queries mint through `Document.addAnnotation`, signed by the translator and language-tagged in `toolArgs`**; an anchorless one is a doc-scoped `.craftNote` with a `Translation query (<lang>) — ` prefix. The tag, not the kind, re-briefs and counts it.
 - **The translator identity is resolved before the briefing** (`ProjectStore.translatorRole(for:)`, find-or-create; read paths never mint a role), so the role frame and the signature name the same row.
 - **The translator has no run keys** (⌘R and ⌘⇧R are the compiler's) and starts on an edition head's Run alone.
-- **Translation runs only on the OPEN document** (`DepartmentRunTarget.resolve`; `test_theBriefingAbandonIsClosedByTheOpenDocumentGate`). One round runs at a time across every language (`DepartmentRunSession.busy`).
-- **A translator is named only through the cast sheet** (`DepartmentCastSheet.swift`: Name & Run, Add Language…, Rename …): `translatorRole(for:)` + `renameProductionRole`.
+- **Translation runs only on the OPEN document** (`TranslationRunTarget.resolve`; `test_theBriefingAbandonIsClosedByTheOpenDocumentGate`). One round runs at a time across every language (`TranslationRunSession.busy`).
+- **A translator is named only through the cast sheet** (`EditionCastSheet.swift`; `EditionCastVerbs`): `translatorRole(for:)` + `renameProductionRole`.
 
 ### The designer
 - **The designer is a third conformer, warm per PROJECT** (retired only by a model change or `shutdown()`); `requestChanges` iterates on that session. A round stays OPEN (`hasOpenProposalRound`) until a fresh `runDesign` send (closed before the answer), `retireSession`, or `sessionEpoch` moving.
@@ -320,7 +320,7 @@ Every file in `Maugham/Compiler/` appears once.
 - **`onRunAbandoned` is not a summary**: the briefing answered `nil`, so the leg fails with `unbriefableSentence(role:)`, never `nothingToTranslate`.
 - **A declined note's reply lives in the query BODY** (`declinedBody`), authored by the reader or collator who raised it. No reply `OpKind` or `AnnotationKind`.
 - **The book queue stops on a failed round**; it never skips a chapter.
-- **The edition head's busy gate reads `TranslationPipeline.Status` first** (`DepartmentRunSession.read(runState:isRunning:pipeline:)`), on the body path, never through `ReloadKey` (language only).
+- **The edition head's busy gate reads `TranslationPipeline.Status` first** (`TranslationRunSession.read(runState:isRunning:pipeline:)`), on the body path, never through `ReloadKey` (language only).
 - **`TranslationRoundStore` keeps `ringSize` (10) rounds per language, plus each piece's latest finished**, numbered past the ring. `append` is this area's only write; `update(_:)` belongs to the round report.
 - **`TranslationPreflight.budgets` opens each document ONCE** for every language; an empty answer means nothing could be read, distinct from a zero.
 
@@ -364,5 +364,5 @@ Follow Core's recipe, "Add a Statement.Kind" in `Packages/MaughamCore/Sources/Ma
 - `docs/tripwires.md` rows 2, 3, 6, 11, 17, 20, 21, 24 and 34.
 - Tests worth knowing (the suites are the specification): `CompilerRunCommandTests` (⌘R's real path), `CompilerAllowlistTests`, `ClaudeCLISessionTests`, `CompilerPromptTests`, `DiagnosticIngestTests`, `DiagnosticsStoreTests`, `DiagnosticsPaneTests`, `RulingPerformerTests`, `StatementPaneStrataTests`, `DeclaredWorldDeriverTests`, `BibleStoreTests`, `LetterMarkdownTests`, `TranslatorEnvironmentTests`, `TranslationPipelineTests`, `AgentRosterTests`.
 - Known gap: the reply field's commit-on-Return and Escape are asserted at the source (`DiagnosticsPaneTests.test_theReplyFieldCommitsOnReturnAndCancelsOnEscape`); `CheckNarrative.commitAnswer` is a `static` so the rest runs for real.
-- Neighbouring guides: `Maugham/Views/AREA.md` (the panes, the cockpit, the desk; its Rules → "Publish and translation" covers the department desk), `Maugham/Stores/AREA.md` (project sessions, `DesignProposalStore`, `TranslationRoundStore`), `Maugham/MCP/AREA.md` (`write_translation`), `Maugham/Publish/AREA.md`.
+- Neighbouring guides: `Maugham/Views/AREA.md` (the panes, the cockpit; its Rules → "Publish and translation"), `Maugham/Stores/AREA.md` (project sessions, `DesignProposalStore`, `TranslationRoundStore`), `Maugham/MCP/AREA.md` (`write_translation`), `Maugham/Publish/AREA.md`.
 - `docs/history/compiler.md` — the whole previous guide: why each rule exists, the smoke finds and reviews behind them, the walk of the third door, the atomic switch.

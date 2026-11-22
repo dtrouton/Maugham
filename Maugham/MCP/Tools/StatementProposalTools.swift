@@ -22,8 +22,9 @@ enum StatementProposalTools {
         case .editionBrief(let language):
             return "In Maugham: select the "
                 + TranslationReviewIndicator.displayLabel(forLanguageTag: language)
-                + " edition in the tree. Its Brief (⌘2) holds the edition brief, and so does "
-                + "its row on the Department desk (⌘⌥K). A banner offers Adopt / Discard with a diff."
+                + " edition under Editions in the tree, then its Brief (⌘2), which holds the "
+                + "edition brief. A banner there offers Adopt / Discard with a diff. If the book "
+                + "has no such edition yet, the Source edition's Brief offers to add it."
         case .visualLanguage:
             return "In Maugham: Visual Language, pulled up beside the text (⌘⌥V, or its "
                 + "link in the Book's Brief). A banner offers Adopt / Discard with a diff "

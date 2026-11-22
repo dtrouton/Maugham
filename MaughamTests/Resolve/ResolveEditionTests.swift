@@ -336,17 +336,17 @@ final class ResolveEditionTests: XCTestCase {
     /// desk's design row's, resolved from the same values.
     func test_theSourceHeadOffersADesignRound() {
         XCTAssertEqual(ResolveHead.shape(source), .edition(language: "en", isSource: true))
-        let idle = DepartmentDesignRow.resolve(designerName: "Tschichold", proposals: [proposal(.pending)],
+        let idle = DesignRoundState.resolve(designerName: "Tschichold", proposals: [proposal(.pending)],
                                                runState: .idle, session: .free, hasOpenProposalRound: true)
         XCTAssertTrue(idle.canRun)
         XCTAssertTrue(idle.offersRequestChanges)
         XCTAssertTrue(idle.offersShow)
-        let busy = DepartmentDesignRow.resolve(designerName: "Tschichold", proposals: [],
+        let busy = DesignRoundState.resolve(designerName: "Tschichold", proposals: [],
                                                runState: .running(round: 2, language: nil),
                                                session: .busy(round: 2), hasOpenProposalRound: false)
         XCTAssertFalse(busy.canRun)
         XCTAssertTrue(busy.isRunning, "Cancel is drawn while a round runs")
-        XCTAssertEqual(busy.latestLine, DepartmentDesignRow.noRoundYet)
+        XCTAssertEqual(busy.latestLine, DesignRoundState.noRoundYet)
     }
 
     /// What an empty edition says: the next step where nothing has run, the
@@ -400,15 +400,15 @@ final class ResolveEditionTests: XCTestCase {
 
     // MARK: - Censuses
 
-    /// The desk is no longer mounted: no production file outside its own
-    /// constructs `DepartmentPaneHost(`, and the column's desk view is gone.
-    func test_theDeskIsNoLongerMounted() throws {
+    /// The desk is gone (shell p4 Task 7): no production file is the desk or
+    /// mounts it, and the column's desk view is gone.
+    func test_theDeskIsGone() throws {
         let sources = try SourceTree.sources(under: "Maugham")
         XCTAssertFalse(sources.isEmpty, "premise: the census reads the app")
         func offenders(_ files: [(path: String, text: String)]) -> [String] {
             files.filter { file in
-                !file.path.hasSuffix("DepartmentPaneHost.swift")
-                    && SourceScan.codeLines(of: file.text).joined(separator: "\n").contains("DepartmentPaneHost(")
+                (file.path as NSString).lastPathComponent.hasPrefix("DepartmentPane")
+                    || SourceScan.codeLines(of: file.text).joined(separator: "\n").contains("DepartmentPaneHost(")
             }.map(\.path)
         }
         XCTAssertEqual(offenders(sources), [])
@@ -555,7 +555,7 @@ final class ResolveEditionTests: XCTestCase {
                 .environment(f.preferences),
             size: CGSize(width: 320, height: 800))
         windows.append(window)
-        let wanted = [DepartmentDesignRow.runAccessibilityLabel,
+        let wanted = [DesignRoundState.runAccessibilityLabel,
                       ResolveEditionItems.clearLine(language: "en", isSource: true, hasRounds: false)]
         let found = await pumpUntil(deadline: 5) {
             let read = (try? self.everythingRead(in: window)) ?? []

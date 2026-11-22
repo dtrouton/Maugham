@@ -5,7 +5,7 @@ import MaughamCore
 /// **What the round report needs from the disk, fetched once, off a body path**
 /// (translation pipeline P4 Task 3).
 ///
-/// `DepartmentPaneHost`'s shape and its reason: `TranslationRoundReportView`
+/// `EditionStatusHost`'s shape and its reason: `TranslationRoundReportView`
 /// reads no store at all (tripwire 4), so everything it draws that is not in the
 /// `TranslationRound` itself is resolved here in a `.task` and handed down as a
 /// value.

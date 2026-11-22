@@ -17,7 +17,7 @@ import MaughamCore
 /// they are about what the runner does with an `Outcome`, which is identical
 /// for both formats.
 @MainActor
-final class DeskCompileRunnerTests: XCTestCase {
+final class CompileRunnerTests: XCTestCase {
 
     var tmp: URL!
     var projectURL: URL!
@@ -27,7 +27,7 @@ final class DeskCompileRunnerTests: XCTestCase {
 
     override func setUp() async throws {
         tmp = TestTemp.root
-            .appendingPathComponent("DeskCompileRunnerTests-\(UUID().uuidString)")
+            .appendingPathComponent("CompileRunnerTests-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
         projectURL = try await ProjectFactory.createNovelProject(named: "Desk", in: tmp)
         store = try await ProjectStore.load(from: projectURL)
@@ -50,14 +50,14 @@ final class DeskCompileRunnerTests: XCTestCase {
 
     private func book(_ format: PublishConfig.Format = .epub,
                       imprint: String? = nil,
-                      languages: [String] = []) -> DeskCompileRunner.Request {
-        DeskCompileRunner.Request(format: format, languages: languages,
+                      languages: [String] = []) -> CompileRunner.Request {
+        CompileRunner.Request(format: format, languages: languages,
                                   imprint: imprint, allowStale: false)
     }
 
     /// Run the runner to a standstill. The compile is a real one, so the wait is
     /// a runloop pump against a deadline rather than a fixed pause.
-    private func settle(_ runner: DeskCompileRunner,
+    private func settle(_ runner: CompileRunner,
                         deadline: TimeInterval = 60,
                         file: StaticString = #filePath,
                         line: UInt = #line) async {
@@ -86,7 +86,7 @@ final class DeskCompileRunnerTests: XCTestCase {
     /// existing: a real orchestrator, a real catalog row, and a state the desk
     /// can draw without asking anything else what happened.
     func test_aCompileStartedFromTheDeskLandsARecordAndSaysSo() async throws {
-        let runner = DeskCompileRunner()
+        let runner = CompileRunner()
         runner.start(book(), projectStore: store, projectURL: projectURL)
         XCTAssertTrue(runner.state.isRunning,
                       "the state must say so the moment the press lands — a "
@@ -103,7 +103,7 @@ final class DeskCompileRunnerTests: XCTestCase {
         XCTAssertEqual(record.format, .epub)
         XCTAssertFalse(runner.state.isRunning)
         XCTAssertEqual(runner.state.statusLine,
-                       DepartmentCompileState.completedLine(record))
+                       CompileRunState.completedLine(record))
     }
 
     /// **One spelling of the toolchain, and this is what proves it.** The
@@ -111,7 +111,7 @@ final class DeskCompileRunnerTests: XCTestCase {
     /// call sites; if either one carried its own literal, these would differ the
     /// day somebody bumped the bundled tectonic in the other file.
     func test_theRecordCarriesTheOneToolchainTheToolAlsoStamps() async throws {
-        let runner = DeskCompileRunner()
+        let runner = CompileRunner()
         runner.start(book(), projectStore: store, projectURL: projectURL)
         await settle(runner)
         guard case .completed(let fromDesk) = runner.state.phase else {
@@ -150,7 +150,7 @@ final class DeskCompileRunnerTests: XCTestCase {
         }
         defer { NotificationCenter.default.removeObserver(observer) }
 
-        let runner = DeskCompileRunner()
+        let runner = CompileRunner()
         runner.start(book(), projectStore: store, projectURL: projectURL)
         await settle(runner)
         guard case .completed(let record) = runner.state.phase else {
@@ -167,7 +167,7 @@ final class DeskCompileRunnerTests: XCTestCase {
     /// dead compile, because nothing went wrong with the book.
     func test_anUnknownImprintIsRefusedWithItsOwnSentenceAndNoRow() async throws {
         try await seedImprints()
-        let runner = DeskCompileRunner()
+        let runner = CompileRunner()
         runner.start(book(imprint: "nope"), projectStore: store, projectURL: projectURL)
         await settle(runner)
 
@@ -188,7 +188,7 @@ final class DeskCompileRunnerTests: XCTestCase {
     /// declines to do. A language edition with no source publication is the
     /// nearest deterministic failure that needs no tectonic.
     func test_aRealFailureIsStillDrawnAsAFailure() async throws {
-        let runner = DeskCompileRunner()
+        let runner = CompileRunner()
         runner.start(book(languages: ["es"]), projectStore: store, projectURL: projectURL)
         await settle(runner)
 
@@ -204,14 +204,14 @@ final class DeskCompileRunnerTests: XCTestCase {
     /// the mint gate and one of them would lose with a sentence about a
     /// collision the writer never caused.
     func test_aSecondPressIsRefusedAndNeverStartsASecondCompile() async throws {
-        let runner = DeskCompileRunner()
+        let runner = CompileRunner()
         runner.start(book(), projectStore: store, projectURL: projectURL)
         runner.start(book(), projectStore: store, projectURL: projectURL)
 
         guard case .refused(let sentence) = runner.state.phase else {
             return XCTFail("expected the second press to be refused — got \(runner.state.phase)")
         }
-        XCTAssertEqual(sentence, DepartmentCompileState.alreadyRunning)
+        XCTAssertEqual(sentence, CompileRunState.alreadyRunning)
         XCTAssertTrue(runner.state.isRunning,
                       "and the refusal must not have cancelled the run it "
                       + "refused — a desk that reads idle here re-enables its "
@@ -236,7 +236,7 @@ final class DeskCompileRunnerTests: XCTestCase {
     /// this one) — which is exactly why it needs the negative below it. The two
     /// together are the pin.
     func test_cancelCancelsTheJobTheProjectHasInFlight() async throws {
-        let runner = DeskCompileRunner()
+        let runner = CompileRunner()
         XCTAssertNil(runner.currentJobID,
                      "premise: a desk that has pressed nothing owns no job")
         runner.start(book(), projectStore: store, projectURL: projectURL)
@@ -290,7 +290,7 @@ final class DeskCompileRunnerTests: XCTestCase {
     /// desk's OWN job really is cancelled by the same press, so this is not a
     /// Cancel that has simply stopped working.
     func test_aForeignJobOnTheSharedManagerIsNotTheDesksToCancel() async throws {
-        let runner = DeskCompileRunner()
+        let runner = CompileRunner()
         runner.start(book(), projectStore: store, projectURL: projectURL)
         let learned = await pumpUntil(deadline: 10) { runner.currentJobID != nil }
         XCTAssertTrue(learned, "premise: the desk knows which job is its own")
@@ -324,13 +324,13 @@ final class DeskCompileRunnerTests: XCTestCase {
     /// registered yet. The desk settles as cancelled, and nothing is
     /// published.
     func test_aCancelBeforeTheJobRegistersStopsTheCompile() async throws {
-        let runner = DeskCompileRunner()
+        let runner = CompileRunner()
         runner.start(book(), projectStore: store, projectURL: projectURL)
         XCTAssertNil(runner.currentJobID, "premise: no job has registered yet")
         runner.cancel()
         await settle(runner)
 
-        XCTAssertEqual(runner.state.statusLine, DepartmentCompileState.cancelledLine,
+        XCTAssertEqual(runner.state.statusLine, CompileRunState.cancelledLine,
                        "got \(runner.state.phase)")
         let catalog = try await stores.publicationStore.load()
         XCTAssertTrue(catalog.isEmpty, "a Cancel pressed during the snapshot publishes nothing")
@@ -340,7 +340,7 @@ final class DeskCompileRunnerTests: XCTestCase {
     /// press, and again once one has settled. Not a crash and not somebody
     /// else's job: nothing.
     func test_aCancelWithNoCompileOfItsOwnTouchesNothing() async throws {
-        let runner = DeskCompileRunner()
+        let runner = CompileRunner()
         let foreign = await stores.jobManager.register(phase: .renderingBody)
 
         runner.cancel()          // before any press: no stores, no job
@@ -362,7 +362,7 @@ final class DeskCompileRunnerTests: XCTestCase {
     }
 
     /// **A cancelled compile publishes nothing and is not drawn as a failure**
-    /// (`DepartmentRunTests.test_aCancelIsNotDrawnAsAFailure`, in this
+    /// (`TranslationRunTests.test_aCancelIsNotDrawnAsAFailure`, in this
     /// surface's currency).
     ///
     /// The race is removed rather than won: `CompileJobManager
@@ -373,14 +373,14 @@ final class DeskCompileRunnerTests: XCTestCase {
     /// writer would have been the alternative, and it is a coin flip.
     func test_aCancelledCompileLeavesNoRecordAndIsNotAFailure() async throws {
         await stores.jobManager._cancelJobsAtRegistrationForTesting(true)
-        let runner = DeskCompileRunner()
+        let runner = CompileRunner()
         runner.start(book(), projectStore: store, projectURL: projectURL)
         await settle(runner)
 
         XCTAssertEqual(runner.state.phase, .idle,
                        "a cancel is the writer's own act and leaves the desk "
                        + "where it started — got \(runner.state.phase)")
-        XCTAssertEqual(runner.state.statusLine, DepartmentCompileState.cancelledLine)
+        XCTAssertEqual(runner.state.statusLine, CompileRunState.cancelledLine)
         if case .failed = runner.state.phase {
             XCTFail("a cancel must not wear a failure's sentence")
         }
@@ -391,7 +391,7 @@ final class DeskCompileRunnerTests: XCTestCase {
     // MARK: - What the desk draws (pure state)
 
     func test_theRunningLineNamesTheBookTheFormatAndTheLanguages() {
-        let state = DepartmentCompileState(
+        let state = CompileRunState(
             phase: .running(format: .pdf, languages: ["en", "sr"], imprint: nil),
             isRunning: true)
         XCTAssertEqual(state.statusLine,
@@ -399,7 +399,7 @@ final class DeskCompileRunnerTests: XCTestCase {
     }
 
     func test_theRunningLineSpellsTheImprintWhenThereIsOne() {
-        let state = DepartmentCompileState(
+        let state = CompileRunState(
             phase: .running(format: .epub, languages: ["sr"], imprint: "special-glb"),
             isRunning: true)
         XCTAssertEqual(state.statusLine,
@@ -410,16 +410,16 @@ final class DeskCompileRunnerTests: XCTestCase {
     /// spells a source-only compile by passing the book's own tag, and an empty
     /// list has nothing honest to say.
     func test_theRunningLineDropsTheParentheticalWhenNoLanguageWasNamed() {
-        let state = DepartmentCompileState(
+        let state = CompileRunState(
             phase: .running(format: .epub, languages: [], imprint: nil),
             isRunning: true)
         XCTAssertEqual(state.statusLine, "Compiling the book as EPUB\u{2026}")
     }
 
     /// The running line names a format as the picker does
-    /// (`DepartmentCompileSheetCopy.formatTitle`): Word by its name.
+    /// (`CompileSheetCopy.formatTitle`): Word by its name.
     func test_theRunningLineNamesWordAsThePickerDoes() {
-        let state = DepartmentCompileState(
+        let state = CompileRunState(
             phase: .running(format: .docx, languages: [], imprint: nil),
             isRunning: true)
         XCTAssertEqual(state.statusLine, "Compiling the book as Word (.docx)\u{2026}")
@@ -432,7 +432,7 @@ final class DeskCompileRunnerTests: XCTestCase {
     /// clock-dependent, and already `parts(for:)`'s own concern to get right).
     func test_theCompletedLineNamesTheVersionTheImprintAndTheEdition() {
         let pub = Self.publication(version: "0.1", imprint: "special-glb", language: "en+sr")
-        let line = DepartmentCompileState.completedLine(pub)
+        let line = CompileRunState.completedLine(pub)
         XCTAssertTrue(
             line.hasPrefix("Compiled v0.1 \u{00B7} special-glb \u{00B7} EN+SR \u{00B7} "),
             "expected version, imprint and edition in that order before the "
@@ -446,7 +446,7 @@ final class DeskCompileRunnerTests: XCTestCase {
     /// the compiled date remain.
     func test_theCompletedLineOfThePlainBookIsJustItsVersion() {
         let pub = Self.publication(version: "0.2", imprint: nil, language: nil)
-        let line = DepartmentCompileState.completedLine(pub)
+        let line = CompileRunState.completedLine(pub)
         XCTAssertTrue(line.hasPrefix("Compiled v0.2 \u{00B7} "),
                       "expected just the version before the compiled date — no "
                       + "empty separators for the absent imprint/language, got: \(line)")
@@ -457,7 +457,7 @@ final class DeskCompileRunnerTests: XCTestCase {
     }
 
     func test_anIdleDeskThatHasCompiledNothingSaysNothing() {
-        XCTAssertNil(DepartmentCompileState().statusLine)
+        XCTAssertNil(CompileRunState().statusLine)
     }
 
     /// Every `Outcome` the orchestrator can answer maps to exactly one state,
@@ -465,37 +465,37 @@ final class DeskCompileRunnerTests: XCTestCase {
     /// without a compile.
     func test_everyOutcomeSettlesIntoOneState() {
         let pub = Self.publication(version: "0.1", imprint: nil, language: nil)
-        XCTAssertEqual(DepartmentCompileState.settled(after: .completed(pub, warnings: [])),
-                       DepartmentCompileState(phase: .completed(pub), isRunning: false))
+        XCTAssertEqual(CompileRunState.settled(after: .completed(pub, warnings: [])),
+                       CompileRunState(phase: .completed(pub), isRunning: false))
 
         let diag = TectonicLogParser.Diagnostic(
             level: .error, file: nil, line: nil, message: "it broke", contextLines: [])
         XCTAssertEqual(
-            DepartmentCompileState.settled(after: .failed(errors: [diag], logExcerpt: "")),
-            DepartmentCompileState(phase: .failed("it broke"), isRunning: false))
+            CompileRunState.settled(after: .failed(errors: [diag], logExcerpt: "")),
+            CompileRunState(phase: .failed("it broke"), isRunning: false))
         XCTAssertEqual(
-            DepartmentCompileState.settled(after: .failed(
+            CompileRunState.settled(after: .failed(
                 errors: [diag], logExcerpt: PublishOrchestrator.compileFailedLogExcerpt)),
-            DepartmentCompileState(phase: .failed("it broke"), isRunning: false,
+            CompileRunState(phase: .failed("it broke"), isRunning: false,
                                    judgedTheManuscript: true),
             "a compiler failure after the gate says so")
 
         XCTAssertEqual(
-            DepartmentCompileState.settled(after: .failed(
+            CompileRunState.settled(after: .failed(
                 errors: [diag],
                 logExcerpt: PublishOrchestrator.unknownImprintLogExcerpt + "nope")),
-            DepartmentCompileState(phase: .refused("it broke"), isRunning: false),
+            CompileRunState(phase: .refused("it broke"), isRunning: false),
             "the orchestrator's own marker is what tells a typo from a failure")
 
         XCTAssertEqual(
-            DepartmentCompileState.settled(after: .cancelled),
-            DepartmentCompileState(phase: .idle, isRunning: false,
-                                   report: DepartmentCompileState.cancelledLine))
+            CompileRunState.settled(after: .cancelled),
+            CompileRunState(phase: .idle, isRunning: false,
+                                   report: CompileRunState.cancelledLine))
 
         XCTAssertEqual(
-            DepartmentCompileState.settled(after: .dryRunPassed(warnings: [])),
-            DepartmentCompileState(phase: .idle, isRunning: false,
-                                   report: DepartmentCompileState.dryRunLine))
+            CompileRunState.settled(after: .dryRunPassed(warnings: [])),
+            CompileRunState(phase: .idle, isRunning: false,
+                                   report: CompileRunState.dryRunLine))
     }
 
     /// **A mint already in flight is a refusal, not a failure.**
@@ -517,7 +517,7 @@ final class DeskCompileRunnerTests: XCTestCase {
             + "wait for it to finish."
         let diag = TectonicLogParser.Diagnostic(
             level: .error, file: nil, line: nil, message: message, contextLines: [])
-        let refused = DepartmentCompileState.settled(after: .failed(
+        let refused = CompileRunState.settled(after: .failed(
             errors: [diag],
             logExcerpt: PublishOrchestrator.mintInFlightLogExcerpt + "0.1/en/epub"))
 
@@ -531,7 +531,7 @@ final class DeskCompileRunnerTests: XCTestCase {
 
         // The control: the SAME diagnostic with a real failure's excerpt is
         // still a failure. It is the marker that decides, not the message.
-        let broken = DepartmentCompileState.settled(after: .failed(
+        let broken = CompileRunState.settled(after: .failed(
             errors: [diag], logExcerpt: "tectonic exited 1"))
         XCTAssertEqual(broken.phase, .failed(message))
         XCTAssertTrue(broken.isFailure)
@@ -544,7 +544,7 @@ final class DeskCompileRunnerTests: XCTestCase {
         let message = PublishFormatRefusal.message(raw: "odt")
         let diag = TectonicLogParser.Diagnostic(
             level: .error, file: nil, line: nil, message: message, contextLines: [])
-        let refused = DepartmentCompileState.settled(after: .failed(
+        let refused = CompileRunState.settled(after: .failed(
             errors: [diag],
             logExcerpt: PublishOrchestrator.unproducibleFormatLogExcerpt + "odt"))
         XCTAssertEqual(refused.phase, .refused(message))
@@ -554,9 +554,9 @@ final class DeskCompileRunnerTests: XCTestCase {
     /// A failure with no diagnostics at all still says something — a red desk
     /// with an empty line is the dead control RULING-35 is about.
     func test_aFailureWithNoDiagnosticStillSaysSomething() {
-        let state = DepartmentCompileState.settled(
+        let state = CompileRunState.settled(
             after: .failed(errors: [], logExcerpt: ""))
-        XCTAssertEqual(state.phase, .failed(DepartmentCompileState.failedWithoutADiagnostic))
+        XCTAssertEqual(state.phase, .failed(CompileRunState.failedWithoutADiagnostic))
         XCTAssertFalse(state.statusLine?.isEmpty ?? true)
     }
 

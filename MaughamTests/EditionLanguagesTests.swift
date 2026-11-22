@@ -5,29 +5,13 @@ import SwiftUI
 import MaughamCore
 @testable import Maugham
 
-/// **What Publish's desk draws** (publish-department P4 Task 1) — the seat it
-/// takes in the right column is `PersonaPaneRegistryTests`'; this file is about
-/// the pane itself: its two sections and what a language row says. The Design
-/// row and every verb on the desk are `DepartmentRunTests`'.
-///
-/// **Nothing here needs a project on disk**, which is the point rather than a
-/// convenience. `DepartmentPane` takes a title, a language list and a resolved
-/// design row — no `ProjectStore`, no `DocumentStore` — so the whole surface is
-/// drivable from literals, exactly as `ReviewBoardPane` is one persona over.
-/// That is tripwire 4 satisfied by construction, and
-/// `test_theSourceReadsNoStoreAtAll` is the census that keeps it so: the
-/// derivations the values come from (a walk of every document's translation
-/// store, a read of the staged proposals) are the host's, and a `body` that
-/// could reach either would run it once per row.
-///
-/// **The desk has no empty state to test any more** (Task 4). Task 1's
-/// `ContentUnavailableView` was honest while nothing on the pane could act; the
-/// Design row's Run retired it, because every project has a designer and asking
-/// for a first design round is exactly what a writer with an empty department
-/// came here to do. What replaced those tests is
-/// `DepartmentRunTests.test_aProjectWithNothingInItStillOffersADesignRound`.
+/// **A book's editions, as `EditionStatus` reads them, and the imprint the
+/// window stands on** (publish-department P4; the Department desk these
+/// tests first described went in shell p4 Task 7 — its behaviour claims that
+/// still ship moved here onto their homes: `EditionStatus`, `PublishImprint`,
+/// `EditionCastVerbs`, `CompileSheet` and `EditionCompileAsk`).
 @MainActor
-final class DepartmentPaneTests: XCTestCase {
+final class EditionLanguagesTests: XCTestCase {
 
     override class func setUp() {
         super.setUp()
@@ -44,58 +28,22 @@ final class DepartmentPaneTests: XCTestCase {
         windows.removeAll()
     }
 
-    // MARK: - A row's own words (Task 2, no window)
+    // MARK: - A proposed brief with no edition (moved from the desk's mark)
 
-    /// **A language with no name to print says so rather than printing nothing.**
-    /// `translatorName` answers nil for an unlisted, unminted language — the
-    /// honest answer for the MCP field, which omits it — and a desk row with a
-    /// blank where a person's name goes reads as a bug rather than as a person
-    /// the writer has not named yet.
-    func test_aRowWithNoTranslatorSaysSoRatherThanPrintingABlank() {
-        XCTAssertEqual(DepartmentDesk.translatorLine("Cortázar"), "Cortázar")
-        XCTAssertEqual(DepartmentDesk.translatorLine(nil),
-                       DepartmentDesk.noTranslatorYet)
-        XCTAssertFalse(DepartmentDesk.noTranslatorYet.isEmpty)
-    }
-
-    /// The coverage line is the three figures `translation_status` reports, in
-    /// its own vocabulary — and a language nobody has translated a paragraph of
-    /// says *that* rather than "0 fresh · 0 stale · 0 missing", which is what a
-    /// query-first language's zeroes would otherwise read as.
-    func test_theCoverageLineCarriesTheThreeFigures() {
-        XCTAssertEqual(DepartmentDesk.coverageLine(fresh: 12, stale: 3, missing: 1),
-                       "12 fresh · 3 stale · 1 missing")
-        XCTAssertEqual(DepartmentDesk.coverageLine(fresh: 0, stale: 0, missing: 0),
-                       DepartmentDesk.notStarted)
-        XCTAssertEqual(DepartmentDesk.coverageLine(fresh: 0, stale: 0, missing: 4),
-                       "0 fresh · 0 stale · 4 missing")
-    }
-
-    /// Open queries are what the writer OWES somebody, so the row says it only
-    /// when there is a debt — and counts in a singular where there is one.
-    func test_theQueryLineAppearsOnlyWhereThereIsSomethingToAnswer() {
-        XCTAssertNil(DepartmentDesk.queryLine(openQueries: 0),
-                     "nothing owed, nothing said")
-        XCTAssertEqual(DepartmentDesk.queryLine(openQueries: 1), "1 open query")
-        XCTAssertEqual(DepartmentDesk.queryLine(openQueries: 5), "5 open queries")
-    }
-
-    // MARK: - The "proposed" mark (translation pipeline P5)
-
-    func test_aPendingBriefProposalMarksItsRowAndOnlyItsRow() throws {
+    /// A proposed brief for a language the book has an edition of is that
+    /// edition's (its Brief's gate); one with no edition shows on the Source
+    /// edition's Brief. A visual-language proposal is neither.
+    func test_aProposalWithNoEditionIsListedForTheSource() {
         let proposals: [StatementProposalStore.Proposal] = [
             .init(kind: .editionBrief("es"), markdown: "x", rationale: nil, proposedAt: Date(), author: "Claude"),
+            .init(kind: .editionBrief("IT"), markdown: "x", rationale: nil, proposedAt: Date(), author: "Claude"),
             .init(kind: .visualLanguage, markdown: "x", rationale: nil, proposedAt: Date(), author: "Claude"),
         ]
-        XCTAssertEqual(DepartmentPaneHost.proposedLanguages(proposals), ["es"])
-        let rows = [EditionStatus.LanguageRow(language: "es", translator: nil, fresh: 0, stale: 0, missing: 0, openQueries: 0)]
-        XCTAssertEqual(DepartmentPaneHost.proposedWithoutRow(proposals, rows: rows), [])
-        XCTAssertEqual(DepartmentPaneHost.proposedWithoutRow(proposals, rows: []), ["es"],
-                       "a proposal for a language the desk has no row for still needs a door")
-        XCTAssertEqual(DepartmentDesk.proposedBadge, "Proposed")
-        XCTAssertEqual(DepartmentDesk.proposedWithoutRowLine(language: "it"),
-                       "Claude proposed a brief for Italian — open it to adopt or discard.")
-        XCTAssertTrue(DepartmentDesk.proposedHelp(language: "es").contains("Edition Brief"))
+        XCTAssertEqual(EditionCastVerbs.proposalsWithoutAnEdition(proposals, editions: ["en", "ES"]), ["it"])
+        XCTAssertEqual(EditionCastVerbs.proposalsWithoutAnEdition(proposals, editions: []), ["es", "it"])
+        XCTAssertEqual(EditionCastVerbs.proposedWithoutAnEditionLine(language: "it"),
+                       "Claude proposed a brief for an edition in Italian.")
+        XCTAssertEqual(EditionCastVerbs.addProposedTitle(language: "it"), "Add Italian\u{2026}")
     }
 
     // MARK: - The rows are translation_status's own numbers (Task 2)
@@ -273,12 +221,8 @@ final class DepartmentPaneTests: XCTestCase {
                                 "naming a translator started an edition the desk "
                                 + "cannot see. Rows: \(rows.map(\.language))")
         XCTAssertEqual(row.translator, "Ana")
-        XCTAssertEqual(
-            DepartmentDesk.coverageLine(fresh: row.fresh, stale: row.stale,
-                                        missing: row.missing),
-            DepartmentDesk.notStarted,
-            "nothing is translated yet, which is 'Not started' — the query-first "
-            + "arm's own answer, not 'every paragraph missing'")
+        XCTAssertEqual([row.fresh, row.stale, row.missing], [0, 0, 0],
+                       "nothing is translated yet — the query-first arm's own answer")
         XCTAssertEqual(row.openQueries, 0)
 
         await h.documentStore.close()
@@ -374,54 +318,50 @@ final class DepartmentPaneTests: XCTestCase {
 
     /// A row the desk has already drawn is a home, with or without a stored
     /// role behind it.
-    func test_languageAlreadyOnTheDesk_derivedRowAlone_isTrue() {
+    func test_alreadyAnEdition_treeRowAlone_isTrue() {
         let manifest = ProjectManifest(
             type: .novel, title: "T", author: "A", created: Date(), modified: Date(),
             structure: [], research: [])
-        let derived = [EditionStatus.LanguageRow(
-            language: "es", translator: nil, fresh: 1, stale: 0, missing: 0,
-            openQueries: 0)]
-
-        XCTAssertTrue(DepartmentPaneHost.languageAlreadyOnTheDesk(
-            "es", derived: derived, manifest: manifest))
+        XCTAssertTrue(EditionCastVerbs.alreadyAnEdition(
+            "es", editions: ["en", "es"], manifest: manifest))
     }
 
     /// A translator the manifest already stores is a home even when `derive()`
     /// has not caught up with a row for it yet — the exact staleness window
     /// that let Confirm's name silently rename somebody (issue #43, F-G).
-    func test_languageAlreadyOnTheDesk_manifestAlone_isTrue() {
+    func test_alreadyAnEdition_manifestAlone_isTrue() {
         let manifest = ProjectManifest(
             type: .novel, title: "T", author: "A", created: Date(), modified: Date(),
             structure: [], research: [],
             productionRoles: [ProductionRole(
                 id: "role-1", role: .translator(language: "es"), name: "Cortázar")])
 
-        XCTAssertTrue(DepartmentPaneHost.languageAlreadyOnTheDesk(
-            "es", derived: [], manifest: manifest))
+        XCTAssertTrue(EditionCastVerbs.alreadyAnEdition(
+            "es", editions: [], manifest: manifest))
     }
 
     /// Neither side knows the language — it is genuinely new, and Add Language
     /// must be free to mint it.
-    func test_languageAlreadyOnTheDesk_neither_isFalse() {
+    func test_alreadyAnEdition_neither_isFalse() {
         let manifest = ProjectManifest(
             type: .novel, title: "T", author: "A", created: Date(), modified: Date(),
             structure: [], research: [])
 
-        XCTAssertFalse(DepartmentPaneHost.languageAlreadyOnTheDesk(
-            "es", derived: [], manifest: manifest))
+        XCTAssertFalse(EditionCastVerbs.alreadyAnEdition(
+            "es", editions: [], manifest: manifest))
     }
 
     /// The match is case-insensitive on both sides, matching
     /// `storedTranslator(for:)`.
-    func test_languageAlreadyOnTheDesk_caseInsensitive_isTrue() {
+    func test_alreadyAnEdition_caseInsensitive_isTrue() {
         let manifest = ProjectManifest(
             type: .novel, title: "T", author: "A", created: Date(), modified: Date(),
             structure: [], research: [],
             productionRoles: [ProductionRole(
                 id: "role-1", role: .translator(language: "es"), name: "Cortázar")])
 
-        XCTAssertTrue(DepartmentPaneHost.languageAlreadyOnTheDesk(
-            "ES", derived: [], manifest: manifest))
+        XCTAssertTrue(EditionCastVerbs.alreadyAnEdition(
+            "ES", editions: [], manifest: manifest))
     }
 
     /// An unlisted, unminted language has nobody to name, and the row says so
@@ -435,352 +375,10 @@ final class DepartmentPaneTests: XCTestCase {
             in: h.projectStore, projectURL: h.projectURL).rows
         let xx = try XCTUnwrap(rows.first { $0.language == "xx" })
         XCTAssertNil(xx.translator, "no preset, nothing stored — nothing honest")
-        XCTAssertEqual(DepartmentDesk.translatorLine(xx.translator),
-                       DepartmentDesk.noTranslatorYet)
+        XCTAssertTrue(TranslationRunStart.needsTranslatorName(language: "xx", in: h.projectStore.manifest),
+                      "…so a Run stands behind the cast sheet")
 
         await h.documentStore.close()
-    }
-
-    // MARK: - The brief's door (Task 2)
-
-    /// **The door mints the file the writer is about to write in, and mints it
-    /// once.** `createStatement` is find-or-create, so a second click finds what
-    /// the first made — same id, one manifest row, one file. A door that minted
-    /// per click would leave `edition-brief-es-2.md` beside the writer's own
-    /// (`vacantStatementPath` steers around an occupied path), and the second
-    /// visit would open the empty one.
-    func test_theBriefsDoorCreatesOnceAndFindsItThereafter() async throws {
-        let h = try await makeProject()
-
-        let opened = await DepartmentPaneHost.openBrief(language: "es", in: h.projectStore)
-        let reopened = await DepartmentPaneHost.openBrief(language: "es", in: h.projectStore)
-        let first = try XCTUnwrap(opened)
-        let second = try XCTUnwrap(reopened)
-
-        XCTAssertEqual(first.language, "es")
-        XCTAssertEqual(second.statementID, first.statementID,
-                       "the second click found what the first made")
-        let briefs = h.projectStore.manifest.statements.filter {
-            $0.kind == .editionBrief("es") && $0.scope == .project
-        }
-        XCTAssertEqual(briefs.count, 1, "one brief per edition, ever")
-        XCTAssertTrue(FileManager.default.fileExists(
-            atPath: h.projectURL.appendingPathComponent(briefs[0].path).path),
-            "the door leaves a file to write in")
-
-        await h.documentStore.close()
-    }
-
-    /// Two languages are two briefs — the statement is keyed by its language,
-    /// so the door must not hand `fr` the `es` brief.
-    func test_eachEditionGetsItsOwnBrief() async throws {
-        let h = try await makeProject()
-
-        let openedES = await DepartmentPaneHost.openBrief(language: "es", in: h.projectStore)
-        let openedFR = await DepartmentPaneHost.openBrief(language: "fr", in: h.projectStore)
-        let es = try XCTUnwrap(openedES)
-        let fr = try XCTUnwrap(openedFR)
-
-        XCTAssertNotEqual(es.statementID, fr.statementID)
-        XCTAssertEqual(h.projectStore.manifest.statements.count, 2)
-
-        await h.documentStore.close()
-    }
-
-    // MARK: - Mounted: which arm the pane is on
-
-    /// The sections scroll in ONE scroller of the pane's own — a right-column
-    /// pane may never grow the split view past the window it is a column of
-    /// (`DetailPaneColumnHeightCensusTests`).
-    func test_theDeskPutsItsSectionsInOneScrollerOfItsOwn() async throws {
-        let window = mount(languages: ["es"])
-        let scrollers = try await scrollersSettling(in: window)
-
-        XCTAssertEqual(scrollers.count, 1)
-    }
-
-    /// …and a project with no editions at all still has them, which is the arm
-    /// a reading of "the desk is for translations" would get wrong: the Design
-    /// row is always there, and Task 4 retired the empty state that used to
-    /// stand in front of it.
-    func test_aProjectWithNoEditionsStillHasTheDesksSections() async throws {
-        let window = mount(languages: [])
-        let scrollers = try await scrollersSettling(in: window)
-
-        XCTAssertEqual(scrollers.count, 1)
-    }
-
-    /// **A language row is named the way the rest of the app names one** —
-    /// `TranslationReviewIndicator.displayLabel`, so the tag the writer reads in
-    /// the translation indicator and the one they read on the desk are the same
-    /// string. Read off the accessibility tree, and skipped by name where no
-    /// assistive client can attach: a tree that was never built is not evidence
-    /// about this view.
-    func test_aLanguageRowIsNamedAsTheRestOfTheAppNamesIt() async throws {
-        let window = mount(languages: ["es"])
-        _ = try await scrollersSettling(in: window)
-
-        let texts = try axTexts(in: window)
-        XCTAssertFalse(texts.isEmpty,
-                       "the hosted desk published no text at all, so this test "
-                       + "could not fail for the reason it exists")
-        let expected = TranslationReviewIndicator.displayLabel(forLanguageTag: "es")
-        XCTAssertTrue(texts.contains { $0.contains(expected) },
-                      "no row reads \u{201C}\(expected)\u{201D}. Published: \(texts.sorted())")
-    }
-
-    /// **The row carries the four facts the spec asks a language row for** —
-    /// who translates it, how much of it is fresh/stale/missing, what is still
-    /// unanswered — and the door to its brief. Read off the mounted tree so the
-    /// assertion is about what a writer can see, not about a string constant.
-    func test_aLanguageRowCarriesItsTranslatorItsCoverageAndItsQueries() async throws {
-        let row = EditionStatus.LanguageRow(
-            language: "es", translator: "Cortázar",
-            fresh: 12, stale: 3, missing: 1, openQueries: 2)
-        let window = mount(rows: [row])
-        _ = try await scrollersSettling(in: window)
-
-        let texts = try axTexts(in: window)
-        for expected in ["Cortázar",
-                         DepartmentDesk.coverageLine(fresh: 12, stale: 3, missing: 1),
-                         DepartmentDesk.queryLine(openQueries: 2) ?? "",
-                         DepartmentDesk.editionBriefTitle] {
-            XCTAssertTrue(texts.contains { $0.contains(expected) },
-                          "nothing on the row reads \u{201C}\(expected)\u{201D}. "
-                          + "Published: \(texts.sorted())")
-        }
-    }
-
-    /// The door is a control, not a caption — a writer reaches it with the
-    /// keyboard and VoiceOver announces it, which a `Text` would not. Read off
-    /// the accessibility tree, as the sibling board reads its chips.
-    func test_theEditionBriefDoorIsAButtonOnEveryRow() async throws {
-        let window = mount(languages: ["es", "fr"])
-        _ = try await scrollersSettling(in: window)
-
-        let labels = try axButtonLabels(in: window)
-        XCTAssertEqual(labels.filter { $0 == DepartmentDesk.editionBriefTitle }.count, 2,
-                       "one door per edition. Buttons published: \(labels.sorted())")
-    }
-
-    // MARK: - The unreadable chapter, on screen (issue #43, F-D)
-
-    /// **A chapter that would not open is named on the desk, and "No
-    /// translations yet." yields to it.** Read off the mounted tree, because
-    /// this test is about what a writer sees rather than about which strings
-    /// exist: an empty Languages section over a book Maugham could not read is
-    /// the false claim F-D is about, and it is false in the exact case where
-    /// there is nothing else on the section to contradict it.
-    ///
-    /// The disable experiment: draw `noLanguagesYet` unconditionally and the
-    /// second assertion fails while the first still passes — the line alone is
-    /// not the fix.
-    func test_anUnreadableChapterIsNamedAndTheEmptyStateYieldsToIt() async throws {
-        let window = mount(rows: [], unreadable: [
-            EditionStatus.UnreadableDocument(
-                documentId: "doc-2", title: "Chapter 2",
-                reason: "The manuscript\u{2019}s history file can\u{2019}t be read."),
-        ])
-        _ = try await scrollersSettling(in: window)
-
-        let texts = try axTexts(in: window)
-        XCTAssertFalse(texts.isEmpty,
-                       "the hosted desk published no text at all, so this test "
-                       + "could not fail for the reason it exists")
-        let named = DepartmentDesk.couldNotRead("Chapter 2")
-        XCTAssertTrue(texts.contains { $0.contains(named) },
-                      "nothing on the desk reads \u{201C}\(named)\u{201D}. "
-                      + "Published: \(texts.sorted())")
-        XCTAssertTrue(texts.contains { $0.contains("history file") },
-                      "…and the failure's own sentence goes with it, so the "
-                      + "writer knows what to fix. Published: \(texts.sorted())")
-        XCTAssertFalse(texts.contains { $0.contains(DepartmentDesk.noLanguagesYet) },
-                       "\u{201C}\(DepartmentDesk.noLanguagesYet)\u{201D} is a claim "
-                       + "about the book, and a chapter that would not open is "
-                       + "exactly the case where Maugham cannot make it")
-    }
-
-    /// The control: nothing unreadable, no rows — the desk says what it has
-    /// always said, so the suppression above is the squat's doing and not a
-    /// section that lost its empty state.
-    func test_aReadableBookWithNoEditionsStillSaysSo() async throws {
-        let window = mount(rows: [], unreadable: [])
-        _ = try await scrollersSettling(in: window)
-
-        let texts = try axTexts(in: window)
-        XCTAssertTrue(texts.contains { $0.contains(DepartmentDesk.noLanguagesYet) },
-                      "Published: \(texts.sorted())")
-        XCTAssertFalse(texts.contains { $0.contains("Couldn\u{2019}t read") },
-                       "nothing failed, so nothing is named")
-    }
-
-    // MARK: - The imprint picker and the desk's own compile (imprints P3 Task 5)
-
-    /// **The picker is drawn only where there is a choice to make.** A project
-    /// with no imprints gets one sentence saying where an imprint comes from,
-    /// because a popup whose single row cannot be changed is a control that can
-    /// only refuse.
-    ///
-    /// The disable experiment: drop the `if !imprints.isEmpty` guard around the
-    /// `Picker` in `DepartmentPane.header` and the second half fails — the
-    /// picker publishes "Book" over a project that has no imprints at all.
-    func test_theImprintPickerIsDrawnOnlyWhenTheProjectDefinesOne() async throws {
-        let withOne = mount(languages: [], imprints: ["special"])
-        _ = try await scrollersSettling(in: withOne)
-        let drawn = try axTexts(in: withOne)
-        XCTAssertFalse(drawn.isEmpty,
-                       "the hosted desk published no text at all, so this test "
-                       + "could not fail for the reason it exists")
-        XCTAssertTrue(drawn.contains { $0.contains(DepartmentDesk.bookImprintTitle) },
-                      "the picker stands on the book until an imprint is picked. "
-                      + "Published: \(drawn.sorted())")
-
-        let withNone = mount(languages: [], imprints: [])
-        _ = try await scrollersSettling(in: withNone)
-        let bare = try axTexts(in: withNone)
-        XCTAssertFalse(bare.contains { $0.contains(DepartmentDesk.bookImprintTitle) },
-                       "no imprints, no picker. Published: \(bare.sorted())")
-    }
-
-    /// …and what stands in its place says where an imprint comes from. A writer
-    /// who cannot find the door has no other clue: an imprint is declared in a
-    /// file, not by a control on this desk.
-    ///
-    /// The disable experiment: draw `noImprintsYet` unconditionally and the
-    /// second assertion fails — the line appears over a project that HAS
-    /// imprints, beside the picker that contradicts it.
-    func test_aProjectWithNoImprintsIsToldWhereOneComesFrom() async throws {
-        let bare = mount(languages: [], imprints: [])
-        _ = try await scrollersSettling(in: bare)
-        let texts = try axTexts(in: bare)
-        XCTAssertTrue(texts.contains { $0.contains(DepartmentDesk.noImprintsYet) },
-                      "Published: \(texts.sorted())")
-        XCTAssertTrue(DepartmentDesk.noImprintsYet.contains("config.json"),
-                      "the line names the file, or it says nothing actionable")
-
-        let withOne = mount(languages: [], imprints: ["special"])
-        _ = try await scrollersSettling(in: withOne)
-        let drawn = try axTexts(in: withOne)
-        XCTAssertFalse(drawn.contains { $0.contains(DepartmentDesk.noImprintsYet) },
-                       "a project WITH imprints is not told it has none. "
-                       + "Published: \(drawn.sorted())")
-    }
-
-    /// **Compile is a door on the desk** — a real control a keyboard reaches
-    /// and VoiceOver announces, not a caption. Until Task 4 there was no way to
-    /// make a book from inside Maugham at all; this is the press.
-    func test_compileIsADoorOnTheDesk() async throws {
-        let window = mount(languages: [])
-        _ = try await scrollersSettling(in: window)
-
-        let labels = try axButtonLabels(in: window)
-        XCTAssertEqual(labels.filter { $0 == DepartmentDesk.compileTitle }.count, 1,
-                       "one press, on a project-level surface. Buttons "
-                       + "published: \(labels.sorted())")
-    }
-
-    /// **What the compile is doing is drawn where the run lines are drawn** —
-    /// one channel, `DepartmentCompileState.statusLine`, so the desk never says
-    /// two things about one press.
-    func test_theCompilesOwnLineIsDrawnOnTheDesk() async throws {
-        let running = DepartmentCompileState(
-            phase: .running(format: .epub, languages: ["en"], imprint: "special"),
-            isRunning: true)
-        let window = mount(languages: [], compileRun: running)
-        _ = try await scrollersSettling(in: window)
-
-        let texts = try axTexts(in: window)
-        let expected = try XCTUnwrap(running.statusLine)
-        XCTAssertTrue(texts.contains { $0.contains(expected) },
-                      "nothing on the desk reads \u{201C}\(expected)\u{201D}. "
-                      + "Published: \(texts.sorted())")
-    }
-
-    /// **Cancel is gated on `isRunning`, never on the phase** (Task 4's review
-    /// carry). Drawn while one runs, absent when none does.
-    ///
-    /// **Two disable experiments, and the pair is the point.** Gate the button
-    /// on `if case .running = compileRun.phase` instead and this still passes —
-    /// which is exactly why the refusal test below exists. And the ABSENT half
-    /// here is held by the outer `statusLine != nil || isRunning` guard around
-    /// `compileStatus` rather than by the button's own gate: making both `true`
-    /// is what publishes a "Cancel Compile" over an idle desk and fails it.
-    func test_cancelIsDrawnWhileACompileRunsAndNotOtherwise() async throws {
-        let running = mount(
-            languages: [],
-            compileRun: DepartmentCompileState(
-                phase: .running(format: .pdf, languages: [], imprint: nil),
-                isRunning: true))
-        _ = try await scrollersSettling(in: running)
-        XCTAssertEqual(
-            try axButtonLabels(in: running)
-                .filter { $0 == DepartmentDesk.cancelCompileLabel }.count, 1,
-            "a compile in flight has exactly one way to stop it")
-
-        let idle = mount(languages: [])
-        _ = try await scrollersSettling(in: idle)
-        let labels = try axButtonLabels(in: idle)
-        XCTAssertFalse(labels.contains(DepartmentDesk.cancelCompileLabel),
-                       "nothing is running, so there is nothing to cancel. "
-                       + "Buttons published: \(labels.sorted())")
-    }
-
-    /// **A refusal does not take the Cancel away, and does not pretend nothing
-    /// is compiling.** The second press replaces the PHASE while the run it was
-    /// refused for carries on: a Cancel read off the phase would vanish in
-    /// exactly that moment, taking the writer's only way to stop the compile
-    /// with it, and a bare refusal line would leave a Cancel button with
-    /// nothing on screen to explain what it cancels.
-    ///
-    /// The disable experiment: gate the Cancel on the phase (`if case .running`)
-    /// and the first assertion fails; return the bare `sentence` from
-    /// `statusLine`'s `.refused` arm and the second fails.
-    func test_aRefusalKeepsBothTheCancelAndTheNewsThatSomethingIsCompiling()
-        async throws {
-        let refused = DepartmentCompileState(
-            phase: .refused(DepartmentCompileState.alreadyRunning),
-            isRunning: true)
-        let window = mount(languages: [], compileRun: refused)
-        _ = try await scrollersSettling(in: window)
-
-        XCTAssertEqual(
-            try axButtonLabels(in: window)
-                .filter { $0 == DepartmentDesk.cancelCompileLabel }.count, 1,
-            "the run the press was refused for is still going, and stopping it "
-            + "is still the writer's to do")
-        let texts = try axTexts(in: window)
-        let expected = try XCTUnwrap(refused.statusLine)
-        XCTAssertTrue(texts.contains { $0.contains(expected) },
-                      "Published: \(texts.sorted())")
-        XCTAssertTrue(expected.contains("still compiling"),
-                      "…and that line says something IS compiling: \(expected)")
-    }
-
-    /// **Show Problems is drawn beside a line that has problems, and nowhere
-    /// else** (report foundations plan 2, Task 8). Asserted as drawn, never
-    /// pressed (tripwire 33): what it sends is `showProblems`' closure, wired by
-    /// the host to the runner's own `problems`.
-    func test_showProblemsIsDrawnWhenTheLastCompileLeftProblems() async throws {
-        let problem = TectonicLogParser.Diagnostic(
-            level: .error, file: nil, line: nil, message: "@fig:x is not a label",
-            contextLines: [], pieceID: "ch-1", paragraphID: "a1b2")
-        let refused = DepartmentCompileState.settled(after: .failed(
-            errors: [problem, problem, problem],
-            logExcerpt: PublishOrchestrator.publishProblemsLogExcerpt))
-        let window = mount(languages: [], compileRun: refused)
-        _ = try await scrollersSettling(in: window)
-        XCTAssertEqual(
-            try axButtonLabels(in: window)
-                .filter { $0 == DepartmentCompileState.showProblemsTitle }.count, 1)
-        let texts = try axTexts(in: window)
-        XCTAssertTrue(texts.contains { $0.contains(
-            "Couldn't publish: 3 problems in the manuscript") },
-            "Published: \(texts.sorted())")
-
-        let idle = mount(languages: [])
-        _ = try await scrollersSettling(in: idle)
-        XCTAssertFalse(try axButtonLabels(in: idle)
-            .contains(DepartmentCompileState.showProblemsTitle))
     }
 
     // MARK: - The compile sheet (Task 5)
@@ -789,20 +387,20 @@ final class DepartmentPaneTests: XCTestCase {
     /// and then Compile gets what they came for — the book — and every other
     /// box is something they added deliberately.
     func test_theSheetOffersTheBooksOwnLanguageCheckedAndCompilesIt() async throws {
-        var asked: [DeskCompileRunner.Request] = []
+        var asked: [CompileRunner.Request] = []
         let window = mountSheet(languages: ["es"], bookLanguage: "en",
                                 onCompile: { asked.append($0) })
         _ = await pumpUntil(deadline: 3) {
             (try? self.axButtonLabels(in: window))?
-                .contains(DepartmentCompileState.compileTitle) == true
+                .contains(CompileRunState.compileTitle) == true
         }
-        let doors = try axButtons(labelled: DepartmentCompileState.compileTitle,
+        let doors = try axButtons(labelled: CompileRunState.compileTitle,
                                   in: window)
         XCTAssertEqual(doors.count, 1, "one Compile on the sheet")
         press(doors[0])
         _ = await pumpUntil(deadline: 3) { !asked.isEmpty }
 
-        XCTAssertEqual(asked, [DeskCompileRunner.Request(
+        XCTAssertEqual(asked, [CompileRunner.Request(
             format: .pdf, languages: ["en"], imprint: nil, allowStale: false)],
             "the book's own tag, PDF, no imprint, nothing stale")
     }
@@ -810,7 +408,7 @@ final class DepartmentPaneTests: XCTestCase {
     /// The desk's format picker names every format this build produces, Word
     /// by name (report plan 4 Task 2, R-4-5).
     func test_theFormatPickerNamesWordByName() {
-        XCTAssertEqual(PublishConfig.Format.allCases.map(DepartmentCompileSheetCopy.formatTitle),
+        XCTAssertEqual(PublishConfig.Format.allCases.map(CompileSheetCopy.formatTitle),
                        ["PDF", "EPUB", "Word (.docx)"])
     }
 
@@ -818,20 +416,20 @@ final class DepartmentPaneTests: XCTestCase {
     /// list reaches `LanguageSet` as the source book, so a sheet that let it
     /// through would compile the book a writer had just unchecked.
     func test_theSheetRefusesACompileWithNoEditionInIt() {
-        XCTAssertFalse(DepartmentCompileSheetCopy.pickAnEdition.isEmpty)
-        XCTAssertTrue(DepartmentCompileSheetCopy
+        XCTAssertFalse(CompileSheetCopy.pickAnEdition.isEmpty)
+        XCTAssertTrue(CompileSheetCopy
             .bookLanguageTitle("en").contains("English"),
             "the untranslated body is named by its language, as the rest of the "
             + "app names one")
-        XCTAssertTrue(DepartmentCompileSheetCopy.subjectLine(imprint: "special")
+        XCTAssertTrue(CompileSheetCopy.subjectLine(imprint: "special")
             .contains("special"))
-        XCTAssertFalse(DepartmentCompileSheetCopy.subjectLine(imprint: nil)
+        XCTAssertFalse(CompileSheetCopy.subjectLine(imprint: nil)
             .contains("imprint"),
             "the plain book is not described as an imprint of itself")
-        XCTAssertTrue(DepartmentCompileSheetCopy.subjectLine(imprint: nil)
+        XCTAssertTrue(CompileSheetCopy.subjectLine(imprint: nil)
             .contains("a Word export its own draft"),
             "R-4-1: a Word export mints a draft, never a version, and the sheet says so")
-        XCTAssertTrue(DepartmentCompileSheetCopy.subjectLine(imprint: "special")
+        XCTAssertTrue(CompileSheetCopy.subjectLine(imprint: "special")
             .contains("a Word export mints its own draft"),
             "an imprint's Word export is a draft too, and its line says so")
     }
@@ -843,10 +441,10 @@ final class DepartmentPaneTests: XCTestCase {
     func test_theImprintPickersRowsAreTheConfigsImprintsSorted() {
         var config = PublishConfig()
         config.imprints = ["zeta": .init(), "alpha": .init()]
-        XCTAssertEqual(DepartmentPaneHost.imprintNames(in: config),
+        XCTAssertEqual(PublishImprint.imprintNames(in: config),
                        ["alpha", "zeta"])
-        XCTAssertEqual(DepartmentPaneHost.imprintNames(in: PublishConfig()), [])
-        XCTAssertEqual(DepartmentPaneHost.imprintNames(in: nil), [])
+        XCTAssertEqual(PublishImprint.imprintNames(in: PublishConfig()), [])
+        XCTAssertEqual(PublishImprint.imprintNames(in: nil), [])
     }
 
     /// **An imprint's `sections` block is an allowlist, and the desk sums what
@@ -864,17 +462,17 @@ final class DepartmentPaneTests: XCTestCase {
         let all = ["doc-1", "doc-2", "doc-3"]
 
         XCTAssertEqual(
-            DepartmentPaneHost.scopedDocumentIds(all, imprint: "pamphlet",
+            PublishImprint.scopedDocumentIds(all, imprint: "pamphlet",
                                                  in: config),
             ["doc-2"])
         XCTAssertEqual(
-            DepartmentPaneHost.scopedDocumentIds(all, imprint: "whole", in: config),
+            PublishImprint.scopedDocumentIds(all, imprint: "whole", in: config),
             all, "an imprint with no sections block inherits the book's own map")
         XCTAssertEqual(
-            DepartmentPaneHost.scopedDocumentIds(all, imprint: nil, in: config),
+            PublishImprint.scopedDocumentIds(all, imprint: nil, in: config),
             all)
         XCTAssertEqual(
-            DepartmentPaneHost.scopedDocumentIds(all, imprint: "gone", in: config),
+            PublishImprint.scopedDocumentIds(all, imprint: "gone", in: config),
             all, "a name the config no longer defines is a choice the writer "
             + "can no longer see; the honest reading is the whole book")
     }
@@ -886,7 +484,7 @@ final class DepartmentPaneTests: XCTestCase {
         config.imprints = ["pamphlet": .init(
             sections: ["doc-2": .init(), "deleted": .init()])]
         XCTAssertEqual(
-            DepartmentPaneHost.scopedDocumentIds(["doc-1", "doc-2"],
+            PublishImprint.scopedDocumentIds(["doc-1", "doc-2"],
                                                  imprint: "pamphlet", in: config),
             ["doc-2"])
     }
@@ -898,10 +496,10 @@ final class DepartmentPaneTests: XCTestCase {
         let fixture = try await makeProject()
         XCTAssertNil(fixture.documentStore.uiState.publishImprint)
 
-        DepartmentPaneHost.select(imprint: "special", in: fixture.documentStore)
+        PublishImprint.select(imprint: "special", in: fixture.documentStore)
         XCTAssertEqual(fixture.documentStore.uiState.publishImprint, "special")
 
-        DepartmentPaneHost.select(imprint: nil, in: fixture.documentStore)
+        PublishImprint.select(imprint: nil, in: fixture.documentStore)
         XCTAssertNil(fixture.documentStore.uiState.publishImprint,
                      "the picker's first row is the book, and choosing it is a "
                      + "choice rather than a no-op")
@@ -1042,22 +640,22 @@ final class DepartmentPaneTests: XCTestCase {
         let pieces = ["doc-1", "doc-2"]
 
         XCTAssertEqual(
-            DepartmentPaneHost.sourceLanguage(imprint: "es-edition", in: config,
+            PublishImprint.sourceLanguage(imprint: "es-edition", in: config,
                                               pieceIDs: pieces), "es")
         XCTAssertEqual(
-            DepartmentPaneHost.sourceLanguage(imprint: "plain", in: config,
+            PublishImprint.sourceLanguage(imprint: "plain", in: config,
                                               pieceIDs: pieces), "en",
             "an imprint that spells no language of its own inherits the book's")
         XCTAssertEqual(
-            DepartmentPaneHost.sourceLanguage(imprint: nil, in: config,
+            PublishImprint.sourceLanguage(imprint: nil, in: config,
                                               pieceIDs: pieces), "en")
         XCTAssertEqual(
-            DepartmentPaneHost.sourceLanguage(imprint: "gone", in: config,
+            PublishImprint.sourceLanguage(imprint: "gone", in: config,
                                               pieceIDs: pieces), "en",
             "a name the config no longer defines falls back to the book, as "
             + "`scopedDocumentIds` does for the same case")
         XCTAssertEqual(
-            DepartmentPaneHost.sourceLanguage(imprint: "es-edition", in: nil,
+            PublishImprint.sourceLanguage(imprint: "es-edition", in: nil,
                                               pieceIDs: pieces),
             PublishConfig.Metadata().language,
             "a project with no config at all still has to answer something")
@@ -1084,22 +682,22 @@ final class DepartmentPaneTests: XCTestCase {
     /// (`scopedDocumentIds`). The header and the rows disagreed, silently.
     ///
     /// Disable experiment: return `persisted` unconditionally from
-    /// `DepartmentPaneHost.selection(persisted:among:)` and the first assertion
+    /// `PublishImprint.selection(persisted:among:)` and the first assertion
     /// fails with `XCTAssertNil failed: "gone"`.
     func test_aPersistedImprintTheConfigNoLongerHasIsDrawnAsTheBook() throws {
-        XCTAssertNil(DepartmentPaneHost.selection(persisted: "gone",
+        XCTAssertNil(PublishImprint.selection(persisted: "gone",
                                                   among: ["special", "other"]),
                      "a name no row can show is not a selection — the picker "
                      + "draws blank on it")
-        XCTAssertNil(DepartmentPaneHost.selection(persisted: "special", among: []),
+        XCTAssertNil(PublishImprint.selection(persisted: "special", among: []),
                      "…and a project whose imprints all went away is the book")
 
         // The controls: a name the config still declares survives, and the
         // book itself is unaffected.
-        XCTAssertEqual(DepartmentPaneHost.selection(persisted: "special",
+        XCTAssertEqual(PublishImprint.selection(persisted: "special",
                                                     among: ["other", "special"]),
                        "special")
-        XCTAssertNil(DepartmentPaneHost.selection(persisted: nil,
+        XCTAssertNil(PublishImprint.selection(persisted: nil,
                                                   among: ["special"]))
 
         // …and the rows the desk draws under that blank picker were already
@@ -1108,150 +706,30 @@ final class DepartmentPaneTests: XCTestCase {
         var config = PublishConfig(metadata: .init(title: "T", author: "A"))
         config.imprints = ["special": .init(sections: ["doc-1": .init(include: true)])]
         XCTAssertEqual(
-            DepartmentPaneHost.scopedDocumentIds(pieces, imprint: "gone", in: config),
+            PublishImprint.scopedDocumentIds(pieces, imprint: "gone", in: config),
             pieces,
             "premise: the rows already fall back to the whole book for a name "
             + "the config does not define")
     }
 
-    /// **The desk's pick is joined into the re-derive key**, which is the whole
-    /// of how picking an imprint re-sums the rows. Nothing the pane DRAWS shows
-    /// this: delete the join and the desk goes on reporting the previous book's
-    /// coverage under the new imprint's name, silently.
+    /// **The compile sheet never offers the book's own language twice**
+    /// (moved from the desk to `EditionCompileAsk`, the compile bar's ask).
     ///
-    /// The disable experiment: drop `imprint:` from `reloadKey`'s construction
-    /// (pass `nil`) and the second assertion fails — the two keys compare equal
-    /// across a changed pick.
-    func test_theDesksPickIsJoinedIntoTheReDeriveKey() async throws {
-        let fixture = try await makeProject()
-        let host = DepartmentPaneHost(store: fixture.projectStore,
-                                      documentStore: fixture.documentStore,
-                                      projectURL: fixture.projectURL,
-                                      compileRunner: DeskCompileRunner())
-        let onTheBook = host.reloadKey
-
-        DepartmentPaneHost.select(imprint: "special", in: fixture.documentStore)
-        let onTheImprint = host.reloadKey
-
-        XCTAssertEqual(onTheImprint.imprint, "special")
-        XCTAssertNotEqual(onTheBook, onTheImprint,
-                          "a changed pick must change the key, or the rows are "
-                          + "never re-derived against the imprint's own "
-                          + "documents")
-    }
-
-    /// **The compile sheet never offers the book's own language twice.**
-    ///
-    /// The sheet draws the untranslated body as its own checkbox ("The book's
-    /// own language (English)"). A translator ROW named for the same tag — the
-    /// desk accepts `Add Language…` with "en" on an English book — put a second
-    /// English box beside it, and a writer who checked both sent `["en", "en"]`
-    /// into `LanguageSet`, which refuses a duplicate: a red compile for a
-    /// request the sheet itself made offerable.
-    ///
-    /// Disable experiment: delete the `.filter` on `languages:` at
-    /// `DepartmentPane`'s `DepartmentCompileSheet(…)` and this fails with
-    /// `XCTAssertEqual failed: ("1") is not equal to ("0") — the book's own
-    /// language is offered twice…`.
-    func test_theCompileSheetNeverOffersTheBooksOwnLanguageTwice() async throws {
-        // "EN" rather than "en" — a tag is matched case-insensitively
-        // everywhere else on this desk, and a writer types what they type.
-        let window = mount(languages: ["EN", "es"])
-        _ = try await scrollersSettling(in: window)
-        press(try axButtons(labelled: DepartmentDesk.compileTitle, in: window)[0])
-        let attached = await attachedSheetWindow(of: window)
-        let sheet = try XCTUnwrap(attached, "Compile… opened no sheet to inspect")
-
-        let texts = try axTexts(in: sheet)
-        let ownTag = TranslationReviewIndicator.displayLabel(forLanguageTag: "EN")
-        XCTAssertEqual(texts.filter { $0 == ownTag }.count, 0,
-                       "the book's own language is offered twice — checking "
-                       + "both boxes sends a duplicate tag and the compile is "
-                       + "refused. Published: \(texts.sorted())")
-
-        // The controls: the book's own row IS there, and a language that is
-        // genuinely a translation still is too.
-        let bookRow = DepartmentCompileSheetCopy.bookLanguageTitle("en")
-        XCTAssertTrue(texts.contains { $0.contains(bookRow) },
-                      "the book's own language must still be offered once. "
-                      + "Published: \(texts.sorted())")
-        let other = TranslationReviewIndicator.displayLabel(forLanguageTag: "es")
-        XCTAssertTrue(texts.contains { $0 == other },
-                      "…and a real translation is still on the sheet. "
-                      + "Published: \(texts.sorted())")
-    }
-
-    /// **Wait for a `.sheet` to attach** — a real child `NSWindow` once the
-    /// parent is ordered front, which every mount here does.
-    private func attachedSheetWindow(of parent: NSWindow,
-                                     deadline: TimeInterval = 5) async -> NSWindow? {
-        var sheet: NSWindow?
-        _ = await pumpUntil(deadline: deadline) {
-            sheet = parent.attachedSheet
-            return sheet != nil
-        }
-        return sheet
-    }
-
-    // MARK: - Census
-
-    /// **The desk reads no store** (tripwire 4). Its values are assembled by the
-    /// mount precisely because assembling them is expensive — the language union
-    /// walks every document's translation store and the proposal count reads
-    /// `.maugham/design/proposals/` — and a `body` that could reach either would
-    /// pay for it once per row. Tasks 2–4 add the rows' contents and their
-    /// verbs: the verbs arrive as closures, the contents as values, and neither
-    /// makes this census stale.
-    func test_theSourceReadsNoStoreAtAll() throws {
-        let code = try Self.codeLines(of: "Views/Publish/DepartmentPane.swift")
-
-        for forbidden in ["ProjectStore", "DocumentStore", "TranslationStore",
-                          "DesignProposalStore", "PublishConfigStore",
-                          "StatementProposalStore",
-                          "FileManager", "contentsOf"] {
-            XCTAssertFalse(code.contains { $0.contains(forbidden) },
-                           "`\(forbidden)` appears on the pane's path — the desk "
-                           + "takes values so nothing per-row can reach the disk "
-                           + "(tripwire 4)")
+    /// The sheet draws the untranslated body as its own checkbox. An edition
+    /// named for the same tag — "EN" on an English book — put a second English
+    /// box beside it, and checking both sent `["en", "en"]` into
+    /// `LanguageSet`, which refuses a duplicate.
+    func test_theCompileSheetNeverOffersTheBooksOwnLanguageTwice() {
+        for edition in [nil, "es"] as [String?] {
+            let ask = EditionCompileAsk.make(editions: ["en", "EN", "es"], edition: edition)
+            XCTAssertEqual(ask.bookLanguage, "en")
+            XCTAssertFalse(ask.languages.contains { $0.caseInsensitiveCompare("en") == .orderedSame },
+                           "the book's own language is offered twice: \(ask.languages)")
+            XCTAssertEqual(ask.languages, ["es"], "a real translation is still on the sheet")
         }
     }
 
     // MARK: - Hosting
-
-    /// Bare tags, for the tests that are about the sections rather than a row's
-    /// contents: every figure zero, nobody named.
-    private func mount(languages: [String],
-                       width: CGFloat = 340,
-                       imprints: [String] = [],
-                       compileRun: DepartmentCompileState = DepartmentCompileState(),
-                       openEditionBrief: @escaping (String) -> Void = { _ in }) -> NSWindow {
-        mount(rows: languages.map {
-            EditionStatus.LanguageRow(language: $0, translator: nil,
-                                      fresh: 0, stale: 0, missing: 0, openQueries: 0)
-        }, width: width, imprints: imprints, compileRun: compileRun,
-           openEditionBrief: openEditionBrief)
-    }
-
-    private func mount(rows: [EditionStatus.LanguageRow],
-                       unreadable: [EditionStatus.UnreadableDocument] = [],
-                       width: CGFloat = 340,
-                       imprints: [String] = [],
-                       compileRun: DepartmentCompileState = DepartmentCompileState(),
-                       openEditionBrief: @escaping (String) -> Void = { _ in }) -> NSWindow {
-        let window = TestWindow.mount(
-            AnyView(DepartmentPane(title: "The Project",
-                                   languages: rows,
-                                   unreadable: unreadable,
-                                   translationOffers: .unrestricted,
-                                   openEditionBrief: openEditionBrief,
-                                   imprints: imprints,
-                                   compileRun: compileRun)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)),
-            size: CGSize(width: width, height: 600))
-        windows.append(window)
-        pump(0.1)
-        return window
-    }
 
     /// The compile sheet on its own, mounted rather than presented: a `.sheet`
     /// needs a host window to attach to, and what these tests are about is the
@@ -1260,10 +738,10 @@ final class DepartmentPaneTests: XCTestCase {
     private func mountSheet(languages: [String],
                             bookLanguage: String,
                             imprint: String? = nil,
-                            onCompile: @escaping (DeskCompileRunner.Request) -> Void
+                            onCompile: @escaping (CompileRunner.Request) -> Void
                                 = { _ in }) -> NSWindow {
         let window = TestWindow.mount(
-            AnyView(DepartmentCompileSheet(languages: languages,
+            AnyView(CompileSheet(languages: languages,
                                            bookLanguage: bookLanguage,
                                            imprint: imprint,
                                            onCompile: onCompile,
@@ -1273,25 +751,6 @@ final class DepartmentPaneTests: XCTestCase {
         windows.append(window)
         pump(0.1)
         return window
-    }
-
-    private func scrollViews(in window: NSWindow) -> [NSScrollView] {
-        collect(NSScrollView.self, in: window)
-    }
-
-    private func scrollersSettling(in window: NSWindow,
-                                   file: StaticString = #filePath,
-                                   line: UInt = #line) async throws -> [NSScrollView] {
-        var found: [NSScrollView] = []
-        _ = await pumpUntil(deadline: 5) {
-            found = self.scrollViews(in: window)
-            return !found.isEmpty
-        }
-        pump(0.2)
-        found = scrollViews(in: window)
-        XCTAssertFalse(found.isEmpty,
-                       "the desk mounted no sections at all", file: file, line: line)
-        return found
     }
 
     // MARK: - A project on disk (the derivation's fixture)
@@ -1431,11 +890,11 @@ final class DepartmentPaneTests: XCTestCase {
     // MARK: - The cast sheet's three fields (translation pipeline P2 Task 9)
 
     func test_everyEditionAskTakesTheCastAndTheDesignersDoesNot() {
-        XCTAssertTrue(DepartmentCastPrompt(ask: .addLanguage).takesCast)
-        XCTAssertTrue(DepartmentCastPrompt(ask: .nameForRun(language: "es", docId: "d")).takesCast)
-        XCTAssertTrue(DepartmentCastPrompt(
+        XCTAssertTrue(EditionCastPrompt(ask: .addLanguage).takesCast)
+        XCTAssertTrue(EditionCastPrompt(ask: .nameForRun(language: "es", docId: "d")).takesCast)
+        XCTAssertTrue(EditionCastPrompt(
             ask: .rename(subject: .edition(language: "es"), currentName: "X")).takesCast)
-        XCTAssertFalse(DepartmentCastPrompt(
+        XCTAssertFalse(EditionCastPrompt(
             ask: .rename(subject: .designer, currentName: "X")).takesCast)
     }
 
@@ -1447,17 +906,17 @@ final class DepartmentPaneTests: XCTestCase {
     /// `.nameForRun` here would translate the open chapter alone — the writer
     /// having asked for the book.
     func test_theBookRunsAskCarriesItsQueueAndWearsTheRunSheetsWords() {
-        let ask = DepartmentPaneHost.bookAsk(language: "xx",
+        let ask = TranslationRunStart.bookAsk(language: "xx",
                                              documentIds: ["doc-1", "doc-2"])
         XCTAssertEqual(ask, .nameForBookRun(language: "xx",
                                             documentIds: ["doc-1", "doc-2"]))
 
-        let prompt = DepartmentCastPrompt(ask: ask)
-        XCTAssertEqual(prompt.title, DepartmentCastCopy.nameForRunTitle(language: "xx"),
+        let prompt = EditionCastPrompt(ask: ask)
+        XCTAssertEqual(prompt.title, EditionCastCopy.nameForRunTitle(language: "xx"),
                        "the sheet names the edition it is about, as the chapter "
                        + "run's does")
-        XCTAssertEqual(prompt.confirmTitle, DepartmentCastCopy.nameAndRunTitle)
-        XCTAssertEqual(DepartmentCastCopy.nameAndRunTitle, "Name & Run")
+        XCTAssertEqual(prompt.confirmTitle, EditionCastCopy.nameAndRunTitle)
+        XCTAssertEqual(EditionCastCopy.nameAndRunTitle, "Name & Run")
         XCTAssertTrue(prompt.takesCast, "an edition ask takes the whole cast")
         XCTAssertFalse(prompt.takesLanguageTag,
                        "the language is already known — only Add Language types one")
@@ -1467,29 +926,10 @@ final class DepartmentPaneTests: XCTestCase {
     /// who presses Run and then Run Whole Book must not have the second ask
     /// silently answered by the first sheet's identity.
     func test_theBookRunsAskHasAnIdentityOfItsOwn() {
-        let book = DepartmentCastPrompt(ask: .nameForBookRun(language: "xx",
+        let book = EditionCastPrompt(ask: .nameForBookRun(language: "xx",
                                                              documentIds: ["doc-1"]))
-        let chapter = DepartmentCastPrompt(ask: .nameForRun(language: "xx", docId: "doc-1"))
+        let chapter = EditionCastPrompt(ask: .nameForRun(language: "xx", docId: "doc-1"))
         XCTAssertNotEqual(book.id, chapter.id)
     }
 
-    // MARK: - When the pre-flight is worth taking (translation pipeline P4,
-    // review finding 1)
-
-    /// **A running round pays for no budgets.** `derive()` re-runs on every
-    /// `maughamTranslationDidUpdate`, which a live round fires per ingest, and
-    /// a budget opens every scoped document — so the one pass a round makes
-    /// most often is the one that must not do this work. The figures it would
-    /// have refreshed answer *what would this click cost*, and mid-round there
-    /// is no such click.
-    func test_thePreflightIsTakenOnlyWhileNoRoundIsRunning() {
-        XCTAssertTrue(DepartmentPaneHost.refillsBudgets(pipeline: .idle))
-        XCTAssertFalse(DepartmentPaneHost.refillsBudgets(
-            pipeline: .running(docId: "doc-1", language: "es", leg: .translate, book: nil)))
-        XCTAssertFalse(DepartmentPaneHost.refillsBudgets(
-            pipeline: .running(docId: "doc-9", language: "fr", leg: .collate,
-                               book: .init(position: 3, count: 9))),
-            "any leg of any pair — the desk is one session's, and there is "
-            + "nothing to weigh while any of it is under way")
-    }
 }

@@ -1,20 +1,19 @@
 import Foundation
 import MaughamCore
 
-/// **The DESIGN half of the department desk, as decisions rather than as a
-/// view** (publish-department P4 Task 4).
+/// **A design round, as decisions rather than as a view** (publish-department
+/// P4 Task 4; drawn on the Source edition's To resolve head since shell p4).
 ///
-/// `DepartmentRunState`'s sibling one section up the pane, written to the same
+/// `TranslationRunState`'s sibling one section up the pane, written to the same
 /// rule and for the same reason: everything the Design row draws or refuses is a
 /// pure function here, so the whole surface is drivable from literals and
-/// `DepartmentPane` goes on taking values and holding no store
-/// (`DepartmentPaneTests.test_theSourceReadsNoStoreAtAll`).
+/// the head that draws it takes values.
 ///
 /// **Where it departs from the language rows, and why.**
 ///
 /// - **There is one design line for the whole book**, not one per language
 ///   (spec §5), so nothing here is scoped to a pair the way every decision in
-///   `DepartmentRunState` is. The desk's ruling for this milestone is that
+///   `TranslationRunState` is. The desk's ruling for this milestone is that
 ///   `runDesign` is called with `language: nil` — no picker, no per-edition
 ///   round — so the row is about the book's design, full stop.
 /// - **A design round's PRODUCT is on the desk.** A translation round writes
@@ -33,7 +32,7 @@ import MaughamCore
 /// **Whether the window's single designer session is free**, and which round has
 /// it when it is not.
 ///
-/// `DepartmentRunSession`'s shape, keyed on the round rather than an edition:
+/// `TranslationRunSession`'s shape, keyed on the round rather than an edition:
 /// `DesignerOrchestrator` holds one warm `claude` per project and refuses a
 /// second round outright (`runDesign`'s `!isRunning` guard) — silently, which is
 /// what Global Constraint 2 forbids a surface to leave at that.
@@ -72,7 +71,7 @@ enum DesignSession: Equatable {
 /// .publishablePieces()` — the very list `orderedPieces()` maps over, extracted
 /// so the desk can ask "is there a book" without materializing one; the
 /// briefing's own test is `ast.sections.isEmpty`, and
-/// `DepartmentRunTests.test_thePublishablePiecesAreExactlyTheSectionsTheASTWouldBuild`
+/// `TranslationRunTests.test_thePublishablePiecesAreExactlyTheSectionsTheASTWouldBuild`
 /// is what keeps the two from drifting.
 ///
 /// **What is deliberately NOT closed here**: `ProjectASTBuilder.build` can also
@@ -97,11 +96,11 @@ enum DesignBriefability: Equatable {
 
 /// **Everything the Design row draws**, resolved from the project's staged
 /// proposals and the window's designer session.
-struct DepartmentDesignRow: Equatable {
+struct DesignRoundState: Equatable {
 
     /// **What the last thing the design verbs did.**
     ///
-    /// `DepartmentRunState.Phase`'s counterpart. `DesignerOrchestrator.RunState`
+    /// `TranslationRunState.Phase`'s counterpart. `DesignerOrchestrator.RunState`
     /// returns to `.idle` on a round that staged — what it produced is the
     /// proposal, which is `latestLine`'s subject — so there is no success arm
     /// here and nothing to invent one for.
@@ -128,7 +127,7 @@ struct DepartmentDesignRow: Equatable {
     /// The newest round's own line: which round, where it stands, how long ago.
     /// Never `nil`: a project with no round yet says so, because a blank line
     /// under a designer's name reads as a surface that failed to load.
-    var latestLine: String = DepartmentDesignRow.noRoundYet
+    var latestLine: String = DesignRoundState.noRoundYet
 
     var phase: Phase = .idle
 
@@ -192,7 +191,7 @@ struct DepartmentDesignRow: Equatable {
                         runState: DesignerOrchestrator.RunState,
                         session: DesignSession,
                         hasOpenProposalRound: Bool,
-                        now: Date = Date()) -> DepartmentDesignRow {
+                        now: Date = Date()) -> DesignRoundState {
         var phase = Phase.idle
         switch runState {
         case .running(let round, let language):
@@ -203,7 +202,7 @@ struct DepartmentDesignRow: Equatable {
             break
         }
 
-        return DepartmentDesignRow(
+        return DesignRoundState(
             designerName: designerName,
             pendingBadge: proposals.contains { $0.status == .pending }
                 ? pendingBadgeTitle : nil,
@@ -331,7 +330,7 @@ struct DepartmentDesignRow: Equatable {
 
     /// The door to the gate (P4 Task 5). **"Show" and not "Show Proposal"** —
     /// the row is the design, so the object is in the click, which is the same
-    /// argument `DepartmentDesk.editionBriefTitle` makes one section down.
+    /// argument a row's own verbs make everywhere.
     static let showTitle = "Show"
 
     /// Distinct in the accessibility tree for `runAccessibilityLabel`'s reason:
@@ -344,7 +343,7 @@ struct DepartmentDesignRow: Equatable {
         + "the templates it stages, and the sample pages it was compiled on."
 
     /// **The Design row's rename verb, naming the designer it is about**
-    /// (cast-management) — `DepartmentDesk.renameTitle`'s sibling, for the same
+    /// (cast-management) — the edition cast's sibling, for the same
     /// reason: a desk full of "Rename…" is a desk of controls a VoiceOver user
     /// cannot tell apart. There is no nobody-yet arm here, because every project
     /// has Tschichold from the moment it exists.

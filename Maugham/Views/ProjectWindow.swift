@@ -124,11 +124,6 @@ struct ProjectWindow: View {
     /// when the pulled-up position is left with nothing to show
     /// (`RightColumnContent.positionAfterSubjectChange`).
     @State private var previousFace: RightColumnPosition = .resolve
-    /// ⌘⌥L was pressed outside translation review: the ground it was asked
-    /// over. To resolve says in one
-    /// line how to get there while that ground stands. Cleared by the column
-    /// on the next move.
-    @State private var resolveHint: RightColumn.AskedHint?
     /// ⌘⌥I's or ⌘⌥N's request for a Brief field (`BriefField`), consumed by
     /// the field.
     @State private var briefFocus: BriefField?
@@ -432,6 +427,14 @@ struct ProjectWindow: View {
             activeSheet = .translatorsNote(target)
         }
         .modifier(NoteOutcomeAlert(outcome: $noteOutcome))
+        // Add Language (the Editions `+`, the Source row, a proposed brief)
+        // and ⌘⌥K, the edition's To resolve (shell p4 Task 7).
+        .modifier(EditionWiring(
+            store: store, documentStore: documentStore, window: window,
+            subject: subjectBinding, showInspector: $showInspector,
+            position: $rightColumnPosition, editions: treeState.editionRows,
+            readingLanguage: editorControl.translationLanguage,
+            select: { selectFromTheTree($0) }))
         .onKeyWindowCommand(.maughamShowClaudeDesktopHelp, window: window) { _ in
             activeSheet = .claudeDesktop
         }
@@ -552,7 +555,6 @@ struct ProjectWindow: View {
             showInspector: $showInspector,
             position: $rightColumnPosition,
             resolveRequest: $resolveRequest,
-            resolveHint: $resolveHint,
             briefFocus: $briefFocus,
             pulledUpMemory: pulledUpMemory,
             translationLanguage: editorControl.translationLanguage,
@@ -953,8 +955,6 @@ struct ProjectWindow: View {
         /// To resolve's filter request — what ⌘⌥A, ⌘⌥D and ⌘⌥T ask for
         /// beside the position (`MaughamEvent.resolveFilterKey`).
         @Binding var resolveRequest: ResolveRequest?
-        /// ⌘⌥L outside translation review (`RightColumn` draws the line).
-        @Binding var resolveHint: RightColumn.AskedHint?
         /// ⌘⌥I's and ⌘⌥N's Brief field.
         @Binding var briefFocus: BriefField?
         /// The window's pulled-up memory: a key's pull-up of what is already
@@ -1010,15 +1010,6 @@ struct ProjectWindow: View {
                             structure: store?.manifest.structure ?? [],
                             projectType: store?.manifest.type ?? .novel))
                     if let request = ask.request { resolveRequest = request }
-                    // The ground it is asked over: the position just
-                    // selected, so the column's clear on that very change
-                    // keeps it (`RightColumn.hint(asked:groundNow:)`).
-                    resolveHint = ask.explains.map {
-                        RightColumn.AskedHint(
-                            hint: $0,
-                            ground: RightColumn.hintStandsOver(position: asked, subject: subject,
-                                                               translationLanguage: translationLanguage))
-                    }
                     // ⌘⌥I and ⌘⌥N: the field takes the keys (and the request).
                     if let field = ask.briefField { briefFocus = field }
                 }
@@ -1985,7 +1976,6 @@ struct ProjectWindow: View {
             showStrain: { showStrain($0) },
             openBrief: { openBrief($0) },
             pullUp: { pullUpItem($0) },
-            resolveHint: $resolveHint,
             briefFocus: $briefFocus,
             drawsFigure: { [treeState] in
                 treeState.drawsFigure($0, projectType: store.manifest.type)
@@ -2483,6 +2473,14 @@ struct ProjectWindow: View {
             position: position)
     }
 
+    /// A click on a tree row, through the click rule (a new edition, once
+    /// Add Language has made it).
+    private func selectFromTheTree(_ target: BinderSubject) {
+        subject = ClickRule.resolve(target, gesture: .click, current: subject,
+                                    structure: store?.manifest.structure ?? [],
+                                    projectType: store?.manifest.type ?? .novel)
+    }
+
     /// **Going to a thing from outside the tree** — a link, a find result,
     /// Claude's Show, a command that made a piece: `ClickRule.navigate`, which
     /// leaves a thing already beside or in the faces where it is.
@@ -2802,13 +2800,10 @@ struct ProjectWindow: View {
     }
 
     /// **What a `.maughamSetRightColumn` post asks beyond the position**:
-    /// To resolve's filter, ⌘⌥L's explanation, and ⌘⌥I's or ⌘⌥N's Brief
-    /// field.
+    /// To resolve's filter, and ⌘⌥I's or ⌘⌥N's Brief field.
     struct PositionAsk: Equatable {
         /// The request To resolve takes; nil where there is none to take.
         let request: ResolveRequest?
-        /// What To resolve says about how to reach the review.
-        let explains: RightColumn.ResolveHint?
         /// The Brief field that takes the keys; nil where Brief has none.
         var briefField: BriefField? = nil
     }
@@ -2821,9 +2816,7 @@ struct ProjectWindow: View {
     /// left to fire later. Only while the translation review shows (interim
     /// until Task 9, no list mounted to spend it) the key still selects the
     /// position and the filter is dropped: a request left set would fire the
-    /// next time the list mounted, minutes later. ⌘⌥L's explanation is said
-    /// only over the list too: over the review the key has already landed
-    /// where it names. A Brief field is asked only where `briefShows`
+    /// next time the list mounted, minutes later. A Brief field is asked only where `briefShows`
     /// (`RightColumnContent.of` for `.brief`) draws it, so no request stands
     /// over a Brief that cannot take it. Pure.
     static func positionAsk(in userInfo: [AnyHashable: Any]?,
@@ -2837,9 +2830,6 @@ struct ProjectWindow: View {
         }
         return PositionAsk(
             request: listShows ? resolveFilter(in: userInfo).map(ResolveRequest.filter) : nil,
-            explains: listShows
-                ? (userInfo?[MaughamEvent.explainsKey] as? String).flatMap(RightColumn.ResolveHint.init(rawValue:))
-                : nil,
             briefField: briefField)
     }
 

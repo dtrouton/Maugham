@@ -1166,11 +1166,11 @@ extension DocumentStorePostureTests {
         await store.postureSettled()
         // The Translation pane asks `posture(forDocId: document.docId)` — the
         // piece's id — for `.translate`; the desk asks the same id as the
-        // translator (`DepartmentPaneHost.postureOfTheTranslator`).
+        // translator (`TranslationRunStart.postureOfTheTranslator`).
         XCTAssertEqual(DocumentClass.resolve(docId: Self.docId, facts: .empty), .piece(Self.docId))
         XCTAssertFalse(store.posture(forDocId: Self.docId).allows(.translate),
                        "the pane's question yields with the piece, by its own id")
-        XCTAssertTrue(DepartmentPaneHost.postureOfTheTranslator(
+        XCTAssertTrue(TranslationRunStart.postureOfTheTranslator(
             forPiece: Self.docId, in: store).allows(.translate),
             "the desk's translator is never yielded")
     }

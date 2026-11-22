@@ -83,7 +83,7 @@ public struct ProjectStoreASTSource: @MainActor ProjectASTBuilder.Source {
     /// Every item here yields exactly one section: `ProjectASTBuilder.build`
     /// maps one-to-one, and `pieceRef` cannot answer nil for an item that
     /// passed these two guards. So `publishablePieces().count ==
-    /// build(from:).sections.count`, which is what `DepartmentRunTests
+    /// build(from:).sections.count`, which is what `TranslationRunTests
     /// .test_thePublishablePiecesAreExactlyTheSectionsTheASTWouldBuild` pins —
     /// the desk's cheap question and the briefing's expensive one must not
     /// drift.

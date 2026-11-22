@@ -92,11 +92,6 @@ struct RightColumn: View {
     /// `ProjectWindow.pullUpItem` — Brief's pull-up links, through the one
     /// pull-up act (the position moves even when the item is already beside).
     var pullUp: (PulledUp) -> Void = { _ in }
-    /// ⌘⌥L was pressed outside translation review: the ground it was asked
-    /// over. To resolve says how to
-    /// get there while that ground stands. Cleared here on the next move
-    /// (`hint(asked:groundNow:)`).
-    @Binding var resolveHint: AskedHint?
     /// ⌘⌥I's or ⌘⌥N's request: Brief takes it through the environment
     /// (`EnvironmentValues.briefFocus`), and the field consumes it.
     var briefFocus: Binding<BriefField?> = .constant(nil)
@@ -277,76 +272,11 @@ struct RightColumn: View {
         .onChange(of: editorControl.translationLanguage) { _, lang in
             if lang != nil { position = .resolve }
         }
-        // ⌘⌥L's explanation stands until the writer moves on — and not
-        // before: the key's own position change is the ground it was asked
-        // over (final wave, Task 9's re-review A).
-        .onChange(of: Self.hintStandsOver(position: position, subject: subject,
-                                          translationLanguage: editorControl.translationLanguage)) { _, now in
-            resolveHint = Self.hint(asked: resolveHint, groundNow: now)
-        }
     }
 
     /// View ▸ ⌘⌥0's title: what a press does to the column. Pure.
     static func toggleTitle(shown: Bool) -> String {
         shown ? "Hide Right Column" : "Show Right Column"
-    }
-
-    /// How translation review is entered — what ⌘⌥L says outside it (the old
-    /// Translation pane's sentence, with the menu item named).
-    static let translationReviewHintLine =
-        "Not in translation review. Choose View ▸ Translation Review… to see a "
-        + "paragraph's source text and reply to translator queries."
-
-    /// **The key that names what To resolve shows only on some ground**
-    /// (⌘⌥L, translation review), and the line it says off that ground.
-    /// (⌘⌥K's desk line went with the desk, shell p4 Task 6: an edition's
-    /// To resolve is To resolve's own list.)
-    enum ResolveHint: String, Equatable {
-        case translationReview
-
-        var line: String {
-            switch self {
-            case .translationReview: return RightColumn.translationReviewHintLine
-            }
-        }
-    }
-
-    /// What an explanation stands over: the receiver records the ground it
-    /// asked over (the position it just selected, the subject, not in
-    /// review), and any later ground other than that one clears the line.
-    struct HintGround: Equatable {
-        let position: RightColumnPosition
-        let subject: WindowSubject
-        let inReview: Bool
-    }
-
-    /// An explanation asked for, and the ground it was asked over.
-    struct AskedHint: Equatable {
-        let hint: ResolveHint
-        let ground: HintGround
-    }
-
-    static func hintStandsOver(position: RightColumnPosition, subject: WindowSubject,
-                               translationLanguage: String?) -> HintGround {
-        HintGround(position: position, subject: subject, inReview: translationLanguage != nil)
-    }
-
-    /// **The explanation after the ground moved** — kept while the ground is
-    /// the one it was asked over, gone for good on any other. The receiver
-    /// writes the position and the hint in one handler, and the column's
-    /// `onChange` sees that position change after it: a hint cleared on ANY
-    /// change was cleared in the update that showed it. Pure.
-    static func hint(asked: AskedHint?, groundNow: HintGround) -> AskedHint? {
-        asked?.ground == groundNow ? asked : nil
-    }
-
-    /// The explanation drawn, if any: asked for over the ground that stands
-    /// now, and To resolve's own list is what shows (never over the review
-    /// itself).
-    static func shownHint(_ asked: AskedHint?, ground: HintGround,
-                          shown: RightColumnContent) -> ResolveHint? {
-        guard let asked, asked.ground == ground, shown == .resolve else { return nil }
-        return asked.hint
     }
 
     /// What the column shows now — the table's one answer.
@@ -364,21 +294,6 @@ struct RightColumn: View {
         switch shown {
         case .resolve:
             subjectLine
-            if let hint = Self.shownHint(
-                resolveHint,
-                ground: Self.hintStandsOver(position: position, subject: subject,
-                                            translationLanguage: editorControl.translationLanguage),
-                shown: shown) {
-                Text(hint.line)
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(4)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 8)
-                    .accessibilityIdentifier("resolve.hint.\(hint.rawValue)")
-                Divider()
-            }
             resolvePane
         case .translationReview:
             subjectLine
@@ -393,9 +308,6 @@ struct RightColumn: View {
                 onPullUp: pullUp,
                 onShowStrain: showStrain,
                 onOpenBrief: openBrief,
-                // An edition's To resolve (shell p4 Task 6). The cast
-                // sheet's own home moves in Task 7.
-                onOpenDesk: { _ in position = .resolve },
                 tree: figureTree)
                 .environment(\.briefFocus, briefFocus)
         case .pulledUp, .centreDetails, .nothingPulledUp:

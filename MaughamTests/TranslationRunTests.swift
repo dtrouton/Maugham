@@ -28,11 +28,11 @@ import MaughamCore
 ///    refused and which paragraphs the refusal was about.
 ///
 /// **Almost none of this needs a window.** The decisions are pure statics on
-/// `DepartmentRunState` and `DepartmentRunTarget`, so the truth tables are driven
+/// `TranslationRunState` and `TranslationRunTarget`, so the truth tables are driven
 /// from literals; the mounted tests at the end are only about a writer being able
 /// to see and press what the tables decide.
 @MainActor
-final class DepartmentRunTests: XCTestCase {
+final class TranslationRunTests: XCTestCase {
 
     override class func setUp() {
         super.setUp()
@@ -72,7 +72,7 @@ final class DepartmentRunTests: XCTestCase {
         let open: (String) -> Bool = { $0 == "manuscript/c1.md" }
 
         XCTAssertEqual(
-            DepartmentRunTarget.resolve(subject: .item("doc-1"),
+            TranslationRunTarget.resolve(subject: .item("doc-1"),
                                         structure: Self.structure, isOpen: open),
             .ready(docId: "doc-1", title: "Chapter 1"),
             "the tree names an open chapter — that is the run's document")
@@ -80,7 +80,7 @@ final class DepartmentRunTests: XCTestCase {
         for subject: BinderSubject? in [nil, .project, .item("grp"),
                                         .research("r-1"), .item("doc-2"),
                                         .item("nonesuch")] {
-            let target = DepartmentRunTarget.resolve(
+            let target = TranslationRunTarget.resolve(
                 subject: subject, structure: Self.structure, isOpen: open)
             XCTAssertNil(target.docId,
                          "\(String(describing: subject)) is not a document a round "
@@ -99,11 +99,11 @@ final class DepartmentRunTests: XCTestCase {
     /// orchestrator whose briefing would gather against a document nothing in this
     /// window is holding.
     func test_aChapterTheWindowHasNotOpenedIsNotATarget() {
-        let closed = DepartmentRunTarget.resolve(
+        let closed = TranslationRunTarget.resolve(
             subject: .item("doc-2"), structure: Self.structure, isOpen: { _ in false })
         XCTAssertNil(closed.docId)
 
-        let opened = DepartmentRunTarget.resolve(
+        let opened = TranslationRunTarget.resolve(
             subject: .item("doc-2"), structure: Self.structure,
             isOpen: { $0 == "manuscript/c2.md" })
         XCTAssertEqual(opened, .ready(docId: "doc-2", title: "Chapter 2"),
@@ -114,9 +114,9 @@ final class DepartmentRunTests: XCTestCase {
     /// names. A sentence that only reported the state ("no document selected")
     /// would be a diagnosis where an instruction belongs.
     func test_theRefusalSaysWhatToDoAboutIt() {
-        let words = DepartmentRunTarget.openAChapter.lowercased()
-        XCTAssertTrue(words.contains("open"), DepartmentRunTarget.openAChapter)
-        XCTAssertTrue(words.contains("chapter"), DepartmentRunTarget.openAChapter)
+        let words = TranslationRunTarget.openAChapter.lowercased()
+        XCTAssertTrue(words.contains("open"), TranslationRunTarget.openAChapter)
+        XCTAssertTrue(words.contains("chapter"), TranslationRunTarget.openAChapter)
     }
 
     // MARK: - The run state, scoped to one edition of one chapter
@@ -130,7 +130,7 @@ final class DepartmentRunTests: XCTestCase {
     func test_thePhaseBelongsToOneLanguageOfOneDocument() {
         let running = TranslatorOrchestrator.RunState.running(
             docId: "doc-1", language: "es", translating: 4)
-        let target = DepartmentRunTarget.ready(docId: "doc-1", title: "Chapter 1")
+        let target = TranslationRunTarget.ready(docId: "doc-1", title: "Chapter 1")
 
         XCTAssertEqual(state("es", target: target, runState: running).phase,
                        .running(.translating(4)))
@@ -148,7 +148,7 @@ final class DepartmentRunTests: XCTestCase {
     /// idle whenever the queue left the open chapter would say nothing for
     /// eleven of twelve rounds.
     func test_aPipelineLegIsDrawnOnItsLanguagesRowWhateverChapterTheWindowIsOn() {
-        let state = DepartmentRunState.resolve(
+        let state = TranslationRunState.resolve(
             language: "es",
             target: .ready(docId: "doc-1", title: "Chapter 1"),
             session: .busy(language: "es"),
@@ -157,12 +157,12 @@ final class DepartmentRunTests: XCTestCase {
                                book: .init(position: 4, count: 12)))
         XCTAssertEqual(state.phase,
                        .running(.leg(.read, book: .init(position: 4, count: 12))))
-        XCTAssertEqual(state.statusLine, DepartmentRunState.legLine(
+        XCTAssertEqual(state.statusLine, TranslationRunState.legLine(
             .read, book: .init(position: 4, count: 12)))
         XCTAssertTrue(state.statusLine?.contains("4 of 12") == true)
         XCTAssertTrue(state.statusLine?.contains("reading") == true)
 
-        let french = DepartmentRunState.resolve(
+        let french = TranslationRunState.resolve(
             language: "fr",
             target: .ready(docId: "doc-1", title: "Chapter 1"),
             session: .busy(language: "es"),
@@ -174,14 +174,14 @@ final class DepartmentRunTests: XCTestCase {
     /// **A bare translator round keeps its own count line** — the phase the
     /// probe mounts still produce, unchanged in words.
     func test_aBareTranslatorRoundStillSaysHowManyParagraphs() {
-        let state = DepartmentRunState.resolve(
+        let state = TranslationRunState.resolve(
             language: "es",
             target: .ready(docId: "doc-1", title: "Chapter 1"),
             session: .busy(language: "es"),
             runState: .running(docId: "doc-1", language: "es", translating: 4),
             lastRun: nil)
         XCTAssertEqual(state.phase, .running(.translating(4)))
-        XCTAssertEqual(state.statusLine, DepartmentRunState.translating(4))
+        XCTAssertEqual(state.statusLine, TranslationRunState.translating(4))
     }
 
     /// **An idle row with a round says the round, not the translator's own
@@ -197,19 +197,19 @@ final class DepartmentRunTests: XCTestCase {
             runId: "r", docId: "doc-1", language: "es", at: Date(),
             outcome: .ingested(.init(entriesWritten: 2, queriesMinted: 0)))
         let now = Date()
-        let state = DepartmentRunState.resolve(
+        let state = TranslationRunState.resolve(
             language: "es", target: .ready(docId: "doc-1", title: "Chapter 1"),
             session: .free, runState: .idle, lastRun: summary,
             latestRound: round, trend: [6, 4, 1], now: now)
-        XCTAssertEqual(state.statusLine, DepartmentRunState.roundLine(round, now: now))
+        XCTAssertEqual(state.statusLine, TranslationRunState.roundLine(round, now: now))
         XCTAssertTrue(state.statusLine?.hasPrefix("Round 3") == true)
         XCTAssertTrue(state.statusLine?.contains("2m ago") == true)
         XCTAssertTrue(state.offersShow)
 
-        let none = DepartmentRunState.resolve(
+        let none = TranslationRunState.resolve(
             language: "es", target: .ready(docId: "doc-1", title: "Chapter 1"),
             session: .free, runState: .idle, lastRun: summary)
-        XCTAssertEqual(none.statusLine, DepartmentRunState.reportLine(summary.outcome),
+        XCTAssertEqual(none.statusLine, TranslationRunState.reportLine(summary.outcome),
                        "with no round the translator's summary is still the idle line")
         XCTAssertFalse(none.offersShow)
     }
@@ -219,24 +219,24 @@ final class DepartmentRunTests: XCTestCase {
         round.endedAt = Date()
         round.legs = [.init(leg: .translate, status: .ran, counts: .init(entries: 1)),
                       .init(leg: .read, status: .cancelled)]
-        let line = DepartmentRunState.roundLine(round, now: Date())
+        let line = TranslationRunState.roundLine(round, now: Date())
         XCTAssertTrue(line.contains("Round 2"))
         XCTAssertTrue(line.contains("cancelled"), line)
         XCTAssertTrue(line.contains("reading"), line)
 
         round.legs[1] = .init(leg: .read, status: .failed, reason: "The reader died.")
-        let failed = DepartmentRunState.roundLine(round, now: Date())
+        let failed = TranslationRunState.roundLine(round, now: Date())
         XCTAssertTrue(failed.contains("failed"), failed)
         XCTAssertTrue(failed.contains("The reader died."), "the failure's own sentence rides the line")
     }
 
     func test_agoIsCoarseAndNeverNegative() {
         let now = Date()
-        XCTAssertEqual(DepartmentRunState.ago(from: now.addingTimeInterval(-5), to: now), "just now")
-        XCTAssertEqual(DepartmentRunState.ago(from: now.addingTimeInterval(-125), to: now), "2m ago")
-        XCTAssertEqual(DepartmentRunState.ago(from: now.addingTimeInterval(-7200), to: now), "2h ago")
-        XCTAssertEqual(DepartmentRunState.ago(from: now.addingTimeInterval(-3 * 86400), to: now), "3d ago")
-        XCTAssertEqual(DepartmentRunState.ago(from: now.addingTimeInterval(60), to: now), "just now",
+        XCTAssertEqual(TranslationRunState.ago(from: now.addingTimeInterval(-5), to: now), "just now")
+        XCTAssertEqual(TranslationRunState.ago(from: now.addingTimeInterval(-125), to: now), "2m ago")
+        XCTAssertEqual(TranslationRunState.ago(from: now.addingTimeInterval(-7200), to: now), "2h ago")
+        XCTAssertEqual(TranslationRunState.ago(from: now.addingTimeInterval(-3 * 86400), to: now), "3d ago")
+        XCTAssertEqual(TranslationRunState.ago(from: now.addingTimeInterval(60), to: now), "just now",
                        "a clock skewed into the future is 'just now', not '-1m ago'")
     }
 
@@ -244,19 +244,19 @@ final class DepartmentRunTests: XCTestCase {
     /// row's slot rather than adding a line each), and the line is absent when
     /// neither has anything to say.
     func test_theDetailLineCarriesPreflightAndTrendAndIsAbsentWithNeither() {
-        XCTAssertEqual(DepartmentRunState.preflightLine(.words(1200)), "7 legs · ~1,200 words briefed")
-        XCTAssertNil(DepartmentRunState.preflightLine(nil))
+        XCTAssertEqual(TranslationRunState.preflightLine(.words(1200)), "7 legs · ~1,200 words briefed")
+        XCTAssertNil(TranslationRunState.preflightLine(nil))
         // **A refusal takes the figure's slot and names the file** (P2a D0,
         // fix round 1): the row says why there is no number, rather than
         // dropping the clause and leaving the writer to guess.
         XCTAssertEqual(
-            DepartmentRunState.preflightLine(.unreadable("“c1.es.maca-1234.jsonl” can't be read.")),
+            TranslationRunState.preflightLine(.unreadable("“c1.es.maca-1234.jsonl” can't be read.")),
             "“c1.es.maca-1234.jsonl” can't be read.")
-        XCTAssertEqual(DepartmentRunState.trendLine([6, 4, 1]), "notes per round 6 → 4 → 1")
-        XCTAssertEqual(DepartmentRunState.trendLine([4]), "notes per round 4")
-        XCTAssertNil(DepartmentRunState.trendLine([]))
+        XCTAssertEqual(TranslationRunState.trendLine([6, 4, 1]), "notes per round 6 → 4 → 1")
+        XCTAssertEqual(TranslationRunState.trendLine([4]), "notes per round 4")
+        XCTAssertNil(TranslationRunState.trendLine([]))
 
-        var state = DepartmentRunState()
+        var state = TranslationRunState()
         XCTAssertNil(state.detailLine)
         state.chapterPreflight = .words(1200)
         state.trend = [6, 4, 1]
@@ -268,27 +268,27 @@ final class DepartmentRunTests: XCTestCase {
     /// **Run Whole Book needs no open chapter** — the book is the desk's own
     /// set — but it refuses while a session is busy and when the set is empty.
     func test_theBookVerbRefusesOnlyForBusyAndForAnEmptyBook() {
-        let noChapter = DepartmentRunState.resolve(
-            language: "es", target: .unavailable(DepartmentRunTarget.openAChapter),
+        let noChapter = TranslationRunState.resolve(
+            language: "es", target: .unavailable(TranslationRunTarget.openAChapter),
             session: .free, runState: .idle, lastRun: nil, bookDocumentCount: 12)
         XCTAssertNil(noChapter.bookRefusal)
         XCTAssertTrue(noChapter.canRunBook)
         XCTAssertFalse(noChapter.canRun, "…while the chapter Run still refuses")
 
-        let busy = DepartmentRunState.resolve(
-            language: "es", target: .unavailable(DepartmentRunTarget.openAChapter),
+        let busy = TranslationRunState.resolve(
+            language: "es", target: .unavailable(TranslationRunTarget.openAChapter),
             session: .busy(language: "fr"), runState: .idle, lastRun: nil, bookDocumentCount: 12)
-        XCTAssertEqual(busy.bookRefusal, DepartmentRunState.busyReason(language: "fr"))
+        XCTAssertEqual(busy.bookRefusal, TranslationRunState.busyReason(language: "fr"))
 
-        let empty = DepartmentRunState.resolve(
-            language: "es", target: .unavailable(DepartmentRunTarget.openAChapter),
+        let empty = TranslationRunState.resolve(
+            language: "es", target: .unavailable(TranslationRunTarget.openAChapter),
             session: .free, runState: .idle, lastRun: nil, bookDocumentCount: 0)
-        XCTAssertEqual(empty.bookRefusal, DepartmentRunState.nothingInTheBook)
+        XCTAssertEqual(empty.bookRefusal, TranslationRunState.nothingInTheBook)
     }
 
     /// The two endings a row draws for itself, scoped the same way.
     func test_aRoundThatEndedSaysWhichEditionItEnded() {
-        let target = DepartmentRunTarget.ready(docId: "doc-1", title: "Chapter 1")
+        let target = TranslationRunTarget.ready(docId: "doc-1", title: "Chapter 1")
         let died = TranslatorOrchestrator.RunState.failed(
             docId: "doc-1", language: "es", failure: .run(.timedOut()), at: Date())
         XCTAssertEqual(state("es", target: target, runState: died).phase,
@@ -306,12 +306,12 @@ final class DepartmentRunTests: XCTestCase {
     /// nothing"** — the reason `nothingToTranslate` is a state of its own on the
     /// orchestrator, carried through to a line the writer can read.
     func test_aRoundWithNothingToDoSaysSoRatherThanGoingQuiet() {
-        let target = DepartmentRunTarget.ready(docId: "doc-1", title: "Chapter 1")
+        let target = TranslationRunTarget.ready(docId: "doc-1", title: "Chapter 1")
         let line = state("es", target: target,
                          runState: .nothingToTranslate(docId: "doc-1", language: "es",
                                                        at: Date())).statusLine
-        XCTAssertEqual(line, DepartmentRunState.nothingToTranslateLine)
-        XCTAssertFalse(DepartmentRunState.nothingToTranslateLine.isEmpty)
+        XCTAssertEqual(line, TranslationRunState.nothingToTranslateLine)
+        XCTAssertFalse(TranslationRunState.nothingToTranslateLine.isEmpty)
     }
 
     // MARK: - Constraint 2: a refused click gets words
@@ -320,8 +320,8 @@ final class DepartmentRunTests: XCTestCase {
     /// names the edition being translated, because a writer with four rows needs to
     /// know which one is holding the session.
     func test_everyRowRefusesWhileTheOneSessionIsBusyAndSaysWhoHasIt() {
-        let target = DepartmentRunTarget.ready(docId: "doc-1", title: "Chapter 1")
-        let busy = DepartmentRunSession.busy(language: "es")
+        let target = TranslationRunTarget.ready(docId: "doc-1", title: "Chapter 1")
+        let busy = TranslationRunSession.busy(language: "es")
 
         for language in ["es", "fr"] {
             let row = state(language, target: target, session: busy)
@@ -340,8 +340,8 @@ final class DepartmentRunTests: XCTestCase {
     /// names no pair yet — so the desk must still refuse, in words, without being
     /// able to say which edition.
     func test_theWindowBetweenTheClickAndTheSendRefusesTheSecondClick() {
-        let target = DepartmentRunTarget.ready(docId: "doc-1", title: "Chapter 1")
-        let preparing = DepartmentRunSession.read(runState: .idle, isRunning: true)
+        let target = TranslationRunTarget.ready(docId: "doc-1", title: "Chapter 1")
+        let preparing = TranslationRunSession.read(runState: .idle, isRunning: true)
         XCTAssertEqual(preparing, .busy(language: nil),
                        "a run under way that has not named its pair is still a run")
 
@@ -355,15 +355,15 @@ final class DepartmentRunTests: XCTestCase {
     /// The session reading itself: idle is free, a named run is busy with its
     /// language.
     func test_theSessionReadsBusyFromTheOrchestratorsOwnState() {
-        XCTAssertEqual(DepartmentRunSession.read(runState: .idle, isRunning: false),
+        XCTAssertEqual(TranslationRunSession.read(runState: .idle, isRunning: false),
                        .free)
         XCTAssertEqual(
-            DepartmentRunSession.read(
+            TranslationRunSession.read(
                 runState: .running(docId: "d", language: "pt-BR", translating: 2),
                 isRunning: true),
             .busy(language: "pt-BR"))
         XCTAssertEqual(
-            DepartmentRunSession.read(
+            TranslationRunSession.read(
                 runState: .failed(docId: "d", language: "es",
                                   failure: .run(.timedOut()), at: Date()),
                 isRunning: false),
@@ -375,14 +375,14 @@ final class DepartmentRunTests: XCTestCase {
     /// leg holds no translator session, so the translator reads free while a
     /// reader is out — and every row must still refuse, naming the edition.
     func test_thePipelineHoldsTheGateEvenWhileTheTranslatorIsFree() {
-        let busy = DepartmentRunSession.read(
+        let busy = TranslationRunSession.read(
             runState: .idle, isRunning: false,
             pipeline: .running(docId: "doc-1", language: "fr", leg: .read, book: nil))
         XCTAssertEqual(busy, .busy(language: "fr"))
-        XCTAssertEqual(DepartmentRunSession.read(runState: .idle, isRunning: false, pipeline: .idle), .free)
+        XCTAssertEqual(TranslationRunSession.read(runState: .idle, isRunning: false, pipeline: .idle), .free)
         XCTAssertEqual(
-            DepartmentRunState.refusal(target: .ready(docId: "doc-1", title: "One"), session: busy),
-            DepartmentRunState.busyReason(language: "fr"))
+            TranslationRunState.refusal(target: .ready(docId: "doc-1", title: "One"), session: busy),
+            TranslationRunState.busyReason(language: "fr"))
     }
 
     /// **A language tag the write pipeline will not accept is refused at the desk,
@@ -395,11 +395,11 @@ final class DepartmentRunTests: XCTestCase {
     /// `abandon()` sets no state and emits no summary — and the writer presses a
     /// button that does nothing at all.
     func test_aTagThePipelineWillNotWriteIsRefusedAtTheDeskInWords() {
-        let target = DepartmentRunTarget.ready(docId: "doc-1", title: "Chapter 1")
+        let target = TranslationRunTarget.ready(docId: "doc-1", title: "Chapter 1")
 
         for tag in ["es", "pt-br", "fr"] {
             XCTAssertNil(
-                DepartmentRunState.preflight(language: tag, target: target,
+                TranslationRunState.preflight(language: tag, target: target,
                                              session: .free),
                 "\(tag) is a tag the pipeline writes; the click must go through")
         }
@@ -410,7 +410,7 @@ final class DepartmentRunTests: XCTestCase {
         // be run for. Without the refusal the writer presses Run on it forever.
         for tag in ["", "not a tag!", "pt-BR",
                     "esperanto-in-a-very-long-subtag"] {
-            let refusal = DepartmentRunState.preflight(
+            let refusal = TranslationRunState.preflight(
                 language: tag, target: target, session: .free)
             // The premise, so this cannot pass because the tag was fine:
             XCTAssertThrowsError(try TranslationWritePipeline.validate(language: tag),
@@ -425,12 +425,12 @@ final class DepartmentRunTests: XCTestCase {
     /// outranks a subject that could not be run anyway, because a run under way is
     /// the fact that changes what pressing anything will do.
     func test_aRunInFlightOutranksASubjectThatCouldNotBeRun() {
-        let refusal = DepartmentRunState.preflight(
+        let refusal = TranslationRunState.preflight(
             language: "es",
-            target: .unavailable(DepartmentRunTarget.openAChapter),
+            target: .unavailable(TranslationRunTarget.openAChapter),
             session: .busy(language: "fr"))
         XCTAssertEqual(refusal,
-                       DepartmentRunState.busyReason(language: "fr"))
+                       TranslationRunState.busyReason(language: "fr"))
     }
 
     /// **The third abandon arm is closed by Constraint 1's gate, not by a message.**
@@ -439,7 +439,7 @@ final class DepartmentRunTests: XCTestCase {
     /// orchestrator abandons silently for both. One is the language tag, refused
     /// above. The other is a document whose current paragraphs cannot be resolved —
     /// and `currentParagraphState` resolves an OPEN document straight off the
-    /// registry, which is exactly what `DepartmentRunTarget.ready` guarantees. So
+    /// registry, which is exactly what `TranslationRunTarget.ready` guarantees. So
     /// the arm is unreachable from the desk rather than unhandled by it.
     ///
     /// This is the test rather than the sentence, because the claim is about
@@ -448,7 +448,7 @@ final class DepartmentRunTests: XCTestCase {
     func test_theBriefingAbandonIsClosedByTheOpenDocumentGate() async throws {
         let h = try await makeProject()
 
-        let target = DepartmentRunTarget.resolve(
+        let target = TranslationRunTarget.resolve(
             subject: .item("doc-1"), structure: h.projectStore.manifest.structure,
             isOpen: { h.documentStore.document(for: $0) != nil })
         let docId = try XCTUnwrap(target.docId,
@@ -471,12 +471,12 @@ final class DepartmentRunTests: XCTestCase {
     /// because a translator's questions are the other product of the round and a
     /// line naming only the paragraphs would send the writer to the queue by luck.
     func test_theReportSaysWhatLandedAndWhatWasAsked() {
-        let line = try? XCTUnwrap(DepartmentRunState.reportLine(
+        let line = try? XCTUnwrap(TranslationRunState.reportLine(
             .ingested(.init(entriesWritten: 12, queriesMinted: 2))))
         XCTAssertTrue(line?.contains("12") ?? false, line ?? "nil")
         XCTAssertTrue(line?.contains("2") ?? false, line ?? "nil")
 
-        let quiet = try? XCTUnwrap(DepartmentRunState.reportLine(
+        let quiet = try? XCTUnwrap(TranslationRunState.reportLine(
             .ingested(.init(entriesWritten: 7, queriesMinted: 0))))
         XCTAssertTrue(quiet?.contains("7") ?? false, quiet ?? "nil")
         XCTAssertFalse(quiet?.contains("0 ") ?? true,
@@ -490,7 +490,7 @@ final class DepartmentRunTests: XCTestCase {
     /// counted — "2 warnings" tells a writer nothing they can act on.
     func test_constructWarningsRideTheReportInTheirOwnWords() {
         let warning = "¶ab12: the translation has 3 constructs and the source has 1"
-        let line = try? XCTUnwrap(DepartmentRunState.reportLine(
+        let line = try? XCTUnwrap(TranslationRunState.reportLine(
             .ingested(.init(entriesWritten: 4, queriesMinted: 0,
                             warnings: [warning]))))
         XCTAssertTrue(line?.contains(warning) ?? false,
@@ -510,13 +510,13 @@ final class DepartmentRunTests: XCTestCase {
             + "the new wording."
 
         XCTAssertEqual(
-            DepartmentRunState.reportLine(.ingested(.init(rejection: rejection))),
+            TranslationRunState.reportLine(.ingested(.init(rejection: rejection))),
             rejection,
             "the report carries the pipeline's sentence rather than a summary of it")
 
         // …and the same sentence arriving as the run STATE (which is how the
         // orchestrator surfaces it) reads the same way on the row.
-        let target = DepartmentRunTarget.ready(docId: "doc-1", title: "Chapter 1")
+        let target = TranslationRunTarget.ready(docId: "doc-1", title: "Chapter 1")
         let row = state("es", target: target,
                         runState: .failed(docId: "doc-1", language: "es",
                                           failure: .ingestRejected(rejection),
@@ -528,11 +528,11 @@ final class DepartmentRunTests: XCTestCase {
     /// A cancel is the writer's own act and is never drawn as a failure — the
     /// cockpit's rule, in this surface's currency.
     func test_aCancelIsNotDrawnAsAFailure() {
-        let line = DepartmentRunState.reportLine(.cancelled)
-        XCTAssertEqual(line, DepartmentRunState.cancelledLine)
+        let line = TranslationRunState.reportLine(.cancelled)
+        XCTAssertEqual(line, TranslationRunState.cancelledLine)
         for failure: CompilerRunFailure in [.timedOut(), .unusableOutput, .cliNotFound] {
             XCTAssertNotEqual(
-                line, DepartmentRunState.failureCopy(.run(failure)),
+                line, TranslationRunState.failureCopy(.run(failure)),
                 "a cancel must not wear a failure's sentence")
         }
     }
@@ -548,15 +548,15 @@ final class DepartmentRunTests: XCTestCase {
         for failure: CompilerRunFailure in [.sessionDied(detail: "exit 1"),
                                             .unusableOutput, .timedOut()] {
             XCTAssertNotEqual(
-                DepartmentRunState.failureCopy(.run(failure)),
+                TranslationRunState.failureCopy(.run(failure)),
                 RoundNarrative.failureCopy(failure),
                 "\(failure) reads as the compiler's on the department desk")
             XCTAssertFalse(
-                DepartmentRunState.failureCopy(.run(failure)).isEmpty)
+                TranslationRunState.failureCopy(.run(failure)).isEmpty)
         }
         // The arms that name a surface rather than the work are shared verbatim —
         // "Claude Code isn't installed" is the same instruction whoever asked.
-        XCTAssertEqual(DepartmentRunState.failureCopy(.run(.cliNotFound)),
+        XCTAssertEqual(TranslationRunState.failureCopy(.run(.cliNotFound)),
                        RoundNarrative.failureCopy(.cliNotFound))
     }
 
@@ -572,13 +572,13 @@ final class DepartmentRunTests: XCTestCase {
             runId: "r1", docId: "doc-1", language: "es", at: Date(),
             outcome: .ingested(.init(entriesWritten: 3)))
 
-        let mine = DepartmentRunState.resolve(
+        let mine = TranslationRunState.resolve(
             language: "es",
             target: .ready(docId: "doc-1", title: "Chapter 1"),
             session: .free, runState: .idle, lastRun: summary)
         XCTAssertNotNil(mine.report)
 
-        let elsewhere = DepartmentRunState.resolve(
+        let elsewhere = TranslationRunState.resolve(
             language: "es",
             target: .ready(docId: "doc-2", title: "Chapter 2"),
             session: .free, runState: .idle, lastRun: summary)
@@ -605,93 +605,6 @@ final class DepartmentRunTests: XCTestCase {
         XCTAssertNil(log.run(docId: "doc-2", language: "es"))
     }
 
-    // MARK: - Mounted: what a writer can see and press
-
-    /// **The reason is on screen, not only in a tooltip.** A disabled button whose
-    /// explanation lives in a hover is an explanation most writers never read;
-    /// Constraint 1 asks for the reason to be visible, so the desk says it once
-    /// above the rows it applies to.
-    func test_aDeskWithNoOpenChapterSaysSoWhereTheRowsAre() async throws {
-        let window = mount(languages: ["es"],
-                           target: .unavailable(DepartmentRunTarget.openAChapter))
-        _ = try await scrollersSettling(in: window)
-
-        let texts = try axTexts(in: window)
-        XCTAssertTrue(texts.contains { $0.contains(DepartmentRunTarget.openAChapter) },
-                      "the desk drew no reason at all. Published: \(texts.sorted())")
-    }
-
-    /// …and the button itself refuses. Read off the accessibility tree, which is
-    /// what a writer's keyboard and VoiceOver read.
-    func test_theRunButtonRefusesWithNoOpenChapterAndAcceptsWithOne() async throws {
-        let refusing = mount(languages: ["es"],
-                             target: .unavailable(DepartmentRunTarget.openAChapter))
-        _ = try await scrollersSettling(in: refusing)
-        let disabled = try axButtons(labelled: DepartmentRunState.runTitle,
-                                     in: refusing)
-        XCTAssertEqual(disabled.count, 1,
-                       "the row must still OFFER the run — a control that vanishes "
-                       + "teaches nothing about why it is not available")
-        XCTAssertEqual(axEnabled(disabled[0]), false)
-
-        let ready = mount(languages: ["es"],
-                          target: .ready(docId: "doc-1", title: "Chapter 1"))
-        _ = try await scrollersSettling(in: ready)
-        let live = try axButtons(labelled: DepartmentRunState.runTitle, in: ready)
-        XCTAssertEqual(axEnabled(live[0]), true,
-                       "…and an open chapter makes it pressable, or this test "
-                       + "could pass over a button that is never enabled")
-    }
-
-    /// **One message channel** (Task 2's concern 5). A refusal the writer earned by
-    /// pressing Run lands in the same `notice` slot the brief door's refusal uses —
-    /// two message lines on one pane is two places to look for one answer.
-    func test_aRefusalTheWriterEarnedLandsInTheDesksOneNoticeSlot() async throws {
-        let refusal = DepartmentRunState.unusableTag(language: "not a tag!")
-        let window = mount(languages: ["es"],
-                           target: .ready(docId: "doc-1", title: "Chapter 1"),
-                           notice: refusal)
-        _ = try await scrollersSettling(in: window)
-
-        let texts = try axTexts(in: window)
-        XCTAssertTrue(texts.contains { $0.contains(refusal) },
-                      "the refusal never reached the writer. Published: "
-                      + "\(texts.sorted())")
-    }
-
-    /// The census that keeps the fold honest: the pane has ONE transient-message
-    /// input, and a second one arriving later is what this goes red on.
-    func test_theDeskCarriesOneMessageChannelAndNotTwo() throws {
-        let code = try Self.codeLines(of: "Views/Publish/DepartmentPane.swift")
-        let messageInputs = code.filter {
-            $0.contains("var notice") || $0.contains("var message")
-                || $0.contains("var refusalMessage") || $0.contains("var messages")
-        }
-        XCTAssertEqual(messageInputs.count, 1,
-                       "the desk must carry exactly one transient-message input; "
-                       + "found \(messageInputs)")
-    }
-
-    // MARK: - Plan 4 Task 2: the book verb, the door, and the row's new lines
-
-    /// **A running row says its LEG; an idle one says its pre-flight and its
-    /// trend** (spec §8). Two rows in the two states at once, because the whole
-    /// point of the detail slot is that it belongs to the row rather than to
-    /// the desk — one round in flight must not describe every edition.
-    func test_theRowDrawsItsLegAndItsDetailLine() async throws {
-        var idle = DepartmentRunState()
-        idle.chapterPreflight = .words(900)
-        idle.trend = [3, 1]
-        let running = DepartmentRunState(phase: .running(.leg(.collate, book: .init(position: 2, count: 5))))
-        let window = mount(languages: ["es", "fr"],
-                           target: .ready(docId: "doc-1", title: "Chapter 1"),
-                           runs: ["es": idle, "fr": running])
-        _ = try await scrollersSettling(in: window)
-        let texts = try axTexts(in: window)
-        XCTAssertTrue(texts.contains(idle.detailLine!), "\(texts)")
-        XCTAssertTrue(texts.contains(DepartmentRunState.legLine(.collate, book: .init(position: 2, count: 5))))
-    }
-
     /// **What Cancel now promises, and what it stopped promising.**
     ///
     /// Before the pipeline a round was one translator call, so cancelling it
@@ -702,11 +615,11 @@ final class DepartmentRunTests: XCTestCase {
     /// memory.
     func test_theCancelHelpPromisesOnlyWhatAPipelineRoundCanKeep() {
         XCTAssertEqual(
-            DepartmentRunState.cancelHelp,
+            TranslationRunState.cancelHelp,
             "Stop this round after the leg that is running. What earlier legs "
             + "wrote stays; nothing later starts.")
         XCTAssertFalse(
-            DepartmentRunState.cancelHelp.contains("Nothing it has translated is written"),
+            TranslationRunState.cancelHelp.contains("Nothing it has translated is written"),
             "the pre-pipeline promise is false of a round whose earlier legs "
             + "have already written")
     }
@@ -715,37 +628,37 @@ final class DepartmentRunTests: XCTestCase {
 
     /// **Every phase has something to say, and the order is the desk's** —
     /// what is happening now outranks what happened last, exactly as
-    /// `DepartmentRunState` orders a round's.
+    /// `TranslationRunState` orders a round's.
     func test_theCompilesLineSaysSomethingInEveryPhase() {
-        XCTAssertNil(DepartmentCompileState().statusLine,
+        XCTAssertNil(CompileRunState().statusLine,
                      "a desk nobody has pressed has nothing to report")
 
-        let running = DepartmentCompileState(
+        let running = CompileRunState(
             phase: .running(format: .pdf, languages: ["en", "es"],
                             imprint: "special"),
             isRunning: true)
         let line = try? XCTUnwrap(running.statusLine)
-        XCTAssertEqual(line, DepartmentCompileState.compiling(
+        XCTAssertEqual(line, CompileRunState.compiling(
             format: .pdf, languages: ["en", "es"], imprint: "special"))
         XCTAssertFalse(running.isFailure, "a compile in flight is not a failure")
 
         XCTAssertEqual(
-            DepartmentCompileState(phase: .failed("template.tex is missing")).statusLine,
+            CompileRunState(phase: .failed("template.tex is missing")).statusLine,
             "template.tex is missing")
         XCTAssertTrue(
-            DepartmentCompileState(phase: .failed("x")).isFailure,
+            CompileRunState(phase: .failed("x")).isFailure,
             "…and that one is the only phase drawn red")
 
         XCTAssertEqual(
-            DepartmentCompileState(phase: .idle, isRunning: false,
-                                   report: DepartmentCompileState.cancelledLine)
+            CompileRunState(phase: .idle, isRunning: false,
+                                   report: CompileRunState.cancelledLine)
                 .statusLine,
-            DepartmentCompileState.cancelledLine,
+            CompileRunState.cancelledLine,
             "an idle desk that just swallowed a press without a word is "
             + "indistinguishable from a button that did nothing")
         XCTAssertFalse(
-            DepartmentCompileState(phase: .idle, isRunning: false,
-                                   report: DepartmentCompileState.cancelledLine)
+            CompileRunState(phase: .idle, isRunning: false,
+                                   report: CompileRunState.cancelledLine)
                 .isFailure,
             "a cancel is the writer's own act and is never drawn as a failure")
     }
@@ -753,7 +666,7 @@ final class DepartmentRunTests: XCTestCase {
     /// **A refusal drawn while the run it refused carries on says both things.**
     ///
     /// The second press replaces the PHASE and leaves `isRunning` true — that
-    /// is `DepartmentCompileState`'s whole reason for storing the flag — so the
+    /// is `CompileRunState`'s whole reason for storing the flag — so the
     /// one line has to carry the refusal AND the fact that something is still
     /// compiling. A bare refusal beside a live Cancel button is a desk telling
     /// the writer nothing is happening next to the control that stops it.
@@ -762,18 +675,18 @@ final class DepartmentRunTests: XCTestCase {
     /// `.refused` arm and the first two assertions fail while the settled one
     /// still passes.
     func test_aRefusalWhileTheRunCarriesOnStillSaysSomethingIsCompiling() {
-        let midRun = DepartmentCompileState(
-            phase: .refused(DepartmentCompileState.alreadyRunning),
+        let midRun = CompileRunState(
+            phase: .refused(CompileRunState.alreadyRunning),
             isRunning: true)
         let line = midRun.statusLine ?? ""
-        XCTAssertTrue(line.contains(DepartmentCompileState.alreadyRunning),
+        XCTAssertTrue(line.contains(CompileRunState.alreadyRunning),
                       "the refusal is not lost: \(line)")
         XCTAssertTrue(line.contains("still compiling"),
                       "…and neither is the run it was refused for: \(line)")
         XCTAssertFalse(midRun.isFailure,
                        "nothing broke — a press arrived at the wrong moment")
 
-        let settled = DepartmentCompileState(
+        let settled = CompileRunState(
             phase: .refused("unknown imprint 'speciel'"), isRunning: false)
         XCTAssertEqual(settled.statusLine, "unknown imprint 'speciel'",
                        "a refusal with nothing running is the bare sentence — "
@@ -805,11 +718,11 @@ final class DepartmentRunTests: XCTestCase {
                        "…and the superseded one is not: \(row.latestLine)")
         XCTAssertTrue(
             row.latestLine.contains(
-                DepartmentDesignRow.statusWord(.pending)),
+                DesignRoundState.statusWord(.pending)),
             "where it stands is half the line: \(row.latestLine)")
         XCTAssertTrue(
             row.latestLine.contains(
-                DepartmentDesignRow.age(now.addingTimeInterval(-600), now: now)),
+                DesignRoundState.age(now.addingTimeInterval(-600), now: now)),
             "…and how long ago is the other half: \(row.latestLine)")
     }
 
@@ -817,8 +730,8 @@ final class DepartmentRunTests: XCTestCase {
     /// blank under the designer's name where a line goes.
     func test_aProjectWithNoRoundYetSaysSoRatherThanDrawingNothing() {
         let row = designRow(proposals: [])
-        XCTAssertEqual(row.latestLine, DepartmentDesignRow.noRoundYet)
-        XCTAssertFalse(DepartmentDesignRow.noRoundYet.isEmpty)
+        XCTAssertEqual(row.latestLine, DesignRoundState.noRoundYet)
+        XCTAssertFalse(DesignRoundState.noRoundYet.isEmpty)
         XCTAssertNil(row.pendingBadge, "nothing staged, nothing pending")
     }
 
@@ -827,7 +740,7 @@ final class DepartmentRunTests: XCTestCase {
     func test_theBadgeMarksAProposalStillWaitingOnTheWriter() {
         XCTAssertEqual(
             designRow(proposals: [proposal(round: 1, status: .pending)]).pendingBadge,
-            DepartmentDesignRow.pendingBadgeTitle)
+            DesignRoundState.pendingBadgeTitle)
 
         for settled: DesignProposalStore.Status in [.approved, .rejected,
                                                     .superseded] {
@@ -856,7 +769,7 @@ final class DepartmentRunTests: XCTestCase {
             runState: .running(round: 2, language: nil),
             session: .busy(round: 2))
 
-        XCTAssertEqual(row.statusLine, DepartmentDesignRow.designingLine(
+        XCTAssertEqual(row.statusLine, DesignRoundState.designingLine(
             round: 2, language: nil))
         XCTAssertTrue(row.statusLine?.contains("2") ?? false, row.statusLine ?? "nil")
         XCTAssertTrue(row.isRunning)
@@ -894,11 +807,11 @@ final class DepartmentRunTests: XCTestCase {
     /// be driven from elsewhere and a row that dropped the edition would draw
     /// somebody else's round as the book's.
     func test_aRoundForAnEditionIsNotDrawnAsTheBooksOwn() {
-        let line = DepartmentDesignRow.designingLine(round: 1, language: "es")
+        let line = DesignRoundState.designingLine(round: 1, language: "es")
         XCTAssertTrue(
             line.contains(TranslationReviewIndicator.displayLabel(forLanguageTag: "es")),
             line)
-        XCTAssertNotEqual(line, DepartmentDesignRow.designingLine(round: 1,
+        XCTAssertNotEqual(line, DesignRoundState.designingLine(round: 1,
                                                                  language: nil))
     }
 
@@ -913,17 +826,17 @@ final class DepartmentRunTests: XCTestCase {
         for failure: CompilerRunFailure in [.sessionDied(detail: "exit 1"),
                                             .unusableOutput, .timedOut()] {
             XCTAssertNotEqual(
-                DepartmentDesignRow.failureCopy(.run(failure)),
+                DesignRoundState.failureCopy(.run(failure)),
                 RoundNarrative.failureCopy(failure),
                 "\(failure) reads as the compiler's on the Design row")
-            XCTAssertFalse(DepartmentDesignRow.failureCopy(.run(failure)).isEmpty)
+            XCTAssertFalse(DesignRoundState.failureCopy(.run(failure)).isEmpty)
         }
         // The arms that name a surface rather than the work are shared verbatim.
-        XCTAssertEqual(DepartmentDesignRow.failureCopy(.run(.cliNotFound)),
+        XCTAssertEqual(DesignRoundState.failureCopy(.run(.cliNotFound)),
                        RoundNarrative.failureCopy(.cliNotFound))
         // …and it is a third account, not the translator's with a new label.
-        XCTAssertNotEqual(DepartmentDesignRow.failureCopy(.run(.timedOut())),
-                          DepartmentRunState.failureCopy(.run(.timedOut())))
+        XCTAssertNotEqual(DesignRoundState.failureCopy(.run(.timedOut())),
+                          TranslationRunState.failureCopy(.run(.timedOut())))
     }
 
     /// **A report that read perfectly and could not be written down says what
@@ -949,7 +862,7 @@ final class DepartmentRunTests: XCTestCase {
     func test_anIdleDesignRowSaysNothingBesideTheProposalItAlreadyDrew() {
         let row = designRow(proposals: [proposal(round: 1, status: .pending)])
         XCTAssertNil(row.statusLine)
-        XCTAssertNotEqual(row.latestLine, DepartmentDesignRow.noRoundYet,
+        XCTAssertNotEqual(row.latestLine, DesignRoundState.noRoundYet,
                           "premise: the proposal line is what the row is saying")
     }
 
@@ -969,24 +882,24 @@ final class DepartmentRunTests: XCTestCase {
     /// the writer can actually be in — and a round in flight outranks the other
     /// two, because it is the fact that changes what pressing anything will do.
     func test_everyWayRequestChangesRefusesIsAnsweredInWords() {
-        let busy = DepartmentDesignRow.changesRefusal(
+        let busy = DesignRoundState.changesRefusal(
             words: "warmer paper", session: .busy(round: 2),
             hasOpenProposalRound: true)
-        XCTAssertEqual(busy, DepartmentDesignRow.busyReason(round: 2),
+        XCTAssertEqual(busy, DesignRoundState.busyReason(round: 2),
                        "a round in flight outranks everything else")
 
-        let wordless = DepartmentDesignRow.changesRefusal(
+        let wordless = DesignRoundState.changesRefusal(
             words: "   \n ", session: .free, hasOpenProposalRound: true)
-        XCTAssertEqual(wordless, DepartmentDesignRow.noWordsRefusal)
+        XCTAssertEqual(wordless, DesignRoundState.noWordsRefusal)
 
-        let closed = DepartmentDesignRow.changesRefusal(
+        let closed = DesignRoundState.changesRefusal(
             words: "warmer paper", session: .free, hasOpenProposalRound: false)
-        XCTAssertEqual(closed, DepartmentDesignRow.noOpenRoundRefusal)
+        XCTAssertEqual(closed, DesignRoundState.noOpenRoundRefusal)
         XCTAssertTrue(closed.lowercased().contains("run"),
                       "the refusal must point at the verb that DOES work: \(closed)")
 
         for sentence in [busy, wordless, closed,
-                         DepartmentDesignRow.unknownRefusal] {
+                         DesignRoundState.unknownRefusal] {
             XCTAssertFalse(sentence.isEmpty)
         }
     }
@@ -1003,31 +916,31 @@ final class DepartmentRunTests: XCTestCase {
     /// the designer loop's own, so there is no shared validator to lean on —
     /// what there is instead is the same two gates, CALLED (see `briefability`).
     func test_everyDesignBriefingAbandonArmIsRefusedAtTheDeskInWords() {
-        XCTAssertNil(DepartmentDesignRow.preflight(session: .free,
+        XCTAssertNil(DesignRoundState.preflight(session: .free,
                                                    briefability: .ready),
                      "a project that can be briefed must let the click through")
 
         for arm: DesignBriefability in [.noPublishTemplates, .noBook] {
-            let refusal = DepartmentDesignRow.preflight(session: .free,
+            let refusal = DesignRoundState.preflight(session: .free,
                                                         briefability: arm)
             XCTAssertFalse(refusal?.isEmpty ?? true,
                            "\(arm) reaches the orchestrator, where it abandons "
                            + "in silence")
         }
-        XCTAssertNotEqual(DepartmentDesignRow.noPublishTemplatesRefusal,
-                          DepartmentDesignRow.noBookRefusal,
+        XCTAssertNotEqual(DesignRoundState.noPublishTemplatesRefusal,
+                          DesignRoundState.noBookRefusal,
                           "two different problems, two different moves")
         // An instruction rather than a diagnosis, as Constraint 2 asks.
         XCTAssertTrue(
-            DepartmentDesignRow.noPublishTemplatesRefusal.lowercased()
+            DesignRoundState.noPublishTemplatesRefusal.lowercased()
                 .contains("set up publishing"),
-            DepartmentDesignRow.noPublishTemplatesRefusal)
+            DesignRoundState.noPublishTemplatesRefusal)
 
         // …and a round in flight still outranks both.
         XCTAssertEqual(
-            DepartmentDesignRow.preflight(session: .busy(round: 1),
+            DesignRoundState.preflight(session: .busy(round: 1),
                                           briefability: .noBook),
-            DepartmentDesignRow.busyReason(round: 1))
+            DesignRoundState.busyReason(round: 1))
     }
 
     /// **The desk asks the same two questions the briefing asks**, against a
@@ -1036,7 +949,7 @@ final class DepartmentRunTests: XCTestCase {
     func test_theDesksBriefabilityAgreesWithTheBriefingsOwnRefusals() async throws {
         let full = try await makeDesignProject()
         XCTAssertEqual(
-            DepartmentDesignRow.briefability(store: full.projectStore,
+            DesignRoundState.briefability(store: full.projectStore,
                                              projectURL: full.projectURL),
             .ready)
         let fullInputs = await full.environment.briefRound(nil, nil)
@@ -1045,7 +958,7 @@ final class DepartmentRunTests: XCTestCase {
 
         let noTemplates = try await makeDesignProject(publishTree: false)
         XCTAssertEqual(
-            DepartmentDesignRow.briefability(store: noTemplates.projectStore,
+            DesignRoundState.briefability(store: noTemplates.projectStore,
                                              projectURL: noTemplates.projectURL),
             .noPublishTemplates)
         let noTemplateInputs = await noTemplates.environment.briefRound(nil, nil)
@@ -1055,7 +968,7 @@ final class DepartmentRunTests: XCTestCase {
 
         let noBook = try await makeDesignProject(manuscript: false)
         XCTAssertEqual(
-            DepartmentDesignRow.briefability(store: noBook.projectStore,
+            DesignRoundState.briefability(store: noBook.projectStore,
                                              projectURL: noBook.projectURL),
             .noBook)
         let noBookInputs = await noBook.environment.briefRound(nil, nil)
@@ -1090,82 +1003,22 @@ final class DepartmentRunTests: XCTestCase {
         await h.documentStore.close()
     }
 
-    // MARK: - Task 4: mounted
-
-    /// **A project with nothing in it still offers a design round**, which is
-    /// why Task 1's empty state is gone: every project has a designer from the
-    /// moment it exists, and asking for the book's first design is exactly what
-    /// a writer with an empty department came to the desk to do.
-    func test_aProjectWithNothingInItStillOffersADesignRound() async throws {
-        let window = mount(languages: [],
-                           target: .unavailable(DepartmentRunTarget.openAChapter))
-        _ = try await scrollersSettling(in: window)
-
-        let runs = try axButtons(labelled: DepartmentDesignRow.runAccessibilityLabel,
-                                 in: window)
-        XCTAssertEqual(runs.count, 1, "the Design row's Run must be here")
-        XCTAssertEqual(axEnabled(runs[0]), true,
-                       "…and pressable: a design round needs no open chapter")
-
-        let texts = try axTexts(in: window)
-        XCTAssertTrue(texts.contains { $0.contains(DepartmentDesignRow.noRoundYet) },
-                      "…and the row says where the design stands. Published: "
-                      + "\(texts.sorted())")
-    }
-
-    /// **The Design row's Run and the language rows' are distinct controls in
-    /// the tree.** All three read "Run" on screen, told apart by the row they
-    /// sit on — which a linear accessibility tree does not carry, so the design
-    /// verb carries a label of its own. Without it a keyboard or VoiceOver user
-    /// choosing "Run" would be choosing at random between designing the book and
-    /// translating a chapter.
-    func test_theDesignRunIsItsOwnControlAndNotAFourthLanguageRun() async throws {
-        let window = mount(languages: ["es", "fr"],
-                           target: .ready(docId: "doc-1", title: "Chapter 1"))
-        _ = try await scrollersSettling(in: window)
-
-        XCTAssertEqual(
-            try axButtons(labelled: DepartmentRunState.runTitle, in: window).count, 2,
-            "one Run per edition, and the design verb is not one of them")
-        XCTAssertEqual(
-            try axButtons(labelled: DepartmentDesignRow.runAccessibilityLabel,
-                          in: window).count, 1)
-    }
-
-    /// **A refusal the design verbs earned lands in the desk's one notice slot**
-    /// — the same channel the brief door's refusal and a refused translation use
-    /// (Task 3's census). Two message lines on one pane is two places to look
-    /// for one answer.
-    func test_aRefusedDesignClickLandsInTheDesksOneNoticeSlot() async throws {
-        let window = mount(languages: [],
-                           target: .unavailable(DepartmentRunTarget.openAChapter),
-                           notice: DepartmentDesignRow.noPublishTemplatesRefusal)
-        _ = try await scrollersSettling(in: window)
-
-        let texts = try axTexts(in: window)
-        XCTAssertTrue(
-            texts.contains {
-                $0.contains(DepartmentDesignRow.noPublishTemplatesRefusal)
-            },
-            "the refusal never reached the writer. Published: \(texts.sorted())")
-    }
-
     // MARK: - Task 9: the mint sheet for unlisted languages
 
     /// **The three ways a language answers "does Run need to ask first?"**
-    /// (no window — `DepartmentPaneHost.needsTranslatorName` is a pure read
+    /// (no window — `TranslationRunStart.needsTranslatorName` is a pure read
     /// over `EditionStatus.translatorName`, which is the row's own "No
     /// translator yet" question asked from the other side).
     func test_aPresetLanguageNeverNeedsTheMintSheet() {
         XCTAssertFalse(
-            DepartmentPaneHost.needsTranslatorName(language: "es", in: Self.blankManifest()),
+            TranslationRunStart.needsTranslatorName(language: "es", in: Self.blankManifest()),
             "es has a preset translator (Cort\u{e1}zar) \u{2014} the sheet exists for "
             + "languages nobody has named, and es is never one of them")
     }
 
     func test_anUnlistedUnmintedLanguageNeedsTheMintSheet() {
         XCTAssertTrue(
-            DepartmentPaneHost.needsTranslatorName(language: "xx", in: Self.blankManifest()),
+            TranslationRunStart.needsTranslatorName(language: "xx", in: Self.blankManifest()),
             "xx has no preset and no stored role \u{2014} translatorRole(for:) would "
             + "mint one named nothing but the tag, unasked")
     }
@@ -1174,7 +1027,7 @@ final class DepartmentRunTests: XCTestCase {
         let stored = ProductionRole(id: "role-1", role: .translator(language: "xx"), name: nil)
         let manifest = Self.blankManifest(productionRoles: [stored])
         XCTAssertFalse(
-            DepartmentPaneHost.needsTranslatorName(language: "xx", in: manifest),
+            TranslationRunStart.needsTranslatorName(language: "xx", in: manifest),
             "a role already stored for this language \u{2014} even one still unnamed "
             + "\u{2014} answers `effectiveName` with the uppercased tag rather than nil, "
             + "and a run must not interrupt an edition the desk has already minted")
@@ -1182,17 +1035,17 @@ final class DepartmentRunTests: XCTestCase {
 
     // MARK: - Task 9: the sheet itself (no host)
 
-    /// **Every string the sheet draws is `DepartmentCastCopy`'s** — the
+    /// **Every string the sheet draws is `EditionCastCopy`'s** — the
     /// `DepartmentDesk` split, so the whole surface is assertable with
     /// nothing but the language it was given.
     func test_theMintSheetNamesTheEditionItIsAskingAbout() async throws {
         let window = mountMintSheet(language: "pt-br")
         let texts = try axTexts(in: window)
         XCTAssertTrue(
-            texts.contains { $0.contains(DepartmentCastCopy.nameForRunTitle(language: "pt-br")) },
+            texts.contains { $0.contains(EditionCastCopy.nameForRunTitle(language: "pt-br")) },
             "the sheet never said which edition it wants a name for. Published: "
             + "\(texts.sorted())")
-        XCTAssertTrue(texts.contains { $0.contains(DepartmentCastCopy.explanation) },
+        XCTAssertTrue(texts.contains { $0.contains(EditionCastCopy.explanation) },
                       "…nor why. Published: \(texts.sorted())")
     }
 
@@ -1201,45 +1054,40 @@ final class DepartmentRunTests: XCTestCase {
     /// against, and the sheet must not let a click reach it.
     func test_theMintSheetsConfirmIsDisabledUntilANameIsTyped() async throws {
         let window = mountMintSheet(language: "xx")
-        let blank = try axButtons(labelled: DepartmentCastCopy.nameAndRunTitle, in: window)
+        let blank = try axButtons(labelled: EditionCastCopy.nameAndRunTitle, in: window)
         XCTAssertEqual(blank.count, 1)
         XCTAssertEqual(axEnabled(blank[0]), false,
                        "an empty field must not offer a way to confirm nothing")
 
-        let field = try XCTUnwrap(textField(placeholder: DepartmentCastCopy.placeholder,
+        let field = try XCTUnwrap(textField(placeholder: EditionCastCopy.placeholder,
                                             in: window),
                                   "the sheet mounted no name field at all")
         type("Constance Garnett", into: field)
         pump(0.1)
 
-        let named = try axButtons(labelled: DepartmentCastCopy.nameAndRunTitle, in: window)
+        let named = try axButtons(labelled: EditionCastCopy.nameAndRunTitle, in: window)
         XCTAssertEqual(axEnabled(named[0]), true,
                        "…and a typed name must make it pressable, or this test "
                        + "could pass over a button that never enables")
     }
 
-    // MARK: - Task 9: the whole desk, wired to a real translator loop
+    // MARK: - Task 9: Run's verb, wired to a real translator loop
 
-    /// **Run on an unlisted, unminted edition shows the sheet — and
-    /// nothing else happens.** Nothing is minted, nothing is renamed, and the
-    /// run never reaches `TranslatorOrchestrator`: `translatorIdentity` (the
-    /// orchestrator's own mint) is never asked, which is the one signal that
-    /// distinguishes "the sheet interposed" from "the run merely hasn't
-    /// finished yet".
+    /// **Run on an unlisted, unminted edition asks for the cast — and
+    /// nothing else happens** (windowless since the desk went, shell p4 Task
+    /// 7: `TranslationRunStart.startRun` is the verb a Run reaches). Nothing
+    /// is minted, nothing is renamed, and the run never reaches
+    /// `TranslatorOrchestrator`.
     func test_anUnlistedLanguageShowsTheSheetBeforeAnythingRuns() async throws {
         let fixture = try await makeTranslatorFixture(seedLanguage: "xx")
-        let window = mountTranslatorHost(fixture)
-        _ = try await scrollersSettling(in: window)
 
-        try await pressRowControl(labelled: DepartmentRunState.runTitle, in: window)
-
-        let sheet = await attachedSheetWindow(of: window)
-        let sheetWindow = try XCTUnwrap(sheet, "Run on an unnamed edition must show the "
-                                        + "mint sheet before anything runs")
-        let texts = try axTexts(in: sheetWindow)
-        XCTAssertTrue(
-            texts.contains { $0.contains(DepartmentCastCopy.nameForRunTitle(language: "xx")) },
-            "Published: \(texts.sorted())")
+        let start = await TranslationRunStart.startRun(
+            language: "xx", docId: "doc-1", pipeline: fixture.pipeline,
+            documentStore: fixture.documentStore, store: fixture.projectStore)
+        let prompt = try XCTUnwrap(start.castPrompt, "Run on an unnamed edition must ask "
+                                   + "for its translator before anything runs")
+        XCTAssertEqual(prompt.ask, .nameForRun(language: "xx", docId: "doc-1"))
+        XCTAssertEqual(prompt.title, EditionCastCopy.nameForRunTitle(language: "xx"))
 
         XCTAssertTrue(fixture.projectStore.manifest.productionRoles.isEmpty,
                       "opening the sheet must mint nothing — only Confirm does")
@@ -1256,12 +1104,11 @@ final class DepartmentRunTests: XCTestCase {
     /// Run must reach the orchestrator on the very first click.
     ///
     /// Windowless (tripwire 33, #120): Run's verb past the pre-flight,
-    /// `DepartmentPaneHost.startRun`, which the row's button reaches through
-    /// `run(language:)` (`WiringCensusTests`, `type:DepartmentPaneHost`).
+    /// `TranslationRunStart.startRun`.
     func test_aPresetLanguageRunsStraightThroughWithNoSheet() async throws {
         let fixture = try await makeTranslatorFixture(seedLanguage: "es")
 
-        let start = await DepartmentPaneHost.startRun(
+        let start = await TranslationRunStart.startRun(
             language: "es", docId: "doc-1", pipeline: fixture.pipeline,
             documentStore: fixture.documentStore, store: fixture.projectStore)
 
@@ -1274,89 +1121,38 @@ final class DepartmentRunTests: XCTestCase {
         await fixture.documentStore.close()
     }
 
-    /// **The end-to-end pin for the other loop: the desk's language Run drives
-    /// a whole seven-leg ROUND, and the row draws the round it filed.**
-    ///
-    /// The button-to-verb hop (Run → `run(language:)` → `startRun`) is
-    /// `WiringCensusTests`' (`type:DepartmentPane`, `type:DepartmentPaneHost`),
-    /// and the decisions are the cases above; this test pins the rest, from the
-    /// verb on: `startRun` enters the PIPELINE at leg 1 — not, as before Plan
-    /// 4, a bare `translator.runTranslation` that ran a single leg where the
-    /// writer asked for a round — and the round it files comes back to the
-    /// row. The whole path past the verb is real: the real
-    /// `DepartmentPaneHost` mounted, the real pre-flight (asserted as a
-    /// premise), the real `TranslationPipeline`, the real
-    /// `TranslationRoundStore`, the real `.maughamTranslationRoundEnded` post —
-    /// then the desk re-derives and draws the round it just ran, which is the
-    /// loop closing. Nothing is pressed (tripwire 33, #120); the waits below
-    /// are on the pipeline and the desk's re-derivation.
-    ///
-    /// **One substitution, stated**: the sessions. Every leg is answered from
-    /// `TranslationPipelineTests.FakeWorld`'s script, so no subprocess is
-    /// spawned — what is under test is that the verb drives the PIPELINE and
-    /// that the round it files comes back as a line and a door on the row
-    /// that asked for it.
-    func test_theLanguageRunDrivesTheSevenLegPipelineAndTheRowDrawsTheRound()
-    async throws {
+    /// **A chapter's Run drives a whole seven-leg ROUND** — `startRun` enters
+    /// the PIPELINE at leg 1, not a bare `translator.runTranslation` (the
+    /// pre-pipeline path, which would run a second round on one click). The
+    /// round's drawing is an edition's To resolve head's
+    /// (`ResolveEditionVerbTests`); the desk that drew it on a row is gone
+    /// (shell p4 Task 7). Windowless: nothing is pressed (tripwire 33).
+    func test_aRunDrivesTheSevenLegPipeline() async throws {
         let fixture = try await makeTranslatorFixture(seedLanguage: "es")
         let world = TranslationPipelineTests.FakeWorld()
-        let pipeline = deskPipeline(over: world, projectURL: fixture.projectURL)
-        let window = mountTranslatorHost(fixture, pipeline: pipeline)
-        _ = try await scrollersSettling(in: window)
-
-        // Premise first: the row must be on screen before it can be pressed,
-        // and there must be exactly one of it.
-        let drewOne = await pumpUntil(deadline: 5) {
-            ((try? self.axButtons(labelled: DepartmentRunState.runTitle,
-                                  in: window))?.count ?? 0) == 1
-        }
-        let runs = try axButtons(labelled: DepartmentRunState.runTitle, in: window)
-        XCTAssertTrue(drewOne, "premise: the desk never drew this edition's Run")
-        XCTAssertEqual(runs.count, 1, "one Run for the book's one edition")
-        // The row's Run, called rather than pressed (tripwire 33, #120): the
-        // button reaches `run(language:)`, whose pre-flight passes for an
-        // open chapter and hands this verb the pair (`WiringCensusTests`,
-        // `type:DepartmentPaneHost` and `type:DepartmentPane`). What follows
-        // waits on the PIPELINE and the desk's re-derivation, not on a press.
-        XCTAssertNil(DepartmentRunState.preflight(
+        let pipeline = runPipeline(over: world, projectURL: fixture.projectURL)
+        XCTAssertNil(TranslationRunState.preflight(
             language: "es",
-            target: DepartmentRunTarget.resolve(
+            target: TranslationRunTarget.resolve(
                 subject: .item("doc-1"), structure: fixture.projectStore.manifest.structure,
                 isOpen: { fixture.documentStore.document(for: $0) != nil }),
             session: .free), "premise: the pre-flight lets this Run through")
-        let start = await DepartmentPaneHost.startRun(
+        let start = await TranslationRunStart.startRun(
             language: "es", docId: "doc-1", pipeline: pipeline,
             documentStore: fixture.documentStore, store: fixture.projectStore)
         XCTAssertNil(start.castPrompt, "a preset edition asks for no name")
 
-        // The one signal that separates "the desk drove the pipeline" from
-        // "the desk drove the translator directly, as it did before Plan 4":
-        // a bare `translator.runTranslation` reaches the spy runner and never
-        // touches this script at all.
         _ = await pumpUntil(deadline: 10) { !world.calls.isEmpty }
         XCTAssertEqual(world.calls.first, "translate",
-                       "the row's Run must enter the pipeline at leg 1. Calls: "
-                       + "\(world.calls)")
+                       "Run must enter the pipeline at leg 1. Calls: \(world.calls)")
         XCTAssertTrue(fixture.runner.sends.isEmpty,
-                      "…and must not ALSO drive the bare translator loop — "
-                      + "that is the pre-pipeline path, and two rounds would "
-                      + "run on one click")
-
-        // The round's number is the fake's own `nextNumber`, so the line the
-        // row draws is checkable rather than merely present.
-        let drew = await pumpUntil(deadline: 20) {
-            (try? self.axTexts(in: window))?.contains { $0.hasPrefix("Round 7") } ?? false
+                      "…and must not ALSO drive the bare translator loop")
+        let filed = await pumpUntil(deadline: 20) {
+            TranslationRoundStore(projectURL: fixture.projectURL)
+                .latest(language: "es", docId: "doc-1") != nil
         }
-        XCTAssertTrue(drew,
-                      "the desk never drew the round it had just filed. Published: "
-                      + "\((try? axTexts(in: window))?.sorted() ?? [])")
-
-        let show = try axButtons(
-            labelled: DepartmentRunState.showRoundAccessibilityLabel(language: "es"),
-            in: window)
-        XCTAssertEqual(show.count, 1,
-                       "a round the desk can describe is a round the desk can open")
-
+        XCTAssertTrue(filed, "the round the pipeline ran was never filed")
+        pipeline.cancel()
         await fixture.documentStore.close()
     }
 
@@ -1368,7 +1164,7 @@ final class DepartmentRunTests: XCTestCase {
     /// ends), which is what makes the queue readable: `status` still names the
     /// first document and the book's own position, and a verb that had passed
     /// the open chapter alone would carry no `book` at all.
-    func test_runWholeBookQueuesEveryChapterTheDeskSums() async throws {
+    func test_runWholeBookQueuesEveryChapterOfTheBook() async throws {
         let fixture = try await makeTranslatorFixture(seedLanguage: "es",
                                                       extraChapters: 2)
         let pipeline = TranslationPipeline()
@@ -1382,16 +1178,15 @@ final class DepartmentRunTests: XCTestCase {
         pipeline.configure(environment: environment)
 
         // Windowless (tripwire 33, #120): Run Whole Book's verb past its
-        // refusals is `startBookRun` over the desk's kept set. `derive()` has
-        // no pure static of its own for that set; it is these two statics'
-        // composition, which `WiringCensusTests` (`type:DepartmentPaneHost`)
-        // pins `derive()` to, so the ORDER asserted below rests on
-        // `EditionStatus.manuscriptDocumentIds` (the manifest's own walk) and
-        // on `scopedDocumentIds`' pins in `DepartmentPaneTests`.
-        let book = DepartmentPaneHost.scopedDocumentIds(
+        // refusals is `startBookRun` over the edition's run scope
+        // (`ResolveEditionItems.runScope`, these two statics' composition), so
+        // the ORDER asserted below rests on `EditionStatus
+        // .manuscriptDocumentIds` and on `scopedDocumentIds`' pins in
+        // `EditionLanguagesTests`.
+        let book = PublishImprint.scopedDocumentIds(
             EditionStatus.manuscriptDocumentIds(in: fixture.projectStore.manifest),
             imprint: nil, in: nil)
-        let start = await DepartmentPaneHost.startBookRun(
+        let start = await TranslationRunStart.startBookRun(
             language: "es", documentIds: book, pipeline: pipeline,
             documentStore: fixture.documentStore, store: fixture.projectStore)
 
@@ -1415,7 +1210,7 @@ final class DepartmentRunTests: XCTestCase {
         _ = try await fixture.projectStore.translatorRole(for: "xx")
 
         // Windowless (tripwire 33, #120) — the preset case's shape.
-        let start = await DepartmentPaneHost.startRun(
+        let start = await TranslationRunStart.startRun(
             language: "xx", docId: "doc-1", pipeline: fixture.pipeline,
             documentStore: fixture.documentStore, store: fixture.projectStore)
 
@@ -1435,17 +1230,17 @@ final class DepartmentRunTests: XCTestCase {
     func test_theAddLanguageSheetRefusesAnUnusableTagInWords() async throws {
         let window = mountCastSheet(ask: .addLanguage)
         let tagField = try XCTUnwrap(
-            textField(placeholder: DepartmentCastCopy.tagPlaceholder, in: window),
+            textField(placeholder: EditionCastCopy.tagPlaceholder, in: window),
             "the Add Language sheet mounted no tag field at all")
         type("PT BR", into: tagField)
         pump(0.1)
 
         let texts = try axTexts(in: window)
         XCTAssertTrue(
-            texts.contains { $0.contains(DepartmentCastCopy.unusableTag("PT BR")) },
+            texts.contains { $0.contains(EditionCastCopy.unusableTag("PT BR")) },
             "the sheet took an unusable tag without saying so. Published: "
             + "\(texts.sorted())")
-        let confirm = try axButtons(labelled: DepartmentCastCopy.addConfirmTitle,
+        let confirm = try axButtons(labelled: EditionCastCopy.addConfirmTitle,
                                     in: window)
         XCTAssertEqual(axEnabled(confirm[0]), false,
                        "…and it must not offer a way to add it anyway")
@@ -1457,21 +1252,21 @@ final class DepartmentRunTests: XCTestCase {
     func test_aPresetLanguageArrivesWithItsTranslatorAlreadyNamed() async throws {
         let window = mountCastSheet(ask: .addLanguage)
         let tagField = try XCTUnwrap(
-            textField(placeholder: DepartmentCastCopy.tagPlaceholder, in: window))
+            textField(placeholder: EditionCastCopy.tagPlaceholder, in: window))
         type("es", into: tagField)
         pump(0.1)
 
         let nameField = try XCTUnwrap(
-            textField(placeholder: DepartmentCastCopy.placeholder, in: window))
+            textField(placeholder: EditionCastCopy.placeholder, in: window))
         XCTAssertEqual(nameField.stringValue, "Cortázar")
         let texts = try axTexts(in: window)
         XCTAssertTrue(
             texts.contains {
-                $0.contains(DepartmentCastCopy.addExplanation(preset: "Cortázar"))
+                $0.contains(EditionCastCopy.addExplanation(preset: "Cortázar"))
             },
             "the sheet never said where that name came from. Published: "
             + "\(texts.sorted())")
-        let confirm = try axButtons(labelled: DepartmentCastCopy.addConfirmTitle,
+        let confirm = try axButtons(labelled: EditionCastCopy.addConfirmTitle,
                                     in: window)
         XCTAssertEqual(axEnabled(confirm[0]), true,
                        "a preset language is answerable the moment it is typed")
@@ -1484,11 +1279,11 @@ final class DepartmentRunTests: XCTestCase {
     func test_theWritersOwnNameSurvivesAChangeOfTag() async throws {
         let window = mountCastSheet(ask: .addLanguage)
         let nameField = try XCTUnwrap(
-            textField(placeholder: DepartmentCastCopy.placeholder, in: window))
+            textField(placeholder: EditionCastCopy.placeholder, in: window))
         type("Ana", into: nameField)
         pump(0.1)
         let tagField = try XCTUnwrap(
-            textField(placeholder: DepartmentCastCopy.tagPlaceholder, in: window))
+            textField(placeholder: EditionCastCopy.tagPlaceholder, in: window))
         type("es", into: tagField)
         pump(0.1)
 
@@ -1503,31 +1298,16 @@ final class DepartmentRunTests: XCTestCase {
     func test_theSheetSaysWhyABlankNameIsNotEnough() async throws {
         let window = mountCastSheet(ask: .addLanguage)
         let nameField = try XCTUnwrap(
-            textField(placeholder: DepartmentCastCopy.placeholder, in: window))
+            textField(placeholder: EditionCastCopy.placeholder, in: window))
         type("Ana", into: nameField)
         pump(0.1)
         type("   ", into: nameField)
         pump(0.1)
 
         let texts = try axTexts(in: window)
-        XCTAssertTrue(texts.contains { $0.contains(DepartmentCastCopy.nameRequired) },
+        XCTAssertTrue(texts.contains { $0.contains(EditionCastCopy.nameRequired) },
                       "a cleared name field said nothing about why Confirm went "
                       + "dead. Published: \(texts.sorted())")
-    }
-
-    // MARK: - cast-management: the Add Language door
-
-    /// The button is on the empty desk too — which is where a writer with no
-    /// editions yet comes to start their first, and the one arm a reading of
-    /// "it goes under the rows" would leave without it.
-    func test_theAddLanguageDoorIsDrawnWithNoEditionsAtAll() async throws {
-        let window = mount(languages: [], target: .ready(docId: "doc-1",
-                                                         title: "Chapter 1"))
-        _ = try await scrollersSettling(in: window)
-
-        let labels = try axButtonLabels(in: window)
-        XCTAssertEqual(labels.filter { $0 == DepartmentDesk.addLanguageTitle }.count, 1,
-                       "one door, drawn once. Buttons published: \(labels.sorted())")
     }
 
     // MARK: - cast-management: renaming the cast (no host)
@@ -1542,17 +1322,17 @@ final class DepartmentRunTests: XCTestCase {
                          currentName: "Cortázar"))
 
         let nameField = try XCTUnwrap(
-            textField(placeholder: DepartmentCastCopy.placeholder, in: window))
+            textField(placeholder: EditionCastCopy.placeholder, in: window))
         XCTAssertEqual(nameField.stringValue, "Cortázar")
         let texts = try axTexts(in: window)
         XCTAssertTrue(
             texts.contains {
-                $0.contains(DepartmentCastCopy.renameTitle(currentName: "Cortázar"))
+                $0.contains(EditionCastCopy.renameTitle(currentName: "Cortázar"))
             },
             "the sheet never said who it was about. Published: \(texts.sorted())")
         XCTAssertTrue(
             texts.contains {
-                $0.contains(DepartmentCastCopy.renameExplanation(
+                $0.contains(EditionCastCopy.renameExplanation(
                     subject: .edition(language: "es")))
             },
             "…nor that a rename orphans nothing, which is the fear that stops a "
@@ -1564,22 +1344,22 @@ final class DepartmentRunTests: XCTestCase {
     func test_theDesignerSheetHasNoCastFields() async throws {
         let window = mountCastSheet(
             ask: .rename(subject: .designer, currentName: "Tschichold"))
-        XCTAssertNil(textField(placeholder: DepartmentCastCopy.readerPlaceholder, in: window))
-        XCTAssertNil(textField(placeholder: DepartmentCastCopy.collatorPlaceholder, in: window))
+        XCTAssertNil(textField(placeholder: EditionCastCopy.readerPlaceholder, in: window))
+        XCTAssertNil(textField(placeholder: EditionCastCopy.collatorPlaceholder, in: window))
     }
 
     /// **A row with nobody on it yet asks for a NAME**, which is the honest verb
     /// for an unlisted language nothing has minted a role for — "Rename " with
     /// an empty name after it would be a sheet about nobody.
     func test_aRowWithNobodyOnItAsksForANameRatherThanARename() async throws {
-        let prompt = DepartmentCastPrompt(
+        let prompt = EditionCastPrompt(
             ask: .rename(subject: .edition(language: "xx"), currentName: ""))
         XCTAssertEqual(prompt.title,
-                       DepartmentCastCopy.nameForRunTitle(language: "xx"))
-        XCTAssertEqual(prompt.confirmTitle, DepartmentCastCopy.nameConfirmTitle)
+                       EditionCastCopy.nameForRunTitle(language: "xx"))
+        XCTAssertEqual(prompt.confirmTitle, EditionCastCopy.nameConfirmTitle)
 
         let window = mountCastSheet(ask: prompt.ask)
-        let confirm = try axButtons(labelled: DepartmentCastCopy.nameConfirmTitle,
+        let confirm = try axButtons(labelled: EditionCastCopy.nameConfirmTitle,
                                     in: window)
         XCTAssertEqual(confirm.count, 1)
         XCTAssertEqual(axEnabled(confirm[0]), false,
@@ -1594,39 +1374,16 @@ final class DepartmentRunTests: XCTestCase {
         let window = mountCastSheet(
             ask: .rename(subject: .designer, currentName: "Tschichold"))
         let nameField = try XCTUnwrap(
-            textField(placeholder: DepartmentCastCopy.placeholder, in: window))
+            textField(placeholder: EditionCastCopy.placeholder, in: window))
         type("   ", into: nameField)
         pump(0.1)
 
         let texts = try axTexts(in: window)
-        XCTAssertTrue(texts.contains { $0.contains(DepartmentCastCopy.nameRequired) },
+        XCTAssertTrue(texts.contains { $0.contains(EditionCastCopy.nameRequired) },
                       "Published: \(texts.sorted())")
-        let confirm = try axButtons(labelled: DepartmentCastCopy.renameConfirmTitle,
+        let confirm = try axButtons(labelled: EditionCastCopy.renameConfirmTitle,
                                     in: window)
         XCTAssertEqual(axEnabled(confirm[0]), false)
-    }
-
-    /// **Every person on the desk can be renamed from the row they are on** —
-    /// one door per language row plus the Design row's, read off the tree the
-    /// way a keyboard and VoiceOver read it. A `.contextMenu` alone would have
-    /// published nothing here, which is why the row carries a control as well.
-    func test_everyRowOffersARenameTheTreeCanReach() async throws {
-        let window = mountRows([
-            EditionStatus.LanguageRow(language: "es", translator: "Cortázar",
-                                      fresh: 0, stale: 0, missing: 0, openQueries: 0),
-            EditionStatus.LanguageRow(language: "xx", translator: nil,
-                                      fresh: 0, stale: 0, missing: 0, openQueries: 0),
-        ])
-        _ = try await scrollersSettling(in: window)
-
-        let labels = try axButtonLabels(in: window)
-        for expected in [DepartmentDesk.renameTitle(translator: "Cortázar"),
-                         DepartmentDesk.renameTitle(translator: nil),
-                         DepartmentDesignRow.renameTitle(designerName: "Tschichold")] {
-            XCTAssertEqual(labels.filter { $0 == expected }.count, 1,
-                           "no reachable control reads \u{201C}\(expected)\u{201D}. "
-                           + "Buttons published: \(labels.sorted())")
-        }
     }
 
     // MARK: - Helpers: the decisions
@@ -1636,8 +1393,8 @@ final class DepartmentRunTests: XCTestCase {
                            runState: DesignerOrchestrator.RunState = .idle,
                            session: DesignSession = .free,
                            hasOpenProposalRound: Bool = false,
-                           now: Date = Date()) -> DepartmentDesignRow {
-        DepartmentDesignRow.resolve(
+                           now: Date = Date()) -> DesignRoundState {
+        DesignRoundState.resolve(
             designerName: designerName, proposals: proposals, runState: runState,
             session: session, hasOpenProposalRound: hasOpenProposalRound, now: now)
     }
@@ -1653,96 +1410,20 @@ final class DepartmentRunTests: XCTestCase {
     }
 
     private func state(_ language: String,
-                       target: DepartmentRunTarget,
-                       session: DepartmentRunSession = .free,
+                       target: TranslationRunTarget,
+                       session: TranslationRunSession = .free,
                        runState: TranslatorOrchestrator.RunState = .idle,
                        lastRun: TranslatorOrchestrator.RunSummary? = nil)
-    -> DepartmentRunState {
-        DepartmentRunState.resolve(language: language, target: target,
+    -> TranslationRunState {
+        TranslationRunState.resolve(language: language, target: target,
                                    session: session, runState: runState,
                                    lastRun: lastRun)
     }
 
     // MARK: - Helpers: hosting
 
-    /// `runs`, when given, is drawn INSTEAD of resolving one per row: the run
-    /// half's decisions are `DepartmentRunState`'s own tests, and a case about
-    /// what the row DRAWS should be able to hand it a state directly rather
-    /// than assembling the four inputs that happen to resolve to it.
-    private func mount(languages: [String],
-                       target: DepartmentRunTarget,
-                       runState: TranslatorOrchestrator.RunState = .idle,
-                       isRunning: Bool = false,
-                       notice: String? = nil,
-                       design: DepartmentDesignRow = DepartmentDesignRow(),
-                       runs: [String: DepartmentRunState]? = nil,
-                       runTranslation: @escaping (String) -> Void = { _ in },
-                       cancelRun: @escaping () -> Void = { },
-                       runBook: @escaping (String) -> Void = { _ in },
-                       showRound: @escaping (String) -> Void = { _ in },
-                       runDesign: @escaping (String?) -> Bool = { _ in true },
-                       requestDesignChanges: @escaping (String) -> Bool = { _ in true },
-                       cancelDesignRun: @escaping () -> Void = { }) -> NSWindow {
-        let rows = languages.map {
-            EditionStatus.LanguageRow(language: $0, translator: nil,
-                                      fresh: 0, stale: 0, missing: 0, openQueries: 0)
-        }
-        let session = DepartmentRunSession.read(runState: runState,
-                                                isRunning: isRunning)
-        var resolved: [String: DepartmentRunState] = [:]
-        for row in rows {
-            resolved[row.language] = DepartmentRunState.resolve(
-                language: row.language, target: target, session: session,
-                runState: runState, lastRun: nil)
-        }
-
-        let window = TestWindow.mount(
-            AnyView(DepartmentPane(title: "The Project",
-                                   languages: rows,
-                                   unreadable: [],
-                                   translationOffers: .unrestricted,
-                                   design: design,
-                                   notice: notice,
-                                   runTarget: target,
-                                   runs: runs ?? resolved,
-                                   runTranslation: runTranslation,
-                                   cancelRun: cancelRun,
-                                   runBook: runBook,
-                                   showRound: showRound,
-                                   runDesign: runDesign,
-                                   requestDesignChanges: requestDesignChanges,
-                                   cancelDesignRun: cancelDesignRun)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)),
-            size: CGSize(width: 340, height: 600))
-        windows.append(window)
-        pump(0.1)
-        return window
-    }
-
-    /// The pane over rows that carry a translator — `mount(languages:target:)`
-    /// builds nameless ones, and the rename verbs are about who is named.
-    private func mountRows(
-        _ rows: [EditionStatus.LanguageRow],
-        design: DepartmentDesignRow = DepartmentDesignRow(),
-        renameTranslator: @escaping (String) -> Void = { _ in },
-        renameDesigner: @escaping () -> Void = { }) -> NSWindow {
-        let window = TestWindow.mount(
-            AnyView(DepartmentPane(title: "The Project",
-                                   languages: rows,
-                                   unreadable: [],
-                                   translationOffers: .unrestricted,
-                                   design: design,
-                                   renameTranslator: renameTranslator,
-                                   renameDesigner: renameDesigner)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)),
-            size: CGSize(width: 340, height: 600))
-        windows.append(window)
-        pump(0.1)
-        return window
-    }
-
     /// The cast sheet, mounted alone on the run-mint's own ask —
-    /// `DepartmentPaneTests`' dumb-view mounting, for the sheet's own file.
+    /// `EditionLanguagesTests`' dumb-view mounting, for the sheet's own file.
     private func mountMintSheet(language: String,
                                 onName: @escaping (String) -> Void = { _ in },
                                 onCancel: @escaping () -> Void = { }) -> NSWindow {
@@ -1752,71 +1433,19 @@ final class DepartmentRunTests: XCTestCase {
 
     /// The cast sheet on any ask — the shape the Add Language cases drive.
     private func mountCastSheet(
-        ask: DepartmentCastPrompt.Ask,
+        ask: EditionCastPrompt.Ask,
         currentReader: String? = nil, currentCollator: String? = nil,
-        onConfirm: @escaping (DepartmentCastAnswer) -> Void = { _ in },
+        onConfirm: @escaping (EditionCastAnswer) -> Void = { _ in },
         onCancel: @escaping () -> Void = { }) -> NSWindow {
         let window = TestWindow.mount(
-            AnyView(DepartmentCastSheet(
-                prompt: DepartmentCastPrompt(
+            AnyView(EditionCastSheet(
+                prompt: EditionCastPrompt(
                     ask: ask, currentReader: currentReader, currentCollator: currentCollator),
                 onConfirm: onConfirm, onCancel: onCancel)),
             size: CGSize(width: 380, height: 360))
         windows.append(window)
         pump(0.1)
         return window
-    }
-
-    /// **Wait for a control the desk DERIVES, then press it by name**
-    /// (imprints P3 Task 5's carry).
-    ///
-    /// `scrollersSettling` proves the desk mounted its sections; it proves
-    /// nothing about the language ROWS on them. Those come from
-    /// `DepartmentPaneHost.derive()`, which reads the manifest, the publish
-    /// config and every edition's translation file — and each suspension in it
-    /// is a runloop pass where the section is on screen and the row is not.
-    /// `axButtons(…)[0]` in that window does not fail, it CRASHES the whole
-    /// test class with "Array index out of range": measured on this branch,
-    /// ONE `await` added to `derive()` took all eight of the row-pressing cases
-    /// down at once, and a crash names no premise. This waits for the control
-    /// and, if it never arrives, fails with the reason.
-    ///
-    /// Verified 2026-08-28 by pointing one case at a label the desk never
-    /// draws: `XCTAssertFalse failed - premise: the desk drew no "NEVER DRAWN"
-    /// in 1.0s …  Published buttons: ["Add Language…", "Compile…", …]`.
-    private func pressRowControl(labelled label: String, in window: NSWindow,
-                                 deadline: TimeInterval = 5,
-                                 file: StaticString = #filePath,
-                                 line: UInt = #line) async throws {
-        var buttons: [AnyObject] = []
-        _ = await pumpUntil(deadline: deadline) {
-            buttons = (try? self.axButtons(labelled: label, in: window)) ?? []
-            return !buttons.isEmpty
-        }
-        XCTAssertFalse(
-            buttons.isEmpty,
-            "premise: the desk drew no \"\(label)\" in \(deadline)s — its rows "
-            + "are derived, and this test presses one before asserting anything "
-            + "about it. Published buttons: "
-            + "\((try? axButtonLabels(in: window))?.sorted() ?? [])",
-            file: file, line: line)
-        guard let first = buttons.first else { return }
-        press(first)
-    }
-
-    private func scrollersSettling(in window: NSWindow,
-                                   file: StaticString = #filePath,
-                                   line: UInt = #line) async throws -> [NSScrollView] {
-        var found: [NSScrollView] = []
-        _ = await pumpUntil(deadline: 5) {
-            found = self.collect(NSScrollView.self, in: window)
-            return !found.isEmpty
-        }
-        pump(0.2)
-        found = collect(NSScrollView.self, in: window)
-        XCTAssertFalse(found.isEmpty, "the desk mounted no sections at all",
-                       file: file, line: line)
-        return found
     }
 
     // MARK: - Helpers: the accessibility tree
@@ -1840,20 +1469,6 @@ final class DepartmentRunTests: XCTestCase {
         return found.first { $0.placeholderString == placeholder }
     }
 
-    /// **Wait for a `.sheet(item:)` to actually attach** — a real child
-    /// `NSWindow` once `parent` is ordered front, which it is in every
-    /// mount this suite makes. Its own `contentView` is what the
-    /// `axTexts`/`axButtons` helpers above read when handed this window
-    /// instead of the parent.
-    private func attachedSheetWindow(of parent: NSWindow,
-                                     deadline: TimeInterval = 5) async -> NSWindow? {
-        var sheet: NSWindow?
-        _ = await pumpUntil(deadline: deadline) {
-            sheet = parent.attachedSheet
-            return sheet != nil
-        }
-        return sheet
-    }
 
     // MARK: - Helpers: a project on disk
 
@@ -1980,7 +1595,7 @@ final class DepartmentRunTests: XCTestCase {
             forDocId: "doc-1", identity: LocalIdentities.current.translator, identities: .current,
             in: h.projectURL)
 
-        let suite = "DepartmentMintSheet-\(UUID().uuidString)"
+        let suite = "EditionMintSheet-\(UUID().uuidString)"
         let preferences = UserPreferences(defaults: UserDefaults(suiteName: suite)!)
         let bible = BibleStore(projectRoot: h.projectURL,
                                device: DeviceIdentity.author.slug)
@@ -2066,37 +1681,6 @@ final class DepartmentRunTests: XCTestCase {
             + "would ever remove it")
     }
 
-    /// The real host over a `TranslatorFixture`'s project.
-    ///
-    /// The desk's Run goes through a PIPELINE as of translation pipeline P4,
-    /// so the fixture's own is mounted by default; `pipeline` overrides it for
-    /// the cases that script the legs themselves. `onShowRound` is where a
-    /// row's Show lands.
-    private func mountTranslatorHost(
-        _ fixture: TranslatorFixture,
-        pipeline: TranslationPipeline? = nil,
-        onShowRound: @escaping (TranslationRound) -> Void = { _ in }) -> NSWindow {
-        let window = TestWindow.mount(
-            AnyView(DepartmentPaneHost(store: fixture.projectStore,
-                                       documentStore: fixture.documentStore,
-                                       projectURL: fixture.projectURL,
-                                       subject: .item("doc-1"),
-                                       translator: fixture.translator,
-                                       // The window passes its log the same way; a
-                                       // desk without one draws no report line at
-                                       // all, and a test watching for one would
-                                       // wait for ever.
-                                       runLog: fixture.runLog,
-                                       pipeline: pipeline ?? fixture.pipeline,
-                                       onShowRound: onShowRound,
-                                       compileRunner: DeskCompileRunner())
-                .frame(maxWidth: .infinity, maxHeight: .infinity)),
-            size: CGSize(width: 340, height: 600))
-        windows.append(window)
-        pump(0.1)
-        return window
-    }
-
     /// **`TranslationPipelineTests.FakeWorld`'s environment, re-pointed at a
     /// pipeline this suite owns.**
     ///
@@ -2105,11 +1689,11 @@ final class DepartmentRunTests: XCTestCase {
     /// `world.pipeline.translatorRunEnded`). A desk mounted over a second
     /// pipeline built from the same closures would therefore start leg 1 and
     /// wait for ever. So the two translator legs are rewritten here to resume
-    /// the instance the desk is actually holding — the only two closures that
+    /// the instance the run is actually given — the only two closures that
     /// resume anything — and `saveRound`/`onRoundEnded` are pointed at the
     /// project's real round store and the real event, which is the production
     /// wiring this test is about.
-    private func deskPipeline(over world: TranslationPipelineTests.FakeWorld,
+    private func runPipeline(over world: TranslationPipelineTests.FakeWorld,
                               projectURL: URL) -> TranslationPipeline {
         let pipeline = TranslationPipeline()
         var environment = world.environment()

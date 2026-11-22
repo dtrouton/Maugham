@@ -65,10 +65,10 @@ enum MaughamEvent {
     /// opens To resolve on its filter. Absent for every other post.
     static let resolveFilterKey = "resolve_filter"
 
-    /// Payload key for `.maughamSetRightColumn`: a `ResolveHint.rawValue` on
-    /// ⌘⌥L's post, which asks To resolve to say how translation review is
-    /// entered when the review is not what the position shows.
-    static let explainsKey = "explains"
+    /// Payload key for `.maughamAddLanguage`: the language a proposed brief
+    /// names, which the Add Language sheet opens on. Absent for the Editions
+    /// `+`.
+    static let proposedLanguageKey = "proposed_language"
 
     /// Payload key for `.maughamSetRightColumn`: a `BriefField.rawValue` on
     /// ⌘⌥I's and ⌘⌥N's posts — Brief, with the keys in that field.
@@ -243,21 +243,20 @@ enum MaughamEvent {
         post(.maughamShowOpenPieceBrief, to: .keyWindow)
     }
 
-    /// ⌘⌥L: To resolve, where the translation review shows while review is
-    /// on — and, outside review, with one line saying how to enter it
-    /// (`explainsTranslationReviewKey`).
-    static func postTranslationReviewPosition() {
-        post(.maughamSetRightColumn, to: .keyWindow,
-             payload: [positionKey: RightColumnPosition.resolve.rawValue,
-                       explainsKey: RightColumn.ResolveHint.translationReview.rawValue])
+    /// ⌘⌥K: the To resolve of the edition the window is reading in, else
+    /// the Source edition's (shell p4 Task 7) — the faces move to that
+    /// edition (`EditionWiring.editionForTheKey`).
+    static func postShowEditionResolve() {
+        post(.maughamShowEditionResolve, to: .keyWindow)
     }
 
-    /// ⌘⌥K: To resolve — an edition's own list while an edition is the
-    /// faces (shell p4 Task 6; the desk and its hint line are gone). Task 7
-    /// makes it the reading edition's To resolve.
-    static func postDeskPosition() {
-        post(.maughamSetRightColumn, to: .keyWindow,
-             payload: [positionKey: RightColumnPosition.resolve.rawValue])
+    /// Start an edition (shell p4 Task 7): the key window presents the Add
+    /// Language sheet — from the Editions `+`, the Source row's menu, or a
+    /// proposed brief's Add (`proposing` its language).
+    static func postAddLanguage(proposing language: String? = nil) {
+        var payload: [AnyHashable: Any] = [:]
+        if let language { payload[proposedLanguageKey] = language }
+        post(.maughamAddLanguage, to: .keyWindow, payload: payload)
     }
 
     /// ⌘⌥I and ⌘⌥N: Brief, with the keys in its line or in Going for's editor

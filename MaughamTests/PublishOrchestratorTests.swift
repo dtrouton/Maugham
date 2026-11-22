@@ -1338,7 +1338,7 @@ final class PublishOrchestratorTests: XCTestCase {
     /// answers for the whole project — one `CompileJobManager` serves this
     /// orchestrator, `PreviewCompiler` and the designer's `SampleCompiler`
     /// alike — and "the newest job in flight" is a different compile as often
-    /// as it is your own. `DeskCompileRunner.cancel()` is the caller this was
+    /// as it is your own. `CompileRunner.cancel()` is the caller this was
     /// built for.
     ///
     /// Disable experiment: delete the `onJobRegistered(jobID)` line in
@@ -1712,9 +1712,9 @@ final class PublishOrchestratorTests: XCTestCase {
         XCTAssertTrue(excerpt.hasPrefix(PublishOrchestrator.mintInFlightLogExcerpt),
                       "the constant must be what the orchestrator really "
                       + "writes: \(excerpt)")
-        guard case .refused = DepartmentCompileState.settled(after: refused).phase else {
+        guard case .refused = CompileRunState.settled(after: refused).phase else {
             return XCTFail("a mint already in flight is a refusal, not a failure "
-                           + "— got \(DepartmentCompileState.settled(after: refused).phase)")
+                           + "— got \(CompileRunState.settled(after: refused).phase)")
         }
         // I2: spec §6 — the mint-gate refusal names the imprint.
         XCTAssertTrue(

@@ -365,18 +365,18 @@ final class ResolveEditionVerbTests: XCTestCase {
                       "run { await ResolveEditionActs.adopt(item, read: read, verbs: verbs) }",
                       "run { await ResolveEditionActs.skip(item, read: read, verbs: verbs) }",
                       "await ResolveEditionActs.decide(verb, proposal, verbs: verbs)",
-                      "Button(DepartmentRunState.runBookTitle) { runBook() }",
+                      "Button(TranslationRunState.runBookTitle) { runBook() }",
                       "Self.runBook(language: language, book: book, session: session, verbs: verbs)",
-                      "Button(DepartmentRunState.cancelTitle) { verbs.cancelRound() }",
+                      "Button(TranslationRunState.cancelTitle) { verbs.cancelRound() }",
                       "let outcome = Self.runDesign(direction, verbs: verbs)",
                       "let outcome = Self.requestChanges(direction, verbs: verbs)",
-                      "Button(DepartmentRunState.cancelTitle) { verbs.cancelDesign() }",
+                      "Button(TranslationRunState.cancelTitle) { verbs.cancelDesign() }",
                       // The production closures.
-                      "await DepartmentPaneHost.startBookRun(",
+                      "await TranslationRunStart.startBookRun(",
                       "pipeline.runBook(documentIds: documentIds, language: language)",
                       "roster.pipeline.cancel()", "roster.translator.cancel()",
                       "designer.runDesign(direction: direction, language: nil)",
-                      "requestChanges: { words in DepartmentDesignRow.sendChanges(words, to: designer) }",
+                      "requestChanges: { words in DesignRoundState.sendChanges(words, to: designer) }",
                       "cancelDesign: { designer.cancel() }"] {
             XCTAssertTrue(code.contains(token), token)
         }
@@ -390,11 +390,11 @@ final class ResolveEditionVerbTests: XCTestCase {
         verbs.startBookRun = { started.append(($0, $1)); return .init() }
         let busy = await EditionHeadView.runBook(language: "es", book: ["a"], session: .busy(language: "fr"),
                                                  verbs: verbs)
-        XCTAssertEqual(busy.notice, DepartmentRunState.busyReason(language: "fr"))
+        XCTAssertEqual(busy.notice, TranslationRunState.busyReason(language: "fr"))
         let empty = await EditionHeadView.runBook(language: "es", book: [], session: .free, verbs: verbs)
-        XCTAssertEqual(empty.notice, DepartmentRunState.nothingInTheBook)
+        XCTAssertEqual(empty.notice, TranslationRunState.nothingInTheBook)
         let bad = await EditionHeadView.runBook(language: "not a tag!", book: ["a"], session: .free, verbs: verbs)
-        XCTAssertEqual(bad.notice, DepartmentRunState.unusableTag(language: "not a tag!"))
+        XCTAssertEqual(bad.notice, TranslationRunState.unusableTag(language: "not a tag!"))
         XCTAssertTrue(started.isEmpty, "a refusal starts nothing")
         _ = await EditionHeadView.runBook(language: "es", book: ["a", "c"], session: .free, verbs: verbs)
         XCTAssertEqual(started.map(\.0), ["es"])
@@ -408,9 +408,9 @@ final class ResolveEditionVerbTests: XCTestCase {
         var ran: [(String, [String])] = []
         var verbs = EditionHeadVerbs()
         verbs.runBookNamed = { ran.append(($0, $1)) }
-        let prompt = DepartmentCastPrompt(ask: .nameForBookRun(language: "xx", documentIds: ["doc-1"]))
+        let prompt = EditionCastPrompt(ask: .nameForBookRun(language: "xx", documentIds: ["doc-1"]))
         let notice = await EditionHeadView.confirmCast(
-            DepartmentCastAnswer(language: nil, name: "Ana", reader: nil, collator: nil),
+            EditionCastAnswer(language: nil, name: "Ana", reader: nil, collator: nil),
             prompt: prompt, store: h.store, verbs: verbs)
         XCTAssertNil(notice)
         XCTAssertEqual(ran.map(\.0), ["xx"])
@@ -432,7 +432,7 @@ final class ResolveEditionVerbTests: XCTestCase {
         XCTAssertEqual(asked, [nil, "Quieter.", "More air."])
         // An unwired head (a probe) refuses in words.
         XCTAssertEqual(EditionHeadView.runDesign("x", verbs: EditionHeadVerbs()).notice,
-                       DepartmentDesignRow.noDesignerWired)
+                       DesignRoundState.noDesignerWired)
     }
 
     // MARK: - The posture gates as wired
@@ -532,15 +532,15 @@ final class ResolveEditionVerbTests: XCTestCase {
                                                  contextLines: [], pieceID: "a")
         let warning = TectonicLogParser.Diagnostic(level: .warning, file: nil, line: nil, message: "w",
                                                    contextLines: [], pieceID: "a")
-        var failed = DepartmentCompileState()
+        var failed = CompileRunState()
         failed.phase = .failed("x")
         failed.problems = [error, warning]
         XCTAssertEqual(ResolveEditionItems.stoppingProblems(failed), [error])
-        var refused = DepartmentCompileState()
+        var refused = CompileRunState()
         refused.phase = .refused("x")
         refused.problems = [error]
         XCTAssertEqual(ResolveEditionItems.stoppingProblems(refused), [error])
-        var landed = DepartmentCompileState()
+        var landed = CompileRunState()
         landed.phase = .idle
         landed.problems = [warning]
         XCTAssertEqual(ResolveEditionItems.stoppingProblems(landed), [], "warnings stay behind Show Problems")

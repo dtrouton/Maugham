@@ -252,7 +252,7 @@ struct RightColumnControl: View {
 /// notice over it (`BriefProposalNotice`, appraisal 10): one source for both.
 ///
 /// The `.task` owns cancellation, not a direct `await` in the notification
-/// closure (`DepartmentPaneHost`'s idiom): the event bumps `reloads`, which
+/// closure (`StatementPane`'s idiom): the event bumps `reloads`, which
 /// re-keys the read.
 struct VisualLanguageProposalModifier: ViewModifier {
     let projectURL: URL
@@ -268,7 +268,7 @@ struct VisualLanguageProposalModifier: ViewModifier {
         /// `MaughamEvent.shouldDeliver` drops a `.project` post while it is
         /// still nil — so a proposal staged in the first frames is a post
         /// nothing catches. Re-reading the slot when the window arrives costs
-        /// one JSON read, once (`DepartmentPaneHost.ReloadKey`'s field).
+        /// one JSON read, once (`StatementPane.ProposalTaskKey`'s field).
         let windowResolved: Bool
     }
 

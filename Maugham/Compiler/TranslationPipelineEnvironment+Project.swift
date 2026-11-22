@@ -169,13 +169,13 @@ extension TranslationPipeline.Environment {
     /// **The author's language is the book's own** — nothing else in the
     /// project names it — resolved through the imprint the desk is standing
     /// on exactly as the compile sheet resolves it
-    /// (`DepartmentPaneHost.sourceLanguage`, the one spelling), then named in
+    /// (`PublishImprint.sourceLanguage`, the one spelling), then named in
     /// English for the briefing's role frame.
     @MainActor
     static func authorLanguage(store: ProjectStore, documentStore: DocumentStore?,
                                projectURL: URL) -> String {
         let config = (try? PublishConfigStore.read(in: projectURL)) ?? nil
-        let tag = DepartmentPaneHost.sourceLanguage(
+        let tag = PublishImprint.sourceLanguage(
             imprint: documentStore?.uiState.publishImprint, in: config,
             pieceIDs: EditionStatus.manuscriptDocumentIds(in: store.manifest))
         return languageName(tag: tag)

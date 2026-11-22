@@ -249,6 +249,14 @@ extension Notification.Name {
     /// the tree, so the key opens the faces' piece's fold and scrolls to it.
     /// Scope: .keyWindow.
     public static let maughamShowPieceFold = Notification.Name("maugham.show.piece.fold")
+    /// Posted by ⌘⌥K (shell p4 Task 7): the To resolve of the edition the
+    /// window is reading in, else the Source edition's — the faces move to
+    /// it (`MaughamEvent.postShowEditionResolve`). Scope: .keyWindow.
+    public static let maughamShowEditionResolve = Notification.Name("maugham.show.edition.resolve")
+    /// Posted by the Editions `+`, the Source row's menu and a proposed
+    /// brief's Add (shell p4 Task 7): present the Add Language sheet
+    /// (`MaughamEvent.postAddLanguage`). Scope: .keyWindow.
+    public static let maughamAddLanguage = Notification.Name("maugham.add.language")
     /// Posted by ⌘⌥B (shell p1 Task 6): open the Inbox in the centre — the
     /// same click on the Inbox row the tree makes, through `ClickRule`. The
     /// Inbox stopped being a right-column pane when it became a row.

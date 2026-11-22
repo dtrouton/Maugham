@@ -58,7 +58,7 @@ struct EditionStatusHost: View {
     private var key: Key {
         Key(language: language, manifest: store.manifest.modified, revisions: revisions,
             rounds: Self.modified(TranslationRoundStore.fileURL(language: language, in: store.url)),
-            config: DepartmentPaneHost.configModified(in: store.url),
+            config: PublishImprint.configModified(in: store.url),
             translations: Self.modified(TranslationStore.directoryURL(in: store.url)),
             reading: reading)
     }

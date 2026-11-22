@@ -100,7 +100,7 @@ enum ResolveEditionItems {
     /// that landed, warnings and all, lists nothing (its warnings stay behind
     /// Show Problems in the centre).
     @MainActor
-    static func stoppingProblems(_ state: DepartmentCompileState) -> [TectonicLogParser.Diagnostic] {
+    static func stoppingProblems(_ state: CompileRunState) -> [TectonicLogParser.Diagnostic] {
         guard PublishCentreModel.coversWithProblems(state) else { return [] }
         return state.problems.filter { $0.level == .error }
     }
@@ -358,9 +358,9 @@ enum ResolveEditionItems {
     /// whole book) — folded over the book's pieces. Pure.
     static func runScope(docIds: [String], persisted: String?,
                          config: PublishConfig?) -> (docIds: [String], imprint: String?) {
-        let imprint = DepartmentPaneHost.selection(
-            persisted: persisted, among: DepartmentPaneHost.imprintNames(in: config))
-        return (DepartmentPaneHost.scopedDocumentIds(docIds, imprint: imprint, in: config), imprint)
+        let imprint = PublishImprint.selection(
+            persisted: persisted, among: PublishImprint.imprintNames(in: config))
+        return (PublishImprint.scopedDocumentIds(docIds, imprint: imprint, in: config), imprint)
     }
 
     /// The line under Run Whole Book: how many chapters it runs, and of
@@ -735,16 +735,16 @@ struct EditionDesignRow: View {
             Text("\(proposal.designerName) proposes a design")
                 .font(.callout)
                 .frame(maxWidth: .infinity, alignment: .leading)
-            Text(DepartmentDesignRow.latestLine(proposal))
+            Text(DesignRoundState.latestLine(proposal))
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
                 .frame(maxWidth: .infinity, alignment: .leading)
             FlowLayout(spacing: 6) {
-                Button(DepartmentDesignRow.showTitle) { verbs.showProposal(proposal) }
+                Button(DesignRoundState.showTitle) { verbs.showProposal(proposal) }
                     .controlSize(.small).fixedSize()
-                    .accessibilityLabel(DepartmentDesignRow.showAccessibilityLabel)
-                    .help(DepartmentDesignRow.showHelp)
+                    .accessibilityLabel(DesignRoundState.showAccessibilityLabel)
+                    .help(DesignRoundState.showHelp)
                 ForEach(EditionDesignRow.verbs(status: proposal.status, mayDecide: verbs.mayDecideDesign),
                         id: \.self) { verb in
                     Button(verb.title) {
@@ -841,7 +841,7 @@ struct EditionProblemRow: View {
                 .fixedSize(horizontal: false, vertical: true)
                 .frame(maxWidth: .infinity, alignment: .leading)
             FlowLayout(spacing: 6) {
-                Button(DepartmentRunState.showRoundTitle) { verbs.showProblems() }
+                Button(TranslationRunState.showRoundTitle) { verbs.showProblems() }
                     .controlSize(.small).fixedSize()
                     .accessibilityLabel("Show the last compile\u{2019}s problems")
                 if row.isInBook {
@@ -873,17 +873,17 @@ struct EditionProblemRow: View {
 /// (`EditionHeadVerbs.production`), recorded in the tests, which call the
 /// head's verb functions directly (tripwire 33).
 struct EditionHeadVerbs {
-    /// Start a whole-book round over `documentIds` (`DepartmentPaneHost.startBookRun`):
+    /// Start a whole-book round over `documentIds` (`TranslationRunStart.startBookRun`):
     /// the cast sheet's ask, or nil and the notice.
-    var startBookRun: (_ language: String, _ documentIds: [String]) async -> DepartmentPaneHost.RunStart
-        = { _, _ in .init(notice: DepartmentPaneHost.noTranslatorWired) }
+    var startBookRun: (_ language: String, _ documentIds: [String]) async -> TranslationRunStart
+        = { _, _ in .init(notice: TranslationRunStart.noTranslatorWired) }
     /// After the cast sheet named the translator.
     var runBookNamed: (_ language: String, _ documentIds: [String]) -> Void = { _, _ in }
     var cancelRound: () -> Void = {}
     /// A design round; nil when it went, else the refusal's sentence.
-    var runDesign: (_ direction: String?) -> String? = { _ in DepartmentDesignRow.noDesignerWired }
-    /// The gate's iterate arm (`DepartmentDesignRow.sendChanges`).
-    var requestChanges: (_ words: String) -> String? = { _ in DepartmentDesignRow.noDesignerWired }
+    var runDesign: (_ direction: String?) -> String? = { _ in DesignRoundState.noDesignerWired }
+    /// The gate's iterate arm (`DesignRoundState.sendChanges`).
+    var requestChanges: (_ words: String) -> String? = { _ in DesignRoundState.noDesignerWired }
     var cancelDesign: () -> Void = {}
 
     /// The window's roster, wired. A nil roster is a probe: every verb says
@@ -896,7 +896,7 @@ struct EditionHeadVerbs {
         let designer = roster.designer
         return EditionHeadVerbs(
             startBookRun: { language, documentIds in
-                await DepartmentPaneHost.startBookRun(
+                await TranslationRunStart.startBookRun(
                     language: language, documentIds: documentIds, pipeline: pipeline,
                     documentStore: documentStore, store: store)
             },
@@ -908,15 +908,15 @@ struct EditionHeadVerbs {
                 roster.translator.cancel()
             },
             runDesign: { direction in
-                if let refusal = DepartmentDesignRow.preflight(
+                if let refusal = DesignRoundState.preflight(
                     session: DesignSession.read(runState: designer.runState, isRunning: designer.isRunning),
-                    briefability: DepartmentDesignRow.briefability(store: store, projectURL: store.url)) {
+                    briefability: DesignRoundState.briefability(store: store, projectURL: store.url)) {
                     return refusal
                 }
                 designer.runDesign(direction: direction, language: nil)
                 return nil
             },
-            requestChanges: { words in DepartmentDesignRow.sendChanges(words, to: designer) },
+            requestChanges: { words in DesignRoundState.sendChanges(words, to: designer) },
             cancelDesign: { designer.cancel() })
     }
 }
@@ -953,7 +953,7 @@ struct EditionHeadView: View {
 
     @Environment(AgentRoster.self) private var roster: AgentRoster?
     @State private var notice: String?
-    @State private var castPrompt: DepartmentCastPrompt?
+    @State private var castPrompt: EditionCastPrompt?
     @State private var direction = ""
 
     private var verbs: EditionHeadVerbs {
@@ -975,7 +975,7 @@ struct EditionHeadView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, 12).padding(.vertical, 6)
         .sheet(item: $castPrompt) { prompt in
-            DepartmentCastSheet(prompt: prompt,
+            EditionCastSheet(prompt: prompt,
                                 onConfirm: { answer in
                                     castPrompt = nil
                                     Task { notice = await Self.confirmCast(answer, prompt: prompt, store: store,
@@ -983,7 +983,7 @@ struct EditionHeadView: View {
                                 },
                                 onCancel: {
                                     castPrompt = nil
-                                    notice = DepartmentCastCopy.cancelledLine(language: language)
+                                    notice = EditionCastCopy.cancelledLine(language: language)
                                 })
         }
         Divider()
@@ -1016,7 +1016,7 @@ struct EditionHeadView: View {
             Button(ResolveEditionItems.openTheReportTitle) { onShowRound(round) }
                 .buttonStyle(.link)
                 .font(.caption)
-                .help(DepartmentRunState.showRoundHelp)
+                .help(TranslationRunState.showRoundHelp)
         } else if editionRead.language != nil {
             Text(ResolveEditionItems.noLetterLine(translator: translatorName,
                                                   hasRounds: editionRead.hasRounds))
@@ -1029,10 +1029,10 @@ struct EditionHeadView: View {
     }
 
     /// Whether this Mac's translator may translate any of the pieces Run
-    /// would run — the desk's rule (`DepartmentTranslationOffers.decide`),
+    /// would run — the desk's rule (`TranslationRunOffers.decide`),
     /// asked of the translator actor's posture, over `Read.runBook`.
     static func offersRun(docIds: [String], mayTranslate: (String) -> Bool) -> Bool {
-        DepartmentTranslationOffers.decide(target: nil, book: docIds, mayTranslate: mayTranslate).runBook
+        TranslationRunOffers.decide(target: nil, book: docIds, mayTranslate: mayTranslate).runBook
     }
 
     @ViewBuilder
@@ -1040,22 +1040,22 @@ struct EditionHeadView: View {
         let run = runState
         let book = editionRead.runBook
         if editionRead.language != nil, Self.offersRun(docIds: book, mayTranslate: {
-            DepartmentPaneHost.postureOfTheTranslator(forPiece: $0, in: documentStore).allows(.translate)
+            TranslationRunStart.postureOfTheTranslator(forPiece: $0, in: documentStore).allows(.translate)
         }) {
             FlowLayout(spacing: 6) {
-                Button(DepartmentRunState.runBookTitle) { runBook() }
+                Button(TranslationRunState.runBookTitle) { runBook() }
                     .controlSize(.small)
                     .fixedSize()
                     .disabled(!run.canRunBook)
-                    .accessibilityLabel(DepartmentRunState.runBookAccessibilityLabel(language: language))
+                    .accessibilityLabel(TranslationRunState.runBookAccessibilityLabel(language: language))
                     .help(run.bookRefusal
-                          ?? DepartmentRunState.runBookHelp(language: language, count: book.count,
+                          ?? TranslationRunState.runBookHelp(language: language, count: book.count,
                                                             preflight: nil))
                 if run.isRunning {
-                    Button(DepartmentRunState.cancelTitle) { verbs.cancelRound() }
+                    Button(TranslationRunState.cancelTitle) { verbs.cancelRound() }
                         .controlSize(.small)
                         .fixedSize()
-                        .help(DepartmentRunState.cancelHelp)
+                        .help(TranslationRunState.cancelHelp)
                 }
             }
             Text(ResolveEditionItems.runScopeLine(count: book.count, imprint: editionRead.imprint))
@@ -1075,21 +1075,21 @@ struct EditionHeadView: View {
 
     /// The edition's run state, from the window's translator and pipeline —
     /// the desk's resolve, over the run's own pieces (no chapter target).
-    private var runState: DepartmentRunState {
+    private var runState: TranslationRunState {
         let runState = roster?.translator.runState ?? .idle
         let pipeline = roster?.pipeline.status ?? .idle
-        let session = DepartmentRunSession.read(
+        let session = TranslationRunSession.read(
             runState: runState, isRunning: roster?.translator.isRunning ?? false, pipeline: pipeline)
-        return DepartmentRunState.resolve(
+        return TranslationRunState.resolve(
             language: language,
-            target: DepartmentRunTarget.resolve(subject: nil, structure: [], isOpen: { _ in false }),
+            target: TranslationRunTarget.resolve(subject: nil, structure: [], isOpen: { _ in false }),
             session: session, runState: runState, lastRun: nil, pipeline: pipeline,
             bookDocumentCount: editionRead.runBook.count)
     }
 
     private func runBook() {
         notice = nil
-        let session = DepartmentRunSession.read(
+        let session = TranslationRunSession.read(
             runState: roster?.translator.runState ?? .idle,
             isRunning: roster?.translator.isRunning ?? false,
             pipeline: roster?.pipeline.status ?? .idle)
@@ -1105,24 +1105,24 @@ struct EditionHeadView: View {
     /// **Run Whole Book, decided**: the desk's refusals in order (a round
     /// under way, an unusable tag, nothing to run), then the start over
     /// exactly `book` — the set the button's count and offer were asked over.
-    static func runBook(language: String, book: [String], session: DepartmentRunSession,
-                        verbs: EditionHeadVerbs) async -> DepartmentPaneHost.RunStart {
+    static func runBook(language: String, book: [String], session: TranslationRunSession,
+                        verbs: EditionHeadVerbs) async -> TranslationRunStart {
         if case .busy(let busy) = session {
-            return .init(notice: DepartmentRunState.busyReason(language: busy))
+            return .init(notice: TranslationRunState.busyReason(language: busy))
         }
         guard (try? TranslationWritePipeline.validate(language: language)) != nil else {
-            return .init(notice: DepartmentRunState.unusableTag(language: language))
+            return .init(notice: TranslationRunState.unusableTag(language: language))
         }
-        guard !book.isEmpty else { return .init(notice: DepartmentRunState.nothingInTheBook) }
+        guard !book.isEmpty else { return .init(notice: TranslationRunState.nothingInTheBook) }
         return await verbs.startBookRun(language, book)
     }
 
     /// The cast sheet's Confirm for a book run: name the cast, then run the
     /// queue it was asked over. Returns the notice.
-    static func confirmCast(_ answer: DepartmentCastAnswer, prompt: DepartmentCastPrompt,
+    static func confirmCast(_ answer: EditionCastAnswer, prompt: EditionCastPrompt,
                             store: ProjectStore, verbs: EditionHeadVerbs) async -> String? {
         guard case .nameForBookRun(let language, let documentIds) = prompt.ask else { return nil }
-        let named = await DepartmentPaneHost.nameCast(language: language, answer: answer, store: store)
+        let named = await EditionCastVerbs.nameCast(language: language, answer: answer, store: store)
         guard named.translatorNamed else { return named.failure }
         verbs.runBookNamed(language, documentIds)
         return named.failure
@@ -1130,10 +1130,10 @@ struct EditionHeadView: View {
 
     // MARK: The Source edition
 
-    private var design: DepartmentDesignRow {
+    private var design: DesignRoundState {
         let designer = roster?.designer
         let runState = designer?.runState ?? .idle
-        return DepartmentDesignRow.resolve(
+        return DesignRoundState.resolve(
             designerName: store.designerRole().effectiveName,
             proposals: editionRead.proposals,
             runState: runState,
@@ -1151,11 +1151,11 @@ struct EditionHeadView: View {
                 .truncationMode(.tail)
             Spacer(minLength: 6)
             if design.offersShow, let newest = editionRead.proposals.first {
-                Button(DepartmentDesignRow.showTitle) { onShowProposal(newest) }
+                Button(DesignRoundState.showTitle) { onShowProposal(newest) }
                     .controlSize(.small)
                     .fixedSize()
-                    .accessibilityLabel(DepartmentDesignRow.showAccessibilityLabel)
-                    .help(DepartmentDesignRow.showHelp)
+                    .accessibilityLabel(DesignRoundState.showAccessibilityLabel)
+                    .help(DesignRoundState.showHelp)
             }
         }
         Text(design.latestLine)
@@ -1164,13 +1164,13 @@ struct EditionHeadView: View {
             .fixedSize(horizontal: false, vertical: true)
             .frame(maxWidth: .infinity, alignment: .leading)
         if mayDecideDesign {
-            TextField(DepartmentDesignRow.directionPrompt, text: $direction, axis: .vertical)
+            TextField(DesignRoundState.directionPrompt, text: $direction, axis: .vertical)
                 .textFieldStyle(.roundedBorder)
                 .lineLimit(1...3)
                 .font(.callout)
                 .accessibilityIdentifier("resolve.edition.direction")
             FlowLayout(spacing: 6) {
-                Button(DepartmentDesignRow.runTitle) {
+                Button(DesignRoundState.runTitle) {
                     let outcome = Self.runDesign(direction, verbs: verbs)
                     notice = outcome.notice
                     if outcome.spent { direction = "" }
@@ -1178,10 +1178,10 @@ struct EditionHeadView: View {
                 .controlSize(.small)
                 .fixedSize()
                 .disabled(!design.canRun)
-                .accessibilityLabel(DepartmentDesignRow.runAccessibilityLabel)
-                .help(design.refusal ?? DepartmentDesignRow.runHelp(designerName: design.designerName))
+                .accessibilityLabel(DesignRoundState.runAccessibilityLabel)
+                .help(design.refusal ?? DesignRoundState.runHelp(designerName: design.designerName))
                 if design.offersRequestChanges {
-                    Button(DepartmentDesignRow.requestChangesTitle) {
+                    Button(DesignRoundState.requestChangesTitle) {
                         let outcome = Self.requestChanges(direction, verbs: verbs)
                         notice = outcome.notice
                         if outcome.spent { direction = "" }
@@ -1189,14 +1189,14 @@ struct EditionHeadView: View {
                     .controlSize(.small)
                     .fixedSize()
                     .disabled(!design.canRun)
-                    .help(design.refusal ?? DepartmentDesignRow.requestChangesHelp)
+                    .help(design.refusal ?? DesignRoundState.requestChangesHelp)
                 }
                 if design.isRunning {
-                    Button(DepartmentRunState.cancelTitle) { verbs.cancelDesign() }
+                    Button(TranslationRunState.cancelTitle) { verbs.cancelDesign() }
                         .controlSize(.small)
                         .fixedSize()
-                        .accessibilityLabel(DepartmentDesignRow.cancelAccessibilityLabel)
-                        .help(DepartmentDesignRow.cancelHelp)
+                        .accessibilityLabel(DesignRoundState.cancelAccessibilityLabel)
+                        .help(DesignRoundState.cancelHelp)
                 }
             }
         }

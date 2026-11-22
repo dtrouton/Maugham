@@ -1099,6 +1099,49 @@ final class PostureSurfaceTests: XCTestCase {
         }
     }
 
+    /// **The edition cast's verbs ask the statement the cast belongs to**
+    /// (shell p4 Task 7): an edition's cast its brief, the designer the
+    /// visual language, Add Language the book's own statements. The book
+    /// author is offered each and the acts land; a reviewer is offered none,
+    /// and each act — asked again of the SETTLED posture — writes nothing.
+    func test_theEditionCastVerbsAskTheirStatementsPosture() async throws {
+        let h = try await makeStatementHarness()
+        let store = h.store, documentStore = h.documentStore
+        XCTAssertTrue(EditionCastVerbs.mayCast(language: "es", store: store, documentStore: documentStore))
+        XCTAssertTrue(EditionCastVerbs.mayNameTheDesigner(store: store, documentStore: documentStore))
+        XCTAssertTrue(EditionCastVerbs.mayAddLanguage(documentStore: documentStore))
+
+        try await become(.reviewer, h)
+        await documentStore.postureSettled()
+        XCTAssertFalse(EditionCastVerbs.mayCast(language: "es", store: store, documentStore: documentStore),
+                       "a reviewer is offered no cast change")
+        XCTAssertFalse(EditionCastVerbs.mayNameTheDesigner(store: store, documentStore: documentStore))
+        XCTAssertFalse(EditionCastVerbs.mayAddLanguage(documentStore: documentStore))
+        let roles = store.manifest.productionRoles
+        let added = await EditionCastVerbs.addLanguage(
+            answer: EditionCastAnswer(language: "it", name: "Calvino"),
+            store: store, documentStore: documentStore)
+        XCTAssertEqual(added, .refused(EditionCastCopy.mayNotCast))
+        let renamed = await EditionCastVerbs.confirmRename(
+            EditionCastAnswer(language: nil, name: "Borges"),
+            prompt: EditionCastVerbs.renamePrompt(language: "es", in: store.manifest),
+            store: store, documentStore: documentStore)
+        XCTAssertEqual(renamed, EditionCastCopy.mayNotCast)
+        let designer = await EditionCastVerbs.confirmRename(
+            EditionCastAnswer(language: nil, name: "Bringhurst"),
+            prompt: EditionCastVerbs.designerPrompt(store: store),
+            store: store, documentStore: documentStore)
+        XCTAssertEqual(designer, EditionCastCopy.mayNotCast)
+        XCTAssertEqual(store.manifest.productionRoles, roles, "a reviewer's cast verbs wrote nothing")
+
+        try await become(.bookAuthor, h)
+        await documentStore.postureSettled()
+        let landed = await EditionCastVerbs.addLanguage(
+            answer: EditionCastAnswer(language: "it", name: "Calvino"),
+            store: store, documentStore: documentStore)
+        XCTAssertEqual(landed, .added(language: "it"), "the book author's Add lands")
+    }
+
     /// **The letter's statement-writing offers ask the DESTINATION** — the
     /// intent the clause would land in and the project's ledger — never the
     /// piece the letter is about.
@@ -1869,12 +1912,12 @@ final class PostureSurfaceTests: XCTestCase {
     /// piece, the same answer for every language.
     func test_theDeskDrawsRunOnlyWhereItsTranslatorMay() {
         func offers(_ permit: Permit, target: String?, book: [String] = ["doc-a", "doc-b"])
-            -> DepartmentTranslationOffers {
+            -> TranslationRunOffers {
             let p = postures(permit)
-            return DepartmentTranslationOffers.decide(
+            return TranslationRunOffers.decide(
                 target: target, book: book, mayTranslate: { p($0).allows(.translate) })
         }
-        let none = DepartmentTranslationOffers(run: false, runBook: false)
+        let none = TranslationRunOffers(run: false, runBook: false)
         XCTAssertEqual(offers(.reviewer, target: "doc-a"), none, "a reviewer: no Run at all")
         XCTAssertEqual(offers(.reviewer, target: nil), none)
         XCTAssertEqual(offers(.reviewer, target: nil, book: []), none)
@@ -1883,16 +1926,16 @@ final class PostureSurfaceTests: XCTestCase {
                        "nothing to judge: the book's own stream answers, and it is hers")
         let pieces = Permit.author(.pieces(["doc-a"]))
         XCTAssertEqual(offers(pieces, target: "doc-a"),
-                       DepartmentTranslationOffers(run: true, runBook: true))
+                       TranslationRunOffers(run: true, runBook: true))
         XCTAssertEqual(offers(pieces, target: "doc-b"),
-                       DepartmentTranslationOffers(run: false, runBook: true),
+                       TranslationRunOffers(run: false, runBook: true),
                        "B is not hers; the book run will leave B out and say so")
         XCTAssertEqual(offers(pieces, target: nil, book: ["doc-b"]), none)
         XCTAssertEqual(
-            DepartmentPaneHost.notTranslatable(titles: ["B"]),
+            TranslationRunStart.notTranslatable(titles: ["B"]),
             "Your part in this book doesn\u{2019}t reach \u{201C}B\u{201D}, so it was not translated.")
         XCTAssertEqual(
-            DepartmentPaneHost.notTranslatable(titles: ["B", "C"]),
+            TranslationRunStart.notTranslatable(titles: ["B", "C"]),
             "Your part in this book doesn\u{2019}t reach \u{201C}B\u{201D} and \u{201C}C\u{201D}, "
                 + "so they were not translated.")
     }
@@ -1925,14 +1968,14 @@ final class PostureSurfaceTests: XCTestCase {
         XCTAssertFalse(hand.allows(.translate),
                        "ruling H: the writer's hand yields on the piece's translation too")
 
-        let translator = DepartmentPaneHost.postureOfTheTranslator(forPiece: "doc-a", in: store)
+        let translator = TranslationRunStart.postureOfTheTranslator(forPiece: "doc-a", in: store)
         XCTAssertNil(translator.yieldingTo)
         XCTAssertTrue(translator.allows(.translate), "the translator is not yielded")
         XCTAssertEqual(
-            DepartmentTranslationOffers.decide(
+            TranslationRunOffers.decide(
                 target: "doc-a", book: ["doc-a", "doc-b"],
                 mayTranslate: {
-                    DepartmentPaneHost.postureOfTheTranslator(forPiece: $0, in: store)
+                    TranslationRunStart.postureOfTheTranslator(forPiece: $0, in: store)
                         .allows(.translate)
                 }),
             .unrestricted, "the root's desk keeps Run over Sam's chapter")
@@ -1998,7 +2041,7 @@ final class PostureSurfaceTests: XCTestCase {
         let structure = h.store.manifest.structure
         func start(_ ids: [String]) async -> (started: [[String]], notice: String?) {
             var started: [[String]] = []
-            let notice = await DepartmentPaneHost.startTranslating(
+            let notice = await TranslationRunStart.startTranslating(
                 ids, in: h.documentStore, structure: structure) { started.append($0) }
             return (started, notice)
         }
@@ -2006,19 +2049,19 @@ final class PostureSurfaceTests: XCTestCase {
         try await become(.author(.pieces(["doc-a"])), h)
         let refused = await start(["doc-b"])
         XCTAssertEqual(refused.started, [], "a refused piece starts nothing")
-        XCTAssertEqual(refused.notice, DepartmentPaneHost.notTranslatable(titles: ["B"]),
+        XCTAssertEqual(refused.notice, TranslationRunStart.notTranslatable(titles: ["B"]),
                        "and is named")
         let allowed = await start(["doc-a"])
         XCTAssertEqual(allowed.started, [["doc-a"]], "her piece starts")
         XCTAssertNil(allowed.notice)
         let book = await start(["doc-a", "doc-b"])
         XCTAssertEqual(book.started, [["doc-a"]], "the book run leaves B out")
-        XCTAssertEqual(book.notice, DepartmentPaneHost.notTranslatable(titles: ["B"]))
+        XCTAssertEqual(book.notice, TranslationRunStart.notTranslatable(titles: ["B"]))
 
         try await become(.reviewer, h)
         let reviewer = await start(["doc-a", "doc-b"])
         XCTAssertEqual(reviewer.started, [], "a reviewer starts nothing")
-        XCTAssertEqual(reviewer.notice, DepartmentPaneHost.notTranslatable(titles: ["A", "B"]))
+        XCTAssertEqual(reviewer.notice, TranslationRunStart.notTranslatable(titles: ["A", "B"]))
 
         try await become(.bookAuthor, h)
         let promoted = await start(["doc-a", "doc-b"])

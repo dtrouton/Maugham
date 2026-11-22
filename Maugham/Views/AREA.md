@@ -155,10 +155,9 @@ Every file in `Maugham/Views/` appears once, plus the `Maugham/Models/` files CL
 ### Publish (`Publish/`)
 - `Maugham/Views/Publish/PublishPreviewCentre.swift` — `PublishCentre`, `PublishCentreNotice`, an edition's book and Compile… bar, the notice cover, `PublishPreviewModifier`.
 - `Maugham/Views/Publish/EditionStatusView.swift`, `Maugham/Views/Publish/EditionStatusRows.swift` — an edition's Status.
-- `Maugham/Views/Publish/DepartmentPane.swift`, `DepartmentPaneHost.swift` — the desk, unmounted; its statics serve the edition head.
-- `Maugham/Views/Publish/DepartmentRunState.swift`, `Maugham/Views/Publish/DepartmentDesignRow.swift`, `Maugham/Views/Publish/DepartmentCompileState.swift` — the desk's run, design and compile decisions as values. **→ Compiler**
-- `Maugham/Views/Publish/DepartmentCastSheet.swift` — the desk's cast sheet.
-- `Maugham/Views/Publish/DepartmentCompileSheet.swift`, `Maugham/Views/Publish/DeskCompileRunner.swift` — Compile… and the window's runner.
+- `TranslationRunState.swift`, `TranslationRunStart.swift`, `DesignRoundState.swift`, `CompileRunState.swift` — runs, design, compile as values. **→ Compiler**
+- `EditionCastSheet.swift`, `EditionCastVerbs.swift`, `EditionWiring.swift` (Add Language, ⌘⌥K), `PublishImprint.swift`.
+- `Maugham/Views/Publish/CompileSheet.swift`, `Maugham/Views/Publish/CompileRunner.swift` — Compile… and the window's runner.
 - `Maugham/Views/Publish/DesignGateView.swift` / `Maugham/Views/Publish/DesignGateVerbs.swift` — the design gate and its four verbs. **→ Compiler**
 - `Maugham/Views/Publish/TranslationRoundReport.swift`, `Maugham/Views/Publish/TranslationRoundReportView.swift`, `Maugham/Views/Publish/TranslationRoundReportHost.swift`, `Maugham/Views/Publish/TranslationRoundActions.swift`, `Maugham/Views/Publish/DepartureRow.swift`, `Maugham/Views/Publish/RoundRuleSheet.swift` — the round report: pure rows and copy, view, host, verbs, departure row, *Make it a rule*.
 - `Maugham/Views/Publish/PublishProblemsView.swift` — Show Problems' list (`PublishProblems`), each row reveals its paragraph.
@@ -265,7 +264,7 @@ Every file in `Maugham/Views/` appears once, plus the `Maugham/Models/` files CL
 - **On the canvas, a selection made after the last pull-up covers it** (`RightColumnContent.canvasDetailsCover`, `PulledUpMemory.canvasSelectionIsNewer`); only `CanvasDetailsCover` and `PulledUpWatch` read `selection`; Show it clears it; Esc declines while covered. Other centres' details stand above, collapsed.
 - **A fold is `PieceFoldIndex`, built once per `Key` (`CanvasCardsRevision`, as pulled-up reads) in `.task`**, links both ways; a bound region is one row over its cards in the shelf's order; rows are `List` tags or `Button(.plain)`; a picture's row draws a `RowThumbnail` (`PieceFoldContentsTests`, `BinderPieceFoldTests`).
 - **The old Inspector's fields live in `PieceRowMenus` and the status line** (`PieceTargetMenu`, over the OPEN piece), each asking `TreeStructureVerbs`; Brief's foot shows the set ones, opening the row's sheets (`PieceRowMenusTests`, `PieceTargetMenuTests`, `BriefAppraisalTests`).
-- **The ⌘⌥ keys are declared in `MaughamApp` alone**, grouped by destination (`RightColumnAppraisalTests`); ⌘⌥L/⌘⌥K explain off their ground; ⌘⌥I/⌘⌥N's field consumes `briefFocus`.
+- **The ⌘⌥ keys are declared in `MaughamApp` alone**, grouped by destination (`RightColumnAppraisalTests`); ⌘⌥L is To resolve on Questions, ⌘⌥K the reading edition's To resolve (`EditionWiring`); ⌘⌥I/⌘⌥N's field consumes `briefFocus`.
 - **To resolve and Brief lead with the faces' title** (`RightColumnSubjectLine`).
 
 ### The subject and the tree
@@ -376,7 +375,7 @@ Every file in `Maugham/Views/` appears once, plus the `Maugham/Models/` files CL
 - **The person key's surfaces stay dark in a Debug or ad-hoc build**: the keychain reads unavailable there.
 
 ### Review: the queue and the board
-- **The board and the desk take values and closures, never a store**; every verb is the MOUNT's.
+- **The board and the edition head take values and closures, never a store**; every verb is the MOUNT's.
 - **A chip click navigates the subject and `recordActivePass`**; a count click opens To resolve on the Book with the piece's group focused and leaves the subject (`ReviewBoardRoutingTests.test_theCountIsWiredToTheQueueAndDoesNotMoveTheSubject`).
 - **`ProjectWindow.recordActivePass(forPiece:passId:)` is the window's one `ActivePassMemory` writer**; the columns receive it as a closure.
 - **A round is a stage's or it is refused** (`RoundEditor`); the empty queue names the round the button would run.
@@ -438,20 +437,20 @@ Every file in `Maugham/Views/` appears once, plus the `Maugham/Models/` files CL
 - **`PublishPreviewModifier` is the resolution's only writer.**
 - **A proposal is a VALUE read once**, cleared on any change of `open` *before* `PublishPreviewModifier`'s edition guard, so leaving the edition clears it.
 - **An edition's rows call the round report's and the gate's verbs**; round verbs rewrite the stored record (`TranslationRoundStore.mutate`) and announce it; filing settles.
-- **Name, Add Language and Rename are asks of one sheet**; adding a language the book has says so and stops.
-- **The desk's run gate reads the pipeline first** (`DepartmentRunSession.read`); a round's leg never joins `ReloadKey`.
+- **Name, Add Language and Rename are asks of one sheet** (`EditionCastVerbs`; the cast on its edition's Brief, asked of that brief's posture); a language the book has says so and stops.
+- **A run's gate reads the pipeline first** (`TranslationRunSession.read`).
 - **An unlisted language's first Run asks for a name.**
 - **Run Whole Book runs the imprint's `scopedDocumentIds`.**
 - **A language tag is lowercased before it is judged, unioned or sent**: `ES` beside `es` would draw one edition as two rows.
-- **Desk pre-flight asks the briefing's own gates** (`PublishStarter.isInitialized`, `publishablePieces()`), never a second disk probe.
-- **A refused desk verb is disabled with its reason, except Show, which hides.**
+- **Design pre-flight asks the briefing's own gates** (`PublishStarter.isInitialized`, `publishablePieces()`), never a second disk probe.
+- **A refused run verb is disabled with its reason, except Show, which hides.**
 - **Gate refusals are read from the error types, never recomposed** (`DesignGate.refusalSentence`); Finalize confirms; nothing on the gate reaches `NSUndoManager` (`DesignGateTests.test_nothingAboutTheGatesVerbsReachesTheUndoManager`).
 - **A verb answering from a `Task` updates the surface only if the same proposal / round is still on it** (`PublishCentreModel.adoptVerbAnswer`).
 - **The round report is pure rows and copy; the host does all disk work in `.task`.** Its verbs are closures on `TranslationRoundActions` with a standing `notWired` refusal; count them on the type.
 - **The report's and the problems list's `onReveal` clear their own selection**: neither arm is project-level, so no subject change does.
 - **The report host takes its window**: a nil-window subscription never fires (`MaughamEvent.isLive(nil)` is false).
 - **A skipped leg and a failed query read are drawn as themselves**, never as good news (RULING-7).
-- **The gate's verbs are a pure function of the proposal's status** (`DesignGate.verbs`); a verb posts `.maughamDesignProposalsChanged` so the desk re-derives.
+- **The gate's verbs are a pure function of the proposal's status** (`DesignGate.verbs`); a verb posts `.maughamDesignProposalsChanged` so To resolve re-reads.
 - **A dismissed departure is a separate fact from the pipeline's outcome.**
 - **The reveal waits for the translated surface between its two posts** (a source reveal, `language == nil`, waits for the source), and a pending reveal is taken on the next `activeDocId` change: `TripwireGrepTests.test_theTranslationRevealIsPostedByTheReportArmAndHandledByTheWindow`.
 - **A spot-check answer belongs to the paragraph it was asked about** (`TranslationReviewPaneLogic.answerStillBelongs`); spot-check mints nothing. The reveal's `revealTask` is cancelled `.onDisappear`.

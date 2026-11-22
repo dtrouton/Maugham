@@ -173,7 +173,7 @@ final class RightColumnAppraisalTests: XCTestCase {
 
     static let toResolveGroup = [
         "To Resolve", "To Resolve: Checks", "To Resolve: Rounds", "To Resolve: Mine",
-        "To Resolve: Translation Review", "To Resolve: Department Desk",
+        "To Resolve: Questions", "FocusedEditionResolveButton",
     ]
     static let briefGroup = ["Brief", "Brief: the Line", "Brief: Going For"]
     static let pullUpGroup = [

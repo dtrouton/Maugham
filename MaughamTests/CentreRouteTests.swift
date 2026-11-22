@@ -909,16 +909,13 @@ final class EditionCentreTests: XCTestCase {
             subject: subject, bookView: .status, structure: CentreRouteTests.structure))
     }
 
-    /// **The compile runs on the window** — the desk owns none of its own, so
-    /// the compile survives the column and the desk going.
+    /// **The compile runs on the window**, so it survives the column.
     func test_theCompileRunnerLivesOnTheWindow() throws {
-        let desk = try SourceTree.read("Maugham/Views/Publish/DepartmentPaneHost.swift")
-        XCTAssertFalse(desk.contains("DeskCompileRunner()"), "the desk constructs no runner")
         let model = try SourceTree.read("Maugham/Views/Publish/PublishCentreModel.swift")
-        XCTAssertTrue(model.contains("let compileRunner = DeskCompileRunner()"))
+        XCTAssertTrue(model.contains("let compileRunner = CompileRunner()"))
         // The one constructor in the app's sources.
         let constructions = try SourceTree.sources(under: "Maugham")
-            .filter { $0.text.contains("DeskCompileRunner()") }.map(\.path)
+            .filter { $0.text.contains("CompileRunner()") }.map(\.path)
         XCTAssertEqual(constructions.map { ($0 as NSString).lastPathComponent }, ["PublishCentreModel.swift"])
     }
 
@@ -927,15 +924,15 @@ final class EditionCentreTests: XCTestCase {
     func test_aRefusalOverProblemsCoversTheCentre() {
         let problem = TectonicLogParser.Diagnostic(level: .error, file: nil, line: nil, message: "broken",
                                                   contextLines: [], pieceID: "c1")
-        let running = DepartmentCompileState(phase: .running(format: .pdf, languages: [], imprint: nil),
+        let running = CompileRunState(phase: .running(format: .pdf, languages: [], imprint: nil),
                                              isRunning: true)
-        let refused = DepartmentCompileState(phase: .refused("no"), isRunning: false,
+        let refused = CompileRunState(phase: .refused("no"), isRunning: false,
                                              problems: [problem], judgedTheManuscript: true)
         let model = PublishCentreModel()
         model.compileSettled(from: running, to: refused)
         XCTAssertEqual(model.selectedProblems, [problem])
 
-        let landed = DepartmentCompileState(phase: .completed(EditionCentreTests.spanish),
+        let landed = CompileRunState(phase: .completed(EditionCentreTests.spanish),
                                             isRunning: false, problems: [problem])
         let other = PublishCentreModel()
         other.compileSettled(from: running, to: landed)

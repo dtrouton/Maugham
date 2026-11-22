@@ -598,12 +598,12 @@ struct CentreColumn: View {
         guard case .edition(let language) = subject.open else { return nil }
         let runner = publishCentre.compileRunner
         let imprints = publishCentre.imprints
-        let selected = DepartmentPaneHost.selection(
+        let selected = PublishImprint.selection(
             persisted: documentStore.uiState.publishImprint, among: imprints)
         return EditionCompileBar(
             imprints: imprints,
             selectedImprint: selected,
-            selectImprint: { DepartmentPaneHost.select(imprint: $0, in: documentStore) },
+            selectImprint: { PublishImprint.select(imprint: $0, in: documentStore) },
             compileRun: runner.state,
             editionLanguage: publishCentre.isSourceEdition(subject.open) ? nil : language,
             editions: { Self.compileEditions(store: store, imprint: selected) },
@@ -614,11 +614,11 @@ struct CentreColumn: View {
 
     /// **The editions Compile… offers, the book's own first** — spelled as the
     /// imprint the picker stands on spells it, as the desk's sheet does
-    /// (`DepartmentPaneHost.sourceLanguage`). Read when pressed, never on a
+    /// (`PublishImprint.sourceLanguage`). Read when pressed, never on a
     /// body path.
     static func compileEditions(store: ProjectStore, imprint: String?) -> [String] {
         let config = (try? PublishConfigStore.read(in: store.url)) ?? nil
-        let book = DepartmentPaneHost.sourceLanguage(
+        let book = PublishImprint.sourceLanguage(
             imprint: imprint, in: config,
             pieceIDs: EditionStatus.manuscriptDocumentIds(in: store.manifest))
         return [book] + TreeEditionRows.languages(store: store).dropFirst()
@@ -673,7 +673,7 @@ struct CentreColumn: View {
     }
 
     /// **The gate's four verbs, wired to this window.** Closures rather than a
-    /// store handed down (`DepartmentPane`'s rule): the gate reads no disk on a
+    /// store handed down (`EditionHeadVerbs`' rule): the gate reads no disk on a
     /// body path (tripwire 4), and each reaches something the window owns — the
     /// project's shared `CompileJobManager` (which `approve`/`revert` refuse
     /// against while a compile reads the publish tree) and the warm designer.
@@ -682,7 +682,7 @@ struct CentreColumn: View {
     /// called on a body path, and `PublishingStores.sharedFor` constructs four
     /// stores on its first call for a project.
     ///
-    /// **Request Changes calls `DepartmentDesignRow.sendChanges`**, which the
+    /// **Request Changes calls `DesignRoundState.sendChanges`**, which the
     /// desk calls too — one spelling of the verb and its three refusals.
     private func designGateActions(projectURL: URL) -> DesignGateActions {
         DesignGateActions(
@@ -700,7 +700,7 @@ struct CentreColumn: View {
                 DesignGatePromotion.finalize(proposal, projectURL: projectURL)
             },
             requestChanges: { [designer] words in
-                DepartmentDesignRow.sendChanges(words, to: designer)
+                DesignRoundState.sendChanges(words, to: designer)
             })
     }
 

@@ -6,7 +6,7 @@ import AppKit
 /// 5, spec §5's centre) — as decisions and copy, so the gate's truth table is
 /// assertable with nothing mounted.
 ///
-/// `DepartmentDesignRow`'s discipline one column over: the view below draws, and
+/// `DesignRoundState`'s discipline one column over: the view below draws, and
 /// everything it could get wrong lives here as a pure function.
 enum DesignGate {
 
@@ -222,12 +222,12 @@ struct DesignGateView: View {
 
     /// **What the last verb said** — a refusal in its own words, or the
     /// confirmation that it worked. The gate's one transient-message channel,
-    /// `DepartmentPane.notice`'s shape and for its reason: a click that produces
+    /// `EditionHeadView.notice`'s shape and for its reason: a click that produces
     /// nothing visible is the silent no-op Global Constraint 2 exists against.
     @State private var notice: String?
 
     /// The writer's words for the next round. Local to this surface for the
-    /// reason `DepartmentPane.direction` is local to the desk: it is the field's
+    /// reason `EditionHeadView.direction` is local to the edition head: it is the field's
     /// own text, and a `Binding` up to the window would put a keystroke-rate
     /// write on `ProjectWindow`'s state (tripwire 3's shape).
     @State private var words = ""
@@ -319,7 +319,7 @@ struct DesignGateView: View {
 
     /// Who made this, where it stands, and the way out.
     ///
-    /// The second line is `DepartmentDesignRow.latestLine` — the desk's own
+    /// The second line is `DesignRoundState.latestLine` — the desk's own
     /// sentence about this proposal, not a second one written here. A writer who
     /// clicked "Round 2 · waiting for your review · 5 min ago" on the desk must
     /// arrive at a surface that agrees it is that.
@@ -330,7 +330,7 @@ struct DesignGateView: View {
                     .font(.headline)
                     .lineLimit(1)
                     .truncationMode(.tail)
-                Text(DepartmentDesignRow.latestLine(proposal))
+                Text(DesignRoundState.latestLine(proposal))
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -529,8 +529,8 @@ struct DesignGateView: View {
     /// Request Changes is handled apart from the other three because it is a
     /// different kind of act: it starts a round rather than moving a byte of the
     /// publish tree, it is synchronous, and it consumes the writer's words —
-    /// which are cleared only when they were spent, `DepartmentPane`'s rule for
-    /// the desk's own field.
+    /// which are cleared only when they were spent, the edition head's rule for
+    /// its own field.
     ///
     /// **And Finalize is handled apart from the other two**: it is the one act
     /// here with no way back, so the press mints a confirmation and stops. What

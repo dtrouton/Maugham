@@ -372,7 +372,7 @@ struct PublishPreviewCentre: View {
     /// imprint (when there is one), language (when there is one, already
     /// uppercased — a joined `"en+sr"` reads as `"EN+SR"`), then when it was
     /// compiled. `label(for:)`, `stamp(for:)` and
-    /// `DepartmentCompileState.completedLine` all draw from this, so no two
+    /// `CompileRunState.completedLine` all draw from this, so no two
     /// surfaces that name a book can disagree about what it's called.
     static func parts(for publication: Publication) -> [String] {
         // A row is named as a draft only when its format mints drafts: a
@@ -485,14 +485,14 @@ struct EditionCompileBar: View {
     let imprints: [String]
     let selectedImprint: String?
     let selectImprint: (String?) -> Void
-    let compileRun: DepartmentCompileState
+    let compileRun: CompileRunState
     /// This edition's tag, checked in the sheet; nil for the Source, where
     /// the book's own language is.
     let editionLanguage: String?
     /// Every edition's tag, the Source first — read when Compile… is
     /// pressed (`TreeEditionRows.languages`), never on a body path.
     let editions: () -> [String]
-    let runCompile: (DeskCompileRunner.Request) -> Void
+    let runCompile: (CompileRunner.Request) -> Void
     let cancelCompile: () -> Void
     let showProblems: () -> Void
     /// A line beside Compile… when the book asks for one (a book compiled
@@ -511,9 +511,9 @@ struct EditionCompileBar: View {
     var body: some View {
         HStack(spacing: 8) {
             if !imprints.isEmpty {
-                Picker(DepartmentDesk.imprintLabel,
+                Picker(CompileBarCopy.imprintLabel,
                        selection: Binding(get: { selectedImprint }, set: { selectImprint($0) })) {
-                    Text(DepartmentDesk.bookImprintTitle).tag(String?.none)
+                    Text(CompileBarCopy.bookImprintTitle).tag(String?.none)
                     ForEach(imprints, id: \.self) { name in
                         Text(name).tag(String?.some(name))
                     }
@@ -523,16 +523,16 @@ struct EditionCompileBar: View {
                 // A long imprint name truncates rather than pushing Cancel
                 // off the column at its floor.
                 .frame(maxWidth: 160)
-                .help(DepartmentDesk.imprintHelp)
+                .help(CompileBarCopy.imprintHelp)
             }
-            Button(DepartmentDesk.compileTitle) {
+            Button(CompileBarCopy.compileTitle) {
                 sheet = EditionCompileAsk.make(editions: editions(), edition: editionLanguage)
             }
             .controlSize(.small)
             .fixedSize()
             .disabled(compileRun.isRunning)
-            .help(compileRun.isRunning ? DepartmentCompileState.alreadyRunning
-                                       : DepartmentDesk.compileHelp)
+            .help(compileRun.isRunning ? CompileRunState.alreadyRunning
+                                       : CompileBarCopy.compileHelp)
             if compileRun.isRunning {
                 ProgressView().controlSize(.small)
             }
@@ -556,23 +556,23 @@ struct EditionCompileBar: View {
             }
             Spacer(minLength: 0)
             if compileRun.offersShowProblems {
-                Button(DepartmentCompileState.showProblemsTitle) { showProblems() }
+                Button(CompileRunState.showProblemsTitle) { showProblems() }
                     .controlSize(.small)
                     .fixedSize()
-                    .help(DepartmentCompileState.showProblemsHelp)
+                    .help(CompileRunState.showProblemsHelp)
             }
             if compileRun.isRunning {
-                Button(DepartmentCompileState.cancelTitle) { cancelCompile() }
+                Button(CompileRunState.cancelTitle) { cancelCompile() }
                     .controlSize(.small)
                     .fixedSize()
-                    .accessibilityLabel(DepartmentDesk.cancelCompileLabel)
-                    .help(DepartmentDesk.cancelCompileHelp)
+                    .accessibilityLabel(CompileBarCopy.cancelCompileLabel)
+                    .help(CompileBarCopy.cancelCompileHelp)
             }
         }
         .padding(.horizontal, 12)
         .padding(.bottom, 8)
         .sheet(item: $sheet) { ask in
-            DepartmentCompileSheet(
+            CompileSheet(
                 languages: ask.languages, bookLanguage: ask.bookLanguage,
                 imprint: selectedImprint,
                 initiallyIncludesBook: ask.includesBook,
@@ -812,12 +812,12 @@ struct PublishPreviewModifier: ViewModifier {
         let next = await PublishPreviewResolver.readablePDFs(
             store: stores.publicationStore, projectURL: projectURL)
         // **The config, read once with the catalog** (shell p4 Task 5): which
-        // edition is the Source, and the header's imprint rows — the desk's
-        // own two readings of it (`DepartmentPaneHost.derive`).
+        // edition is the Source, and the header's imprint rows —
+        // own two readings of it (`PublishImprint`).
         let config = (try? PublishConfigStore.read(in: projectURL)) ?? nil
-        centre.sourceLanguage = DepartmentPaneHost.sourceLanguage(
+        centre.sourceLanguage = PublishImprint.sourceLanguage(
             imprint: nil, in: config, pieceIDs: manuscriptIDs())
-        centre.imprints = DepartmentPaneHost.imprintNames(in: config)
+        centre.imprints = PublishImprint.imprintNames(in: config)
         centre.publishSelection(after: next)
     }
 
@@ -826,4 +826,30 @@ struct PublishPreviewModifier: ViewModifier {
     private func manuscriptIDs() -> [String] {
         store.map { EditionStatus.manuscriptDocumentIds(in: $0.manifest) } ?? []
     }
+}
+
+/// **The compile bar's own words** (imprints P3 Task 5; moved off the
+/// Department desk in shell p4 Task 7) — the edition's book header's imprint
+/// picker, Compile… and its Cancel.
+enum CompileBarCopy {
+    /// Visible rather than `labelsHidden()`: a bare popup reading "Book"
+    /// says nothing about what it changes.
+    static let imprintLabel = "Imprint"
+    /// What `nil` is called: the book itself.
+    static let bookImprintTitle = "Book"
+    static let imprintHelp =
+        "Which edition of this project a compile and a whole-book round are about \u{2014} the book "
+        + "itself, or one of the imprints its config declares. An imprint has "
+        + "its own template, its own metadata and its own version count."
+    /// The ellipsis promises a sheet: the format and the editions are still
+    /// to be chosen.
+    static let compileTitle = "Compile\u{2026}"
+    static let compileHelp =
+        "Make the book \u{2014} choose a format and which editions go in it"
+    /// Named rather than "Cancel": a VoiceOver user must tell it from a
+    /// round's Cancel.
+    static let cancelCompileLabel = "Cancel Compile"
+    static let cancelCompileHelp =
+        "Stop this compile. Nothing is published \u{2014} a compile that does "
+        + "not finish leaves no publication behind."
 }

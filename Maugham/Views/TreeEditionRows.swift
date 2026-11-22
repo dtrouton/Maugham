@@ -19,6 +19,10 @@ struct TreeEditionRows: View {
     }
 
     let rows: [Row]
+    /// Whether this Mac may start an edition (`EditionCastVerbs.mayAddLanguage`):
+    /// the header's `+` and the Source row's Add Language… are hidden where
+    /// it may not.
+    var mayAddLanguage: Bool = false
 
     /// The window's marks — an edition row carries the dot while its To
     /// resolve holds anything (shell p4 Task 6).
@@ -44,17 +48,51 @@ struct TreeEditionRows: View {
                     // Under the title, as Research's and the Palette's are.
                     .padding(.leading, ProjectRowLabel.childIndent)
                     .contentShape(Rectangle())
+                    // The Source row offers a new edition beside it, as the
+                    // header's `+` does (shell p4 Task 7).
+                    .contextMenu {
+                        if row.isSource && mayAddLanguage { addLanguageItem }
+                    }
                     .tag(BinderSubject.edition(language: row.language))
                     .id(BinderSubject.edition(language: row.language))
                 }
             } header: {
-                // No chevron, so the text starts in the titles' column
-                // rather than the chevrons' (`TreeSectionColumn`).
-                Text("Editions")
-                    .treeSectionTitle()
-                    .padding(.leading, TreeSectionColumn.chevronlessHeaderInset)
+                HStack {
+                    // No chevron, so the text starts in the titles' column
+                    // rather than the chevrons' (`TreeSectionColumn`).
+                    Text("Editions")
+                        .treeSectionTitle()
+                        .padding(.leading, TreeSectionColumn.chevronlessHeaderInset)
+                    Spacer()
+                    // **Adding a language is something done to the list of
+                    // editions** (shell p4 Task 7): the header's `+`, drawn
+                    // exactly as Research's (`BinderTreeSections
+                    // .sectionHeader`), so the two sit at one x.
+                    if mayAddLanguage {
+                        SwiftUI.Menu {
+                            addLanguageItem
+                        } label: {
+                            Image(systemName: "plus.circle")
+                        }
+                        .menuStyle(.borderlessButton)
+                        .menuIndicator(.hidden)
+                        .fixedSize()
+                        .padding(.trailing, 14)
+                        .help(EditionCastVerbs.addLanguageHelp)
+                        .accessibilityLabel(EditionCastVerbs.addLanguageTitle)
+                    }
+                }
+                .contentShape(Rectangle())
+                .contextMenu {
+                    if mayAddLanguage { addLanguageItem }
+                }
             }
         }
+    }
+
+    /// The one Add Language… item: the window's sheet (`EditionWiring`).
+    private var addLanguageItem: some View {
+        Button(EditionCastVerbs.addLanguageTitle) { MaughamEvent.postAddLanguage() }
     }
 
     // MARK: - Which languages
@@ -72,9 +110,8 @@ struct TreeEditionRows: View {
     /// translator names it.
     ///
     /// **The source language is the publish config's `metadata.language`**,
-    /// as the desk resolves it with no imprint
-    /// (`DepartmentPaneHost.sourceLanguage`, the one spelling) — the book's
-    /// own tag, `en` where there is no config.
+    /// resolved with no imprint (`PublishImprint.sourceLanguage`, the one
+    /// spelling) — the book's own tag, `en` where there is no config.
     @MainActor
     static func languages(store: ProjectStore) -> [String] {
         let byDoc = TranslationStore.languagesByDocId(in: store.url)
@@ -87,7 +124,7 @@ struct TreeEditionRows: View {
             files: files, queries: [],
             roles: EditionStatus.storedTranslatorLanguages(in: store.manifest))
         let config = (try? PublishConfigStore.read(in: store.url)) ?? nil
-        let source = DepartmentPaneHost.sourceLanguage(
+        let source = PublishImprint.sourceLanguage(
             imprint: nil, in: config, pieceIDs: manuscript)
         return languages(source: source,
                          publishingInitialised: PublishStarter.isInitialized(in: store.url),
