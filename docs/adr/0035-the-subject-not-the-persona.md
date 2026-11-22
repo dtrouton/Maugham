@@ -66,7 +66,7 @@ The right column has three positions in one order, To resolve (⌘1), Brief (⌘
 - One answer to "what is this window about", asked of one value, instead of a mode and a subject that could disagree.
 - ADRs 0005, 0025 and 0031 are superseded in part (each carries a line saying which part); their bodies are history.
 - A window state file written before this has no `windowSubject`: `UIState` seeds it from the old selection keys and `outlineLayout`, and the persona keys are no longer read.
-- Known limits, in this plan: there is no capture-to-canvas drag within one window (Inbox takes the centre; Send to Canvas remains); every edition shows the same book in preview.
+- Known limits, in this plan: there is no capture-to-canvas drag within one window (Inbox takes the centre; Send to Canvas remains; a drop on the tree's Canvas row closes this, shell p4 Task 10); every edition shows the same book in preview.
 
 ## Not yet built
 
@@ -78,10 +78,10 @@ Later plans of the same milestone. None of these exist; nothing above depends on
 - Round letters per piece.
 - The margin setting and the amendment to [ADR 0027](0027-the-compiler-and-the-editor-boundary.md) §1.
 - The rewrite of the guide, the welcome tour and Claude's help text. They still describe personas and ⌘1–4, and the branch does not ship before they are rewritten.
-- A drop on the tree's Canvas row as the capture-to-canvas route, with the spec's open decision on the Inbox at scale.
+- The spec's open decision on the Inbox at scale. (A drop on the tree's Canvas row is built, shell p4 Task 10: `TreeCanvasRowDrop` lands a capture, a research item or a file loose through the Send to Canvas route, and the row carries a dot until the canvas is next opened.)
 - **The faces' piece readable without the editor, for Translation.** To resolve, Brief and History have it; the translation review pane still needs the piece open, and a run flashes for a faces' piece the centre does not have open.
 - The toolbar's view switch, its language switch on a piece with translations, and its standing running-round indicator; only Lock is built.
-- Drop-target feedback on the tree that says which drop is about to happen.
+- An insertion line between rows for a reorder. (Drop-target feedback is built, shell p4 Task 10: `TreeDropFeedback` — into, beside, or nothing — asked of each target's drop's own classifier; the line needs the drop's position while hovering, which the rows' drop modifiers do not report.)
 - Per-piece publishing settings in the edition's Status view (they are "Publishing…" in a piece's row menu until then).
 - An edition's centre scrolling the book to a piece clicked in the tree, and the separate translation-review mode going.
 
@@ -99,7 +99,7 @@ Each was a ruling taken in the build ledger on the agent's authority, not Denver
 8. The Inbox row shows one dot when captures are waiting, never a number.
 9. Leaving an edition coerces a selected Department pane to the first visible segment. (Gone with the picker: the desk is To resolve's own answer while an edition is the faces, [ADR 0037](0037-brief-and-the-pulled-up-thing.md).)
 10. The picker falls back normal, small, menu, with no badges in the menu form (transitional; gone with the picker).
-11. There is no capture-to-canvas drag in one window; Send to Canvas remains.
+11. There is no capture-to-canvas drag in one window; Send to Canvas remains. (Superseded by shell p4 Task 10: a capture dropped on the tree's Canvas row is sent loose, the command's placement.)
 12. The word ceiling of `docs/tripwires.md` is raised by 10 for the `NoPersonaCensusTests` line.
 13. `NoPersonaCensusTests` greps `\bPersona\b` and `\bpersona\b` only.
 14. **Lock does not lock the manuscript text**, a departure from the approved design, which said it would cover "the text and the research and figure surfaces Review locks today". Review locked only research, figures and palette cards, and no existing plain text lock was found to reuse (`isManualReviewMode` is the editor's own control). Cost if wrong: Denver may want the text locked later, a new refusal at the editor's write door.

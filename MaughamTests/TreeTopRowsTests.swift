@@ -115,7 +115,12 @@ final class TreeTopRowsTests: XCTestCase {
     func test_theDotIsLabelledAndEveryHostHandsItIn() throws {
         XCTAssertEqual(TreeTopRows.newCapturesLabel, "New captures")
         let rows = try code("Maugham/Views/TreeTopRows.swift")
-        XCTAssertTrue(rows.contains(".accessibilityLabel(Self.newCapturesLabel)"))
+        // One dot, labelled by what it says: the Inbox's new captures, or
+        // (shell p4 Task 10) what the Canvas row was handed.
+        XCTAssertTrue(rows.contains("dotLabel: String = Self.newCapturesLabel"))
+        XCTAssertTrue(rows.contains(".accessibilityLabel(dotLabel)"))
+        XCTAssertTrue(rows.contains("dotLabel: Self.newOnCanvasLabel"))
+        XCTAssertEqual(TreeTopRows.newOnCanvasLabel, "New on the canvas")
         XCTAssertTrue(rows.contains("Circle()"), "one dot")
         for host in ["Maugham/Views/BinderView.swift", "Maugham/Views/CollectionPiecesPane.swift",
                      "Maugham/Views/SceneNavigatorPane.swift"] {

@@ -263,7 +263,7 @@ Every file in `Maugham/Views/` appears once, plus the `Maugham/Models/` files CL
 - **A statement host asks `statementIsInTheCentre` before it mounts** (`Maugham/Stores/AREA.md`, the gate).
 - **`PulledUpView.centreShows` is the one rule against a second editor on what the centre shows.** Open in Centre MOVES every kind; a canvas card or region is read-only beside (`PulledUpViewTests`, `PulledUpTests`). Back's `PulledUpHistory` never answers `beside`.
 - **On the canvas, a selection made after the last pull-up covers it** (`RightColumnContent.canvasDetailsCover`, `PulledUpMemory.canvasSelectionIsNewer`); only `CanvasDetailsCover` and `PulledUpWatch` read `selection`; Show it clears it; Esc declines while covered. Other centres' details stand above, collapsed.
-- **A fold is `PieceFoldIndex`, built once per `Key` (`CanvasCardsRevision`, as pulled-up reads) in `.task`**, links both ways; a bound region is one row over its cards in the shelf's order; rows are `List` tags or `Button(.plain)`; a picture's row draws a `RowThumbnail` (`PieceFoldContentsTests`, `BinderPieceFoldTests`).
+- **A fold is `PieceFoldIndex`, built once per `Key` (`CanvasCardsRevision`, as pulled-up reads) in `.task`**, links both ways; a region is one row over its cards, palette cards included; a Collection script's Scenes lead (`PieceFoldIndexTests`). Pull-up rows tag `TreeRowTag.pullUp` (`TreeRowKeys`); links and scenes are `Button(.plain)` (`BinderTreeSelectionTests`).
 - **The old Inspector's fields live in `PieceRowMenus` and the status line** (`PieceTargetMenu`, over the OPEN piece), each asking `TreeStructureVerbs`; Brief's foot shows the set ones, opening the row's sheets (`PieceRowMenusTests`, `PieceTargetMenuTests`, `BriefAppraisalTests`).
 - **The ⌘⌥ keys are declared in `MaughamApp` alone**, grouped by destination (`RightColumnAppraisalTests`); ⌘⌥L is To resolve on Questions, ⌘⌥K the reading edition's To resolve (`EditionWiring`); ⌘⌥I/⌘⌥N's field consumes `briefFocus`.
 - **To resolve and Brief lead with the faces' title** (`RightColumnSubjectLine`).
@@ -291,9 +291,10 @@ Every file in `Maugham/Views/` appears once, plus the `Maugham/Models/` files CL
 - **A piece fold's rows carry no `.id`**.
 - **A `.linked` fold offers no rename and refuses a reorder drop** (`ResearchTreeNode.offersRename`; `TreeDropIntent.Reason.linkedFoldHasNoOrder`).
 - **New Group at a piece's root has no store API** (`ResearchScope` routes notes, tables, assets, links; *New Table* is `ResearchTree`'s, not offered on a view-only share).
-- **A drop is classified by LOOKUP in the manifest, never by the shape of an id**. Every mounted drop target calls the classifier (`TreeDropIntentTests.test_theGridCanTellALookupApartFromAGuessAtTheIdsShape`, `TripwireGrepTests.test_everyDropTargetInTheTreeReachesTheClassifier`).
+- **A drop is classified by LOOKUP, never by an id's shape**, at every target (`TreeDropIntentTests.test_theGridCanTellALookupApartFromAGuessAtTheIdsShape`, `TripwireGrepTests.test_everyDropTargetInTheTreeReachesTheClassifier`).
 - **External drops route through `TreeDropIntent.classifyExternal`** to the same creation verbs as Add File and paste.
-- **Every drop closure returns `Bool` down to the row's `.dropDestination`**: `TripwireGrepTests.test_everyDropDestinationInTheResearchSurfacesDeclaresItsBool`, `test_theResearchRowNeverAcceptsADropOnItsOwnAuthority`.
+- **A drop target's hover feedback asks its drop's own classifier** (`BinderTreeVerbs.dropFeedback`, `TreeCanvasRowDrop.verdict`): `TreeDropFeedbackTests`.
+- **Every drop closure returns `Bool` to its `.dropDestination`**: `TripwireGrepTests.test_everyDropDestinationInTheResearchSurfacesDeclaresItsBool`.
 - **`TreeSectionDerivation` takes manifest values only** (`TreeSectionDerivationTests`).
 - **Link Research… is offered only where `researchRouting(for:)` answers `.sharedPlusLink`** (`ResearchLinkPickerTests`).
 - **`TreeScrollProbe` installs only in a dev build outside xctest** (`MAUGHAM_TREE_SCROLL_PROBE=0` disables it).

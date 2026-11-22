@@ -188,6 +188,59 @@ extension BinderTreeVerbs {
         }
     }
 
+    // MARK: - What a target shows while a drag is over it (shell p4 Task 10)
+
+    /// **The feedback a target shows for the drag in flight** — the drop's own
+    /// classification (`classify`, `classifyExternal`), read off the drag
+    /// pasteboard as the header's drop reads it (`BinderTreeSections.draggedId`).
+    /// A drag of files or a picture asks the external rule; any other drag the
+    /// internal one, with its id. `refusesStructure`: a host's posture refusal
+    /// of a structure row it may not move (`BinderView`'s and the Collection's
+    /// `onDrop` ask the same).
+    func dropFeedback(on target: TreeDropIntent.Target,
+                      pasteboard: NSPasteboard = NSPasteboard(name: .drag),
+                      refusesStructure: (String) -> Bool = { _ in false }) -> TreeDropFeedback {
+        let types = (pasteboard.types ?? []).map(\.rawValue)
+        switch ProviderDropRoute.route(typeIdentifiers: types) {
+        case .external:
+            return externalFeedback(on: target, position: .middle)
+        case .refuse:
+            return .none
+        case .internalPayload:
+            guard let id = BinderTreeSections.draggedId(on: pasteboard) else { return .none }
+            return feedback(draggedId: id, on: target, refusesStructure: refusesStructure)
+        }
+    }
+
+    /// The internal half, by id. The same `classify` every route performs;
+    /// a reorder onto a row the drag itself carries is refused, as `reorder`
+    /// refuses it.
+    func feedback(draggedId: String, on target: TreeDropIntent.Target,
+                  refusesStructure: (String) -> Bool = { _ in false }) -> TreeDropFeedback {
+        if TreeWalk.find(id: draggedId, in: store.manifest.structure) != nil,
+           refusesStructure(draggedId) { return .none }
+        let intent = classify(draggedId, on: target)
+        if case .researchReorder = intent {
+            let rowId: String?
+            switch target {
+            case .researchRow(let id), .foldRow(let id, _): rowId = id
+            default: rowId = nil
+            }
+            if let rowId, actingIds(forRow: draggedId).contains(rowId) { return .none }
+        }
+        return TreeDropFeedback.of(intent, on: target)
+    }
+
+    /// The external half: `routeExternalDrop`'s own classification.
+    func externalFeedback(on target: TreeDropIntent.Target,
+                          position: DropIntent.Position) -> TreeDropFeedback {
+        TreeDropFeedback.of(TreeDropIntent.classifyExternal(
+            target: target, position: position,
+            structure: store.manifest.structure,
+            research: store.manifest.research,
+            projectType: store.manifest.type), on: target)
+    }
+
     // MARK: - What a drag carries
 
     /// **The rows a drag carries** (stage-2b Task 3): the tree's whole selection

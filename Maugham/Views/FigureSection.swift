@@ -286,9 +286,11 @@ extension BinderTreeSections {
                     let figureVerbs = FigureSectionVerbs(store: store, state: state)
                     ForEach(state.drawnFigureRows) { row in
                         FigureRow(row: row, renamingItemId: $state.renamingItemId,
-                                  actions: figureVerbs.actions(for: row) { ids in
+                                  actions: figureVerbs.actions(for: row, drop: { ids in
                                       figuresDrop(ids, on: .figureRow(row.id))
-                                  })
+                                  }, dropFeedback: {
+                                      verbs.dropFeedback(on: .figureRow(row.id))
+                                  }))
                         // Under the title, as every section's rows are.
                         .padding(.leading, ProjectRowLabel.childIndent)
                     }
@@ -308,6 +310,9 @@ extension BinderTreeSections {
                     // plan 8b Task 5). No Finder file lands on Figures.
                     .dropDestination(for: String.self) { ids, _ -> Bool in
                         return figuresDrop(ids, on: .figuresSection)
+                    } isTargeted: { figuresHeaderTargeted = $0 }
+                    .treeDropHover(internalTargeted: figuresHeaderTargeted) {
+                        verbs.dropFeedback(on: .figuresSection)
                     }
             }
         }
@@ -397,7 +402,8 @@ struct FigureSectionVerbs {
     }
 
     func actions(for row: FigureTreeRow,
-                 drop: @escaping ([String]) -> Bool = { _ in false }) -> FigureRowActions {
+                 drop: @escaping ([String]) -> Bool = { _ in false },
+                 dropFeedback: @escaping () -> TreeDropFeedback = { .none }) -> FigureRowActions {
         let shared = shared, listing = row.listing
         return FigureRowActions(
             mayEdit: { shared.mayEdit(listing.figureId) },
@@ -405,7 +411,7 @@ struct FigureSectionVerbs {
             openInWindow: { shared.openInWindow(listing) },
             sendToResearch: { _ = shared.sendToResearch(listing, to: $0) },
             rename: { _ = shared.rename(listing.figureId, to: $0) },
-            drop: drop)
+            drop: drop, dropFeedback: dropFeedback)
     }
 
     // MARK: Lines into Research (report plan 8b Task 9)

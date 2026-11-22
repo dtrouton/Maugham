@@ -33,6 +33,11 @@ enum PieceFoldEntry: Identifiable, Equatable {
     case figure(id: String, name: String)
     /// `incoming`: the other piece links HERE ("Linked from").
     case link(pieceId: String, title: String, incoming: Bool)
+    /// **A slugline of a Collection's script** (shell p4 Task 10): a place in
+    /// the piece, by the paragraph its heading begins. A row that travels — it
+    /// opens the script there (`ResolveNavigation.go`), as a link row travels —
+    /// so it is pulled up nowhere and carries no `List` tag.
+    case scene(docId: String, paragraphId: String, heading: String)
 
     /// Unique within one fold: the same id may honestly appear as an outgoing
     /// and an incoming link, so the kind is part of it.
@@ -45,11 +50,13 @@ enum PieceFoldEntry: Identifiable, Equatable {
         case .figure(let id, _): return "figure:\(id)"
         case .link(let pieceId, _, let incoming):
             return incoming ? "linkedFrom:\(pieceId)" : "link:\(pieceId)"
+        case .scene(_, let paragraphId, _): return "scene:\(paragraphId)"
         }
     }
 
     var group: PieceFoldGroup {
         switch self {
+        case .scene: return .scenes
         case .research: return .research
         case .card, .region: return .cards
         case .palette: return .palette
@@ -80,7 +87,7 @@ extension PieceFoldEntry {
             }
         case .figure(let id, _):
             return .figure(id)
-        case .link:
+        case .link, .scene:
             return nil
         }
     }
@@ -95,9 +102,10 @@ extension PieceFoldEntry {
     }
 }
 
-/// The fold's kinds, in the order the fold lists them.
+/// The fold's kinds, in the order the fold lists them: a Collection
+/// script's Scenes first, as a screenplay's own tree is its sluglines.
 enum PieceFoldGroup: String, CaseIterable {
-    case research, cards, palette, figures, links
+    case scenes, research, cards, palette, figures, links
 }
 
 /// One collapsed group's identity in one piece's fold — what the writer's
@@ -193,11 +201,16 @@ struct PieceFoldIndex: Equatable {
     /// (`thumbnailPath(for:in:)`), resolved with the glyphs.
     let thumbnails: [String: String]
 
+    /// The pieces whose fold groups at any size (`PieceFoldLayout.of`), kept
+    /// so `withScenes` lays a script's fold out by the same rule.
+    let alwaysGrouped: Set<String>
+
     /// - Parameter alwaysGrouped: the pieces whose fold groups at any size
     ///   (`PieceFoldLayout.of(_:alwaysGroups:)`).
     init(entries: [String: [PieceFoldEntry]], alwaysGrouped: Set<String> = [],
          items: CanvasItemIndex = .empty) {
         self.entries = entries
+        self.alwaysGrouped = alwaysGrouped
         var glyphs: [String: String] = [:]
         var thumbnails: [String: String] = [:]
         // A region's cards are rows too, under the region's own chevron.
@@ -240,7 +253,7 @@ struct PieceFoldIndex: Equatable {
             }
         case .palette(let id, _):
             return CanvasItemFacts.resolve(.project(id: id), in: items).glyph
-        case .research, .figure, .link:
+        case .research, .figure, .link, .scene:
             return nil
         }
     }
@@ -274,6 +287,105 @@ struct PieceFoldIndex: Equatable {
     func layout(of docId: String) -> PieceFoldLayout? { layouts[docId] }
 
     static let empty = PieceFoldIndex(entries: [:])
+
+    /// **This index with each script's Scenes in place** (shell p4 Task 10):
+    /// a piece's `.scene` rows replaced by `scenes[docId]`, first (the
+    /// group's order), and its layout worked out again — no read, no glyph
+    /// (a scene has none). The scenes are read on their own key
+    /// (`PieceFoldScenes`), so typing in a script re-reads its sluglines and
+    /// never the canvas the rest of the index reads. Pure.
+    func withScenes(_ scenes: [String: [PieceFoldEntry]]) -> PieceFoldIndex {
+        var merged = entries
+        let touched = Set(scenes.keys).union(entries.compactMap { docId, rows in
+            rows.contains(where: { if case .scene = $0 { return true }; return false })
+                ? docId : nil
+        })
+        for docId in touched {
+            let rest = (entries[docId] ?? []).filter {
+                if case .scene = $0 { return false }; return true
+            }
+            let rows = (scenes[docId] ?? []) + rest
+            merged[docId] = rows.isEmpty ? nil : rows
+        }
+        var layouts = self.layouts
+        for docId in touched {
+            if let rows = merged[docId], !rows.isEmpty {
+                layouts[docId] = PieceFoldLayout.of(rows, alwaysGroups: alwaysGrouped.contains(docId))
+            } else {
+                layouts[docId] = nil
+            }
+        }
+        return PieceFoldIndex(entries: merged, layouts: layouts, glyphs: glyphs,
+                              thumbnails: thumbnails, alwaysGrouped: alwaysGrouped)
+    }
+
+    private init(entries: [String: [PieceFoldEntry]], layouts: [String: PieceFoldLayout],
+                 glyphs: [String: String], thumbnails: [String: String],
+                 alwaysGrouped: Set<String>) {
+        self.entries = entries
+        self.layouts = layouts
+        self.glyphs = glyphs
+        self.thumbnails = thumbnails
+        self.alwaysGrouped = alwaysGrouped
+    }
+
+    /// **Whether `item` is a Collection's script**, whose fold is always
+    /// grouped with its Scenes first. A standalone screenplay's tree is its
+    /// own Scenes navigator, so it is not one (its project holds no pieces).
+    static func isCollectionScript(_ item: StructureItem, projectType: ProjectType) -> Bool {
+        guard projectType.holdsPieces, item.type == .document else { return false }
+        switch item.pieceKind {
+        case .reference: return false
+        case .loose, .none: return DocumentFormat.ofManuscript(path: item.path).isScreenplay
+        }
+    }
+
+    /// **A script's sluglines as fold rows**, from its paragraphs in order —
+    /// the text the editor shows (`ParagraphOffsets.starts`' joining), parsed
+    /// by the one tokenizer. A slugline always begins a paragraph (it needs a
+    /// blank line before it), so each scene's row names the paragraph it
+    /// opens at. Pure.
+    static func sceneEntries(docId: String, sequence: [String],
+                             paragraphs: [String: String]) -> [PieceFoldEntry] {
+        let starts = ParagraphOffsets.starts(sequence: sequence, paragraphs: paragraphs)
+        guard !starts.isEmpty else { return [] }
+        var byStart: [Int: String] = [:]
+        for id in sequence {
+            if let start = starts[id], byStart[start] == nil { byStart[start] = id }
+        }
+        let text = sequence.compactMap { paragraphs[$0] }
+            .map(RenderFilter.stripTaskAnchorsInline)
+            .joined(separator: "\n\n")
+        let script = FountainTokenizer().parse(text)
+        return script.sceneSummaries().compactMap { summary in
+            guard let paragraphId = byStart[summary.line.range.location] else { return nil }
+            let heading = summary.line.content.trimmingCharacters(in: .whitespaces)
+            return .scene(docId: docId, paragraphId: paragraphId,
+                          heading: heading.isEmpty ? "Untitled scene" : heading)
+        }
+    }
+
+    /// **Every Collection script's Scenes**, read without a load: an open
+    /// script's live paragraphs, a closed one's derived from its op log
+    /// (`currentParagraphState`, tripwire 20's one spelling). A script that
+    /// cannot be read lists no scenes. Call only from `PieceFoldScenes`'
+    /// `.task`.
+    @MainActor
+    static func scenes(store: ProjectStore) -> [String: [PieceFoldEntry]] {
+        let manifest = store.manifest
+        guard manifest.type.holdsPieces else { return [:] }
+        var out: [String: [PieceFoldEntry]] = [:]
+        for item in TreeWalk.collect(in: manifest.structure, where: {
+            isCollectionScript($0, projectType: manifest.type)
+        }) {
+            guard let state = try? currentParagraphState(
+                documentId: item.id, store: store,
+                documentStore: store.documentStore, projectURL: store.url) else { continue }
+            out[item.id] = sceneEntries(docId: item.id, sequence: state.sequence,
+                                        paragraphs: state.paragraphs)
+        }
+        return out
+    }
 
     @MainActor
     static func key(store: ProjectStore, canvasWrites: Int) -> Key {
@@ -309,6 +421,11 @@ struct PieceFoldIndex: Equatable {
                 for: item, projectType: manifest.type) {
                 grouped.insert(item.id)
             }
+            // A Collection's script: always grouped, its Scenes first
+            // (`withScenes` adds them on their own key).
+            if isCollectionScript(item, projectType: manifest.type) {
+                grouped.insert(item.id)
+            }
             let fold = TreeSectionDerivation.pieceFold(
                 for: item, structure: manifest.structure,
                 research: manifest.research, projectType: manifest.type)
@@ -331,7 +448,8 @@ struct PieceFoldIndex: Equatable {
     ///   is `owned`; everything else is linked.
     /// - Cards: one `.region` per bound region in the shelf's order, holding
     ///   its cards in the shelf's order, then the loose cards.
-    /// - Palette: palette cards wherever the shelf met them.
+    /// - Palette: palette cards outside every bound region; one a region holds
+    ///   is among that region's cards (shell p4 Task 10).
     /// - Figures: the piece's own (`ProjectStore.figureNoteOwners`), by name.
     /// - Links: `links` in order, then the pieces linking here; a link to a
     ///   piece no longer in `structure` is dropped, as the shelf drops a
@@ -352,6 +470,17 @@ struct PieceFoldIndex: Equatable {
         var palette: [PieceFoldEntry] = []
         var shelfResearch: [PinnedReference] = []
 
+        // **A palette card a bound region holds is that region's card** (shell
+        // p4 Task 10), listed once, under the region, as the region pulled up
+        // shows it — never ALSO under Palette, which would read as two cards.
+        // Region first whatever the shelf's section order: a card pinned to
+        // the piece and set inside its region is still one card, in its region.
+        let paletteInARegion = Set(shelf.sections.filter { $0.regionId != nil }
+            .flatMap(\.references).compactMap { ref -> String? in
+                if case .palette(let cardId) = ref.kind { return cardId }
+                return nil
+            })
+
         // A section is a region by its id, never by its title: a region the
         // writer titled "Cards" is not the loose cards.
         for section in shelf.sections {
@@ -359,7 +488,10 @@ struct PieceFoldIndex: Equatable {
             for ref in section.references {
                 switch ref.kind {
                 case .palette(let cardId):
-                    if claimed.insert(cardId).inserted {
+                    if section.regionId != nil {
+                        if claimed.insert(cardId).inserted { regionCards.append(ref) }
+                    } else if !paletteInARegion.contains(cardId),
+                              claimed.insert(cardId).inserted {
                         palette.append(.palette(id: cardId, title: ref.title))
                     }
                 case .research where section.title == nil:

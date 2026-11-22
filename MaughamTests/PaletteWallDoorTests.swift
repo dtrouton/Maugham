@@ -72,7 +72,7 @@ final class PaletteWallDoorTests: XCTestCase {
         let sections = Self.codeOnly(try String(
             contentsOf: SourceTree.repoRoot.appendingPathComponent(
                 "Maugham/Views/BinderTreeSections.swift"), encoding: .utf8))
-        XCTAssertTrue(sections.contains(".tag(BinderSubject.palette)"),
+        XCTAssertTrue(sections.contains(".tag(TreeRowTag.subject(.palette))"),
                       "the Palette row selects through the tree's `List`")
         for gone in ["openWallButton", "onOpenPaletteWall", "paletteWallTravels",
                      "pressPaletteWallDoor"] {

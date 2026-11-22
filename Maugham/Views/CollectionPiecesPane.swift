@@ -44,7 +44,7 @@ struct CollectionPiecesPane: View {
             // project row carries no `.draggable` at all, so there is no
             // drag-interior claim to make here.
             .treeTravelOnDoubleClick(.project)
-            .tag(BinderSubject.project)
+            .tag(TreeRowTag.subject(.project))
     }
 
     /// One `List`, always — including when the Collection has no pieces.
@@ -87,7 +87,8 @@ struct CollectionPiecesPane: View {
                 projectRow
                 TreeTopRows(hasInbox: TreeTopRows.hasInbox(
                     state: treeState, store: store, subject: subject),
-                            hasNewCaptures: TreeTopRows.hasNewCaptures(store: store))
+                            hasNewCaptures: TreeTopRows.hasNewCaptures(store: store),
+                            canvasDrop: .init(store: store, state: treeState))
                 ForEach(store.manifest.structure) { piece in
                     pieceEntry(for: piece)
                 }
@@ -96,6 +97,9 @@ struct CollectionPiecesPane: View {
             }
             .listStyle(.sidebar)
             .treeRowStates(state: treeState, subject: subject)
+            // Return/Space pull a fold row up; ⌘↓ opens any row in the centre.
+            .treeRowKeys(store: store, state: treeState, subject: $subject,
+                         hostIsRenaming: renamingItemId != nil)
             // At the column's foot, `BinderView`'s reason (shell p1 Task 3).
             .overlay(alignment: .bottom) {
                 if store.manifest.structure.isEmpty { emptyState }
@@ -184,6 +188,13 @@ struct CollectionPiecesPane: View {
                     providers: providers, position: position,
                     target: .pieceRow(piece.id))
             },
+            // `BinderView`'s twin (shell p4 Task 10): the drop's own rule.
+            dropFeedback: {
+                treeVerbs.dropFeedback(on: .pieceRow(piece.id), refusesStructure: { id in
+                    store.manifest.structure.first(where: { $0.id == id })
+                        .map { !structureVerbs(for: $0).move } ?? false
+                })
+            },
             // `BinderView.row(for:)`'s figure count, the same two reads.
             figureCount: treeState.figureCountText(
                 forPiece: piece.id, projectType: store.manifest.type),
@@ -256,14 +267,14 @@ struct CollectionPiecesPane: View {
                 pieceRow(for: piece)
             }
             .padding(.leading, ProjectRowLabel.childIndent)
-            .tag(BinderSubject.item(piece.id))
+            .tag(TreeRowTag.subject(.item(piece.id)))
             // The find manuscript-match scroll target (stage-3b Task 8) —
             // `BinderView.outline`'s comment carries the reasoning.
             .id(BinderSubject.item(piece.id))
         } else {
             pieceRow(for: piece)
                 .padding(.leading, ProjectRowLabel.childIndent)
-                .tag(BinderSubject.item(piece.id))
+                .tag(TreeRowTag.subject(.item(piece.id)))
                 .id(BinderSubject.item(piece.id))
         }
     }

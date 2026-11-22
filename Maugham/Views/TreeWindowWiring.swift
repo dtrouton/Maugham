@@ -31,5 +31,10 @@ struct TreeWindowWiring: ViewModifier {
             .onProjectEvent(.maughamCanvasNodesAdded, url: url, window: window) { _ in
                 state.closedCanvasWrites += 1
             }
+            // The Canvas row's dot goes when the canvas is opened: what the
+            // row was handed is there, selected (`TreeCanvasRowDrop`).
+            .onChange(of: subject.open) { _, open in
+                if open == .canvas, state.canvasHasArrivals { state.canvasHasArrivals = false }
+            }
     }
 }

@@ -16,6 +16,9 @@ struct FigureRowActions {
     /// A drag dropped on the row (`BinderTreeSections.figuresDrop`): accepted
     /// or refused by the classifier, never by the row.
     let drop: ([String]) -> Bool
+    /// What the row shows while a drag is over it (shell p4 Task 10): the
+    /// same classification `drop` performs.
+    var dropFeedback: () -> TreeDropFeedback = { .none }
 }
 
 /// **One row of the tree's Figures section** (report plan 8a Task 4, spec
@@ -30,6 +33,8 @@ struct FigureRowActions {
 /// with no drag modifiers, its focus deferred from `.onAppear` and
 /// `.onChange(of: renamingItemId)` (tripwire 16) — `BinderRow`'s shape.
 struct FigureRow: View {
+    /// A drag over the row (`TreeDropHover`).
+    @State private var dropTargeted = false
     let row: FigureTreeRow
     @Binding var renamingItemId: String?
     let actions: FigureRowActions
@@ -39,7 +44,7 @@ struct FigureRow: View {
 
     var body: some View {
         content
-            .tag(BinderSubject.figure(row.id))
+            .tag(TreeRowTag.subject(.figure(row.id)))
             .id(BinderSubject.figure(row.id))
     }
 
@@ -102,7 +107,8 @@ struct FigureRow: View {
             // here is *Use in Document*; another figure is refused.
             .dropDestination(for: String.self) { ids, _ -> Bool in
                 return actions.drop(ids)
-            }
+            } isTargeted: { dropTargeted = $0 }
+            .treeDropHover(internalTargeted: dropTargeted, feedback: actions.dropFeedback)
             .contextMenu { menu }
         }
     }

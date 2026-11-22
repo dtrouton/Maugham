@@ -59,6 +59,9 @@ struct BinderTreeSections: View {
     /// (`BinderTreeSelection`, the click rule); a verb that makes something
     /// points the window at it through `ClickRule.navigate`.
     @Binding var subject: WindowSubject
+    /// A drag over the Research and Figures headers (`TreeDropHover`).
+    @State var researchHeaderTargeted = false
+    @State var figuresHeaderTargeted = false
 
     var body: some View {
         // Between the manuscript the host drew and Research (spec §7), and
@@ -101,7 +104,7 @@ struct BinderTreeSections: View {
                         sharedSectionDrop(ids)
                     }, onExternalDrop: { providers in
                         sharedSectionExternalDrop(providers)
-                    })
+                    }, feedback: { verbs.dropFeedback(on: .sharedSection) })
                     .padding(.leading, ProjectRowLabel.childIndent)
                 } else {
                     ForEach(roots) { item in
@@ -160,11 +163,15 @@ struct BinderTreeSections: View {
             // ONE provider `.onDrop` (#109): AppKit offers a drag to the innermost
             // drop modifier only, and a header is no table-dispatched List row.
             // Census: `test_theProviderRouteIsMountedOnTheCanvasAndTheResearchHeaderOnly`.
-            .onDrop(of: ProviderDropRoute.acceptedTypes, isTargeted: nil) { providers in
+            .onDrop(of: ProviderDropRoute.acceptedTypes,
+                    isTargeted: $researchHeaderTargeted) { providers in
                 return sharedSectionHeaderDrop(
                     typeIdentifiers: providers.flatMap(\.registeredTypeIdentifiers),
                     providers: providers,
                     draggedId: { Self.draggedId(on: NSPasteboard(name: .drag)) })
+            }
+            .treeDropHover(internalTargeted: researchHeaderTargeted) {
+                verbs.dropFeedback(on: .sharedSection)
             }
         }
     }
@@ -225,7 +232,7 @@ struct BinderTreeSections: View {
                             // mark rather than a gesture — see TreeTravel.swift
                             // and BinderRow's twin.
                             .treeTravelOnDoubleClick(.research(card.id))
-                            .tag(BinderSubject.research(card.id))
+                            .tag(TreeRowTag.subject(.research(card.id)))
                             // **The same value as the tag** (Task 8) — a card
                             // is drawn once, flat, so its scroll identity is
                             // never ambiguous the way a fold's copy could be.
@@ -252,7 +259,7 @@ struct BinderTreeSections: View {
                 paletteRow
             }
             // On the group, as a chapter's fold carries its own (`outline`).
-            .tag(BinderSubject.palette)
+            .tag(TreeRowTag.subject(.palette))
             // **The row's own scroll identity** — what ⌘⌥P's
             // `scrollRequest = .paletteHeader` targets.
             .id(TreeScrollTarget.paletteHeader)
@@ -473,33 +480,11 @@ struct BinderTreeSections: View {
     /// centre column every time a writer clicked "No research yet."
     private func placeholder(
         _ text: String, onDrop: @escaping ([String]) -> Bool,
-        onExternalDrop: @escaping ([NSItemProvider]) -> Bool
+        onExternalDrop: @escaping ([NSItemProvider]) -> Bool,
+        feedback: @escaping () -> TreeDropFeedback = { .none }
     ) -> some View {
-        Text(text)
-            .font(.callout)
-            .foregroundStyle(.tertiary)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .contentShape(Rectangle())
-            // **`-> Bool` and an explicit `return`, both deliberately** (fix
-            // round 2). Written without them, this closure bound to a
-            // Void-returning `dropDestination` overload, so `refuseDrop`'s
-            // `false` went nowhere and the placeholder accepted the drag and
-            // discarded it — the round-1 defect again, one layer out, and the
-            // compiler said so in a warning nobody read
-            // (`result of call to 'refuseDrop(_:payload:)' is unused`). The
-            // annotated result type is what forces the Bool overload; the
-            // `return` is what makes a future reader see the value matters.
-            .dropDestination(for: String.self) { ids, _ -> Bool in
-                return onDrop(ids)
-            }
-            // The section's other drop kind, mounted AFTER the string one: a
-            // List row's drops are dispatched by the table, where this pair
-            // takes every drag kind (Denver's #109 table); outside a row only
-            // the innermost modifier is offered the drag. An empty Research
-            // section is exactly where a writer drags their first file.
-            .onDrop(of: [.fileURL, .image], isTargeted: nil) { providers in
-                return onExternalDrop(providers)
-            }
+        TreeDropPlaceholder(text: text, onDrop: onDrop, onExternalDrop: onExternalDrop,
+                            feedback: feedback)
     }
 
     // MARK: - Actions
@@ -665,7 +650,7 @@ struct BinderTreeVerbs {
     @Binding var subject: WindowSubject
 
     var bundle: ResearchTreeActions {
-        ResearchTreeActions(
+        var bundle = ResearchTreeActions(
             rename: { id, newTitle in
                 perform { try await store.updateResearchItem(id: id, title: newTitle) }
             },
@@ -737,6 +722,9 @@ struct BinderTreeVerbs {
             // the Figures section's helper, its refusals in this tree's alert.
             figureVerb: { [figures = figures] item in figures.researchVerb(for: item) },
             performFigureVerb: { [figures = figures] item in figures.useInDocument(item) })
+        // A shared row's feedback: `internalDrop`/`externalDrop`'s own rule.
+        bundle.dropFeedback = { item in dropFeedback(on: .researchRow(item.id)) }
+        return bundle
     }
 
     /// The Figures section's verbs, for a Research row's verb toward Figures.
@@ -938,10 +926,21 @@ final class BinderTreeSectionsState {
     /// is still this, `selection` is what the `List` draws
     /// (`BinderTreeSelection.shown`).
     var subjectAtLastClick: WindowSubject?
+    /// **The fold row the keys last landed on** (shell p4 Task 10), when the
+    /// `List`'s last write was a pull-up row's tag: what the `List` draws
+    /// selected while the subject is still the one that write made
+    /// (`BinderTreeSelection.shownTags`). Nil after any other write.
+    var selectedPullUp: PulledUp?
+    /// **Something the tree's Canvas row was handed waits on the canvas**
+    /// (shell p4 Task 10): the row's dot, until the canvas is next opened
+    /// (`TreeWindowWiring`), where the card is selected and in view.
+    var canvasHasArrivals = false
 
     /// What a write through the tree's `List` leaves behind.
-    func record(selection: Set<BinderSubject>, subject: WindowSubject) {
+    func record(selection: Set<BinderSubject>, subject: WindowSubject,
+                pullUp: PulledUp? = nil) {
         self.selection = selection
+        selectedPullUp = pullUp
         subjectAtLastClick = subject
     }
 
@@ -1128,6 +1127,16 @@ final class BinderTreeSectionsState {
     /// never computed in a row (tripwire 4). Not persisted, as
     /// `expandedPieceFolds` is not.
     var foldIndex: PieceFoldIndex = .empty
+    /// The index as its canvas-and-manifest key last built it, before the
+    /// Scenes are merged in (`PieceFoldIndex.withScenes`) — so a script's
+    /// re-parse lays its fold out again without re-reading the canvas.
+    @ObservationIgnored var foldIndexBase: PieceFoldIndex = .empty
+    /// Each Collection script's sluglines, read on their own key
+    /// (`PieceFoldScenesKey`).
+    @ObservationIgnored var foldScenes: [String: [PieceFoldEntry]] = [:]
+    /// The window's count of `.maughamScriptDidUpdate` — the editor's own
+    /// debounced re-parse — half of the Scenes' key.
+    var scriptRevision = 0
     /// Whether `foldIndex` has been built at least once — so Brief's empty-fold
     /// hint never stands over the placeholder, or in a window whose tree
     /// draws no folds (a screenplay's navigator).
@@ -1696,32 +1705,226 @@ enum BinderTreeSelection {
         state.drawnFigureRows.map(\.id)
     }
 
+    // MARK: - Tree-local tags (shell p4 Task 10)
+
+    /// **What the `List` draws selected, as tags**: the fold row the keys
+    /// last landed on (or put away with Return) while the subject is still
+    /// the one that key made; otherwise `shown`, every row a subject's tag.
+    static func shownTags(_ stored: Set<BinderSubject>, pullUp: PulledUp?,
+                          subject: WindowSubject,
+                          clickedAt: WindowSubject?) -> Set<TreeRowTag> {
+        if clickedAt == subject, let pullUp {
+            return [.pullUp(pullUp)]
+        }
+        return Set(shown(stored, subject: subject, clickedAt: clickedAt).map(TreeRowTag.subject))
+    }
+
+    /// What a write of tags leaves behind: the subjects' selection, the
+    /// fold row selected (or nil), and the subject.
+    struct TagWrite: Equatable {
+        let selection: Set<BinderSubject>
+        let pullUp: PulledUp?
+        let subject: WindowSubject
+    }
+
+    /// **The selection and the subject after the `List` writes `written`.**
+    /// A pull-up row's tag written alone — the arrow keys landing on a card,
+    /// a region, a palette pin or a figure in a fold, or the table selecting
+    /// it — pulls that row up beside (`ClickRule.pullUp`: never puts it away,
+    /// moves nothing else), so arrowing through a fold never moves the
+    /// centre or the faces. A modifier click adding one is that row alone.
+    /// Every other write is a subject write, today's `resolved` unchanged.
+    static func resolvedTags(
+        written: Set<TreeRowTag>,
+        stored: Set<BinderSubject>,
+        storedPullUp: PulledUp?,
+        shown shownNow: Set<TreeRowTag>,
+        subject: WindowSubject,
+        structure: [StructureItem],
+        research: [ResearchItem],
+        figures: [String],
+        projectType: ProjectType,
+        accepts: (BinderSubject) -> Bool = { _ in true }
+    ) -> TagWrite {
+        let pulls = written.compactMap(\.pullUp)
+        let added = written.subtracting(shownNow).compactMap(\.pullUp)
+        if let one = (written.count == 1 ? pulls.first : nil) ?? (added.count == 1 ? added.first : nil) {
+            return TagWrite(selection: [], pullUp: one,
+                            subject: ClickRule.pullUp(one, current: subject))
+        }
+        // A set holding a pull-up row with nothing new: the `List` handing
+        // back what it drew. Nothing moves.
+        if !pulls.isEmpty, written == shownNow {
+            return TagWrite(selection: stored, pullUp: storedPullUp, subject: subject)
+        }
+        let next = resolved(
+            written: Set(written.compactMap(\.subject)), stored: stored,
+            shown: Set(shownNow.compactMap(\.subject)), subject: subject,
+            structure: structure, research: research, figures: figures,
+            projectType: projectType, accepts: accepts)
+        // An untagged (or refused) write moves nothing — the fold row still
+        // drawn selected included.
+        let pullUp = next.selection == stored && next.subject == subject ? storedPullUp : nil
+        return TagWrite(selection: next.selection, pullUp: pullUp, subject: next.subject)
+    }
+
     /// The tree's `List(selection:)` binding, for the two hosts whose rows are
     /// all their own. `SceneNavigatorPane` builds its own out of the same parts
     /// — see its `listSelection`.
     @MainActor
     static func binding(subject: Binding<WindowSubject>,
                         state: BinderTreeSectionsState,
-                        store: ProjectStore) -> Binding<Set<BinderSubject>> {
+                        store: ProjectStore) -> Binding<Set<TreeRowTag>> {
         Binding(
-            get: { shown(state.selection, subject: subject.wrappedValue,
-                         clickedAt: state.subjectAtLastClick) },
+            get: { drawnTags(state: state, subject: subject.wrappedValue) },
             set: { written in
-                let next = resolved(
-                    written: written, stored: state.selection,
-                    shown: shown(state.selection, subject: subject.wrappedValue,
-                                 clickedAt: state.subjectAtLastClick),
-                    subject: subject.wrappedValue,
-                    structure: store.manifest.structure,
-                    research: store.manifest.research,
-                    figures: drawnFigureOrder(state),
-                    projectType: store.manifest.type)
-                // An untagged write moves nothing, the record included.
-                if next.selection != state.selection || next.subject != subject.wrappedValue {
-                    state.record(selection: next.selection, subject: next.subject)
-                }
-                subject.wrappedValue = next.subject
+                write(written, state: state, subject: subject, store: store)
             })
+    }
+
+    /// What the tree's `List` draws selected now.
+    @MainActor
+    static func drawnTags(state: BinderTreeSectionsState,
+                          subject: WindowSubject) -> Set<TreeRowTag> {
+        shownTags(state.selection, pullUp: state.selectedPullUp, subject: subject,
+                  clickedAt: state.subjectAtLastClick)
+    }
+
+    /// **The binding's setter, whole** — `resolvedTags`, then the record; it
+    /// calls nothing else (tripwire 3). `accepts` is a surface's refusal
+    /// (`SceneNavigatorPane`).
+    @MainActor
+    static func write(_ written: Set<TreeRowTag>, state: BinderTreeSectionsState,
+                      subject: Binding<WindowSubject>, store: ProjectStore,
+                      accepts: (BinderSubject) -> Bool = { _ in true }) {
+        let current = subject.wrappedValue
+        let next = resolvedTags(
+            written: written, stored: state.selection, storedPullUp: state.selectedPullUp,
+            shown: drawnTags(state: state, subject: current).filter {
+                $0.subject.map(accepts) ?? true
+            },
+            subject: current,
+            structure: store.manifest.structure,
+            research: store.manifest.research,
+            figures: drawnFigureOrder(state),
+            projectType: store.manifest.type,
+            accepts: accepts)
+        // An untagged write moves nothing, the record included.
+        if next.selection != state.selection || next.subject != current
+            || next.pullUp != state.selectedPullUp {
+            state.record(selection: next.selection, subject: next.subject, pullUp: next.pullUp)
+        }
+        subject.wrappedValue = next.subject
+    }
+}
+
+/// **The tree's keys for the row the `List` has selected** (shell p4 Task
+/// 10). The arrows are the `List`'s own (a landing is a write the binding
+/// answers); these are the two acts a click and a double-click make:
+/// - **Return or Space** on a fold's pull-up row is its click — pulled up
+///   beside, or put away when it is the one up. The row stays selected, so a
+///   second press brings it back. On any other row nothing: landing on it
+///   already did what its click does.
+/// - **⌘↓** on any one row is its double-click — Open in Centre (Finder's
+///   Open; the tree had no key for it before).
+/// Ignored while a row is being renamed, so a rename's Return is its own.
+enum TreeRowKeys {
+    enum Key: Equatable { case returnOrSpace, openInCentre }
+
+    enum Act: Equatable {
+        case click(PulledUp)
+        case openInCentre(TreeRowTag)
+    }
+
+    /// The key a press is, or nil. Pure.
+    static func key(_ key: KeyEquivalent, modifiers: EventModifiers) -> Key? {
+        let mods = modifiers.subtracting([.numericPad, .function, .capsLock])
+        if mods.isEmpty, key == .return || key == .space { return .returnOrSpace }
+        if mods == .command, key == .downArrow { return .openInCentre }
+        return nil
+    }
+
+    /// What `key` does with `drawn` selected. Pure.
+    static func act(_ key: Key, drawn: Set<TreeRowTag>) -> Act? {
+        guard drawn.count == 1, let row = drawn.first else { return nil }
+        switch key {
+        case .returnOrSpace: return row.pullUp.map(Act.click)
+        case .openInCentre: return .openInCentre(row)
+        }
+    }
+
+    /// The subject after a Return or Space on a pulled-up row: the fold
+    /// row's click (`BinderPieceFold.clicked`'s pull-up arm). Pure.
+    static func clicked(_ pulled: PulledUp, subject: WindowSubject) -> WindowSubject {
+        subject.beside == pulled
+            ? ClickRule.putAway(current: subject)
+            : ClickRule.pullUp(pulled, current: subject)
+    }
+}
+
+/// `TreeRowKeys` on a tree's `List`, one modifier for the three hosts.
+struct TreeRowKeysModifier: ViewModifier {
+    let store: ProjectStore
+    @Bindable var state: BinderTreeSectionsState
+    @Binding var subject: WindowSubject
+    /// The host's own rename in flight (`BinderView`'s structure rename);
+    /// the sections' is read off `state`.
+    let hostIsRenaming: Bool
+    @Environment(\.windowCanvas) private var windowCanvas
+
+    func body(content: Content) -> some View {
+        content.onKeyPress(keys: [.return, .space, .downArrow], phases: .down) { press in
+            guard !hostIsRenaming, state.renamingItemId == nil,
+                  let key = TreeRowKeys.key(press.key, modifiers: press.modifiers),
+                  let act = TreeRowKeys.act(key, drawn: BinderTreeSelection.drawnTags(
+                    state: state, subject: subject))
+            else { return .ignored }
+            switch act {
+            case .click(let pulled):
+                let next = TreeRowKeys.clicked(pulled, subject: subject)
+                // The row stays the one selected, so Return again brings it back.
+                state.record(selection: [], subject: next, pullUp: pulled)
+                subject = next
+            case .openInCentre(.pullUp(let pulled)):
+                BinderPieceFold.openInCentre(pulled, subject: $subject, store: store,
+                                             windowCanvas: windowCanvas)
+            case .openInCentre(.subject(let row)):
+                subject = TreeTravel.openInCentre(row, current: subject,
+                                                  structure: store.manifest.structure,
+                                                  projectType: store.manifest.type)
+            }
+            return .handled
+        }
+    }
+}
+
+extension View {
+    /// The tree's Return, Space and ⌘↓ (`TreeRowKeys`).
+    func treeRowKeys(store: ProjectStore, state: BinderTreeSectionsState,
+                     subject: Binding<WindowSubject>, hostIsRenaming: Bool = false) -> some View {
+        modifier(TreeRowKeysModifier(store: store, state: state, subject: subject,
+                                     hostIsRenaming: hostIsRenaming))
+    }
+}
+
+/// **A row's tag in the tree's `List`** (shell p4 Task 10, plan call 5).
+/// Every row that is a subject of the window carries `.subject`; a fold's
+/// card, region, palette pin and figure — which are pulled up beside, never
+/// opened — carry `.pullUp`, so the arrow keys reach them without a
+/// `BinderSubject` case for each (the persisted `WindowSubject` is
+/// untouched). Link and scene rows travel and carry no tag.
+enum TreeRowTag: Hashable {
+    case subject(BinderSubject)
+    case pullUp(PulledUp)
+
+    var subject: BinderSubject? {
+        if case .subject(let row) = self { return row }
+        return nil
+    }
+
+    var pullUp: PulledUp? {
+        if case .pullUp(let pulled) = self { return pulled }
+        return nil
     }
 }
 
@@ -1735,5 +1938,50 @@ extension Binding where Value == WindowSubject {
                                       structure: store.manifest.structure,
                                       projectType: store.manifest.type)
         if next != wrappedValue { wrappedValue = next }
+    }
+}
+
+/// **The one row an empty section shows** (`BinderTreeSections.placeholder`'s
+/// body): the section's drop target while it has no rows, and, since shell p4
+/// Task 10, the feedback its drop's own rule gives (the Palette's refuses, so
+/// it shows nothing).
+///
+/// **It carries no `.tag`, and that is why the trees' selection binding
+/// refuses a `nil` write** (`BinderTreeSelection`). An untagged row is
+/// selected anyway and writes `nil` through the binding — measured on
+/// `BinderView`'s old empty-state row, macOS 26.5 — which would blank the
+/// centre column every time a writer clicked "No research yet."
+private struct TreeDropPlaceholder: View {
+    let text: String
+    let onDrop: ([String]) -> Bool
+    let onExternalDrop: ([NSItemProvider]) -> Bool
+    let feedback: () -> TreeDropFeedback
+    @State private var internalTargeted = false
+    @State private var externalTargeted = false
+
+    var body: some View {
+        Text(text)
+            .font(.callout)
+            .foregroundStyle(.tertiary)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(Rectangle())
+            // **`-> Bool` and an explicit `return`, both deliberately** (fix
+            // round 2). Written without them, this closure bound to a
+            // Void-returning `dropDestination` overload, so `refuseDrop`'s
+            // `false` went nowhere and the placeholder accepted the drag and
+            // discarded it — the round-1 defect again, one layer out.
+            .dropDestination(for: String.self) { ids, _ -> Bool in
+                return onDrop(ids)
+            } isTargeted: { internalTargeted = $0 }
+            // The section's other drop kind, mounted AFTER the string one: a
+            // List row's drops are dispatched by the table, where this pair
+            // takes every drag kind (Denver's #109 table); outside a row only
+            // the innermost modifier is offered the drag. An empty Research
+            // section is exactly where a writer drags their first file.
+            .onDrop(of: [.fileURL, .image], isTargeted: $externalTargeted) { providers in
+                return onExternalDrop(providers)
+            }
+            .treeDropHover(internalTargeted: internalTargeted,
+                           externalTargeted: externalTargeted, feedback: feedback)
     }
 }

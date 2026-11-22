@@ -333,7 +333,7 @@ final class PieceFoldContentsTests: XCTestCase {
         XCTAssertEqual(fold.components(separatedBy: "PieceFoldIndex.build(").count - 1, 1)
         XCTAssertTrue(fold.contains(
             ".task(id: PieceFoldIndex.key(store: store, canvasWrites: state.closedCanvasWrites)) {\n"
-            + "                state.foldIndex = PieceFoldIndex.build(store: store, projectRoot: store.url)"),
+            + "                state.foldIndexBase = PieceFoldIndex.build(store: store, projectRoot: store.url)"),
             "the build is the .task's body, keyed on the fold key")
         // The count is the window's, kept with the tree hidden (appraisal wave).
         let wiring = try SourceTree.read("Maugham/Views/TreeWindowWiring.swift")

@@ -184,7 +184,7 @@ Outside this folder but canvas-only: `Maugham/Views/CanvasPromotionModifier.swif
 - **External images: never `.dropDestination(for: URL.self)`**; use providers (`ProviderDropRoute.acceptedTypes`) and `DropClassification` (`TripwireGrepTests.test_theCanvasExternalDropUsesTheProviderRouteAndNeverAUrlDestination`).
 - **A non-image is refused before anything is copied** with `ImagePasteHandler.isIngestableImage` (`CanvasDropTests.test_theCanvasDropStillRefusesItInItsOwnWords`). Await ingestion first, touch the scene second. Several files cascade at `CanvasClaudePlacement.cardGap`.
 - **A failure is an alert naming the files, not another transient banner.** `ProjectStore` never reaches this view; `CanvasAssetIngest` and `CanvasCaptureDrop` closures do.
-- **A capture sent from the Inbox** is `CanvasCapture`, sibling of `CanvasClaudeWrite`: `.dropped(at:wrappingInPiece:)` joins by centre, `.loose` (the command) never joins a region (`Landing.joinsARegion`). The command's card is told by selecting it, a camera request and a line in `InboxPane`. The store half is `InboxStore.sendToCanvas` (`Maugham/Stores/AREA.md`).
+- **A capture sent from the Inbox** is `CanvasCapture`, sibling of `CanvasClaudeWrite`: `.dropped(at:wrappingInPiece:)` joins by centre, `.loose` (the command, and the tree's Canvas row: `TreeCanvasRowDrop`, `Content.item`) never joins a region (`Landing.joinsARegion`). Its card is told by selecting it and a camera request. The store half is `InboxStore.sendToCanvas` (`Maugham/Stores/AREA.md`).
 - **`CanvasClaudeWrite.liveModel` is the one place `store.liveCanvas` and `isAttached` are written together** (`CanvasLiveSeamTests.test_theLiveCanvasDiscriminatorIsSpelledOnce`).
 
 ### Promotion

@@ -30,6 +30,13 @@ struct ResearchRow: View {
     /// Returns whether the drop was accepted — see `onDrop`.
     let onExternalDrop: (_ providers: [NSItemProvider], _ position: DropIntent.Position) -> Bool
 
+    /// **What this row shows while a drag is over it** (shell p4 Task 10):
+    /// its caller's feedback, decided by the same classification its drop
+    /// performs (`BinderTreeVerbs.dropFeedback(on:)`). `.none` draws nothing.
+    var dropFeedback: () -> TreeDropFeedback = { .none }
+    @State private var internalDropTargeted = false
+    @State private var externalDropTargeted = false
+
     /// **Drawn as a link to shared research, not as research this piece
     /// owns** (shell p3 Task 7): a novel chapter's fold lists the chapter's
     /// links into the shared Research section, a Collection piece's fold the
@@ -123,8 +130,8 @@ struct ResearchRow: View {
                 else { position = .middle }
                 // The caller's answer, never a literal — see `onDrop`.
                 return onDrop(droppedId, position)
-            }
-            .onDrop(of: [.fileURL, .image], isTargeted: nil) { providers, location in
+            } isTargeted: { internalDropTargeted = $0 }
+            .onDrop(of: [.fileURL, .image], isTargeted: $externalDropTargeted) { providers, location in
                 guard !providers.isEmpty else { return false }
                 let rowHeight: CGFloat = 22
                 let position: DropIntent.Position
@@ -134,6 +141,9 @@ struct ResearchRow: View {
                 // The caller's answer, never a literal — see `onDrop`.
                 return onExternalDrop(providers, position)
             }
+            // Its feedback, asked once as a drag arrives (`TreeDropHover`).
+            .treeDropHover(internalTargeted: internalDropTargeted,
+                           externalTargeted: externalDropTargeted, feedback: dropFeedback)
         }
     }
 

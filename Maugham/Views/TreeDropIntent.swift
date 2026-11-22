@@ -1,4 +1,5 @@
 import Foundation
+import SwiftUI
 import MaughamCore
 
 /// **What a drag onto the binder tree means** (shell-finish stage-2a Task 7,
@@ -612,5 +613,146 @@ enum TreeDropIntent {
         case .piece(let pieceId): return .importFiles(.piece(pieceId))
         case .sharedRoot: return .importFiles(.sharedGroup(nil))
         }
+    }
+}
+
+// MARK: - What a target shows while a drag is over it (shell p4 Task 10)
+
+/// **Drop-target feedback on the tree** (spec "The tree": the target must say
+/// which drop is about to happen; ADR 0035's "Not yet built"). Decided from
+/// the SAME classification the drop performs (`TreeDropIntent.classify`,
+/// `classifyExternal`, `TreeCanvasRowDrop.verdict`), so a target that will
+/// refuse shows nothing and one that will accept says how:
+/// - `.into`: the row or section takes the drop into itself — a note linked
+///   to a chapter or moved into a piece, into a group, out to Research, a
+///   table into Figures, a file into a piece, a capture onto the canvas.
+///   Drawn as an accent fill and outline.
+/// - `.beside`: accepted, and it lands beside this row — a reorder, or into
+///   the row's own container. Drawn as an accent outline alone.
+/// - `.none`: refused; nothing is drawn, and the drag springs back.
+///
+/// **No insertion line between rows**: a reorder's above/below is the drop's
+/// vertical position, which the tree's drop modifiers report only at the
+/// drop (`.dropDestination`'s location), never while hovering. Reading it
+/// live needs a `DropDelegate` in their place, and the pair's order on a
+/// `List` row is measured dispatch (#109) no headless test can re-measure.
+enum TreeDropFeedback: Equatable {
+    case none, into, beside
+
+    var accepts: Bool { self != .none }
+
+    static func into(_ accepted: Bool) -> TreeDropFeedback { accepted ? .into : .none }
+
+    /// What an internal drag's classification shows on `target`. Pure.
+    static func of(_ intent: TreeDropIntent.Intent,
+                   on target: TreeDropIntent.Target) -> TreeDropFeedback {
+        switch intent {
+        case .refuse:
+            return .none
+        case .link, .unlink, .useInDocument:
+            return .into
+        case .researchReorder, .structureReorder:
+            return .beside
+        case .rescope(_, let destination):
+            return names(destination, target) ? .into : .beside
+        case .sendFigureToResearch(_, _, let group):
+            switch target {
+            case .pieceRow, .foldRow, .sharedSection: return .into
+            case .researchRow(let rowId): return group == rowId ? .into : .beside
+            case .figuresSection, .figureRow: return .none
+            }
+        }
+    }
+
+    /// What a Finder file's classification shows on `target`. Pure.
+    static func of(_ intent: TreeDropIntent.ExternalIntent,
+                   on target: TreeDropIntent.Target) -> TreeDropFeedback {
+        switch intent {
+        case .refuse:
+            return .none
+        case .importFiles(.piece), .importFiles(.sharedAndLink):
+            return .into
+        case .importFiles(.sharedGroup(let group)):
+            switch target {
+            case .sharedSection: return group == nil ? .into : .beside
+            case .researchRow(let rowId), .foldRow(let rowId, _): return group == rowId ? .into : .beside
+            case .pieceRow, .figuresSection, .figureRow: return .beside
+            }
+        }
+    }
+
+    /// Whether a move's destination is the target itself.
+    private static func names(_ destination: ResearchMoveTarget,
+                              _ target: TreeDropIntent.Target) -> Bool {
+        switch (destination, target) {
+        case (.piece(let piece), .pieceRow(let row)): return piece == row
+        case (.piece(let piece), .foldRow(_, let doc)): return piece == doc
+        case (.group(let group), .researchRow(let row)): return group == row
+        case (.group(let group), .foldRow(let row, _)): return group == row
+        case (.sharedRoot, .sharedSection): return true
+        default: return false
+        }
+    }
+}
+
+/// The tree's drop-target look (`TreeDropFeedback`), on a row's or a
+/// header's content. Takes no hits.
+struct TreeDropHighlight: ViewModifier {
+    let feedback: TreeDropFeedback
+
+    func body(content: Content) -> some View {
+        content
+            .background {
+                if feedback == .into {
+                    RoundedRectangle(cornerRadius: 4)
+                        .fill(Color.accentColor.opacity(0.18))
+                        .padding(-3)
+                        .allowsHitTesting(false)
+                }
+            }
+            .overlay {
+                if feedback != .none {
+                    RoundedRectangle(cornerRadius: 4)
+                        .strokeBorder(Color.accentColor, lineWidth: 2)
+                        .padding(-3)
+                        .allowsHitTesting(false)
+                }
+            }
+    }
+}
+
+extension View {
+    func treeDropHighlight(_ feedback: TreeDropFeedback) -> some View {
+        modifier(TreeDropHighlight(feedback: feedback))
+    }
+}
+
+/// **A tree row's hover**: which of its two drop modifiers a drag is over,
+/// and the feedback asked once as the drag arrives (never per frame). The
+/// row's drop closures are unchanged; only their `isTargeted` reports land
+/// here.
+struct TreeDropHover: ViewModifier {
+    let internalTargeted: Bool
+    let externalTargeted: Bool
+    /// The target's feedback for the drag in flight
+    /// (`BinderTreeVerbs.dropFeedback(on:)` and its kin).
+    let feedback: () -> TreeDropFeedback
+    @State private var shown: TreeDropFeedback = .none
+
+    func body(content: Content) -> some View {
+        let targeted = internalTargeted || externalTargeted
+        content
+            .treeDropHighlight(targeted ? shown : .none)
+            .onChange(of: targeted) { _, now in
+                shown = now ? feedback() : .none
+            }
+    }
+}
+
+extension View {
+    func treeDropHover(internalTargeted: Bool, externalTargeted: Bool = false,
+                       feedback: @escaping () -> TreeDropFeedback) -> some View {
+        modifier(TreeDropHover(internalTargeted: internalTargeted,
+                               externalTargeted: externalTargeted, feedback: feedback))
     }
 }

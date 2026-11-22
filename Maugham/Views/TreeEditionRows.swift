@@ -66,7 +66,7 @@ struct TreeEditionRows: View {
                     .contextMenu {
                         if row.isSource && mayAddLanguage { addLanguageItem }
                     }
-                    .tag(BinderSubject.edition(language: row.language))
+                    .tag(TreeRowTag.subject(.edition(language: row.language)))
                     .id(BinderSubject.edition(language: row.language))
                 }
             } header: {

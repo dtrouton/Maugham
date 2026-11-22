@@ -7087,11 +7087,19 @@ final class TripwireGrepTests: XCTestCase {
     /// (`test_whereBothDropKindsMeetTheStringDestinationIsMountedFirst` still
     /// orders that pair).
     func test_theProviderRouteIsMountedOnTheCanvasAndTheResearchHeaderOnly() throws {
+        // `TreeTopRows.swift` since shell p4 Task 10: the tree's Canvas row takes
+        // what the canvas takes (a capture, a research id, a file) through the
+        // canvas's own one provider drop, and mounts no String destination at
+        // all, so there is no pair to order.
         XCTAssertEqual(try filesNaming(Self.providerRouteToken, under: sourceDir),
-                       ["CanvasView.swift", "BinderTreeSections.swift"],
-            "`\(Self.providerRouteToken)` is mounted on the canvas and the Research "
-            + "header only. A new surface that takes both drag kinds outside a List "
-            + "row belongs here with its reason.")
+                       ["CanvasView.swift", "BinderTreeSections.swift", "TreeTopRows.swift"],
+            "`\(Self.providerRouteToken)` is mounted on the canvas, the Research "
+            + "header and the tree's Canvas row only. A new surface that takes both "
+            + "drag kinds belongs here with its reason.")
+        let topRows = try SourceTreeCache.text(
+            sourceDir.appendingPathComponent("Views/TreeTopRows.swift"))
+        XCTAssertEqual(stringDestinationCount(in: topRows), 0,
+                       "the Canvas row's one drop is the provider route")
 
         let sectionsURL = sourceDir.appendingPathComponent("Views/BinderTreeSections.swift")
         let sections = try SourceTreeCache.text(sectionsURL)

@@ -905,22 +905,22 @@ final class TreeTravelGestureAttachmentTests: XCTestCase {
             Expectation(file: "Maugham/Views/PieceRow.swift", widensAt: ".draggable("),
             Expectation(file: "Maugham/Views/ResearchRow.swift", widensAt: ".draggable("),
             Expectation(file: "Maugham/Views/BinderTreeSections.swift", widensAt: ".draggable("),
-            Expectation(file: "Maugham/Views/BinderView.swift", widensAt: ".tag(BinderSubject.project)"),
+            Expectation(file: "Maugham/Views/BinderView.swift", widensAt: ".tag(TreeRowTag.subject(.project))"),
             // The other two project rows — `ProjectWindow.binderColumn`
             // mounts exactly one of the three per project type, but the
             // gesture belongs on all three since the rule is "any tree row",
             // not "any tree row this app happens to show at once".
             Expectation(file: "Maugham/Views/CollectionPiecesPane.swift",
-                       widensAt: ".tag(BinderSubject.project)"),
+                       widensAt: ".tag(TreeRowTag.subject(.project))"),
             Expectation(file: "Maugham/Views/SceneNavigatorPane.swift",
-                       widensAt: ".tag(BinderSubject.project)"),
+                       widensAt: ".tag(TreeRowTag.subject(.project))"),
             // `SceneNavigatorPane`'s SECOND mark-bearing row: the script
             // row, tagging the screenplay's one document — the last row the
             // set closes with (structure rows, project rows, research/palette
             // rows, and this one; scene rows excluded because they already
             // navigate through `ManuscriptNavigation` on a single click).
             Expectation(file: "Maugham/Views/SceneNavigatorPane.swift",
-                       widensAt: ".tag(BinderSubject.item(documentID))"),
+                       widensAt: ".tag(TreeRowTag.subject(.item(documentID)))"),
         ]
         for expectation in expectations {
             let text = try source(expectation.file)

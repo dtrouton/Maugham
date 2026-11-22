@@ -77,13 +77,17 @@ struct BinderView: View {
                 projectRow
                 TreeTopRows(hasInbox: TreeTopRows.hasInbox(
                     state: treeState, store: store, subject: subject),
-                            hasNewCaptures: TreeTopRows.hasNewCaptures(store: store))
+                            hasNewCaptures: TreeTopRows.hasNewCaptures(store: store),
+                            canvasDrop: .init(store: store, state: treeState))
                 outline(items: store.manifest.structure)
                 BinderTreeSections(store: store, state: treeState,
                                    subject: $subject)
             }
             .listStyle(.sidebar)
             .treeRowStates(state: treeState, subject: subject)
+            // Return/Space pull a fold row up; ⌘↓ opens any row in the centre.
+            .treeRowKeys(store: store, state: treeState, subject: $subject,
+                         hostIsRenaming: renamingItemId != nil)
             // The tree's Tab hands the keyboard to the canvas; anywhere else, or
             // during a rename, it is ignored and travels on as before.
             .onKeyPress(keys: [.tab], phases: .down) { press in
@@ -195,7 +199,7 @@ struct BinderView: View {
             // still has to stay off `.tag`'s own row-wide selection target
             // rather than widen onto it.
             .treeTravelOnDoubleClick(.project)
-            .tag(BinderSubject.project)
+            .tag(TreeRowTag.subject(.project))
     }
 
     /// `depth` exists ONLY to place `ProjectRowLabel.childIndent`, and only at
@@ -219,7 +223,7 @@ struct BinderView: View {
                     row(for: item)
                 }
                 .padding(.leading, indent)
-                .tag(BinderSubject.item(item.id))
+                .tag(TreeRowTag.subject(.item(item.id)))
                 // The scroll target a find manuscript match lands on
                 // (stage-3b Task 8) — the same value the tag above already
                 // carries.
@@ -261,14 +265,14 @@ struct BinderView: View {
                 row(for: item)
             }
             .padding(.leading, indent)
-            .tag(BinderSubject.item(item.id))
+            .tag(TreeRowTag.subject(.item(item.id)))
             // The find manuscript-match scroll target — `outline`'s comment
             // carries the reasoning, not restated here.
             .id(BinderSubject.item(item.id))
         } else {
             row(for: item)
                 .padding(.leading, indent)
-                .tag(BinderSubject.item(item.id))
+                .tag(TreeRowTag.subject(.item(item.id)))
                 .id(BinderSubject.item(item.id))
         }
     }
@@ -312,6 +316,14 @@ struct BinderView: View {
                 treeVerbs.routeExternalDrop(
                     providers: providers, position: position,
                     target: .pieceRow(item.id))
+            },
+            // What the row shows while a drag is over it: the drop's own
+            // classification, with the same posture refusal (shell p4 Task 10).
+            dropFeedback: {
+                treeVerbs.dropFeedback(on: .pieceRow(item.id), refusesStructure: { id in
+                    TreeWalk.find(id: id, in: store.manifest.structure)
+                        .map { !structureVerbs(for: $0).move } ?? false
+                })
             },
             // The figures this chapter's text uses (D8-1), read off the
             // tree's cached rows; pressing it filters the Figures section.

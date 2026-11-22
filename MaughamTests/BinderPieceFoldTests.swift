@@ -921,7 +921,7 @@ private struct FoldAndSectionsProbeView: View {
                 Text(TreeWalk.find(id: documentId, in: store.manifest.structure)?.title
                      ?? documentId)
             }
-            .tag(BinderSubject.item(documentId))
+            .tag(TreeRowTag.subject(.item(documentId)))
             BinderTreeSections(store: store, state: state, subject: subject)
         }
         .listStyle(.sidebar)

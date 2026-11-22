@@ -78,7 +78,8 @@ struct SceneNavigatorPane: View {
                 projectRow
                 TreeTopRows(hasInbox: TreeTopRows.hasInbox(
                     state: treeState, store: store, subject: subject),
-                            hasNewCaptures: TreeTopRows.hasNewCaptures(store: store))
+                            hasNewCaptures: TreeTopRows.hasNewCaptures(store: store),
+                            canvasDrop: .init(store: store, state: treeState))
                 scriptRow
                 ForEach(Array(summaries.enumerated()), id: \.offset) { index, summary in
                     // Inset under the two header rows above: a slugline is a
@@ -99,6 +100,8 @@ struct SceneNavigatorPane: View {
             }
             .listStyle(.sidebar)
             .treeRowStates(state: treeState, subject: subject)
+            // ⌘↓ opens the selected row in the centre (`TreeRowKeys`).
+            .treeRowKeys(store: store, state: treeState, subject: $subject)
             // At the column's foot, `BinderView`'s reason (shell p1 Task 3).
             .overlay(alignment: .bottom) {
                 if summaries.isEmpty { emptyState }
@@ -128,7 +131,7 @@ struct SceneNavigatorPane: View {
             // Neither this row nor `scriptRow` below carries `.draggable`, so
             // there is no drag-interior claim to make here.
             .treeTravelOnDoubleClick(.project)
-            .tag(BinderSubject.project)
+            .tag(TreeRowTag.subject(.project))
     }
 
     /// The row naming the script itself — the screenplay's one document, sitting
@@ -194,7 +197,7 @@ struct SceneNavigatorPane: View {
                         offersLinks: false)
                 }
             }
-            .tag(BinderSubject.item(documentID))
+            .tag(TreeRowTag.subject(.item(documentID)))
             // The find manuscript-match scroll target (stage-3b Task 8) — the
             // screenplay's script row is this pane's only structure row, so
             // it is this tree's whole answer to `BinderView.outline`'s `.id`.
@@ -232,23 +235,15 @@ struct SceneNavigatorPane: View {
             .compactMap { Self.listSelection(for: $0, documentID: documentID) })
     }
 
-    private var listSelection: Binding<Set<BinderSubject>> {
+    private var listSelection: Binding<Set<TreeRowTag>> {
         Binding(
-            get: { drawn },
+            get: { Set(drawn.map(TreeRowTag.subject)) },
             set: { written in
-                let next = BinderTreeSelection.resolved(
-                    written: written, stored: treeState.selection, shown: drawn,
-                    subject: subject,
-                    structure: store.manifest.structure,
-                    research: store.manifest.research,
-                    figures: BinderTreeSelection.drawnFigureOrder(treeState),
-                    projectType: store.manifest.type,
-                    // This pane's own refusal: a document it draws no row for.
+                // The shared setter (`BinderTreeSelection.write`), with this
+                // pane's own refusal: a document it draws no row for.
+                BinderTreeSelection.write(
+                    written, state: treeState, subject: $subject, store: store,
                     accepts: { Self.listSelection(for: $0, documentID: documentID) != nil })
-                if next.selection != treeState.selection || next.subject != subject {
-                    treeState.record(selection: next.selection, subject: next.subject)
-                }
-                subject = next.subject
             })
     }
 

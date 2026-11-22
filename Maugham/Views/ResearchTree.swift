@@ -46,9 +46,13 @@ struct ResearchTreeActions {
     /// copy — nil where none is offered (`FigureActions.researchVerb`).
     var figureVerb: (ResearchItem) -> FigureActions.ResearchVerb? = { _ in nil }
     var performFigureVerb: (ResearchItem) -> Task<Void, Never>? = { _ in nil }
+    /// **What a row shows while a drag is over it** (shell p4 Task 10) — the
+    /// same classification `internalDrop`/`externalDrop` perform; a fold
+    /// re-routes it with its document, as it re-routes those.
+    var dropFeedback: (ResearchItem) -> TreeDropFeedback = { _ in .none }
 }
 
-struct ResearchTreeNode<Tag: Hashable>: View {
+struct ResearchTreeNode: View {
     let item: ResearchItem
     @Binding var renamingItemId: String?
     let findParentId: (String) -> String?
@@ -57,7 +61,9 @@ struct ResearchTreeNode<Tag: Hashable>: View {
     /// selection. `ResearchView`/`CollectionResearchPane` tag bare `item.id`
     /// (their `List` selects over `Set<String>`, unchanged); the binder tree
     /// (Task 4) tags `.research(item.id)` — a `BinderSubject` — instead.
-    let tagFor: (ResearchItem) -> Tag
+    /// Its scroll identity is this subject; its `List` tag is the same
+    /// subject as a `TreeRowTag` (shell p4 Task 10).
+    let tagFor: (ResearchItem) -> BinderSubject
     /// Whether a group row carries its own disclosure triangle. True
     /// everywhere the node renders a *tree* — both research panes, and the
     /// binder tree's Research section and its `.contained` piece folds, where a
@@ -214,8 +220,9 @@ struct ResearchTreeNode<Tag: Hashable>: View {
             onExternalDrop: { providers, position in
                 actions.externalDrop(providers, position, item)
             },  // both pass the bundle's accept/refuse straight back to the row
+            dropFeedback: { actions.dropFeedback(item) },
             linkedFromResearch: linkedFromResearch)
-            .tag(tagFor(item))
+            .tag(TreeRowTag.subject(tagFor(item)))
             .contextMenu {
                 Button("New Note") {
                     actions.newNote(item.type == .group ? item.id : findParentId(item.id))

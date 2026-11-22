@@ -160,6 +160,27 @@ struct BinderPieceFold: View {
             // Pulled up beside, like every other fold row (appraisal 8); the
             // Figures section's row is the one that takes the centre.
             pullUpRow(entry, glyph: Self.figureGlyph, title: name, caption: nil)
+        case .scene(let docId, let paragraphId, let heading):
+            // A place in the script, as a slugline in the Scenes navigator is:
+            // a button that travels, never a tag (arrowing onto it would move
+            // the centre).
+            Button {
+                ResolveNavigation.go(toDocId: docId, paragraphId: paragraphId)
+            } label: {
+                HStack(spacing: 6) {
+                    Image(systemName: Self.sceneGlyph)
+                        .imageScale(.small)
+                        .foregroundStyle(.secondary)
+                    Text(heading)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                    Spacer()
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .help(Self.sceneHelp(heading))
+            .accessibilityLabel(Self.sceneAccessibilityLabel(heading))
         case .link(let pieceId, let title, let incoming):
             Button {
                 subject = Self.clicked(entry, subject: subject,
@@ -220,8 +241,14 @@ struct BinderPieceFold: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        // VoiceOver names what the row is and what activating it does
+        // (Return, Space or a click pulls it up; ⌘↓ or a double-click opens it
+        // in the centre — `TreeRowKeys`).
+        .accessibilityLabel(Self.accessibilityLabel(entry, title: title))
+        .accessibilityHint(Self.accessibilityHint(entry, subject: subject))
+        .accessibilityAction(named: BesideHeader.openInCentreLabel) { openInCentre(entry) }
         .overlay {
-            if Self.isPulledUp(entry, subject: subject) {
+            if Self.drawsOutline(entry, subject: subject, state: state) {
                 RoundedRectangle(cornerRadius: 4)
                     .strokeBorder(Color.accentColor, lineWidth: 1.5)
                     .padding(-3)
@@ -231,6 +258,12 @@ struct BinderPieceFold: View {
         .contextMenu {
             Button(BesideHeader.openInCentreLabel) { openInCentre(entry) }
         }
+        // **The keys reach it** (shell p4 Task 10, plan call 5): a tree-local
+        // tag, so arrowing onto the row is a `List` write the binding answers
+        // with `ClickRule.pullUp` — the row pulled up beside, the centre and
+        // the faces untouched. The button above stays the mouse's: it takes
+        // the click, so the table never selects on it and nothing fires twice.
+        .tag(Self.tag(of: entry))
     }
 
     private func thumbnailSource(of entry: PieceFoldEntry) -> RowThumbnails.Source? {
@@ -304,15 +337,24 @@ struct BinderPieceFold: View {
     /// selection itself is parked on THIS window's model (`windowCanvas`)
     /// until the canvas loads (`CanvasModel.revealAndSelect`).
     private func openInCentre(_ entry: PieceFoldEntry) {
-        guard let opening = Self.doubleClicked(
-            entry, subject: subject, structure: store.manifest.structure,
-            projectType: store.manifest.type,
-            photoNode: { path in PulledUpView.photoNode(path, store: store) }) else { return }
+        guard let pulled = entry.pulledUp else { return }
+        Self.openInCentre(pulled, subject: $subject, store: store, windowCanvas: windowCanvas)
+    }
+
+    /// **Open in Centre for a pulled-up fold row** — its double-click, its
+    /// menu item, its VoiceOver action and ⌘↓ (`TreeRowKeys`), one body.
+    @MainActor
+    static func openInCentre(_ pulled: PulledUp, subject: Binding<WindowSubject>,
+                             store: ProjectStore, windowCanvas: CanvasModel?) {
+        let opening = PulledUpView.opening(
+            pulled, subject: ClickRule.pullUp(pulled, current: subject.wrappedValue),
+            structure: store.manifest.structure, projectType: store.manifest.type,
+            photoNode: { path in PulledUpView.photoNode(path, store: store) })
         switch opening {
         case .subject(let next):
-            subject = next
+            subject.wrappedValue = next
         case .canvas(let next, let target):
-            subject = next
+            subject.wrappedValue = next
             if let target { windowCanvas?.revealAndSelect(target) }
         case .centreItem:
             // No fold row pulls up a statement or History.
@@ -331,12 +373,16 @@ struct BinderPieceFold: View {
         case pullUp(PulledUp)
         /// A link: travel to the piece (`ClickRule.navigate`).
         case navigate(BinderSubject)
+        /// A slugline: open the script at its paragraph (`ResolveNavigation.go`).
+        case goToScene(docId: String, paragraphId: String)
     }
 
     static func act(of entry: PieceFoldEntry) -> Act {
         switch entry {
         case .research(let id, _, _): return .listTag(.research(id))
         case .link(let pieceId, _, _): return .navigate(.item(pieceId))
+        case .scene(let docId, let paragraphId, _):
+            return .goToScene(docId: docId, paragraphId: paragraphId)
         case .card, .region, .palette, .figure:
             // Each always names something to pull up (`PieceFoldEntry.pulledUp`).
             return entry.pulledUp.map(Act.pullUp) ?? .navigate(.project)
@@ -357,8 +403,73 @@ struct BinderPieceFold: View {
         case .navigate(let target):
             return ClickRule.navigate(to: target, current: subject,
                                       structure: structure, projectType: projectType)
+        case .goToScene:
+            // A place, posted by the row (`ResolveNavigation.go`): the
+            // window's receiver opens the script there.
+            return subject
         }
     }
+
+    /// **The `List` tag a pull-up row carries** (shell p4 Task 10): what it
+    /// pulls up, tree-local. Every row `pullUpRow` draws names one
+    /// (`PieceFoldEntry.pulledUp`); the fallback is never reached.
+    static func tag(of entry: PieceFoldEntry) -> TreeRowTag {
+        entry.pulledUp.map(TreeRowTag.pullUp) ?? .subject(.project)
+    }
+
+    /// Whether a pull-up row draws its outline: it is what is beside, and the
+    /// `List` is not already drawing it selected (`BinderTreeSelection.outlined`'s
+    /// rule for the rows the tree tags with a subject).
+    @MainActor
+    static func drawsOutline(_ entry: PieceFoldEntry, subject: WindowSubject,
+                             state: BinderTreeSectionsState) -> Bool {
+        guard isPulledUp(entry, subject: subject), let pulled = entry.pulledUp else { return false }
+        return !BinderTreeSelection.shownTags(
+            state.selection, pullUp: state.selectedPullUp, subject: subject,
+            clickedAt: state.subjectAtLastClick).contains(.pullUp(pulled))
+    }
+
+    /// What VoiceOver calls a pull-up row: its kind, then its name.
+    static func accessibilityLabel(_ entry: PieceFoldEntry, title: String) -> String {
+        "\(kindName(entry)): \(title)"
+    }
+
+    /// What activating a pull-up row does, in VoiceOver's words.
+    static func accessibilityHint(_ entry: PieceFoldEntry, subject: WindowSubject) -> String {
+        isPulledUp(entry, subject: subject)
+            ? "Beside the centre. Activate to put it away; Command-Down Arrow opens it in the centre."
+            : "Activate to pull it up beside the centre; Command-Down Arrow opens it in the centre."
+    }
+
+    /// A pull-up row's kind, as a writer names it.
+    static func kindName(_ entry: PieceFoldEntry) -> String {
+        switch entry {
+        case .region: return "Region"
+        case .palette: return "Palette card"
+        case .figure: return "Figure"
+        case .research: return "Research"
+        case .link: return "Link"
+        case .scene: return "Scene"
+        case .card(let ref):
+            switch ref.kind {
+            case .scrap: return "Card"
+            case .photo: return "Picture"
+            case .palette: return "Palette card"
+            case .research: return "Research card"
+            }
+        }
+    }
+
+    /// Where a scene row goes: the script, at the paragraph its slugline
+    /// begins. Nil for every other row. Pure.
+    static func sceneDestination(_ entry: PieceFoldEntry) -> (docId: String, paragraphId: String)? {
+        guard case .goToScene(let docId, let paragraphId) = act(of: entry) else { return nil }
+        return (docId, paragraphId)
+    }
+
+    static let sceneGlyph = "film"
+    static func sceneHelp(_ heading: String) -> String { "Open the script at “\(heading)”" }
+    static func sceneAccessibilityLabel(_ heading: String) -> String { "Scene: \(heading)" }
 
     /// Whether `entry` is what is pulled up — its row draws the outlined
     /// state plan 1 settled for the row beside.
@@ -415,6 +526,7 @@ struct BinderPieceFold: View {
 
     static func groupName(_ group: PieceFoldGroup) -> String {
         switch group {
+        case .scenes: return "Scenes"
         case .research: return "Research"
         case .cards: return "Cards"
         case .palette: return "Palette"
@@ -509,6 +621,11 @@ struct BinderPieceFold: View {
                 providers: providers, position: position,
                 target: .foldRow(rowId: target.id, documentId: documentId))
         }
+        // **And its feedback, for the same reason** (shell p4 Task 10): the
+        // row shows what the fold's drop does, never the shared row's.
+        actions.dropFeedback = { [verbs, documentId] item in
+            verbs.dropFeedback(on: .foldRow(rowId: item.id, documentId: documentId))
+        }
         return actions
     }
 
@@ -535,10 +652,31 @@ struct PieceFoldIndexing: ViewModifier {
     func body(content: Content) -> some View {
         content
             .task(id: PieceFoldIndex.key(store: store, canvasWrites: state.closedCanvasWrites)) {
-                state.foldIndex = PieceFoldIndex.build(store: store, projectRoot: store.url)
+                state.foldIndexBase = PieceFoldIndex.build(store: store, projectRoot: store.url)
+                state.foldIndex = state.foldIndexBase.withScenes(state.foldScenes)
                 state.foldIndexIsBuilt = true
             }
+            // **A Collection script's Scenes, on their own key** (shell p4
+            // Task 10): the manifest's stamp and the window's count of script
+            // re-parses (`.maughamScriptDidUpdate`, the editor's own debounced
+            // signal), so typing re-reads the sluglines and never the canvas.
+            .task(id: PieceFoldScenesKey(modified: store.manifest.modified,
+                                         scriptRevision: state.scriptRevision)) {
+                let scenes = PieceFoldIndex.scenes(store: store)
+                guard scenes != state.foldScenes else { return }
+                state.foldScenes = scenes
+                state.foldIndex = state.foldIndexBase.withScenes(scenes)
+            }
+            .onProjectEvent(.maughamScriptDidUpdate, url: store.url, window: nil) { _ in
+                state.scriptRevision += 1
+            }
     }
+}
+
+/// What a Collection script's Scenes are read on (`PieceFoldIndexing`).
+struct PieceFoldScenesKey: Hashable {
+    let modified: Date
+    let scriptRevision: Int
 }
 
 extension View {

@@ -53,6 +53,11 @@ enum CanvasCapture {
         /// pair (`ProjectStore.ingestCanvasAsset`), and its shape
         /// (`CanvasThumbnails.headerAspect`; nil takes the label-only floor).
         case picture(path: String, aspect: CGFloat?)
+        /// **A research item the tree's Canvas row was handed** (shell p4
+        /// Task 10): a card pointing at it, as the canvas's own drop makes
+        /// (`CanvasDrop.decide`), with the same derived id
+        /// (`CanvasNodeID.item`), so a second send lands on the same card.
+        case item(researchId: String, aspect: CGFloat?)
     }
 
     /// Where it lands — the two routes' only difference, as a value, so the
@@ -163,13 +168,22 @@ enum CanvasCapture {
     static func plan(_ content: Content,
                      _ placement: Placement,
                      captureID: String,
-                     in scene: CanvasScene) -> Landing {
+                     in scene: CanvasScene,
+                     nodeID minted: CanvasNodeID? = nil) -> Landing {
         // DERIVED from the capture, never minted (RULING-8, M8-IN-004): a
         // promoted entry can never be re-sent (`entryNotFound`), so the only
         // reachable second send is the retry after a failed status flip — and
         // a derived id makes it land on the SAME card instead of a second one,
         // the shape the canvas already uses for a research row's second drop.
-        let id = nodeID(forCapture: captureID)
+        // A research item's card is the canvas's own derived id; a file the
+        // Canvas row was handed is minted by its caller; a capture's is
+        // derived from the capture.
+        let id: CanvasNodeID
+        if case .item(let researchId, _) = content {
+            id = CanvasNodeID.item(researchId)
+        } else {
+            id = minted ?? nodeID(forCapture: captureID)
+        }
         let origin: CGPoint
         let joins: Bool
         var wraps: String?
@@ -194,6 +208,16 @@ enum CanvasCapture {
                                                                         cardWidth: width),
                                  z: scene.topZ + 1),
                 text: text,
+                joinsARegion: joins,
+                wrapsInPiece: wraps)
+        case .item(let researchId, let aspect):
+            return Landing(
+                node: CanvasNode(id: id, kind: .item(.project(id: researchId)), origin: origin,
+                                 width: width,
+                                 cachedHeight: CanvasCardMetrics.itemCardHeight(
+                                     forCardWidth: width, pictureAspect: aspect),
+                                 z: scene.topZ + 1),
+                text: nil,
                 joinsARegion: joins,
                 wrapsInPiece: wraps)
         case .picture(let path, let aspect):
@@ -263,7 +287,8 @@ enum CanvasCapture {
                      _ placement: Placement,
                      captureID: String,
                      store: ProjectStore,
-                     projectRoot: URL) throws -> Sent {
+                     projectRoot: URL,
+                     nodeID minted: CanvasNodeID? = nil) throws -> Sent {
         let model: CanvasModel? = CanvasClaudeWrite.liveModel(of: store)
         if let model {
             // Before anything else, the retry included (issue #44): a model
@@ -271,7 +296,8 @@ enum CanvasCapture {
             // answering with a node id would flip the capture to promoted with
             // no card anywhere. The same value the sidecar arm throws.
             if let refused = model.sidecarRefusal { throw refused }
-            let landing = plan(content, placement, captureID: captureID, in: model.scene)
+            let landing = plan(content, placement, captureID: captureID, in: model.scene,
+                               nodeID: minted)
             // The retry: the capture's derived node is already on the scene, so
             // there is nothing to write — the caller retries only the flip.
             if model.scene.node(landing.node.id) != nil {
@@ -293,7 +319,8 @@ enum CanvasCapture {
         let loaded = try sidecar.loadForTransientWrite()
         var scene = loaded.scene
         var scraps = loaded.scraps
-        let landing = plan(content, placement, captureID: captureID, in: scene)
+        let landing = plan(content, placement, captureID: captureID, in: scene,
+                           nodeID: minted)
         if scene.node(landing.node.id) != nil { return Sent(node: landing.node.id, wrappedIn: nil) }
         let wrapped = apply(landing, to: &scene)
         scraps.merge(landing.scrapTexts) { _, new in new }
