@@ -185,6 +185,52 @@ stratum of the writer's own statement document.
   arriving through a new door, and would fail this ADR exactly as a diagnostic
   drawn in the gutter would.
 
+## Amendment, 2026-11-22 — the margin beside the text
+
+The shell milestone (plan 5, Task 2) gives the margin beside the text a setting,
+View ▸ Margin ▸ **Off** (the default) / **My Notes** / **Everything Flagged**, and
+this amendment says where it stands against §1. §1's text above is left as written;
+what follows narrows how its test is read, in three positions Denver approved on
+2026-11-16.
+
+- **A wordless, opt-in position mark derived from a check's or a round's item is
+  permitted.** Everything Flagged draws one grey tick beside a paragraph carrying
+  such an item, among those To resolve's selection shows: the same glyph whatever
+  the item says, whatever its source, however many there are. It says *something
+  here was raised* and nothing about what; what was raised is read in To resolve,
+  where it always was. The writer turns it on; Off draws nothing.
+- **A mark on a person's own note is permitted.** A person's words are not a
+  model's. My Notes draws a dot beside a note a person wrote and a faint tint on its
+  words. "A person" is read off the note's seal (`NoteOwner.isAPersons`, the one
+  predicate): any person's author key, this writer's Macs or an admitted reviewer's;
+  where no seal covers the line, the note's own human stamp, so a book older than
+  the signed op log keeps its writer's notes. The assistant's, translator's and
+  Maugham's keys are never a person's, whatever a note's stamp says.
+- **Anything carrying model content is not.** A string, a count, or a colour that
+  encodes what an item says stays out of the editor and its chrome. The overlay
+  file draws no text (`MarginOverlayCensusTests.test_theMarginOverlayDrawsNoString`);
+  a click on a mark moves nothing in the editor and shows the paragraph in To
+  resolve.
+
+**Precedents.** The line above the prose says "intent may trail the draft"
+(`IntentStrip.mayTrailDraftMark`): a fixed app string set off by a check, never the
+check's words. Brief's clause marks ([ADR 0037](0037-brief-and-the-pulled-up-thing.md))
+are wordless underlines drawn from a mark's kind, ruled within must-not #2 on
+2026-11-16. The tick is the same kind of thing, one surface nearer the text.
+
+**The review render, as it stood, and the owner's answer.** Until this amendment
+the review render (manual review mode, then read-through, [ADR 0039](0039-read-through.md))
+drew every open note's text as a margin card beside the text, Claude's included,
+in Claude's own colour (`EditorCoordinator+ReviewRender.swift`, `recomputeReviewMarks`;
+`ReviewPalette.color(for:)`). §1 as written forbids that. Asked whether it should
+stay (plan 5, Question 2), **Denver answered no (2026-11-22)**: the review render
+draws a person's notes only, by the same predicate as the dots, and Claude's notes
+stay in To resolve. Built in `EditorHost.reviewRenderSet`, which every push and pull
+of the render's set reads (`MarginOverlayCensusTests.test_whatIsDrawnBesideTheTextAsksOnePredicate`).
+The render draws in read-through and wherever a posture refuses the text (a
+reviewer's copy); the rule holds in both, because §1 does not ask which switch put
+the render on.
+
 ## References
 
 - `docs/constitution.md` must-not #2 ("No AI inside the editor" — the rule this ADR

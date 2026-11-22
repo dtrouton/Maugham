@@ -380,11 +380,11 @@ final class ResolveEditionTests: XCTestCase {
             let info: [AnyHashable: Any] = [MaughamEvent.positionKey: RightColumnPosition.resolve.rawValue,
                                             MaughamEvent.resolveFilterKey: key.rawValue]
             XCTAssertEqual(ProjectWindow.positionAsk(in: info, shows: .resolve).request, .filter(key))
-            let outcome = ResolvePane.apply(.filter(key), groups: [], chips: chips, activePassId: nil,
+            let outcome = ResolvePane.apply(.filter(key), groups: [], sceneIndex: nil, chips: chips, activePassId: nil,
                                             dense: false, selection: [.changes], choices: [:])
             XCTAssertEqual(outcome.selection, [.changes], "\(key) leaves the writer's filter as it was")
         }
-        let questions = ResolvePane.apply(.filter(.questions), groups: [], chips: chips, activePassId: nil,
+        let questions = ResolvePane.apply(.filter(.questions), groups: [], sceneIndex: nil, chips: chips, activePassId: nil,
                                           dense: false, selection: [], choices: [:])
         XCTAssertEqual(questions.selection, [.questions])
         XCTAssertEqual(ResolveFilter.chips([.compileProblem(problem("x")), .designProposal(proposal(.pending)),

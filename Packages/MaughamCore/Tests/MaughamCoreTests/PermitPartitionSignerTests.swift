@@ -469,6 +469,23 @@ final class PermitPartitionSignerTests: XCTestCase {
                        "a note the load never read is nobody's")
     }
 
+    /// **A person's note** (shell p5 Task 2): any person's author key, or a
+    /// human stamp where no seal covers the line — and nothing else.
+    func test_aPersonIsTheAuthorKeyOrAnUncoveredHumanStamp() {
+        XCTAssertTrue(NoteOwner.verified(.author, ofThisWriter: true).isAPersons)
+        XCTAssertTrue(NoteOwner.verified(.author, ofThisWriter: false).isAPersons,
+                      "an admitted reviewer's author key is a person's")
+        for machine in [DeviceActor.assistant, .translator, .maugham] {
+            XCTAssertFalse(NoteOwner.verified(machine, ofThisWriter: true).isAPersons, "\(machine)")
+        }
+        XCTAssertTrue(NoteOwner.of(.uncovered, stampedBy: human).isAPersons,
+                      "the writer's unsigned history is not hidden")
+        XCTAssertFalse(NoteOwner.of(.uncovered, stampedBy: claude).isAPersons)
+        XCTAssertFalse(NoteOwner.of(.sealed(.assistant, ofThisWriter: true), stampedBy: human).isAPersons,
+                       "a human stamp under the assistant's seal is the assistant's")
+        XCTAssertFalse(NoteOwner.unknown.isAPersons)
+    }
+
     // MARK: - The census (M-5)
 
     /// A note's seal is read only through the named functions: the readings

@@ -10,11 +10,14 @@ import MaughamCore
 /// finding's `ResolveItem.id`, nil when the strain had none; a finding the
 /// list no longer holds (answered, replaced by a newer check, or dropped
 /// when its anchor text changed) is settled: the Checks chip on that piece,
-/// and one quiet line.
+/// and one quiet line. `.showParagraph` is a margin mark's click (shell p5
+/// Task 2): the paragraph's group becomes the list's caret group, as if the
+/// caret were there, and the editor's caret does not move.
 enum ResolveRequest: Equatable {
     case filter(ResolveKeyFilter)
     case focus(groupOwnerId: String)
     case focusFinding(docId: String, itemId: String?)
+    case showParagraph(docId: String, paragraphId: String)
 }
 
 /// What one refresh does (`ResolvePane.refreshStep`).
@@ -103,6 +106,8 @@ struct ResolveRequestOutcome: Equatable {
     var settled = false
     /// What a `.focusFinding` that found no row says, in one quiet line.
     var line: String? = nil
+    /// The group a `.showParagraph` makes the list's caret group.
+    var caret: ResolveGroup.Key? = nil
 }
 
 /// **To resolve** — the right column's one list of what has been raised about
@@ -144,6 +149,10 @@ struct ResolvePane: View {
     /// `(piece, passId)` — `ProjectWindow.recordActivePass`.
     let onSetActivePass: (String, String) -> Void
     @Binding var request: ResolveRequest?
+    /// **The selection the list shows, published to the window** (shell p5
+    /// Task 2): its one writer, on every change. View ▸ Margin's ticks follow
+    /// it, and keep the last value while the column is hidden.
+    let onSelectionShown: (Set<ResolveSource>) -> Void
     /// The check header's "Define a first reader…" (the window's sheet).
     var onOpenProjectSettings: () -> Void = {}
     /// A figure note's click travels to its figure (the window's subject).
@@ -588,6 +597,7 @@ struct ResolvePane: View {
             refilter()
             markChecksRead()
         }
+        .onChange(of: shownSelection, initial: true) { _, shown in onSelectionShown(shown) }
         .onChange(of: stetFlourishIds) { old, new in stetMarksChanged(from: old, to: new) }
         .onChange(of: letterLedgerRevision) { _, _ in
             ledgerText = LessonLedgerVerbs.ledgerText(store: store)
@@ -1137,7 +1147,7 @@ struct ResolvePane: View {
         let activePass = pieceDocId.flatMap {
             documentStore.uiState.activePassMemory.validatedActivePass(forPiece: $0, in: passes)
         }
-        let outcome = Self.apply(pending, groups: groups, chips: chips, activePassId: activePass,
+        let outcome = Self.apply(pending, groups: groups, sceneIndex: sceneIndex, chips: chips, activePassId: activePass,
                                  dense: dense, selection: shownSelection, choices: choices,
                                  figureOwners: ProjectStore.figureNoteOwners(store.manifest.figures ?? []),
                                  localName: localName)
@@ -1145,6 +1155,7 @@ struct ResolvePane: View {
         choices = outcome.choices
         scrollRequest = outcome.scrollTo
         markedItemId = outcome.marked
+        if let caret = outcome.caret { caretGroup = caret }
         if let line = outcome.line {
             filedNotice = FiledNotice.after(
                 .filed(FiledNotice.Filing(sentence: line, brief: nil)), current: filedNotice)

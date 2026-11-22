@@ -73,6 +73,9 @@ struct RightColumn: View {
     /// To resolve's next ask — a filter or a piece to focus (shell plan 2
     /// Task 7); `ResolvePane` applies it once and sets it back to nil.
     @Binding var resolveRequest: ResolveRequest?
+    /// To resolve's shown selection, published to the window for View ▸
+    /// Margin's ticks (`ResolvePane.onSelectionShown`).
+    let onResolveSelectionShown: (Set<ResolveSource>) -> Void
     /// The window's parsed screenplay, for To resolve's scene grouping.
     let lastParsedScript: FountainScript?
     @Binding var compilerModel: CompilerModelChoice
@@ -397,6 +400,7 @@ struct RightColumn: View {
             // `UIState.activePassMemory`.
             onSetActivePass: { piece, passId in recordActivePass(piece, passId) },
             request: $resolveRequest,
+            onSelectionShown: onResolveSelectionShown,
             onOpenProjectSettings: openProjectSettings,
             onTravel: { subject in
                 // Travelling to a figure is the window's SUBJECT write and

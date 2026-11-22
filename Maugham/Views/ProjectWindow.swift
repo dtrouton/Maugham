@@ -37,6 +37,11 @@ struct ProjectWindow: View {
     /// one once and sets it back to nil. Deliberately NOT persisted to
     /// `UIState`: a request is an arrival, not a home.
     @State private var resolveRequest: ResolveRequest?
+    /// **To resolve's shown selection, as it last published it** (shell p5
+    /// Task 2; `ResolvePane.onSelectionShown`, its one writer): View ▸
+    /// Margin's ticks follow it, and keep it while the column is hidden.
+    /// Empty is everything.
+    @State private var resolveSelection: Set<ResolveSource> = []
     /// **What the window is about** (shell p1): what the centre shows
     /// (`open`), what the right column is about (`faces`), and the reference
     /// material opened `beside`. The one truth the centre's routing asks.
@@ -654,6 +659,15 @@ struct ProjectWindow: View {
             readThroughLackingCheckpoint: facts.lackingCheckpoint,
             editorControl: $editorControl))
         .modifier(FigureTableMenuModifier(presence: figureGridPresence))
+        // View ▸ Margin (shell p5 Task 2). Load-bearing line: without it the
+        // menu is disabled and no mark is ever drawn.
+        .modifier(MarginMirrorModifier(
+            window: window, documentStore: documentStore,
+            structure: store?.manifest.structure ?? [], subject: subject,
+            diagnostics: compiler.diagnostics, resolveSelection: resolveSelection,
+            isNoChromeOn: isNoChromeOn, editorControl: $editorControl,
+            showInspector: $showInspector, position: $rightColumnPosition,
+            resolveRequest: $resolveRequest))
         .modifier(FigureWindowOpenModifier(projectURL: url, window: window))
         .modifier(ReadingLanguageModifier(
             window: window,
@@ -2092,6 +2106,7 @@ struct ProjectWindow: View {
             selectedSubject: facesNavigation,
             position: $rightColumnPosition,
             resolveRequest: $resolveRequest,
+            onResolveSelectionShown: { resolveSelection = $0 },
             lastParsedScript: lastParsedScript,
             compilerModel: $compilerModel,
             recordActivePass: { recordActivePass(forPiece: $0, passId: $1) },

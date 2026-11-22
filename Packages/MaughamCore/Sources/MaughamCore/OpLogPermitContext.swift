@@ -210,6 +210,30 @@ public enum NoteOwner: Equatable, Hashable, Sendable {
         case .notOurs?, nil: return .unknown
         }
     }
+
+    /// **Whether a person wrote the note** (shell p5 Task 2, the owner's
+    /// rulings of 2026-11-22): the one predicate for what may be drawn beside
+    /// the text, a dot in the margin or a card in the review render. A seal
+    /// by any person's author key (this writer's Macs or an admitted
+    /// reviewer's); or, where no seal covers the line, a human stamp, so a
+    /// book older than the signed op log keeps its writer's notes. The
+    /// assistant's, translator's and Maugham's keys never, whatever the
+    /// stamp; a machine stamp never; an unknown owner never.
+    public var isAPersons: Bool {
+        switch self {
+        case let .verified(actor, _):
+            switch actor {
+            case .author: return true
+            case .assistant, .translator, .maugham: return false
+            }
+        case let .stamped(kind):
+            switch kind {
+            case .human: return true
+            case .claude: return false
+            }
+        case .unknown: return false
+        }
+    }
 }
 
 /// **The permit each own-annotation amendment was written under** — the

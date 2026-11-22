@@ -102,6 +102,13 @@ final class EditorControl {
     // Review render set (open annotations shown in review posture).
     var reviewAnnotations: [Annotation] = []
 
+    /// **The margin's marks for the open piece** (shell p5 Task 2, View ▸
+    /// Margin): built by the window's `MarginMirrorModifier` once per key —
+    /// the piece's `annotationsVersion`, the sidecar's version, the setting,
+    /// To resolve's selection, focus mode, the language, the review render —
+    /// never per keystroke (D1). `.none` while the setting is Off.
+    var margin: MarginMarks = .none
+
     /// Ordered per-paragraph translation freshness for the staleness-badge
     /// overlay + the dimmed-missing treatment (Task 12). Each entry carries its
     /// own rendered TEXT (`translatedText ?? sourceText`), the same string

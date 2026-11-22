@@ -238,6 +238,13 @@ extension Notification.Name {
     /// plan 3): the faces go to the open piece and the right column shows its
     /// Brief (`MaughamEvent.postBriefOfTheOpenPiece`). Scope: .keyWindow.
     public static let maughamShowOpenPieceBrief = Notification.Name("maugham.show.open.piece.brief")
+    /// Posted by a click on a margin mark (shell p5 Task 2, View ▸ Margin):
+    /// To resolve shows that paragraph's group; the editor moves nothing
+    /// (`MaughamEvent.postShowParagraphInResolve`). Scope: .keyWindow.
+    public static let maughamShowParagraphInResolve = Notification.Name("maugham.show.paragraph.in.resolve")
+    /// Posted by View ▸ Margin's items (shell p5 Task 2): the key window's
+    /// margin setting (`MaughamEvent.postMarginSetting`). Scope: .keyWindow.
+    public static let maughamSetMargin = Notification.Name("maugham.set.margin")
     /// Posted by ⌘⌥G/⌘⌥Y/⌘⌥V/⌘⌥H (shell plan 3): a Book statement or the
     /// faces' piece's History is pulled up beside the centre
     /// (`MaughamEvent.postPullUp`). Scope: .keyWindow.

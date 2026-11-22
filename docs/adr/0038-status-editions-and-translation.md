@@ -270,7 +270,7 @@ Nothing above depends on any of these.
 - ~~**Read-through**, which replaces Lock (owed item 15)~~ — *built:* [ADR 0039](0039-read-through.md); Lock and Manual Review Mode are deleted.
 - **Promotion carries the history**: the promoted project gets a copy of the piece's op log, notes and translations, the Collection keeping its own (the owner's answer of 2026-11-22): its own plan.
 - **Plan 5** of the same milestone; the list is in the plan's "Plan 5" section:
-  - The margin setting and the amendment to [ADR 0027](0027-the-compiler-and-the-editor-boundary.md) §1.
+  - ~~The margin setting and the amendment to [ADR 0027](0027-the-compiler-and-the-editor-boundary.md) §1~~ — *built:* View ▸ Margin, and the amendment of 2026-11-22.
   - The whole-menu review (⌘↓ has no menu item; File ▸ Add Language… and File ▸ Remove Edition…; the titles of ⌘⌥L and ⌘⌥K; two "Outline" items, ⌘⌥O and ⌃⌘2; ⌃⌘1/2/3; ⌃⌘L and View ▸ Read In; Show Source Under Translation has no key).
   - The guide, the welcome tour, the cheat sheet and Claude's help text. **The bundled in-app Help still describes the desk and the review pane, and the branch does not merge until it is rewritten.**
   - Figure source-changed items in To resolve.

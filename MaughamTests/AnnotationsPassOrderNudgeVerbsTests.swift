@@ -94,7 +94,7 @@ final class AnnotationsPassOrderNudgeVerbsTests: XCTestCase {
                 Task { try? await fx.store.setPassState(id: pieceId, passId: passId, state) }
             },
             onSetActivePass: { _, _ in },
-            request: .constant(nil))
+            request: .constant(nil), onSelectionShown: { _ in })
             .environment(UserPreferences(
                 defaults: UserDefaults(suiteName: "PassOrderNudgeVerbs-\(UUID())")!))
 

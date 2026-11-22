@@ -271,6 +271,9 @@ struct MaughamApp: App {
                 // In ▸ …, Read In Next Language (⌃⌘L), Show Source Under
                 // Translation — the toolbar switch's other two routes.
                 FocusedReadingItems()
+                // View ▸ Margin ▸ Off / My Notes / Everything Flagged (shell
+                // p5 Task 2): three checked items, no key.
+                FocusedMarginItems()
                 // ⌘⌥0 shows or hides the right column, titled for the
                 // focused window's state (`WindowChrome`).
                 FocusedRightColumnToggle()

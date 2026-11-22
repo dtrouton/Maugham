@@ -754,6 +754,14 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
     /// on the text view (like the review overlays) and shown only in translation
     /// review. See `EditorCoordinator+TranslationBadges.swift`.
     weak var translationBadgeOverlay: TranslationBadgeOverlayView?
+    /// **View ▸ Margin's marks** (shell p5 Task 2), as last applied from
+    /// `EditorControl.margin`, and their places in the text (`MarginPlace`),
+    /// resolved when the marks arrive and shifted by each storage edit —
+    /// never per draw (tripwire 4). The overlay in the trailing inset reads
+    /// the places. See `MarginOverlayView.swift`.
+    var margin: MarginMarks = .none
+    var marginPlaces: [MarginPlace] = []
+    weak var marginOverlay: MarginOverlayView?
     /// The current per-paragraph badge resolution (¶ → UTF-16 range + status) in
     /// the rendered translated surface. Recomputed only when the pushed model
     /// changes — never per draw (tripwire 4). The overlay reads this directly.
@@ -1144,6 +1152,8 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
             applyTranslationDimming()
             syncTranslationBadgeOverlay()
         }
+        // The margin's marks (shell p5 Task 2), placed against this view's text.
+        if !margin.isEmpty { recomputeMarginPlaces() }
         if let source = initialCursorLocation {
             // A SOURCE caret, shown where the text held has it (fix 2, N6).
             lastToldSourceCaret = source
@@ -1186,13 +1196,14 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
         problemTooltips?.removeAll(from: old)
         problemTooltips = nil
         let bound: [NSView?] = [figureThumbnailOverlay, referenceLabelOverlay, translationBadgeOverlay,
-                                markRenderer, marginRail]
+                                markRenderer, marginRail, marginOverlay]
         for view in bound { view?.removeFromSuperview() }
         figureThumbnailOverlay = nil
         referenceLabelOverlay = nil
         translationBadgeOverlay = nil
         markRenderer = nil
         marginRail = nil
+        marginOverlay = nil
         if old.delegate === self { old.delegate = nil }
         if let old = old as? MaughamTextView, old.coordinator === self { old.coordinator = nil }
     }
@@ -1370,6 +1381,8 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
         if bufferHoldsTranslation, let control { setTranslationBadges(control.translationBadges) }
         retokenizeAndStyle()
         if bufferHoldsTranslation { applyTranslationDimming() }
+        // A whole-buffer replace: the margin's places are read again.
+        if !margin.isEmpty { recomputeMarginPlaces() }
         // The clamp is not a move the caret-left fold should see later.
         figureGrid?.textSelection = textView.selectedRange()
     }
@@ -1717,6 +1730,7 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
             _ = control.sentenceFocus
             _ = control.paragraphFocus
             _ = control.reviewAnnotations
+            _ = control.margin
             _ = control.translationLanguage
             _ = control.translationBadges
             _ = control.referenceIndexVersion
@@ -1769,6 +1783,7 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
             applyFocusPrefs(sentence: c.sentenceFocus, paragraph: c.paragraphFocus)
         }
         setReviewAnnotations(c.reviewAnnotations)   // self-guarded
+        setMargin(c.margin)                         // self-guarded
         setTranslationBadges(c.translationBadges)   // self-guarded
         setReferenceIndexVersion(c.referenceIndexVersion)   // self-guarded
         setFigureCardVersion(c.figureCardVersion)           // self-guarded
@@ -2080,6 +2095,7 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
                 if !self.unfadedFigureSyntax.isEmpty { self.unfadedFigureSyntaxIsStale = true }
                 self.tableTidy.noteEdit(editedRange: range, changeInLength: delta)
                 self.figureGrid?.noteEdit(editedRange: range, changeInLength: delta)
+                self.marginNoteEdit(editedRange: range, changeInLength: delta)
             }
         }
     }

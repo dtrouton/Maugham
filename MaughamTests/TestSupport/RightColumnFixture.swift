@@ -103,6 +103,9 @@ enum RightColumnFixture {
                 }),
             position: position,
             resolveRequest: resolveRequest,
+            // The window's `resolveSelection` writer; a fixture has no
+            // window state to publish into.
+            onResolveSelectionShown: { _ in },
             lastParsedScript: script,
             compilerModel: compilerModel,
             recordActivePass: recordActivePass,

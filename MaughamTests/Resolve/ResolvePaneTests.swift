@@ -460,7 +460,7 @@ final class ResolvePaneTests: XCTestCase {
         XCTAssertEqual(ResolveFilter.expanded(built, cursor: nil, dense: true), [], "premise")
 
         let outcome = ResolvePane.apply(
-            .focus(groupOwnerId: "doc-b"), groups: built, chips: [.others],
+            .focus(groupOwnerId: "doc-b"), groups: built, sceneIndex: nil, chips: [.others],
             activePassId: nil, dense: true, selection: [.others], choices: [:])
         XCTAssertEqual(outcome.scrollTo, .piece(docId: "doc-b"))
         XCTAssertEqual(ResolveFilter.expanded(built, cursor: nil, dense: true, choices: outcome.choices),
@@ -468,7 +468,7 @@ final class ResolvePaneTests: XCTestCase {
         XCTAssertEqual(outcome.selection, [.others], "a focus leaves the filter alone")
 
         let absent = ResolvePane.apply(
-            .focus(groupOwnerId: "doc-z"), groups: built, chips: [.others],
+            .focus(groupOwnerId: "doc-z"), groups: built, sceneIndex: nil, chips: [.others],
             activePassId: nil, dense: true, selection: [.others], choices: [:])
         XCTAssertNil(absent.scrollTo, "a piece with no group here: nothing moves")
         XCTAssertEqual(absent.choices, [:])
@@ -485,16 +485,16 @@ final class ResolvePaneTests: XCTestCase {
         XCTAssertEqual(ResolvePane.focusKey(ownerId: "doc-b", in: built, figureOwners: owners),
                        .figure(id: "fig-aaaa1111"), "the piece's owned figure's group")
         let outcome = ResolvePane.apply(.focus(groupOwnerId: "doc-b"), groups: built,
-                                        chips: [.checks, .others], activePassId: nil, dense: false,
+                                        sceneIndex: nil, chips: [.checks, .others], activePassId: nil, dense: false,
                                         selection: [.checks], choices: [:], figureOwners: owners)
         XCTAssertEqual(outcome.scrollTo, .figure(id: "fig-aaaa1111"))
         XCTAssertEqual(outcome.selection, [], "small: Checks hid the figure's note, so everything shows")
         let dense = ResolvePane.apply(.focus(groupOwnerId: "doc-b"), groups: built,
-                                      chips: [.checks, .others], activePassId: nil, dense: true,
+                                      sceneIndex: nil, chips: [.checks, .others], activePassId: nil, dense: true,
                                       selection: [.checks], choices: [:], figureOwners: owners)
         XCTAssertEqual(dense.selection, [.others], "dense: the group's own source")
         let kept = ResolvePane.apply(.focus(groupOwnerId: "doc-a"), groups: built,
-                                     chips: [.checks, .others], activePassId: nil, dense: false,
+                                     sceneIndex: nil, chips: [.checks, .others], activePassId: nil, dense: false,
                                      selection: [.checks], choices: [:], figureOwners: owners)
         XCTAssertEqual(kept.selection, [.checks], "a group the filter shows: the filter stands")
     }
@@ -510,13 +510,59 @@ final class ResolvePaneTests: XCTestCase {
     func test_aFilterRequestSelectsItsChipOrIsInert() {
         let built = groups([note("n1"), finding("f1")], .piece(docId: "doc-a", includesBookLevel: false))
         let chips: [ResolveSource] = [.checks, .others]
-        let checks = ResolvePane.apply(.filter(.checks), groups: built, chips: chips,
+        let checks = ResolvePane.apply(.filter(.checks), groups: built, sceneIndex: nil, chips: chips,
                                        activePassId: nil, dense: false, selection: [.others], choices: [:])
         XCTAssertEqual(checks.selection, [.checks])
-        let mine = ResolvePane.apply(.filter(.mine), groups: built, chips: chips,
+        let mine = ResolvePane.apply(.filter(.mine), groups: built, sceneIndex: nil, chips: chips,
                                      activePassId: nil, dense: false, selection: [.others], choices: [:])
         XCTAssertEqual(mine.selection, [.others], "no Mine chip: the writer's filter stands")
         XCTAssertNil(mine.scrollTo)
+    }
+
+    // MARK: - A margin mark's click (shell p5 Task 2)
+
+    /// **The event's receiver sets the caret group**: a margin mark's click
+    /// makes its paragraph's group the list's caret group, opens it and
+    /// scrolls there — the editor's caret is not asked. A paragraph the list
+    /// has nothing on changes nothing.
+    func test_aMarginClickMakesItsParagraphsGroupTheCaretGroup() throws {
+        let piece = ResolveScope.piece(docId: "doc-a", includesBookLevel: false)
+        let items = (0..<14).map { note("n\($0)") } + [finding("s1", pid: "bb22")]
+        let built = groups(items, piece)
+        XCTAssertTrue(ResolveFilter.isDense(items), "premise: dense, so nothing is open by default")
+        let paragraph = ResolveGroup.Key.paragraph(docId: "doc-a", paragraphId: "bb22")
+        XCTAssertTrue(built.contains { $0.key == paragraph }, "premise: bb22 has a group")
+
+        let outcome = ResolvePane.apply(
+            .showParagraph(docId: "doc-a", paragraphId: "bb22"), groups: built,
+            sceneIndex: nil, chips: [.checks, .others], activePassId: nil, dense: true,
+            selection: [.checks], choices: [:])
+        XCTAssertEqual(outcome.caret, paragraph, "the paragraph's group is the caret group")
+        XCTAssertEqual(outcome.scrollTo, paragraph)
+        XCTAssertEqual(ResolveFilter.expanded(built, cursor: outcome.caret, dense: true,
+                                              choices: outcome.choices), [paragraph])
+        XCTAssertEqual(outcome.selection, [.checks], "the tick's own filter stands")
+
+        let nothing = ResolvePane.apply(
+            .showParagraph(docId: "doc-a", paragraphId: "zz99"), groups: built,
+            sceneIndex: nil, chips: [.checks, .others], activePassId: nil, dense: true,
+            selection: [.checks], choices: [:])
+        XCTAssertNil(nothing.caret)
+        XCTAssertNil(nothing.scrollTo)
+        XCTAssertEqual(nothing.selection, [.checks])
+    }
+
+    /// The click reveals the column on To resolve holding the request — the
+    /// strain jump's one mechanism.
+    func test_aMarginClickRevealsToResolve() {
+        let request = ResolveRequest.showParagraph(docId: "doc-a", paragraphId: "bb22")
+        XCTAssertEqual(ProjectWindow.strainJump(request),
+                       ProjectWindow.StrainJump(showInspector: true, position: .resolve, request: request))
+        let payload: [AnyHashable: Any] = [MaughamEvent.annotationDocIdKey: "doc-a",
+                                           MaughamEvent.marginParagraphIdKey: "bb22"]
+        let asked = MaughamEvent.paragraphInResolve(of: payload)
+        XCTAssertEqual(asked?.docId, "doc-a")
+        XCTAssertEqual(asked?.paragraphId, "bb22")
     }
 
     // MARK: - A strain mark's jump (shell plan 3 Task 6)
@@ -534,7 +580,7 @@ final class ResolvePaneTests: XCTestCase {
 
         let outcome = ResolvePane.apply(
             .focusFinding(docId: "doc-a", itemId: strain.id), groups: built,
-            chips: [.checks, .others], activePassId: nil, dense: true,
+            sceneIndex: nil, chips: [.checks, .others], activePassId: nil, dense: true,
             selection: [.others], choices: [:])
         XCTAssertEqual(outcome.marked, strain.id, "the row is marked")
         XCTAssertFalse(outcome.settled)
@@ -545,7 +591,7 @@ final class ResolvePaneTests: XCTestCase {
 
         let small = ResolvePane.apply(
             .focusFinding(docId: "doc-a", itemId: strain.id), groups: groups([note("n1"), strain], piece),
-            chips: [.checks, .others], activePassId: nil, dense: false,
+            sceneIndex: nil, chips: [.checks, .others], activePassId: nil, dense: false,
             selection: [.others], choices: [:])
         XCTAssertEqual(small.selection, [], "small: the filter gives way to everything")
         XCTAssertEqual(small.marked, strain.id)
@@ -563,7 +609,7 @@ final class ResolvePaneTests: XCTestCase {
         for itemId in [gone, nil] as [String?] {
             let outcome = ResolvePane.apply(
                 .focusFinding(docId: "doc-b", itemId: itemId), groups: built,
-                chips: [.checks, .others], activePassId: nil, dense: false,
+                sceneIndex: nil, chips: [.checks, .others], activePassId: nil, dense: false,
                 selection: [.others], choices: [:])
             if itemId == nil {
                 // **Review I1.** A strain that never had an item was not
@@ -582,13 +628,13 @@ final class ResolvePaneTests: XCTestCase {
         }
         let noChecks = ResolvePane.apply(
             .focusFinding(docId: "doc-a", itemId: gone), groups: groups([note("a1")], book),
-            chips: [.others], activePassId: nil, dense: false, selection: [.others], choices: [:])
+            sceneIndex: nil, chips: [.others], activePassId: nil, dense: false, selection: [.others], choices: [:])
         XCTAssertEqual(noChecks.selection, [.others], "no Checks chip: the writer's filter stands")
         XCTAssertTrue(noChecks.settled)
         XCTAssertFalse(ResolvePane.settledFindingLine.isEmpty)
         let found = ResolvePane.apply(
             .focusFinding(docId: "doc-b", itemId: finding("other", on: "doc-b", pid: "cc33").id),
-            groups: built, chips: [.checks, .others], activePassId: nil, dense: false,
+            groups: built, sceneIndex: nil, chips: [.checks, .others], activePassId: nil, dense: false,
             selection: [.others], choices: [:])
         XCTAssertNil(found.line, "a listed finding says nothing: its row is marked")
     }

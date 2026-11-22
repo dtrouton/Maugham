@@ -135,3 +135,157 @@ struct EditorControlMirrorModifier: ViewModifier {
             }
     }
 }
+
+// MARK: - View ▸ Margin (shell p5 Task 2)
+
+/// **What the margin's marks are keyed on** — they are built once per
+/// change of this, never per keystroke or per draw (tripwire 4): the open
+/// piece's `annotationsVersion` (which also moves when a seal arriving
+/// changes whose a note is, with no new op), the sidecar's version, the
+/// setting, To resolve's selection, and what hides or yields the marks.
+struct MarginKey: Equatable {
+    let docId: String?
+    let annotationsVersion: Int
+    let diagnosticsVersion: Int
+    let setting: MarginSetting
+    let selection: Set<ResolveSource>
+    let focusMode: Bool
+    let readingTranslation: Bool
+    let reviewRender: Bool
+    let localName: String
+}
+
+/// **The margin's window wiring** (shell p5 Task 2): View ▸ Margin's setting
+/// published to the menu bar and written to `UIState` on its event; the
+/// open piece's marks built into `EditorControl.margin`, one way; a mark's
+/// click answered by To resolve. A modifier for `ProjectWindow.body`'s
+/// type-check ceiling.
+struct MarginMirrorModifier: ViewModifier {
+    let window: NSWindow?
+    let documentStore: DocumentStore?
+    let structure: [StructureItem]
+    let subject: WindowSubject
+    let diagnostics: DiagnosticsStore?
+    /// To resolve's selection as it last published it
+    /// (`ResolvePane.onSelectionShown`); empty is everything.
+    let resolveSelection: Set<ResolveSource>
+    let isNoChromeOn: Bool
+    @Binding var editorControl: EditorControl
+    @Binding var showInspector: Bool
+    @Binding var position: RightColumnPosition
+    @Binding var resolveRequest: ResolveRequest?
+    @Environment(UserPreferences.self) private var userPreferences
+
+    /// The open piece, where the editor holds a manuscript: never a
+    /// reference piece, never the Book or research.
+    private var docId: String? {
+        guard let id = subject.open.itemID, let item = TreeWalk.find(id: id, in: structure),
+              EditorHost.loadsAsAManuscript(item) else { return nil }
+        return id
+    }
+
+    private var setting: MarginSetting { documentStore?.uiState.marginSetting ?? .off }
+
+    private var key: MarginKey {
+        Self.key(document: docId.flatMap { documentStore?.document(forDocId: $0) },
+                 diagnosticsVersion: diagnostics?.version ?? 0, setting: setting,
+                 selection: resolveSelection, focusMode: isNoChromeOn, control: editorControl,
+                 localName: userPreferences.collaboratorDisplayName)
+    }
+
+    /// **The key, from what the window holds** — read in the modifier's body,
+    /// so a move of any part re-runs the build. `annotationsVersion` moves
+    /// with a new note and with a re-read that changed whose a note is.
+    @MainActor
+    static func key(document: Document?, diagnosticsVersion: Int, setting: MarginSetting,
+                    selection: Set<ResolveSource>, focusMode: Bool, control: EditorControl,
+                    localName: String) -> MarginKey {
+        MarginKey(
+            docId: document?.docId, annotationsVersion: document?.annotationsVersion ?? 0,
+            diagnosticsVersion: diagnosticsVersion, setting: setting,
+            selection: selection, focusMode: focusMode,
+            readingTranslation: control.translationLanguage != nil,
+            reviewRender: control.reviewRenders(docId: document?.docId),
+            localName: localName)
+    }
+
+    func body(content: Content) -> some View {
+        content
+            .focusedSceneValue(\.marginSetting, setting)
+            .onKeyWindowCommand(.maughamSetMargin, window: window) { note in
+                guard let chosen = MaughamEvent.marginSetting(of: note.userInfo) else { return }
+                documentStore?.updateUIState { $0.marginSetting = chosen }
+            }
+            .onKeyWindowCommand(.maughamShowParagraphInResolve, window: window) { note in
+                guard let asked = MaughamEvent.paragraphInResolve(of: note.userInfo) else { return }
+                let jump = ProjectWindow.strainJump(
+                    .showParagraph(docId: asked.docId, paragraphId: asked.paragraphId))
+                showInspector = jump.showInspector
+                position = jump.position
+                resolveRequest = jump.request
+            }
+            // The sidecar for the open piece, so its strains can tick with
+            // the right column hidden.
+            .task(id: MarginSidecarKey(docId: docId, flagged: setting == .everythingFlagged)) {
+                guard setting == .everythingFlagged, let docId else { return }
+                diagnostics?.load(docId: docId)
+            }
+            .onChange(of: key, initial: true) { _, key in
+                editorControl.margin = Self.marks(
+                    key: key, document: key.docId.flatMap { documentStore?.document(forDocId: $0) },
+                    diagnostics: diagnostics)
+            }
+    }
+
+    private struct MarginSidecarKey: Equatable {
+        let docId: String?
+        let flagged: Bool
+    }
+
+    /// **The marks for `key`**, from the open piece's own `Document` and the
+    /// sidecar To resolve reads (`DiagnosticsStore.live`) — no walk, no
+    /// second manuscript `Document`.
+    @MainActor
+    static func marks(key: MarginKey, document: Document?,
+                      diagnostics: DiagnosticsStore?) -> MarginMarks {
+        guard let document, key.setting != .off else { return .none }
+        let notes = document.annotations(filter: AnnotationFilter(statuses: [.open]))
+        var items = notes.map { ResolveItem.note(ProjectAnnotation(docId: document.docId, annotation: $0)) }
+        if key.setting == .everythingFlagged, let diagnostics {
+            let paragraphs = document.paragraphs
+            items += diagnostics.live(docId: document.docId) { paragraphs[$0] }
+                .filter { $0.kind == .conformanceStrain }
+                .map { ResolveItem.finding(docId: document.docId, $0) }
+        }
+        return MarginMarks.of(
+            setting: key.setting, notes: notes, owner: document.noteOwner, items: items,
+            selection: key.selection, localName: key.localName, focusMode: key.focusMode,
+            readingTranslation: key.readingTranslation, reviewRenderIsOn: key.reviewRender)
+    }
+}
+
+struct FocusedMarginSettingKey: FocusedValueKey { typealias Value = MarginSetting }
+extension FocusedValues {
+    /// The key window's margin setting, for View ▸ Margin's check marks.
+    var marginSetting: MarginSetting? {
+        get { self[FocusedMarginSettingKey.self] }
+        set { self[FocusedMarginSettingKey.self] = newValue }
+    }
+}
+
+/// **View ▸ Margin ▸ Off / My Notes / Everything Flagged** (shell p5 Task
+/// 2): three checked items, no key, disabled with no project window.
+struct FocusedMarginItems: View {
+    @FocusedValue(\.marginSetting) private var current
+
+    var body: some View {
+        Menu(MarginSetting.menuTitle) {
+            ForEach(MarginSetting.allCases, id: \.self) { setting in
+                Toggle(setting.title, isOn: Binding(
+                    get: { MarginMarks.isChecked(setting, current: current) },
+                    set: { _ in MaughamEvent.postMarginSetting(setting) }))
+            }
+        }
+        .disabled(current == nil)
+    }
+}

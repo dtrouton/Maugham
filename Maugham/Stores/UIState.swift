@@ -41,6 +41,9 @@ public struct UIState: Codable, Equatable, Sendable {
     /// Whether a piece read in a language draws its source under each
     /// paragraph (shell p4 Task 8). Absent decodes as `true`, the default.
     public var showsSourceUnderTranslation: Bool
+    /// View ▸ Margin (shell p5 Task 2): what the margin beside the text
+    /// marks. Absent or unknown decodes as `.off`, the default.
+    public var marginSetting: MarginSetting
     public var isNoChromeOn: Bool
     public var researchPreviewVisible: Bool
     /// The right column's remembered position (shell p3): To resolve, Brief
@@ -214,6 +217,7 @@ public struct UIState: Codable, Equatable, Sendable {
         bookView: BookView = .outline,
         editionView: EditionView = .book,
         showsSourceUnderTranslation: Bool = true,
+        marginSetting: MarginSetting = .off,
         isNoChromeOn: Bool = false,
         researchPreviewVisible: Bool = false,
         rightColumnPosition: RightColumnPosition = .resolve,
@@ -230,6 +234,7 @@ public struct UIState: Codable, Equatable, Sendable {
         self.bookView = bookView
         self.editionView = editionView
         self.showsSourceUnderTranslation = showsSourceUnderTranslation
+        self.marginSetting = marginSetting
         self.isNoChromeOn = isNoChromeOn
         self.researchPreviewVisible = researchPreviewVisible
         self.rightColumnPosition = rightColumnPosition
@@ -246,7 +251,8 @@ public struct UIState: Codable, Equatable, Sendable {
     public static let empty = UIState()
 
     private enum CodingKeys: String, CodingKey {
-        case schemaVersion, windowSubject, bookView, editionView, showsSourceUnderTranslation, selectedItemId, selectedSubjectIsProject,
+        case schemaVersion, windowSubject, bookView, editionView, showsSourceUnderTranslation, marginSetting,
+             selectedItemId, selectedSubjectIsProject,
              selectedResearchItemId, selectedFigureId,
              isNoChromeOn,
              researchPreviewVisible, rightColumnPosition, outlineLayout,
@@ -265,6 +271,7 @@ public struct UIState: Codable, Equatable, Sendable {
         try c.encode(bookView, forKey: .bookView)
         try c.encode(editionView, forKey: .editionView)
         try c.encode(showsSourceUnderTranslation, forKey: .showsSourceUnderTranslation)
+        try c.encode(marginSetting, forKey: .marginSetting)
         try c.encode(isNoChromeOn, forKey: .isNoChromeOn)
         try c.encode(researchPreviewVisible, forKey: .researchPreviewVisible)
         try c.encode(rightColumnPosition, forKey: .rightColumnPosition)
@@ -331,6 +338,7 @@ public struct UIState: Codable, Equatable, Sendable {
         self.editionView = (try? c.decodeIfPresent(EditionView.self, forKey: .editionView)) ?? .book
         self.showsSourceUnderTranslation =
             (try? c.decodeIfPresent(Bool.self, forKey: .showsSourceUnderTranslation)) ?? true
+        self.marginSetting = (try? c.decodeIfPresent(MarginSetting.self, forKey: .marginSetting)) ?? .off
         self.compilerModel =
             (try? c.decode(CompilerModelChoice.self, forKey: .compilerModel)) ?? .standard
         self.activePassMemory =

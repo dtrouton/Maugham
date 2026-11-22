@@ -243,6 +243,37 @@ enum MaughamEvent {
         post(.maughamShowOpenPieceBrief, to: .keyWindow)
     }
 
+    /// Payload keys for `.maughamShowParagraphInResolve`: the piece (beside
+    /// `annotationDocIdKey`'s spelling) and its paragraph.
+    static let marginParagraphIdKey = "paragraph_id"
+    /// Payload key for `.maughamSetMargin`: a `MarginSetting.rawValue`.
+    static let marginSettingKey = "margin_setting"
+
+    /// **A margin mark was clicked** (shell p5 Task 2): the key window's To
+    /// resolve shows `paragraphId`'s group, revealing a hidden right column —
+    /// a click is a deliberate act. The editor receives nothing.
+    static func postShowParagraphInResolve(docId: String, paragraphId: String) {
+        post(.maughamShowParagraphInResolve, to: .keyWindow,
+             payload: [annotationDocIdKey: docId, marginParagraphIdKey: paragraphId])
+    }
+
+    /// What a `.maughamShowParagraphInResolve` asks, or nil.
+    static func paragraphInResolve(of userInfo: [AnyHashable: Any]?) -> (docId: String, paragraphId: String)? {
+        guard let docId = userInfo?[annotationDocIdKey] as? String,
+              let paragraphId = userInfo?[marginParagraphIdKey] as? String else { return nil }
+        return (docId, paragraphId)
+    }
+
+    /// View ▸ Margin's items: the key window's setting.
+    static func postMarginSetting(_ setting: MarginSetting) {
+        post(.maughamSetMargin, to: .keyWindow, payload: [marginSettingKey: setting.rawValue])
+    }
+
+    /// What a `.maughamSetMargin` asks, or nil.
+    static func marginSetting(of userInfo: [AnyHashable: Any]?) -> MarginSetting? {
+        (userInfo?[marginSettingKey] as? String).flatMap(MarginSetting.init(rawValue:))
+    }
+
     /// ⌘⌥K: the To resolve of the edition the window is reading in, else
     /// the Source edition's (shell p4 Task 7) — the faces move to that
     /// edition (`EditionWiring.editionForTheKey`).

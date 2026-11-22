@@ -306,8 +306,7 @@ struct EditorHost: View {
                 // instance, so the first `.onChange` carries it through.
                 .onChange(of: doc.annotationsVersion) { _, _ in
                     control.reviewAnnotations = control.reviewRenders(docId: doc.docId)
-                        ? doc.annotations(filter: AnnotationFilter(statuses: [.open]))
-                        : []
+                        ? Self.reviewRenderSet(doc) : []
                     // While a translation is read, a source-side edit (which
                     // flips paragraphs stale) must re-derive the surface. Note
                     // this fires on annotation-set changes only; a fresh
@@ -349,9 +348,7 @@ struct EditorHost: View {
                     await refreshTranslatedSurface(doc: doc)
                 }
                 .onChange(of: control.reviewRenders(docId: doc.docId)) { _, nowReview in
-                    control.reviewAnnotations = nowReview
-                        ? doc.annotations(filter: AnnotationFilter(statuses: [.open]))
-                        : []
+                    control.reviewAnnotations = nowReview ? Self.reviewRenderSet(doc) : []
                 }
                 // Dedicated one-way recompute: reading a translation
                 // (language becomes non-nil) derives the surface once; exiting
@@ -368,8 +365,7 @@ struct EditorHost: View {
                 }
                 .onAppear {
                     control.reviewAnnotations = control.reviewRenders(docId: doc.docId)
-                        ? doc.annotations(filter: AnnotationFilter(statuses: [.open]))
-                        : []
+                        ? Self.reviewRenderSet(doc) : []
                     // A re-mount while a language is selected must restore the
                     // translated surface.
                     recomputeTranslatedSurface(doc: doc)
@@ -1056,10 +1052,7 @@ struct EditorHost: View {
                 // gating would defeat the purpose (the first toggle's entry
                 // happens while isReviewMode is still flipping). It's never
                 // called during authoring, so no per-keystroke derivation.
-                reviewAnnotationsProvider: {
-                    doc.annotations(
-                        filter: AnnotationFilter(statuses: [.open]))
-                },
+                reviewAnnotationsProvider: { Self.reviewRenderSet(doc) },
                 // Local reviewer name — gates Edit/Delete on margin cards.
                 reviewLocalAuthorName: { userPreferences.collaboratorDisplayName }),
             // Interactive margin-card actions (Part 1). Each is an op-log
@@ -1325,6 +1318,16 @@ struct EditorHost: View {
     /// pure for `EditorHostReloadPredicateTests`.
     static func loadsAsAManuscript(_ item: StructureItem) -> Bool {
         item.type == .document && item.path != nil && item.pieceKind != .reference
+    }
+
+    /// **What the review render draws beside the text** (shell p5 Task 2):
+    /// the open notes a person wrote, through the margin's one predicate
+    /// (`MarginMarks.drawnBesideTheText`). Claude's notes stay in To resolve
+    /// under read-through too — the owner's answer of 2026-11-22 (ADR 0027
+    /// §1, amended). Every push and pull of `reviewAnnotations` reads this.
+    static func reviewRenderSet(_ doc: Document) -> [Annotation] {
+        MarginMarks.drawnBesideTheText(doc.annotations(filter: AnnotationFilter(statuses: [.open])),
+                                       owner: doc.noteOwner)
     }
 
     // MARK: - The decisions' handlers (read-through: typing off, decisions on)

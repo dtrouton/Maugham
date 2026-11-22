@@ -245,7 +245,8 @@ extension ResolvePane {
     /// figures' (the board counts a piece's figure notes on it). When the
     /// selection hides every item of that group, the filter gives way: small,
     /// to everything; dense, to the source of the group's first item.
-    static func apply(_ request: ResolveRequest, groups: [ResolveGroup], chips: [ResolveSource],
+    static func apply(_ request: ResolveRequest, groups: [ResolveGroup],
+                      sceneIndex: [String: Int]?, chips: [ResolveSource],
                       activePassId: String?, dense: Bool, selection: Set<ResolveSource>,
                       choices: [ResolveGroup.Key: Bool],
                       figureOwners: [String: String?] = [:],
@@ -274,7 +275,38 @@ extension ResolvePane {
             return focusFinding(docId: docId, itemId: itemId, groups: groups, chips: chips,
                                 activePassId: activePassId, dense: dense, selection: selection,
                                 choices: choices, figureOwners: figureOwners, localName: localName)
+        case .showParagraph(let docId, let paragraphId):
+            return showParagraph(docId: docId, paragraphId: paragraphId, groups: groups,
+                                 sceneIndex: sceneIndex, chips: chips, dense: dense,
+                                 selection: selection, choices: choices, localName: localName)
         }
+    }
+
+    /// **A margin mark's click** (shell p5 Task 2): the paragraph's group —
+    /// found by the caret's own rule (`ResolveFilter.cursorGroup`), so a
+    /// screenplay's is its scene's — opens, the list scrolls to it, and it
+    /// becomes the caret group until the caret itself moves. A filter that
+    /// hides every item of it gives way as a focus's does. A paragraph the
+    /// list has nothing on changes nothing.
+    static func showParagraph(docId: String, paragraphId: String, groups: [ResolveGroup],
+                              sceneIndex: [String: Int]?, chips: [ResolveSource], dense: Bool,
+                              selection: Set<ResolveSource>, choices: [ResolveGroup.Key: Bool],
+                              localName: String) -> ResolveRequestOutcome {
+        guard let key = ResolveFilter.cursorGroup(paragraphId: paragraphId, docId: docId,
+                                                  sceneIndex: sceneIndex, groups: groups),
+              let group = groups.first(where: { $0.key == key }) else {
+            return ResolveRequestOutcome(selection: selection, choices: choices, scrollTo: nil)
+        }
+        var opened = choices
+        opened[key] = true
+        var shown = selection
+        let standing = ResolveFilter.normalized(selection, chips: chips, dense: dense)
+        if ResolveFilter.visible(group.items, selection: standing, localName: localName).isEmpty {
+            shown = dense
+                ? group.items.first.map { [ResolveFilter.source(of: $0, localName: localName)] } ?? []
+                : []
+        }
+        return ResolveRequestOutcome(selection: shown, choices: opened, scrollTo: key, caret: key)
     }
 
     /// The line a mark's jump says when its finding is no longer listed:

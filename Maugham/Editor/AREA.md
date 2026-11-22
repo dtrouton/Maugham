@@ -13,17 +13,17 @@ Every source file in `Maugham/Editor/` appears once.
 - `EditorCoordinator+FindNavigation.swift` — line, paragraph, annotation and pending-place (`EditorControl.pendingPlace`) navigation, and the selection toolbar's placement.
 - `EditorCoordinator+TabCycle.swift` — screenplay Tab / Shift-Tab element cycling.
 - `EditorCoordinator+Insert.swift` — `applyCommandEdit` (Route A for commands) and the Insert menu's receivers.
-- `FigureVisitUndo.swift` — a folded grid visit as one window step (`undoVisit`/`redoVisit`); removed when the visit wrote nothing or cannot be undone.
+- `FigureVisitUndo.swift` — a folded grid visit as one window step; removed when the visit wrote nothing or cannot be undone.
 - `FigureBirthUndo.swift` — one ⌘Z for a figure line and the figure its command made (`applyCommandEdit`'s `alongside:`): undo sends the figure to the Trash, redo restores the same id, each re-registering the other.
 - `EditorCoordinator+Tables.swift` — pipe tables: Tab and Shift-Tab move by cell, Return adds a row, the table tidies itself, Convert to Table Figure (⌘⌥⇧T, the right-click item, `convertTableToFigure`) makes it a table figure.
 - `EditorCoordinator+Completion.swift` — the completion list's trigger, keys, accept and close paths; `CompletionListView.swift` — the list (a plain `NSView`), `CompletionSource` and the placement maths. Tripwire 5.
 - `ReportInsert.swift` — the pure text Insert Footnote writes, and where a figure line goes (`blockEdit`).
 - `CitationCompletion.swift` — the citation picker, a `CompletionSource` over the index's sources (`[@`, `;`), and the matching rules the pickers share.
 - `CrossReferenceCompletion.swift` — the cross-reference picker over the index's targets (`@` and a letter at a word start).
-- `ReferenceIndex.swift` — the project's citation sources and cross-reference targets with the editor's numbers (and, per document, `NumbersBefore`: the figures and tables numbered before it, which `figureNumbersBefore` hands the caption number): a pure value built over publishing's pieces; `Maugham/Views/ReferenceIndexHost.swift` caches it.
-- `FigureListing.swift` — the book's figure index: each registered figure's number, lines and cross-references, read off the `ReferenceIndex`; the Figures section's rows and the centre grid's number and caption line come from it (`FigureListingModel`, Views), so a figure's number is the editor's, in the book's words. `legacyRows` lists the lines that still point into Research (spec §4.4: tagged "in Research", matched to their item by path for *Move into Figures*), publishable pieces only, as the index reads.
+- `ReferenceIndex.swift` — the project's citation sources and cross-reference targets with the editor's numbers: a pure value built over publishing's pieces; `Maugham/Views/ReferenceIndexHost.swift` caches it.
+- `FigureListing.swift` — the book's figure index: each registered figure's number, lines and cross-references, read off the `ReferenceIndex`; the Figures section's rows and the centre grid's number and caption line come from it (`FigureListingModel`, Views), so a figure's number is the editor's. `legacyRows` lists the lines that still point into Research (spec §4.4: tagged "in Research", matched to their item by path for *Move into Figures*), publishable pieces only, as the index reads.
 - `FigureIngest.swift` + `EditorCoordinator+Figure.swift` — figures a command makes: Insert Figure…, an image drop and an image paste make an image figure in `figures/` (`figureImporter`, `ProjectStore.createImageFigure`), Insert ▸ Table a 3×3 table figure (`tableFigureMaker`, `insertTableFigure`); each writes its line through Route A.
-- `ExistingFigurePicker.swift` — Insert ▸ Existing Figure… (D8b-1): the book's figures from the window's listing and the editor's live text (`existingFigures`, built by `EditorHost`; parked left out, unused first), type-to-filter, in a sheet on the editor's window (never an `NSPopover`). An unused figure's line, labelled with the record's name, is placed at the caret (`placeExistingFigure`); a placed one is never placed twice: a cross-reference to its line's label goes in (`referToExistingFigure`), and one whose line has no label is offered disabled. Each is one Route A step, one ⌘Z.
+- `ExistingFigurePicker.swift` — Insert ▸ Existing Figure…: the book's figures from the window's listing and the editor's live text (`existingFigures`, built by `EditorHost`; parked left out, unused first), in a sheet on the editor's window (never an `NSPopover`). An unused figure's line, labelled with the record's name, is placed at the caret (`placeExistingFigure`); a placed one is never placed twice: a cross-reference to its line's label goes in (`referToExistingFigure`), and one whose line has no label is offered disabled. Each is one Route A step, one ⌘Z.
 - `FigureThumbnailOverlay.swift` — the thumbnail drawn under each figure line of a manuscript: the layout maths, the decoded-thumbnail store and cache, and the click-through overlay (which draws table cards too). Tripwires 1, 4.
 - `FigureCardDrawing.swift` — the read-only card under a table figure's line: a pure drawing plan and its painting. Tripwires 1, 4.
 - `FigureGridValues.swift` — the in-place grid's computed values and cached display strings: the book assembled at expand and on a `figureCardVersion` edge only, a host state change laid over it incrementally, answering which cells to repaint.
@@ -49,7 +49,7 @@ Every source file in `Maugham/Editor/` appears once.
 - `EditorCoordinator+TranslationBadges.swift` — the translation-review badge overlay and the dimming of missing translations.
 - `EditorControl.swift` — the `@Observable` control-plane model (posture, appearance, review annotations, translation language and badges); never text (ADR 0017).
 - `EditorEditPolicy.swift` — the pure membrane decisions: `allowsTextMutation(isReviewMode:lockEditing:isReadingTranslation:isInReadThrough:)` and `allowsCheckboxToggle`.
-- `CoordinatorLeakProbe.swift` — a dev-build weak registry of every coordinator, to check by hand that a closed window's coordinator is released.
+- `CoordinatorLeakProbe.swift` — a dev-build weak registry of coordinators, to check by hand that closed windows release them.
 
 ### Modes, tokens and styling
 - `WritingMode.swift` — the `WritingMode` protocol (tokenize, `applyTypography` with a restyle window, `defersRestyleWhileTyping`) and `EditorMetrics`.
@@ -72,14 +72,16 @@ Every source file in `Maugham/Editor/` appears once.
 ### Review and translation surfaces
 - `ReviewPalette.swift` — pure colour policy: Claude a fixed terracotta, humans a stable hash into a capped muted set.
 - `ReviewRenderViews.swift` — `ResolvedReviewMark`, `AnnotationMarkRenderer` (inline pencil marks) and `ReviewMarginRailView` (margin cards and leaders). Tripwire 4.
-- `ReviewSpanCapture.swift` — turns a selection into a paragraph-relative span and back (`graphemeRangeToUTF16`).
-- `ReviewCardActions.swift` — which actions a margin card offers per annotation kind and posture.
+- `ReviewSpanCapture.swift` — turns a selection into a paragraph-relative span and back.
+- `ReviewCardActions.swift` — which actions a margin card offers per kind and posture.
+- `MarginMarks.swift` — View ▸ Margin's marks, pure: a person's note (`NoteOwner.isAPersons`) a dot, a check's or round's paragraph a tick.
+- `MarginOverlayView.swift` — their overlay in the trailing inset: places shifted per edit, visible range only, no text drawn; a click shows To resolve.
 - `ReviewAnnotationComposerView.swift` — the inline annotation composer, a plain `NSView`. Tripwire 5.
 - `SelectionToolbarView.swift` — the floating selection toolbar (Comment, Suggest, Query, Translator's note), a plain `NSView`. Tripwire 5.
 - `SuggestedEditDiff.swift` — a reviewer's replacement → the `(body, suggestedText)` pair.
 - `TranslationBadgeLayout.swift` — the translated surface's pure geometry: badges, source lines, a caret's paragraph.
-- `TranslationBadgeOverlayView.swift` — the badge overlay in the left inset (amber filled = stale, grey hollow = missing).
-- `ImagePasteHandler.swift` — saves a pasted image beside the note it belongs to and returns the Markdown reference.
+- `TranslationBadgeOverlayView.swift` — the badge overlay in the left inset.
+- `ImagePasteHandler.swift` — saves a pasted image beside its note and returns the Markdown reference.
 
 ### Outside the folder
 - `Maugham/Views/EditorHost.swift` — binds the per-document `Document` to `EditorSurface`; the binding contract lives here. Tripwires 2, 3, 6, 7.
@@ -183,6 +185,7 @@ A statement pane or a pulled-up research note holds a second `EditorSurface` whi
 - **No `NSPopover` for in-editor UI or autocomplete** (tripwire 5 censuses autocomplete: `TripwireGrepTests.test_noPopoverInEditorAutocomplete`): sizing is unreliable, it blocks input and it fights text-view focus. Use inline ghost text, a sheet, a plain `NSView` overlay or a pane.
 - **The completion list is the one in-editor picker** (`CompletionListView`, above every overlay). Its keys come first in `doCommandBy`, before the table arms, only while it is open; `complete:` is swallowed in prose. It opens only on a typed character (recorded in `shouldChangeTextIn`: one character, never in `applyCommandEdit`, a paste or drop, an undo or a composition) on a manuscript surface outside code, closed or still being typed, accepts through `applyCommandEdit`, and closes on scroll, resize, focus loss, the caret leaving the trigger, `applyExternalText`, a refusing membrane, Esc and detach (`CompletionListTests`). A new picker is a `CompletionSource`, never a second list.
 - **Overlays and gutters draw only the visible range, from cached data** (tripwire 4). The coordinator resolves each `Annotation` to UTF-16 (`ResolvedReviewMark`) in `recomputeReviewMarks()` on an annotation-set change (pushed one-way from `EditorHost` off `Document.annotationsVersion`) or a text change, never per draw. Overlays self-observe scroll and text through `NotificationCenter` and are re-framed from `MaughamTextView.updateColumnInset`; the review overlays show only when `coordinator.isReviewMode`.
+- **Nothing a model wrote is drawn beside the text** (ADR 0027 §1, amended): the margin draws positions; the review render, a person's notes (`EditorHost.reviewRenderSet`; `MarginOverlayCensusTests`).
 - **A figure's thumbnail is a decoration, never an attachment** (tripwires 1, 26). Its room is the figure line's `paragraphSpacing` (`ProseMode.reservesFigureThumbnails`, set only by `EditorHost` with the resolver), put on the whole line by both paints through one function of the written path and line start, `figureRoom(forLinePath:at:)` (`WindowedTypographyEquivalenceTests`): a table figure's card height from the window's `FigureCardCache` (`FigureCardMetrics.room`, the one place card metrics come from typography), today's fixed height for an image, a labelled card or a cache miss. It reads memory only, never the disk or the op log; a fill lands as `EditorControl.figureCardVersion`. A figure on the last line gets its room from `MaughamTextView`'s height instead.
 - **Nothing here makes a figure card a character**: `TripwireGrepTests.test_theEditorsFigureCardsAreDecorationsNeverAttachments` keeps `NSTextAttachment` and `U+FFFC` out of this folder and adds to `paragraphSpacing` only in `ProseMode.figureLineStyle`.
 - **A card version re-lays out only the figure lines whose room moved** (`refreshFigureRooms`: one `addAttribute` of `.paragraphStyle` per line), after the settle paint when a burst is in flight (`FigureRoomRefreshTests`).

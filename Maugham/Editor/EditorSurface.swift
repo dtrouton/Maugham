@@ -1235,6 +1235,9 @@ final class MaughamTextView: NSTextView {
         // left inset) on resize too (Task 12).
         coordinator?.layoutTranslationBadgeOverlay(in: self)
         coordinator?.translationBadgeOverlay?.needsDisplay = true
+        // And the margin's marks (covers the view; marks in the right inset).
+        coordinator?.layoutMarginOverlay(in: self)
+        coordinator?.marginOverlay?.needsDisplay = true
 
         // Re-frame the figure-thumbnail overlay (covers the view) too.
         coordinator?.layoutFigureThumbnailOverlay(in: self)

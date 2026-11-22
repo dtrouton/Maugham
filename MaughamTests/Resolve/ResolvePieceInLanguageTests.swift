@@ -180,11 +180,11 @@ final class ResolvePieceInLanguageTests: XCTestCase {
              .translationChange(docId: "doc-a", language: "sr", round: 1, departure("d"))],
             passes: [], localName: "Denver")
         XCTAssertEqual(chips, [.questions, .changes])
-        let questions = ResolvePane.apply(.filter(.questions), groups: [], chips: chips, activePassId: nil,
+        let questions = ResolvePane.apply(.filter(.questions), groups: [], sceneIndex: nil, chips: chips, activePassId: nil,
                                           dense: false, selection: [.changes], choices: [:])
         XCTAssertEqual(questions.selection, [.questions])
         for key in [ResolveKeyFilter.rounds, .checks, .mine] {
-            let outcome = ResolvePane.apply(.filter(key), groups: [], chips: chips, activePassId: nil,
+            let outcome = ResolvePane.apply(.filter(key), groups: [], sceneIndex: nil, chips: chips, activePassId: nil,
                                             dense: false, selection: [.changes], choices: [:])
             XCTAssertEqual(outcome.selection, [.changes], "\(key) leaves the filter as it was")
         }

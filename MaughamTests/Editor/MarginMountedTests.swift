@@ -1,0 +1,366 @@
+import XCTest
+import AppKit
+@testable import Maugham
+@testable import MaughamCore
+
+/// **View ▸ Margin, mounted** (shell p5 Task 2): the marks drawn on a real
+/// `MaughamTextView` in a `TestWindow`, read synchronously — where they sit,
+/// that they never move the manuscript's layout, that a click moves nothing
+/// in the editor — and, over a real `Document`, what the window builds and
+/// what the review render draws in read-through.
+@MainActor
+final class MarginMountedTests: XCTestCase {
+    override class func setUp() { super.setUp(); FontWarmup.ensure() }
+
+    // MARK: - The surface
+
+    private static let paragraphs = [
+        "The first paragraph runs long enough to wrap across more than one line of the column, so its layout has something to lose.",
+        "The second paragraph is where the check flagged a sentence.",
+        "The third paragraph is the writer's.",
+    ]
+    private static let ids = ["aa11", "bb22", "cc33"]
+    private static var text: String { paragraphs.joined(separator: "\n\n") }
+
+    private struct Surface {
+        let harness: EditorIntegrationHarness
+        let textView: MaughamTextView
+        let control: EditorControl
+        var coordinator: EditorCoordinator { harness.coordinator }
+    }
+
+    /// The coordinator on a `MaughamTextView` with a column, as
+    /// `EditorSurface.makeNSView` attaches it; the paragraph providers as
+    /// `EditorHost` wires them (here over the plain text); the control
+    /// applied as `applyControl` applies it.
+    private func surface(width: CGFloat = 700, column: CGFloat = 420) -> Surface {
+        let harness = EditorIntegrationHarness(mode: ProseMode(), initialText: Self.text, cursorLocation: 0)
+        let tv = MaughamTextView(frame: NSRect(x: 0, y: 0, width: width, height: 600))
+        _ = tv.layoutManager
+        let sv = NSScrollView(frame: NSRect(x: 0, y: 0, width: width, height: 600))
+        sv.documentView = tv
+        let window = TestWindow.make(contentRect: NSRect(x: 0, y: 0, width: width, height: 600),
+                                     contentView: sv, present: .unshown)
+        addTeardownBlock { @MainActor in window.close() }
+        tv.string = Self.text
+        tv.delegate = harness.coordinator
+        tv.coordinator = harness.coordinator
+        let c = harness.coordinator
+        c.documentId = "doc-a"
+        c.reviewParagraphRangeProvider = { pid in Self.range(of: pid) }
+        c.reviewParagraphTextProvider = { pid in Self.ids.firstIndex(of: pid).map { Self.paragraphs[$0] } }
+        c.attach(to: tv)
+        tv.columnWidth = column
+        tv.layoutManager?.ensureLayout(for: tv.textContainer!)
+        let control = EditorControl()
+        return Surface(harness: harness, textView: tv, control: control)
+    }
+
+    private static func range(of pid: String) -> NSRange? {
+        guard let index = ids.firstIndex(of: pid) else { return nil }
+        let location = paragraphs[..<index].reduce(0) { $0 + ($1 as NSString).length + 2 }
+        return NSRange(location: location, length: (paragraphs[index] as NSString).length)
+    }
+
+    private func apply(_ marks: MarginMarks, to s: Surface) {
+        s.control.margin = marks
+        s.coordinator.applyControl(s.control)
+        s.textView.layoutManager?.ensureLayout(for: s.textView.textContainer!)
+    }
+
+    /// The manuscript's layout: the column's width and every line's rect.
+    private func layout(_ tv: NSTextView) -> [NSRect] {
+        guard let lm = tv.layoutManager, let container = tv.textContainer else { return [] }
+        lm.ensureLayout(for: container)
+        var rects: [NSRect] = [NSRect(x: 0, y: 0, width: container.size.width, height: tv.textContainerInset.width)]
+        var glyph = 0
+        while glyph < lm.numberOfGlyphs {
+            var range = NSRange()
+            rects.append(lm.lineFragmentRect(forGlyphAt: glyph, effectiveRange: &range))
+            glyph = NSMaxRange(range)
+        }
+        return rects
+    }
+
+    private func firstLineRect(of pid: String, in tv: NSTextView) throws -> NSRect {
+        let lm = try XCTUnwrap(tv.layoutManager)
+        let location = try XCTUnwrap(Self.range(of: pid)).location
+        var line = lm.lineFragmentRect(forGlyphAt: lm.glyphIndexForCharacter(at: location), effectiveRange: nil)
+        line.origin.y += tv.textContainerOrigin.y
+        return line
+    }
+
+    // MARK: - Where the marks sit, and that they move no text
+
+    /// Everything Flagged with a finding on paragraph 2: one tick, beside
+    /// paragraph 2's first line, past the column — and the manuscript's
+    /// layout is the same with the margin on, and off again.
+    func test_aFindingsTickSitsBesideItsParagraphAndReflowsNothing() throws {
+        let s = surface()
+        let before = layout(s.textView)
+        XCTAssertGreaterThan(before.count, 4, "premise: the first paragraph wraps")
+        XCTAssertNil(s.coordinator.marginOverlay, "Off: no overlay at all, today's editor")
+
+        apply(MarginMarks(dots: [], ticks: ["bb22"]), to: s)
+        let overlay = try XCTUnwrap(s.coordinator.marginOverlay)
+        XCTAssertTrue(overlay.superview === s.textView)
+        XCTAssertFalse(overlay.isHidden)
+        let marks = overlay.visibleMarks()
+        XCTAssertEqual(marks.map(\.place.mark), [.tick], "one tick")
+        XCTAssertEqual(marks.first?.place.paragraphId, "bb22")
+        let line = try firstLineRect(of: "bb22", in: s.textView)
+        let tick = try XCTUnwrap(marks.first?.rect)
+        XCTAssertTrue(tick.minY >= line.minY && tick.maxY <= line.maxY, "on paragraph 2's first line: \(tick) in \(line)")
+        let columnEdge = s.textView.textContainerOrigin.x + s.textView.textContainer!.size.width
+        XCTAssertGreaterThanOrEqual(tick.minX, columnEdge, "in the trailing margin, never over the text")
+        XCTAssertLessThanOrEqual(tick.maxX, s.textView.bounds.width)
+        XCTAssertEqual(layout(s.textView), before, "the margin draws in space that exists")
+
+        apply(.none, to: s)
+        XCTAssertTrue(overlay.isHidden, "Off again: nothing drawn")
+        XCTAssertEqual(overlay.visibleMarks(), [])
+        XCTAssertEqual(layout(s.textView), before)
+    }
+
+    /// A person's dot sits outside the tick; its tint covers its words.
+    func test_aDotSitsBesideItsWordsWithATint() throws {
+        let s = surface()
+        let before = layout(s.textView)
+        // "third" in "The third paragraph…": graphemes 4..<9.
+        apply(MarginMarks(dots: [.init(paragraphId: "cc33", span: 4..<9, annotationId: "n1", name: "Denver")],
+                          ticks: ["cc33"]), to: s)
+        let marks = try XCTUnwrap(s.coordinator.marginOverlay).visibleMarks()
+        XCTAssertEqual(marks.map(\.place.mark), [.tick, .dot(annotationId: "n1", name: "Denver")])
+        let dot = try XCTUnwrap(marks.last)
+        XCTAssertEqual(dot.place.tint, NSRange(location: try XCTUnwrap(Self.range(of: "cc33")).location + 4, length: 5))
+        XCTAssertFalse(dot.tintRects.isEmpty, "the words are tinted")
+        XCTAssertGreaterThan(dot.rect.minX, marks[0].rect.maxX, "the dot clears the tick")
+        XCTAssertEqual(layout(s.textView), before)
+    }
+
+    /// The window's floor: the narrowest trailing inset is the column's
+    /// 16 pt minimum gutter, and both marks fit inside it.
+    func test_theMarksFitTheNarrowestMargin() throws {
+        let s = surface(width: 360, column: 700)
+        XCTAssertEqual(s.textView.textContainerInset.width, 16, accuracy: 0.5, "premise: the floor gutter")
+        apply(MarginMarks(dots: [.init(paragraphId: "bb22", span: nil, annotationId: "n1", name: "Ada")],
+                          ticks: ["bb22"]), to: s)
+        let columnEdge = s.textView.textContainerOrigin.x + s.textView.textContainer!.size.width
+        for mark in try XCTUnwrap(s.coordinator.marginOverlay).visibleMarks() {
+            XCTAssertGreaterThanOrEqual(mark.rect.minX, columnEdge, "\(mark.place.mark)")
+            XCTAssertLessThanOrEqual(mark.rect.maxX, s.textView.bounds.width, "\(mark.place.mark)")
+        }
+    }
+
+    /// Typing before a mark carries it with its paragraph; no document read.
+    func test_anEditMovesTheMarksWithTheirParagraph() throws {
+        let s = surface()
+        apply(MarginMarks(dots: [], ticks: ["cc33"]), to: s)
+        let anchor = try XCTUnwrap(s.coordinator.marginPlaces.first).anchor
+        s.textView.textStorage?.replaceCharacters(in: NSRange(location: 0, length: 0), with: "New. ")
+        XCTAssertEqual(s.coordinator.marginPlaces.first?.anchor, anchor + 5)
+        XCTAssertEqual(MarginPlace.shifted(10, editedRange: NSRange(location: 2, length: 0), delta: -3), 7)
+        XCTAssertEqual(MarginPlace.shifted(3, editedRange: NSRange(location: 2, length: 0), delta: -3), 2,
+                       "a mark inside deleted text collapses to the edit")
+    }
+
+    // MARK: - The click
+
+    /// A mark's click — the button VoiceOver presses, the overlay's mouse
+    /// path's one act — posts To resolve's event for its paragraph; the
+    /// caret and the scroll do not move, and the text view never sees the
+    /// click (the overlay takes it over a mark, and only there).
+    func test_aClickOnAMarkShowsItsParagraphAndMovesNothing() throws {
+        let s = surface()
+        apply(MarginMarks(dots: [.init(paragraphId: "cc33", span: nil, annotationId: "n1", name: "Denver")],
+                          ticks: ["bb22"]), to: s)
+        s.textView.setSelectedRange(NSRange(location: 3, length: 0))
+        let origin = s.textView.enclosingScrollView?.contentView.bounds.origin
+        let overlay = try XCTUnwrap(s.coordinator.marginOverlay)
+        let marks = overlay.visibleMarks()
+
+        let tick = try XCTUnwrap(marks.first { $0.place.mark == .tick })
+        let atTick = overlay.convert(NSPoint(x: tick.rect.midX, y: tick.rect.midY), to: s.textView)
+        XCTAssertTrue(overlay.hitTest(atTick) === overlay, "the overlay takes a click on a mark")
+        let line = try firstLineRect(of: "bb22", in: s.textView)
+        XCTAssertNil(overlay.hitTest(NSPoint(x: s.textView.textContainerOrigin.x + 20, y: line.midY)),
+                     "the text keeps every other click")
+
+        var heard: [(String, String)] = []
+        let token = NotificationCenter.default.addObserver(  // adr-0021-ok: a test observing the post, not a production receiver
+            forName: .maughamShowParagraphInResolve, object: nil, queue: nil) { note in
+                if let asked = MaughamEvent.paragraphInResolve(of: note.userInfo) {
+                    heard.append((asked.docId, asked.paragraphId))
+                }
+            }
+        defer { NotificationCenter.default.removeObserver(token) }
+        let elements = try XCTUnwrap(overlay.accessibilityChildren() as? [MarginMarkElement])
+        XCTAssertEqual(elements.map { $0.accessibilityLabel() }, ["Flagged paragraph", "Note by Denver"],
+                       "VoiceOver reads what each marks")
+        XCTAssertEqual(elements.map { $0.accessibilityRole() }, [.button, .button])
+        XCTAssertTrue(elements[0].accessibilityPerformPress())
+        XCTAssertEqual(heard.map(\.0), ["doc-a"])
+        XCTAssertEqual(heard.map(\.1), ["bb22"])
+        XCTAssertEqual(s.textView.selectedRange(), NSRange(location: 3, length: 0), "the caret did not move")
+        XCTAssertEqual(s.textView.enclosingScrollView?.contentView.bounds.origin, origin, "nor the scroll")
+    }
+
+    // MARK: - Over a real Document
+
+    private var projectURL: URL!
+
+    private func useIdentities() {
+        projectURL = TestTemp.root.appendingPathComponent("margin-\(UUID().uuidString)")
+        try? FileManager.default.createDirectory(at: projectURL.appendingPathComponent("manuscript"),
+                                                 withIntermediateDirectories: true)
+        let identities = LocalIdentities.softwareForTesting()
+        Document.localIdentitiesForTesting = identities
+        Document.deviceStateForTesting = OpLogDeviceState(
+            fileURL: projectURL.appendingPathComponent("op-log-state.json"))
+        Document.registryCacheForTesting = RegistryCache(
+            fileURL: projectURL.appendingPathComponent("registry-cache.json"),
+            identity: identities.author.fingerprint)
+        Document.admissionMemoryForTesting = AdmissionMemory(
+            fileURL: projectURL.appendingPathComponent("admission-memory.json"),
+            identity: identities.author.fingerprint)
+        addTeardownBlock { @MainActor in
+            Document.localIdentitiesForTesting = nil
+            Document.deviceStateForTesting = nil
+            Document.registryCacheForTesting = nil
+            Document.admissionMemoryForTesting = nil
+        }
+    }
+
+    private static let docId = "doc-margin"
+    private static let docPath = "manuscript/c1.md"
+
+    private func makeBook() throws {
+        try "First paragraph.\n\nSecond paragraph.\n".write(
+            to: projectURL.appendingPathComponent(Self.docPath), atomically: true, encoding: .utf8)
+        let manifest = ProjectManifest(
+            type: .novel, title: "T", author: "A", created: Date(), modified: Date(),
+            structure: [StructureItem(id: Self.docId, title: "C1", type: .document, path: Self.docPath)],
+            research: [])
+        let enc = JSONEncoder()
+        enc.dateEncodingStrategy = .iso8601
+        try enc.encode(manifest).write(to: projectURL.appendingPathComponent(ProjectManifest.fileName))
+    }
+
+    private func load() async throws -> Document {
+        try await Document.load(url: projectURL.appendingPathComponent(Self.docPath), actor: .author,
+                                session: "s", presenter: nil,
+                                burstIdle: .seconds(3600), burstMax: .seconds(3600))
+    }
+
+    /// The key as the window reads it (`MarginMirrorModifier.key`).
+    private func key(_ doc: Document, _ setting: MarginSetting) -> MarginKey {
+        MarginMirrorModifier.key(document: doc, diagnosticsVersion: 0, setting: setting, selection: [],
+                                 focusMode: false, control: EditorControl(), localName: "Denver")
+    }
+
+    /// **The window's build over a real `Document`**: the writer's note is
+    /// a dot, Claude's — through the writer's own Document, so the
+    /// assistant's stream and key — is not.
+    func test_theWindowBuildsADotForThePersonAndNotForClaude() async throws {
+        useIdentities()
+        try makeBook()
+        let doc = try await load()
+        let first = try XCTUnwrap(doc.sequence.first), second = try XCTUnwrap(doc.sequence.last)
+        let mine = try await doc.addReviewerAnnotation(kind: .comment, paragraphId: first, span: nil,
+                                                       body: "tighten", authorName: "Denver")
+        let claudes = try await doc.addAnnotation(
+            kind: .comment, paragraphId: second, body: "consider",
+            author: AnnotationAuthor(sourceKind: .claude, displayName: "Claude"))
+
+        let myNotes = MarginMirrorModifier.marks(key: key(doc, .myNotes), document: doc, diagnostics: nil)
+        XCTAssertEqual(myNotes.dots.map(\.annotationId), [mine])
+        XCTAssertFalse(myNotes.dots.contains { $0.annotationId == claudes })
+        XCTAssertEqual(MarginMirrorModifier.marks(key: key(doc, .off), document: doc, diagnostics: nil), .none)
+        await doc.close()
+    }
+
+    /// **A seal arriving with no new op changes whose a note is**, and the
+    /// marks follow without a reload: their key moves (`annotationsVersion`,
+    /// bumped by the re-read) and the rebuilt marks carry the dot.
+    func test_aSealArrivingDrawsTheDotWithoutAReload() async throws {
+        useIdentities()
+        try makeBook()
+        let store = try await DocumentStore.open(url: projectURL)
+        let bootstrapped = try await load()
+        await bootstrapped.close()
+        let other = LocalIdentities.softwareForTesting()
+        _ = try await store.admit(device: other.author.fingerprint, label: "Ada", ownName: "Ada’s Mac",
+                                  permit: .author(.book))
+        await store.postureSettled()
+        let theirs = OpLogStore(
+            projectURL: projectURL, identities: other,
+            state: OpLogDeviceState(fileURL: projectURL.appendingPathComponent("other-state.json")))
+        let doc0 = try await load()
+        let pid = try XCTUnwrap(doc0.sequence.first)
+        let prior = try XCTUnwrap(doc0.paragraphs[pid])
+        await doc0.close()
+        // Ada's note on the first paragraph, stamped as Claude's: unsealed,
+        // the stamp is all there is.
+        let noteId = ULID.generate()
+        try await theirs.append(Op(
+            opId: noteId, docId: Self.docId, at: Date(), device: other.author.deviceId, session: "x",
+            kind: .claudeComment, changes: [.init(paragraphId: pid, prior: prior, next: "")],
+            provenance: .init(annotationBody: "a note of Ada’s",
+                              authorSourceKind: AnnotationAuthor.SourceKind.claude.rawValue,
+                              authorDisplayName: "Ada")))
+
+        let doc = try await load()
+        let before = key(doc, .myNotes)
+        XCTAssertEqual(MarginMirrorModifier.marks(key: before, document: doc, diagnostics: nil).dots, [],
+                       "premise: no seal, a machine stamp — no dot")
+
+        _ = try await theirs.sealChain(docId: Self.docId)
+        try await doc.handleExternalLogChange()
+        let after = key(doc, .myNotes)
+        XCTAssertNotEqual(after, before, "the key moved with no new op")
+        XCTAssertEqual(MarginMirrorModifier.marks(key: after, document: doc, diagnostics: nil).dots.map(\.annotationId),
+                       [noteId], "her seal says a person wrote it: a dot")
+        await doc.close()
+    }
+
+    /// **Read-through draws a person's notes beside the text and not
+    /// Claude's** (the owner's answer to Question 2): the review render's set
+    /// holds the writer's note and not the assistant's; the coordinator
+    /// draws a card for hers alone; Claude's is still in To resolve.
+    func test_readThroughDrawsAPersonsCardAndNotClaudes() async throws {
+        useIdentities()
+        try makeBook()
+        let store = try await DocumentStore.open(url: projectURL)
+        let doc = try await load()
+        let first = try XCTUnwrap(doc.sequence.first), second = try XCTUnwrap(doc.sequence.last)
+        let mine = try await doc.addReviewerAnnotation(kind: .comment, paragraphId: first, span: nil,
+                                                       body: "tighten", authorName: "Denver")
+        let claudes = try await doc.addAnnotation(
+            kind: .comment, paragraphId: second, body: "consider",
+            author: AnnotationAuthor(sourceKind: .claude, displayName: "Claude"))
+
+        let control = EditorControl()
+        control.readThroughDocIds = [Self.docId]
+        XCTAssertTrue(control.reviewRenders(docId: Self.docId), "premise: read-through draws the review render")
+        let drawn = EditorHost.reviewRenderSet(doc)
+        XCTAssertEqual(drawn.map(\.id), [mine], "a person's note, and not Claude's")
+
+        let harness = EditorIntegrationHarness(mode: ProseMode(), initialText: doc.displayText, cursorLocation: 0)
+        let c = harness.coordinator
+        c.reviewParagraphRangeProvider = { doc.displayRange(forParagraphId: $0) }
+        c.reviewParagraphTextProvider = { doc.paragraph(id: $0) }
+        c.setReviewMode(true)
+        control.reviewAnnotations = drawn
+        c.applyControl(control)
+        XCTAssertEqual(c.resolvedReviewMarks.map(\.id), [mine], "one card, hers")
+
+        await doc.close()
+        let projectStore = try await ProjectStore.load(from: projectURL)
+        projectStore.documentStore = store
+        store.projectStore = projectStore
+        let read = ResolveReader.read(scope: .piece(docId: Self.docId, includesBookLevel: false),
+                                      store: projectStore, documentStore: store, diagnostics: nil)
+        XCTAssertTrue(read.items.contains { $0.id == "note:\(Self.docId)/\(claudes)" },
+                      "Claude's note is still in To resolve")
+    }
+}
