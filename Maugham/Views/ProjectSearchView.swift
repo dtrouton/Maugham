@@ -296,10 +296,10 @@ struct ProjectSearchView: View {
         return ReplaceGate(
             store.currentSearch,
             posture: { documentStore?.posture(forPath: $0) },
-            inReadThrough: { path, source in
+            inReadThrough: { [gate = store.readThroughGate()] path, source in
                 switch source {
                 case .manuscript: return store.pieceInReadThrough(atPath: path) != nil
-                case .research: return store.researchIsInReadThrough(atPath: path)
+                case .research: return store.researchReadThroughRefusal(atPath: path, gate: gate) != nil
                 }
             })
     }

@@ -83,7 +83,7 @@ struct ReadThroughLine: View {
                     .buttonStyle(.link)
                     .font(.callout)
                     .fixedSize()
-                    .help("Turn typing back on (\u{2325}\u{21e7}\u{2318}R)")
+                    .help("Turn typing back on (\u{2318}\u{2325}\u{21E7}R)")
             }
         }
         .padding(.horizontal, 16)

@@ -237,7 +237,7 @@ extension ProjectStore {
             // A note in the folder of a piece in read-through takes no
             // Replace, as the piece itself takes none — and the refusal names
             // the piece, which is what the writer can resume.
-            if let refusal = researchReadThroughRefusal(atPath: match.documentPath) {
+            if let refusal = researchReadThroughRefusal(atPath: match.documentPath, gate: readThroughGate()) {
                 throw ProjectStoreError.inReadThrough(title: refusal.title)
             }
             // A path that escapes the project is refused as unsafe first (tripwire 58).
@@ -480,6 +480,8 @@ extension ProjectStore {
         var leftAlone: [String] = []
         var beingPromoted: [String] = []
         var reading: [String] = []
+        // One gate for the whole replace, never one per path.
+        let readThrough = readThroughGate()
         // Once for the whole replace: the editor's queued note edits land
         // before any research file below is read.
         if results.matches.contains(where: { $0.documentSource == .research }) {
@@ -511,7 +513,7 @@ extension ProjectStore {
 
             case .research:
                 // In the folder of a piece in read-through: skipped, and named.
-                if let refusal = researchReadThroughRefusal(atPath: path) {
+                if let refusal = researchReadThroughRefusal(atPath: path, gate: readThrough) {
                     reading.append("\(matches[0].documentTitle) (in \(refusal.named))")
                     continue
                 }
@@ -538,24 +540,30 @@ extension ProjectStore {
                                  inReadThrough: reading)
     }
 
-    /// **Which piece in read-through on this Mac a research file belongs
-    /// to**, named — asked of the gate's own research rule
-    /// (`ReadThroughGate.refusal`: the manifest item's root, or the file's
-    /// path for a file with no item). Shared research belongs to no piece.
-    func researchReadThroughRefusal(atPath path: String) -> ReadThroughRefusal? {
+    /// **The store's read-through gate**: the pieces in read-through on this
+    /// Mac over the book as it stands (no figure lines — the store holds no
+    /// listing). Built once per search (`replaceAll`, a single Replace, the
+    /// view's `ReplaceGate`) and per store-side writer that asks it
+    /// (`retargetFigureLine`); `.writing`, walking nothing, while no piece is
+    /// in read-through.
+    func readThroughGate() -> ReadThroughGate {
         let pieces = readThroughPieceIds()
-        guard !pieces.isEmpty else { return nil }
-        let gate = ReadThroughGate(pieces: pieces, structure: manifest.structure,
-                                   research: manifest.research, figures: [], figureLines: [])
+        guard !pieces.isEmpty else { return .writing }
+        return ReadThroughGate(pieces: pieces, structure: manifest.structure,
+                               research: manifest.research, figures: manifest.figures ?? [],
+                               figureLines: [])
+    }
+
+    /// **Which piece in read-through a research file belongs to**, named —
+    /// asked of `gate`'s own research rule (`ReadThroughGate.refusal`: the
+    /// manifest item's root, or the file's path for a file with no item).
+    /// Shared research belongs to no piece.
+    func researchReadThroughRefusal(atPath path: String, gate: ReadThroughGate) -> ReadThroughRefusal? {
+        guard !gate.pieces.isEmpty else { return nil }
         if let item = TreeWalk.first(in: manifest.research, where: { $0.path == path }) {
             return gate.refusal(.research(item.id))
         }
         return gate.refusal(researchPath: path)
-    }
-
-    /// Whether a research file belongs to a piece in read-through.
-    func researchIsInReadThrough(atPath path: String) -> Bool {
-        researchReadThroughRefusal(atPath: path) != nil
     }
 
     /// The title of the manuscript piece at `path` when it is in read-through

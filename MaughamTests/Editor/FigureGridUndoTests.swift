@@ -157,6 +157,47 @@ final class FigureGridUndoTests: FigureGridMountedTestCase {
 
     // MARK: - Read-through (shell read-through Task 2, review M2)
 
+    /// **A visit step on a window's stack cannot write a figure one of whose
+    /// pieces is in read-through** (branch review M3): a piece in another
+    /// window enters read-through after the visit; ⌘Z here is refused, said
+    /// with the piece, writes nothing and leaves the step; after Resume it
+    /// takes the visit back.
+    func test_aVisitStepCannotWriteAFigureWhosePieceIsInReadThrough() async throws {
+        let windows = FigureWindows()
+        let m = try await mount(rows: 6, windows: windows)
+        let undo = try XCTUnwrap(m.textView.undoManager)
+        let (_, c) = try await expanded(m)
+        let a1 = cell(c, 1, 1)
+        typeCell(m, c, a1, "3")
+        await c.settleWrites()
+        try asOneEvent(m) { c.perform(.done) }
+        await settled(m)
+        undo.groupsByEvent = true
+        let host = c.host
+        XCTAssertEqual(host.state.table[a1]?.content, number(3), "premise: the visit wrote the cell")
+        XCTAssertEqual(undo.undoActionName, FigureVisitUndo.actionName)
+
+        let other = ReadThroughGate(pieces: ["other"], structure: [], research: [], figures: [],
+                                    figureLines: [ReadThroughGateFixture.line(c.figureId, in: "other")])
+        windows.setReadThrough(other, from: UUID())
+        let said = await notices {
+            undo.undo()
+            await host.awaitPendingUndoWork()
+            await waitOut(0.3)
+        }
+        XCTAssertEqual(host.state.table[a1]?.content, number(3), "nothing written")
+        XCTAssertTrue(said.contains { $0.contains("\u{201C}other\u{201D} is in read-through") }, "\(said)")
+        XCTAssertTrue(undo.canUndo, "the step stays")
+
+        windows.setReadThrough(.writing, from: UUID())
+        windows.setReadThrough(.writing, from: UUID())
+        XCTAssertFalse(windows.isInReadThrough(c.figureId), "premise: resumed")
+        undo.undo()
+        await waitOut(0.3)
+        await host.awaitPendingUndoWork()
+        XCTAssertNotEqual(host.state.table[a1]?.content, number(3), "after Resume, ⌘Z takes the visit back")
+    }
+
     /// **The visit steps the editor remembers are bounded by the stack**
     /// (shell read-through Task 4, carry from Task 2's re-review): three
     /// folded visits are three live steps; once the stack lets them go, the
@@ -644,7 +685,7 @@ final class FigureGridUndoTests: FigureGridMountedTestCase {
         var step: FigureVisitUndo?
         let said = await notices {
             um.beginUndoGrouping()
-            step = FigureVisitUndo.register(on: um, host: c.host, visit: Task { visit })
+            step = FigureVisitUndo.register(on: um, host: c.host, visit: Task { visit }, readThrough: { nil })
             um.endUndoGrouping()
             XCTAssertEqual(um.undoActionName, FigureVisitUndo.actionName, "registered at once")
             await step?.settled?.value

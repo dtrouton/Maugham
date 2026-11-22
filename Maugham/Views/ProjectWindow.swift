@@ -128,12 +128,24 @@ struct ProjectWindow: View {
     /// ⌘⌥I's or ⌘⌥N's request for a Brief field (`BriefField`), consumed by
     /// the field.
     @State private var briefFocus: BriefField?
-    /// **The read-through gate** (`ReadThroughGate`): what every non-editor
-    /// surface asks of its research item or figure. Built once per change of
-    /// the session's set, the book and the figure listing by
-    /// `ReadThroughModifier`, which also hands it to the figure windows;
-    /// `.writing` while no piece is in read-through.
-    @State private var readThroughGate = ReadThroughGate.writing
+    /// **This window's own read-through gate**, built once per change of the
+    /// session's set, the book and this window's figure listing by
+    /// `ReadThroughModifier`, which hands it to the session's figure windows.
+    @State private var ownReadThroughGate = ReadThroughGate.writing
+
+    /// **The read-through gate every non-editor surface in this window asks**:
+    /// the SESSION's (`sessionGate`), so a window just opened, whose own
+    /// listing has not built, reads the figures every other window knows.
+    private var readThroughGate: ReadThroughGate {
+        Self.sessionGate(figureWindows: session?.figureWindows, own: ownReadThroughGate)
+    }
+
+    /// The session's combined gate (`FigureWindows.readThrough`) with this
+    /// window's own added; its own alone where there is no session yet.
+    static func sessionGate(figureWindows: FigureWindows?, own: ReadThroughGate) -> ReadThroughGate {
+        guard let figureWindows, !figureWindows.readThrough.pieces.isEmpty else { return own }
+        return figureWindows.readThrough.addingOwners(of: [own])
+    }
     /// **What the centre shows while an edition is open** — the compiled
     /// books, the header's pick, and the desk's two Shows — and the rules for
     /// changing it. Window-transient: see `PublishCentreModel`.
@@ -598,7 +610,7 @@ struct ProjectWindow: View {
             documentStore: documentStore, window: window,
             facts: facts, treeState: treeState,
             figureRows: figureListing.rows, figureWindows: session?.figureWindows,
-            gate: $readThroughGate,
+            gate: $ownReadThroughGate,
             onSaveFlash: { showSaveFlash() }))
         .modifier(ParagraphNavModifier(window: window,
                                        subject: subjectBinding,

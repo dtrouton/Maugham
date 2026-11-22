@@ -145,7 +145,13 @@ struct ResearchNoteEditor: View {
                             initialCursorLocation: researchCursor,
                             onCursorChanged: { position in
                                 researchCursor = position
-                            }),
+                            },
+                            // A key typed while the note reads pulses the
+                            // read-through line over it, as the text's does.
+                            onTypingRefused: {
+                                MaughamEvent.post(.maughamTypingRefused, to: .keyWindow)
+                            },
+                            answersLockedTyping: true),
                         paragraphProviders: .init(
                             // **Gated on the lock, not just unconditionally
                             // wired** (shell-finish stage 3b Task 6 review

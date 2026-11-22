@@ -328,7 +328,7 @@ final class ResearchTableToolsTests: XCTestCase {
         try Data("Item,Amount\nRent,10\n".utf8).write(to: csv)
         let item = try await store.createResearchAsset(scope: .document(piece.id), fromURL: csv)
         let path = try XCTUnwrap(item.path)
-        XCTAssertTrue(store.researchIsInReadThrough(atPath: path), "premise: the writer's own edits are refused")
+        XCTAssertNotNil(store.researchReadThroughRefusal(atPath: path, gate: store.readThroughGate()), "premise: the writer's own edits are refused")
 
         try await write(book, item, #""cells":[{"a1":"B2","value":"12"}]"#)
         XCTAssertEqual(TableCSV.rows(String(decoding: try Data(contentsOf: url.appendingPathComponent(path)),

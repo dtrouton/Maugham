@@ -174,6 +174,8 @@ struct FigureRow: View {
 struct LegacyFigureRowActions {
     /// Whether *Move into Figures* is offered — asked by the menu's builder.
     let mayMove: () -> Bool
+    /// Why it is withheld while the line's piece is in read-through, named.
+    let moveRefusal: () -> String?
     let move: () -> Void
     let showInText: () -> Void
 }
@@ -214,6 +216,8 @@ struct LegacyFigureRow: View {
                 Text(LegacyFigureTreeRow.notInResearch)
             } else if actions.mayMove() {
                 Button("Move into Figures", action: actions.move)
+            } else if let refusal = actions.moveRefusal() {
+                Text(refusal)
             }
             Button("Show in Text", action: actions.showInText)
         }

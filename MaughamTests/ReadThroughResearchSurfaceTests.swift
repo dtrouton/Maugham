@@ -91,7 +91,7 @@ final class ReadThroughResearchSurfaceTests: XCTestCase {
                        .readThrough(refusal), "its Versions list, with Restore off")
         XCTAssertEqual(ResearchVersionsModel.restoreRefusal(shareIsReadOnly: false, readThrough: refusal)?
             .sentence(noun: "note"),
-            "\u{201C}piece-a\u{201D} is in read-through \u{2014} resume writing there to change this note.",
+            "\u{201C}piece-a\u{201D} is in read-through \u{2014} resume writing it to change this note.",
             "Restore's reason names the piece")
     }
 
@@ -145,7 +145,7 @@ final class ReadThroughResearchSurfaceTests: XCTestCase {
         XCTAssertTrue(try flat("Maugham/Views/ReadThroughModifier.swift").contains(
             "figureWindows?.setReadThrough(next, from: gateKey)"), "the window hands its gate to the figure windows")
         XCTAssertTrue(try flat("Maugham/Views/ProjectWindow.swift").contains(
-            "figureRows: figureListing.rows, figureWindows: session?.figureWindows, gate: $readThroughGate,"),
+            "figureRows: figureListing.rows, figureWindows: session?.figureWindows, gate: $ownReadThroughGate,"),
             "built from the window's listing")
     }
 
@@ -356,12 +356,13 @@ final class ReadThroughResearchSurfaceTests: XCTestCase {
         "Maugham/Views/PulledUpView.swift": 1,              // research pulled up
         "Maugham/Views/ProjectWindow.swift": 1,             // the padlock over research
         "Maugham/Views/FigureSubjectColumns.swift": 1,      // the centre's grid
-        "Maugham/Views/FigureActions.swift": 3,             // the figure's, Bring Back's verb and reason
+        "Maugham/Views/FigureActions.swift": 4,             // the figure's, Bring Back's verb and reason, Move's
         "Maugham/Views/FigureInspector.swift": 2,           // Compare's and the actions' refusal
         "Maugham/Views/FigureSection.swift": 2,             // the row menu, the send-drop
         "Maugham/Editor/FigureWindow.swift": 2,             // the session's gate, a figure window's frame
-        "Maugham/Editor/EditorCoordinator+FigureGrid.swift": 1, // an editor's grid in place
+        "Maugham/Editor/EditorCoordinator+FigureGrid.swift": 2, // an editor's grid in place, its visit's ⌘Z
         "Maugham/Stores/ProjectStore+Search.swift": 2,      // Replace's research arm: an item, a file
+        "Maugham/Stores/ProjectStore+FigureResearch.swift": 1, // the store's retarget (Move into Figures)
     ]
 
     /// The ways to ask: a gate's `refusal(.target)`, `refusal(researchPath:)`
@@ -476,6 +477,138 @@ final class ReadThroughResearchSurfaceTests: XCTestCase {
         XCTAssertFalse(windows.isInReadThrough(G.figureA), "Resume: the newest gate's set decides")
     }
 
+    // MARK: - Closing fixes (branch review)
+
+    /// **Every door-checked manuscript writer is classified** (I1): each
+    /// production call of `openManuscriptForWriting` or
+    /// `holdManuscriptsForFigureText`, by the function it sits in, is a
+    /// deliberate sweep (which writes into a piece in read-through, ADR 0039
+    /// §4) or refused for one. A new caller fails until it is classified.
+    static let doorCheckedWriters: [String: String] = [
+        "Maugham/Stores/ProjectStore+Search.swift#replaceInManuscript":
+            "refused: Replace asks `pieceInReadThrough` before it holds the piece",
+        "Maugham/Stores/ProjectStore+Search.swift#holdManuscriptsForFigureText":
+            "the hold itself: classified by its callers below",
+        "Maugham/Stores/ProjectStore+Figures.swift#renameFigure":
+            "deliberate sweep: a figure rename's cross-reference relabel",
+        "Maugham/Stores/ProjectStore+FigureResearch.swift#sendToResearch":
+            "refused: the line it removes is in one of the figure's own pieces, so the gate refuses Send",
+        "Maugham/Stores/ProjectStore+FigureResearch.swift#retargetFigureLine":
+            "refused: Move into Figures edits that piece's own line (`readThroughGate().refusal(.piece)`)",
+    ]
+
+    /// The call sites of the two door-checked writers in `text`, by the
+    /// function each sits in.
+    static func doorCheckedCallers(in text: String) -> [String] {
+        var current = ""
+        var found: [String] = []
+        for line in SourceScan.codeLines(of: text) {
+            if let range = line.range(of: #"func [A-Za-z_]+"#, options: .regularExpression) {
+                current = String(line[range].dropFirst(5))
+            }
+            let code = line.trimmingCharacters(in: .whitespaces)
+            guard !code.contains("func openManuscriptForWriting("),
+                  !code.contains("func holdManuscriptsForFigureText(") else { continue }
+            if code.contains("openManuscriptForWriting(") || code.contains("holdManuscriptsForFigureText(") {
+                found.append(current)
+            }
+        }
+        return found
+    }
+
+    func test_everyDoorCheckedManuscriptWriterIsClassified() throws {
+        var sites: Set<String> = []
+        for file in try SourceTree.swiftFiles(under: "Maugham") {
+            for caller in Self.doorCheckedCallers(in: try SourceTree.read(file)) {
+                sites.insert("\(file)#\(caller)")
+            }
+        }
+        XCTAssertEqual(sites, Set(Self.doorCheckedWriters.keys),
+                       "classify a new writer as a deliberate sweep or refused for a piece in read-through")
+        XCTAssertEqual(Self.doorCheckedCallers(in: """
+            func planted() {
+                let held = try await openManuscriptForWriting(path: p)
+            }
+            """), ["planted"], "a planted offender is found")
+        XCTAssertEqual(Self.doorCheckedCallers(in: "// openManuscriptForWriting(path: p)"), [], "control: a comment")
+    }
+
+    /// **Move into Figures is refused for a piece in read-through, naming it**
+    /// (I1): offered nowhere, said in the menu and by the verb, and refused
+    /// by the store's own retarget.
+    func test_moveIntoFiguresIsRefusedForAPieceInReadThrough() async throws {
+        let store = try await collection()
+        let piece = try await store.addLoosePiece(title: "Alpha", format: .markdown)
+        let line = FigureListing.LegacyRow(
+            id: "l1", docId: piece.id, lineIndex: 0, path: "../research/t.csv", caption: "",
+            kind: .table, number: "Table 1", label: nil, researchItemId: "item")
+        let gate = ReadThroughModifier.gate(gateInputs(store, pieces: [piece.id]))
+        var said: [String] = []
+        let actions = FigureActions(store: store, figureWindows: nil, typography: .defaults,
+                                    windowRefusesWrites: { false }, readThrough: { gate },
+                                    report: { said.append($0) })
+        XCTAssertFalse(actions.mayMove(line), "not offered")
+        let refusal = try XCTUnwrap(actions.moveRefusal(line))
+        XCTAssertTrue(refusal.contains("\u{201C}Alpha\u{201D} is in read-through"), refusal)
+        let writing = FigureActions(store: store, figureWindows: nil, typography: .defaults,
+                                    windowRefusesWrites: { false }, readThrough: { .writing },
+                                    report: { _ in })
+        XCTAssertNil(writing.moveRefusal(line), "control: writing")
+
+        store.readThroughPieceIds = { [piece.id] }
+        do {
+            try await store.retargetFigureLine(piece: piece.id, lineIndex: 0, oldPath: "a", newPath: "b",
+                                               label: nil)
+            XCTFail("the store refuses the retarget itself")
+        } catch let error as ProjectStoreError {
+            XCTAssertEqual(error, .inReadThrough(title: "Alpha"))
+        }
+    }
+
+    /// **A new window's own surfaces ask the session's gate** (M1): a window
+    /// whose listing has not built reads the figures every other window knows.
+    func test_aNewWindowsSurfacesAskTheSessionsGate() throws {
+        let full = G.gate(pieces: [G.pieceA], figureLines: [G.line(G.bookFigure, in: G.pieceA)])
+        let unbuilt = G.gate(pieces: [G.pieceA], figureLines: [])
+        let windows = FigureWindows()
+        windows.setReadThrough(full, from: UUID())          // the first window
+        windows.setReadThrough(unbuilt, from: UUID())       // the new one, its listing unbuilt
+        XCTAssertFalse(unbuilt.refusesEdits(.figure(G.bookFigure)), "premise: its own gate would let it edit")
+        let seen = ProjectWindow.sessionGate(figureWindows: windows, own: unbuilt)
+        XCTAssertTrue(seen.refusesEdits(.figure(G.bookFigure)), "its centre, inspector and tree refuse it")
+        XCTAssertEqual(seen.refusal(.figure(G.bookFigure))?.pieceId, G.pieceA)
+        XCTAssertEqual(ProjectWindow.sessionGate(figureWindows: nil, own: unbuilt), unbuilt, "no session yet")
+        let window = SourceScan.codeLines(of: try SourceTree.read("Maugham/Views/ProjectWindow.swift"))
+            .joined(separator: "\n")
+        XCTAssertTrue(window.contains(
+            "Self.sessionGate(figureWindows: session?.figureWindows, own: ownReadThroughGate)"),
+            "the surfaces read the session's gate")
+    }
+
+    /// **Typing into a read-through piece's research note pulses its line**
+    /// (M4), as the text's does: the key lands nothing and is answered.
+    func test_typingIntoAPiecesNotePulsesItsLine() async throws {
+        let f = try await collectionWithNotes()
+        let window = mountCentre(f, itemID: f.pieceNote.id, gate: f.gate)
+        let note = try await editor(showing: Self.noteText, in: window)
+        var pulses = 0
+        let token = NotificationCenter.default.addObserver( // adr-0021-ok: a test observing the production post
+            forName: .maughamTypingRefused, object: nil, queue: nil) { _ in pulses += 1 }
+        defer { NotificationCenter.default.removeObserver(token) }
+        let key = try XCTUnwrap(NSEvent.keyEvent(
+            with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0,
+            windowNumber: window.windowNumber, context: nil, characters: "x",
+            charactersIgnoringModifiers: "x", isARepeat: false, keyCode: 7))
+        note.keyDown(with: key)
+        XCTAssertEqual(pulses, 1, "the refused key is answered")
+        XCTAssertEqual(note.string, Self.noteText, "and lands nothing")
+
+        let writing = try await editor(showing: Self.noteText,
+                                       in: mountCentre(f, itemID: f.sharedNote.id, gate: f.gate))
+        writing.keyDown(with: key)
+        XCTAssertEqual(pulses, 1, "control: a shared note takes the key, no pulse")
+    }
+
     /// **The assistant's research writes are not refused** (ruling M1,
     /// ADR 0039 §4): read-through stops the writer's own accidental edits on
     /// this Mac; it is not a permission. No MCP tool asks it.
@@ -581,7 +714,7 @@ final class ReadThroughResearchSurfaceTests: XCTestCase {
         let alpha = ReadThroughRefusal(pieceId: f.piece.id, title: "Alpha", others: 0)
         XCTAssertEqual(readingGrid.mode, .readOnly(.readThrough(alpha)))
         XCTAssertEqual(readingGrid.bars.reasonMessage,
-                       "\u{201C}Alpha\u{201D} is in read-through \u{2014} resume writing there to change this table.",
+                       "\u{201C}Alpha\u{201D} is in read-through \u{2014} resume writing it to change this table.",
                        "the grid's reason names the piece")
 
         let shared = mountCentre(f, itemID: sharedTable.id, gate: gate)

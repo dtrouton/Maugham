@@ -47,6 +47,10 @@ struct EditorSurfaceConfiguration {
         /// Recovery spec §4: fired when the reader tries to type into a
         /// `readOnlyRecovery` surface — the host's cue to offer the next rung.
         var onTypingRefused: (() -> Void)? = nil
+        /// Also answer a typed key refused by the membrane while the view
+        /// stays editable (`EditorControl.lockEditing`) — a research note of
+        /// a piece in read-through, whose line pulses as the text's does.
+        var answersLockedTyping: Bool = false
     }
 
     /// Resolvers that map paragraphs / locations / links for click routing,
@@ -361,6 +365,7 @@ struct EditorSurface: NSViewRepresentable {
         textView.isHorizontallyResizable = false
         textView.isEditable = !configuration.readOnlyRecovery
         textView.onTypingRefusedWhileReadOnly = configuration.callbacks.onTypingRefused
+        textView.answersLockedTyping = configuration.callbacks.answersLockedTyping
         textView.isRichText = false
         textView.allowsUndo = true
         textView.usesFindBar = true
@@ -769,9 +774,13 @@ final class MaughamTextView: NSTextView {
     /// text (`isTextInsertionEvent`); nil (the default) restores plain AppKit
     /// refusal.
     var onTypingRefusedWhileReadOnly: (() -> Void)?
+    /// Answer a refused key while editable too, when the membrane locks it
+    /// (`coordinator.lockEditing`): a research note in read-through.
+    var answersLockedTyping = false
 
     override func keyDown(with event: NSEvent) {
-        if !isEditable, let onTypingRefusedWhileReadOnly,
+        if !isEditable || (answersLockedTyping && coordinator?.lockEditing == true),
+           let onTypingRefusedWhileReadOnly,
            Self.isTextInsertionEvent(event) {
             onTypingRefusedWhileReadOnly()
             return

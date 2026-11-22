@@ -348,8 +348,14 @@ struct FigureActions {
     /// posture lets this Mac write the line's piece (`.writeText`). The new
     /// figure's own door is the store's, asked as it makes it.
     func mayMove(_ line: FigureListing.LegacyRow) -> Bool {
-        guard line.researchItemId != nil, !windowRefusesWrites() else { return false }
+        guard line.researchItemId != nil, !windowRefusesWrites(), moveRefusal(line) == nil else { return false }
         return store.documentStore?.posture(forDocId: line.docId).allows(.writeText) ?? false
+    }
+
+    /// **Why Move into Figures is refused for a piece in read-through**, named:
+    /// it rewrites that piece's own line, an edit, not a sweep (ADR 0039 §4).
+    func moveRefusal(_ line: FigureListing.LegacyRow) -> String? {
+        readThrough().refusal(.piece(line.docId))?.because("its figure line")
     }
 
     /// **Move into Figures** (spec §4.4): nothing moves until the writer asks.
@@ -399,6 +405,10 @@ struct FigureActions {
         }
         guard !windowRefusesWrites() else {
             report(MoveIntoFiguresRefused(reason: .windowRefuses).localizedDescription)
+            return nil
+        }
+        if let refusal = moveRefusal(line) {
+            report(refusal)
             return nil
         }
         let store = store, say = notice ?? report

@@ -19,14 +19,14 @@ final class ReadThroughReplaceTests: XCTestCase {
 
     /// A book with two chapters, each saying "cat", bootstrapped through
     /// `Document.load` so the search reads them from the op log.
-    private func makeBook() async throws -> ProjectStore {
+    private func makeBook(three: String = "Three cats.\n", query: String = "cat") async throws -> ProjectStore {
         project = TestTemp.root.appendingPathComponent("ReadThroughReplace-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: project.appendingPathComponent("manuscript"),
                                                 withIntermediateDirectories: true)
         try "One cat.\n".write(to: project.appendingPathComponent("manuscript/one.md"),
                                atomically: true, encoding: .utf8)
-        try "Three cats.\n".write(to: project.appendingPathComponent("manuscript/three.md"),
-                                  atomically: true, encoding: .utf8)
+        try three.write(to: project.appendingPathComponent("manuscript/three.md"),
+                        atomically: true, encoding: .utf8)
         let manifest = ProjectManifest(
             type: .novel, title: "T", author: "A", created: Date(), modified: Date(),
             structure: [
@@ -45,8 +45,10 @@ final class ReadThroughReplaceTests: XCTestCase {
         }
         let store = try await ProjectStore.load(from: project)
         store.readThroughPieceIds = { ["doc-three"] }
-        await store.searchNow(query: "cat", options: SearchOptions())
-        XCTAssertEqual(store.currentSearch?.matchCount, 2, "premise: one match in each chapter")
+        await store.searchNow(query: query, options: SearchOptions())
+        if query == "cat" {
+            XCTAssertEqual(store.currentSearch?.matchCount, 2, "premise: one match in each chapter")
+        }
         return store
     }
 
@@ -77,6 +79,18 @@ final class ReadThroughReplaceTests: XCTestCase {
         try await store.replaceMatch(inOne, with: "dog")
         let one = try await reload("manuscript/one.md")
         XCTAssertTrue(one.hasPrefix("One dog."), one)
+    }
+
+    /// **A piece rename's wiki-link sweep is a deliberate sweep: it rewrites
+    /// a link inside a piece in read-through** (ruling, ADR 0039 §4,
+    /// 2026-11-22), unlike Replace — refusing it would leave a dangling link,
+    /// and the rename is the writer's deliberate act.
+    func test_aRenamesLinkSweepRewritesAPieceInReadThrough_deliberately() async throws {
+        let store = try await makeBook(three: "See [[Chapter One]].\n", query: "See")
+        XCTAssertNotNil(store.readThroughGate().refusal(.piece("doc-three")), "premise: Three is in read-through")
+        _ = try await store.renameStructureItem(id: "doc-one", newTitle: "Chapter Uno")
+        let three = try await reload("manuscript/three.md")
+        XCTAssertTrue(three.hasPrefix("See [[Chapter Uno]]."), "the link stays valid: \(three)")
     }
 
     func test_replaceAllSkipsAPieceInReadThroughAndNamesIt() async throws {
@@ -125,7 +139,10 @@ final class ReadThroughReplaceTests: XCTestCase {
         XCTAssertTrue(view.contains("} else if showReplace, gate.isInReadThrough(match) {"))
         XCTAssertTrue(view.contains(".help(Self.readThroughRowHelp)"))
         XCTAssertTrue(view.contains("case .manuscript: return store.pieceInReadThrough(atPath: path) != nil"))
-        XCTAssertTrue(view.contains("case .research: return store.researchIsInReadThrough(atPath: path)"))
+        XCTAssertTrue(view.contains(
+            "case .research: return store.researchReadThroughRefusal(atPath: path, gate: gate) != nil"))
+        XCTAssertTrue(view.contains("inReadThrough: { [gate = store.readThroughGate()] path, source in"),
+                      "one gate per pass, never one per document (M6)")
         // The research arm asks the gate's own rule, never a second spelling (M8).
         let search = SourceScan.codeLines(of: try SourceTree.read("Maugham/Stores/ProjectStore+Search.swift"))
             .joined(separator: "\n")
@@ -186,13 +203,14 @@ final class ReadThroughReplaceTests: XCTestCase {
         let results = try XCTUnwrap(store.currentSearch)
         let tide = try XCTUnwrap(results.matches.first { $0.documentPath == "pieces/01-a/research/tide.md" })
         let ships = try XCTUnwrap(results.matches.first { $0.documentPath == "research/ships.md" })
-        XCTAssertTrue(store.researchIsInReadThrough(atPath: tide.documentPath))
-        XCTAssertFalse(store.researchIsInReadThrough(atPath: ships.documentPath))
+        let rt = store.readThroughGate()
+        XCTAssertNotNil(store.researchReadThroughRefusal(atPath: tide.documentPath, gate: rt))
+        XCTAssertNil(store.researchReadThroughRefusal(atPath: ships.documentPath, gate: rt))
 
         let gate = ProjectSearchView.ReplaceGate(
             results, posture: { _ in Posture(.unrestricted) },
             inReadThrough: { path, source in
-                source == .research && store.researchIsInReadThrough(atPath: path)
+                source == .research && store.researchReadThroughRefusal(atPath: path, gate: rt) != nil
             })
         XCTAssertTrue(gate.isInReadThrough(tide))
         XCTAssertFalse(gate.mayReplace(tide), "no per-row Replace in the piece's folder")

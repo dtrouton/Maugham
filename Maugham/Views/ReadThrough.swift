@@ -269,10 +269,11 @@ struct ReadThroughRefusal: Equatable, Hashable {
     /// "“Chapter Three” is in read-through" / "… and 2 more are in read-through".
     var sentence: String { "\(named) \(others == 0 ? "is" : "are") in read-through" }
 
-    /// "“Chapter Three” is in read-through — resume writing there to change
-    /// this figure." — what a surface refused for it says.
+    /// "“Chapter Three” is in read-through — resume writing it to change
+    /// this figure." ("… and 2 more are … resume writing them …") — what a
+    /// surface refused for it says, the pieces it names the ones to resume.
     func because(_ what: String) -> String {
-        "\(sentence) \u{2014} resume writing there to change \(what)."
+        "\(sentence) \u{2014} resume writing \(others == 0 ? "it" : "them") to change \(what)."
     }
 
     /// Resume writing for the named piece — always allowed.

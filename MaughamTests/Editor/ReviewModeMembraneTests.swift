@@ -7,9 +7,9 @@ import MaughamCore
 final class ReviewModeMembraneTests: XCTestCase {
     func test_reviewMode_disallowsTextMutation() {
         XCTAssertFalse(EditorEditPolicy.allowsTextMutation(
-            isReviewMode: true, lockEditing: false))
+            isReviewMode: true, lockEditing: false, isReadingTranslation: false, isInReadThrough: false))
         XCTAssertTrue(EditorEditPolicy.allowsTextMutation(
-            isReviewMode: false, lockEditing: false))
+            isReviewMode: false, lockEditing: false, isReadingTranslation: false, isInReadThrough: false))
     }
 
     /// Role lock is the hard floor: a reviewer/unknown is `lockEditing == true`,
@@ -18,10 +18,10 @@ final class ReviewModeMembraneTests: XCTestCase {
     /// over the role lock.
     func test_lockEditing_blocksEvenWhenReviewRenderOff() {
         XCTAssertFalse(EditorEditPolicy.allowsTextMutation(
-            isReviewMode: false, lockEditing: true),
+            isReviewMode: false, lockEditing: true, isReadingTranslation: false, isInReadThrough: false),
             "a locked (non-author) user must be blocked even with the review render off")
         XCTAssertFalse(EditorEditPolicy.allowsTextMutation(
-            isReviewMode: true, lockEditing: true))
+            isReviewMode: true, lockEditing: true, isReadingTranslation: false, isInReadThrough: false))
     }
 
     /// The coordinator's `setLockEditing` flips the hard lock independently of the

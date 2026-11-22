@@ -56,7 +56,7 @@ final class ResearchVersionsModelTests: XCTestCase {
         XCTAssertFalse(rows[0].canRestore)
         XCTAssertNil(ResearchVersionsModel.previous(in: rows))
         XCTAssertEqual(refusal?.sentence,
-                       "“Alpha” is in read-through — resume writing there to change this table.",
+                       "“Alpha” is in read-through — resume writing it to change this table.",
                        "it names the piece")
         XCTAssertEqual(ResearchVersionsModel.restoreRefusal(shareIsReadOnly: true, readThrough: alpha),
                        .viewOnlyShare, "a view-only share is said first")

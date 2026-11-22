@@ -25,7 +25,7 @@ final class ReadingTranslationPostureTests: XCTestCase {
                         EditorEditPolicy.allowsTextMutation(
                             isReviewMode: review,
                             lockEditing: lock,
-                            isReadingTranslation: translation),
+                            isReadingTranslation: translation, isInReadThrough: false),
                         expected,
                         "review=\(review) lock=\(lock) translation=\(translation) "
                         + "should allow=\(expected)")
@@ -38,9 +38,9 @@ final class ReadingTranslationPostureTests: XCTestCase {
     /// mutation — it is an independent third reason.
     func test_translationReviewAlone_blocksMutation() {
         XCTAssertFalse(EditorEditPolicy.allowsTextMutation(
-            isReviewMode: false, lockEditing: false, isReadingTranslation: true))
+            isReviewMode: false, lockEditing: false, isReadingTranslation: true, isInReadThrough: false))
         XCTAssertTrue(EditorEditPolicy.allowsTextMutation(
-            isReviewMode: false, lockEditing: false, isReadingTranslation: false))
+            isReviewMode: false, lockEditing: false, isReadingTranslation: false, isInReadThrough: false))
     }
 
     // MARK: - Coordinator membrane (synchronous flip)

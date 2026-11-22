@@ -435,6 +435,7 @@ struct FigureSectionVerbs {
         let shared = shared, state = state, store = store, id = row.id
         return LegacyFigureRowActions(
             mayMove: { state.legacyFigureLines[id].map(shared.mayMove) ?? false },
+            moveRefusal: { state.legacyFigureLines[id].flatMap(shared.moveRefusal) },
             move: { _ = moveIntoFigures(id) },
             showInText: {
                 guard let line = state.legacyFigureLines[id] else { return }
@@ -473,7 +474,7 @@ struct FigureSectionVerbs {
     static let windowSendsNoFigures = "This window doesn’t change figures, so it stays in Figures."
     /// Said when a figure whose piece is in read-through is dropped on Research.
     static func readThroughSendsNoFigures(_ refusal: ReadThroughRefusal) -> String {
-        "\(refusal.sentence), so the figure stays in Figures. Resume writing there to send it."
+        "\(refusal.sentence), so the figure stays in Figures. Resume writing \(refusal.others == 0 ? "it" : "them") to send it."
     }
 
     /// **A Research item dropped on Figures** is *Use in Document* — Task 4's

@@ -809,7 +809,12 @@ extension EditorCoordinator {
             // is owed no step — so none shows for even a moment.
             if recorded, cause.collapsesTheVisit, host.visitHasRecorded || controller.writesInFlight > 0,
                let windowUndo = undoManagerOverrideForTesting ?? textView?.undoManager {
-                lastFigureVisitStep = FigureVisitUndo.register(on: windowUndo, host: host, visit: visit)
+                let figureId = host.figureId
+                lastFigureVisitStep = FigureVisitUndo.register(
+                    on: windowUndo, host: host, visit: visit,
+                    readThrough: { [weak windows = figureGridOpening?.windows] in
+                        windows?.readThroughRefusal(figureId)
+                    })
                 if let step = lastFigureVisitStep { noteFigureVisitStep(step) }
             }
         }

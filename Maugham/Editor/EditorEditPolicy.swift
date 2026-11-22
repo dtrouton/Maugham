@@ -31,11 +31,11 @@ enum EditorEditPolicy {
     ///     typing off, decisions on. A belt beside the view's `isEditable`,
     ///     which refuses first (`EditorCoordinator.refreshEditability`).
     ///
-    /// The last two default to false so the two-reason call sites keep
-    /// compiling unchanged.
+    /// Every reason is required: a caller that left one out would answer
+    /// "typing allowed" for a translation or a piece in read-through.
     static func allowsTextMutation(isReviewMode: Bool, lockEditing: Bool,
-                                   isReadingTranslation: Bool = false,
-                                   isInReadThrough: Bool = false) -> Bool {
+                                   isReadingTranslation: Bool,
+                                   isInReadThrough: Bool) -> Bool {
         !isReviewMode && !lockEditing && !isReadingTranslation && !isInReadThrough
     }
 

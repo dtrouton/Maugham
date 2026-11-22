@@ -43,11 +43,11 @@ final class FigureGridGateTests: XCTestCase {
                                            shareIsReadOnly: false, isInReadThrough: true, naming: three,
                                            isReadingTranslation: false), .readOnly(.readThrough(three)))
         XCTAssertEqual(FigureGridGate.Reason.readThrough(three).sentence,
-                       "\u{201C}Chapter Three\u{201D} is in read-through \u{2014} resume writing there "
+                       "\u{201C}Chapter Three\u{201D} is in read-through \u{2014} resume writing it "
                        + "to change this table.")
         XCTAssertEqual(FigureGridGate.Reason.readThrough(
             ReadThroughRefusal(pieceId: "ch-3", title: "Chapter Three", others: 2)).sentence(noun: "note"),
-            "\u{201C}Chapter Three\u{201D} and 2 more are in read-through \u{2014} resume writing there "
+            "\u{201C}Chapter Three\u{201D} and 2 more are in read-through \u{2014} resume writing them "
             + "to change this note.")
     }
 

@@ -346,9 +346,12 @@ final class ReadThroughWriteRouteTests: XCTestCase {
         XCTAssertEqual(m.string, "aかb", "a composition after the entry takes nothing")
     }
 
-    /// Writing Tools and find-bar Replace / Replace All ask the view, as a
-    /// text-finder client and a text input client, whether it is editable.
-    func test_writingToolsAndFindBarReplaceAreRefused() throws {
+    /// **What this proves**: the view is not editable (which Writing Tools,
+    /// as a text input client, reads — by reading only: the Writing Tools
+    /// coordinator itself is not driven here; ADR 0039 §4, hand check owed),
+    /// find-bar Replace All's `shouldChangeText(inRanges:)` is refused, and a
+    /// replacing `insertText` lands nothing.
+    func test_theViewIsNotEditable_replaceAllAndAReplacingInsertAreRefused() throws {
         let text = "One two one."
         let m = try mount(text, control: control(readThrough: [Self.pieceA]))
         XCTAssertFalse(m.textView.isEditable, "a non-editable view offers no Replace and no Writing Tools rewrite")

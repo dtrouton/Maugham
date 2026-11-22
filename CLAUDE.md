@@ -1,6 +1,6 @@
 # Maugham — Guidance for Claude
 
-Maugham is a Mac-native focus text editor for serious creative writing (prose, novels, screenplays, mixed collections). Native Swift + SwiftUI + AppKit, designed to live alongside Claude Desktop via a local MCP server. **The user does not write code** — Claude writes all of it. This file is the load-bearing context for that arrangement.
+Maugham is a Mac-native focus text editor for serious creative writing. Native Swift + SwiftUI + AppKit, beside Claude Desktop via a local MCP server. **The user does not write code** — Claude writes all of it.
 
 ## First five minutes of any session
 
@@ -130,6 +130,7 @@ One line each; the why, the history and the full enforcement are in docs/tripwir
 | 58 | A synced path or file name reaches the disk only through `SafeRelativePath` (`resolve` to read, `resolveForChange` to change); a locally minted name says `// local-path: <why>` | `TripwireGrepTests.test_syncedPathsReachTheDiskOnlyThroughSafeRelativePath` +1 |
 | 59 | Every manuscript load by path passes the promotion door, `DocumentStore.loadManuscript`; no other production `Document.load(` | `TripwireGrepTests.test_everyManuscriptLoadPassesThePromotionDoor` +1 |
 | 60 | No test writes or pastes from the general pasteboard; it pastes from its own through `paste(from:)` | `TripwireGrepTests.test_noTestWritesTheGeneralPasteboard` +1 |
+| 61 | One answer to "is this in read-through": `ReadThrough.isOn` in the editor, `ReadThroughGate` elsewhere, each asker counted | `ReadThroughResearchSurfaceTests.test_everyReadThroughSiteAsksTheOneAnswer` +1 |
 
 ## Default workflow
 
@@ -173,7 +174,7 @@ The phone's inbox on the Mac: `Maugham/Stores/AREA.md`. MCP over the inbox is **
 
 ## Behavioural claims + rulings (`register/`)
 
-Claims (verified facts, each pinned by a test) and rulings (Denver's product decisions) live under `register/`; start at `register/START-HERE.md`, and see `register/reconciliation/` for the modules covered.
+Claims (pinned facts) and rulings (Denver's decisions) live under `register/`; start at `register/START-HERE.md`, and see `register/reconciliation/` for the modules covered.
 - **Before changing behaviour in a module that has a claims file, read its filings**, and fixing a filed defect closes the loop in the same branch: fix, pinned production test, claim updated, filing flipped `VIOLATES→COMPLIES`.
 
 ## Questions you do not need to ask
