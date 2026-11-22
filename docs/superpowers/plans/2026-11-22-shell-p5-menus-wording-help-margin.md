@@ -179,6 +179,37 @@ ADR 0038 "Known limits", each done or dropped on its merit (no later list):
 
 ---
 
+### Task 4a: Research in the tree is either the book's or a chapter's
+
+**Owner's ruling, 2026-11-22** (hand check: "All research shows up under research now, and I can't
+tell which relates to which chapter. And which is top level, part of the book."). Agreed: either/or.
+
+**Contract**
+
+- The tree's Research section lists only whole-book research: shared items linked to no piece.
+  Today `TreeSectionDerivation.sharedResearchRoots` lists every shared item, and a novel chapter's
+  fold (`pieceFold`, `.sharedPlusLink`, `linkedResearchIds`) lists its links as well, so a linked
+  note shows twice and the section says nothing about which is which.
+- Research linked to a piece shows only in that piece's fold. Linked to two pieces: in both folds.
+  A group whose every item is linked still shows if it holds anything whole-book; a linked item
+  inside a whole-book group is filtered out of the section, not the group (derive, never move files).
+- Dragging a research row onto a piece links it (it leaves the section); dragging a fold row onto
+  the Research section unlinks it from that piece (whole-book again once no piece links it). The
+  row menus say the same in words: "Move to Chapter…" / "Make Whole-Book". Collections keep owned
+  research (`.pieceFolder`) as built; the two project kinds now read alike.
+- Selecting a piece opens its fold when it has research in it, so its research is in sight. It
+  never closes a fold the writer opened.
+- Nothing becomes unreachable: Find, Show in Tree (`revealResearch`), a wiki-link's jump and a
+  pulled-up note's "Show in Tree" open the owning fold and select the row there. The Research `+`
+  and ⌘V still make whole-book research; a fold's New Note makes the piece's.
+- The fold's link glyph goes: with either/or there is nothing to tell apart.
+
+**Tests**: a derivation table (unlinked / linked to one / linked to two / inside a group / link to a
+deleted piece falls back to whole-book); the reveal routes over a closed fold; drag both ways through
+`DropIntent`; a census that the section and the fold ask one predicate for "is whole-book".
+
+**Guide and MCP**: Task 8 and Task 9 describe it; `list_research` output is unchanged.
+
 ### Task 5: Reading, the toolbar and MCP — the remaining carries
 
 - **Done — a screenplay read in a language groups by scene** in To resolve, as its source does (`ResolveGrouping`'s scene grouping over the source sequence).
