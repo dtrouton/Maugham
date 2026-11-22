@@ -274,15 +274,18 @@ struct ResearchSubjectCentre: View {
     /// is `.missing`, which is the empty state.
     let itemID: String?
     let previewVisible: Bool
-    /// **Threaded from the mount off `ReadThroughGate.refusesEdits(.research(id))`**
+    /// **Threaded from the mount off `ReadThroughGate.refusal(.research(id))`**
     /// (shell read-through Task 4; the window's Lock and Review's read-only
-    /// centre before it) — never re-derived here. True only while the item's
-    /// piece is in read-through: the `.paletteCard` arm mounts `PaletteCardReadView` instead of
-    /// `PaletteCardEditor`, and the `.note` arm locks `ResearchNoteEditor`
-    /// rather than leaving it editable. `.preview` and `.missing` are
+    /// centre before it) — never re-derived here. Non-nil only while the
+    /// item's piece is in read-through: the line over it names the piece and
+    /// resumes it (`ReadThroughLine`), the `.paletteCard` arm mounts
+    /// `PaletteCardReadView` instead of `PaletteCardEditor`, and the `.note`
+    /// arm locks `ResearchNoteEditor`. `.preview` and `.missing` are
     /// unaffected — both were already read-only. The `.table` arm's grid reads
-    /// the table and refuses its edits.
-    let readOnly: Bool
+    /// the table and refuses its edits, naming the piece.
+    let readThrough: ReadThroughRefusal?
+    /// Read-only exactly while a piece's read-through refuses it.
+    var readOnly: Bool { readThrough != nil }
     /// The share is view-only: a Research table's grid reads, never writes.
     var shareIsReadOnly: Bool = false
     /// The grid's typography and the window's Format ▸ Table presence.
@@ -291,6 +294,16 @@ struct ResearchSubjectCentre: View {
     var window: NSWindow? = nil
 
     var body: some View {
+        VStack(spacing: 0) {
+            if let readThrough {
+                ReadThroughLine(offer: readThrough.resumeOffer, window: window)
+            }
+            surface.frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+    }
+
+    @ViewBuilder
+    private var surface: some View {
         switch ProjectWindow.researchCentreRoute(id: itemID, in: store.manifest) {
         case .paletteCard(let cardID):
             switch PaletteCardSurface.of(readOnly: readOnly) {
@@ -309,7 +322,7 @@ struct ResearchSubjectCentre: View {
         case .table(let item, _):
             ResearchTableGrid(
                 itemId: item.id, title: item.title, store: store, documentStore: documentStore,
-                typography: typography, readOnly: readOnly, shareIsReadOnly: shareIsReadOnly,
+                typography: typography, readThrough: readThrough, shareIsReadOnly: shareIsReadOnly,
                 presence: presence, window: window)
                 .id(item.id)
         case .preview(let item):
@@ -355,11 +368,15 @@ struct ResearchSubjectInspector: View {
     /// `DocumentStore` (nil previews the table as text), the read-only and
     /// share answers, the typography.
     var documentStore: DocumentStore? = nil
-    var readOnly: Bool = false
-    /// The item's piece is in read-through (`ReadThroughGate`): the panel's
-    /// Versions refuse Restore with that reason. `readOnly` can also mean the
-    /// centre shows the item, which refuses nothing there.
-    let inReadThrough: Bool
+    /// The preview half reads, never edits: the centre shows the item, or
+    /// its piece is in read-through. Required, so it cannot disagree with
+    /// `readThrough` by default.
+    let readOnly: Bool
+    /// The item's piece in read-through, named (`ReadThroughGate.refusal`):
+    /// the line over the preview names it and resumes it, the panel's fields
+    /// read and its Versions refuse Restore with that reason. Distinct from
+    /// `readOnly`, which can also mean the centre shows the item.
+    let readThrough: ReadThroughRefusal?
     var shareIsReadOnly: Bool = false
     var typography: TypographySettings = .defaults
     /// The project window, whose close writes the grid's last edit, and its
@@ -376,19 +393,22 @@ struct ResearchSubjectInspector: View {
         if let itemID, let item = TreeWalk.find(id: itemID, in: store.manifest.research) {
             if showsPreview {
                 VStack(spacing: 0) {
+                    if let readThrough {
+                        ReadThroughLine(offer: readThrough.resumeOffer, window: window)
+                    }
                     preview(of: item)
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                     Divider()
                     InspectorResearchPanel(store: store, item: item, figureTree: figureTree,
                                            figureWritesRefused: figureWritesRefused,
                                            documentStore: documentStore, shareIsReadOnly: shareIsReadOnly,
-                                           inReadThrough: inReadThrough)
+                                           readThrough: readThrough)
                 }
             } else {
                 InspectorResearchPanel(store: store, item: item, figureTree: figureTree,
                                            figureWritesRefused: figureWritesRefused,
                                            documentStore: documentStore, shareIsReadOnly: shareIsReadOnly,
-                                           inReadThrough: inReadThrough)
+                                           readThrough: readThrough)
             }
         } else {
             ContentUnavailableView(
@@ -404,8 +424,8 @@ struct ResearchSubjectInspector: View {
     /// rendering this column has always shown and the right one for a preview:
     /// the writer is looking at the item beside a canvas, not editing it.
     ///
-    /// `.paletteCard` reaches `PaletteCardEditor` — or, while the window is
-    /// locked, `PaletteCardReadHost`, asking the same `readOnly` the centre's
+    /// `.paletteCard` reaches `PaletteCardEditor` — or, while it reads,
+    /// `PaletteCardReadHost`, asking the same `readOnly` the centre's
     /// card asks through the same route (`PaletteCardSurface`; carried from
     /// shell plan 1, where the beside card stayed editable under Lock). The
     /// editor is the choice worth defending. There is no read-only card rendering to reuse —
@@ -432,7 +452,7 @@ struct ResearchSubjectInspector: View {
             if let documentStore {
                 ResearchTableGrid(
                     itemId: item.id, title: item.title, store: store, documentStore: documentStore,
-                    typography: typography, readOnly: readOnly, shareIsReadOnly: shareIsReadOnly,
+                    typography: typography, readThrough: readThrough, shareIsReadOnly: shareIsReadOnly,
                     presence: presence, window: window)
                     .id(item.id)
             } else {
@@ -441,8 +461,8 @@ struct ResearchSubjectInspector: View {
         case .note(let item, let path):
             if editsNotes, let documentStore {
                 // Pulled up beside the manuscript: a SECOND editor (its own
-                // undo stack, none of the window's commands), read-only under
-                // Lock or a view-only share exactly as in the centre. Never the
+                // undo stack, none of the window's commands), read-only in
+                // read-through or a view-only share exactly as in the centre. Never the
                 // note the centre shows — this half is drawn only where the
                 // placement is `.beside`.
                 ResearchNoteEditor(

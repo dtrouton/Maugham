@@ -40,7 +40,7 @@ final class ResearchTableMount {
     /// The visit ending after the mount left (a test awaits it).
     @ObservationIgnored private(set) var finishing: Task<Void, Never>?
     @ObservationIgnored private(set) var hasLeft = false
-    @ObservationIgnored private(set) var readOnly: Bool
+    @ObservationIgnored private(set) var readThrough: ReadThroughRefusal?
     @ObservationIgnored private(set) var shareIsReadOnly: Bool
     @ObservationIgnored private let presence: FigureGridPresence?
     @ObservationIgnored private var panel: FigureGridPanel?
@@ -51,9 +51,9 @@ final class ResearchTableMount {
     @ObservationIgnored private let settlerId = UUID()
     @ObservationIgnored private var focusWatch: NSObjectProtocol?
 
-    init(itemId: String, readOnly: Bool, shareIsReadOnly: Bool, presence: FigureGridPresence?) {
+    init(itemId: String, readThrough: ReadThroughRefusal?, shareIsReadOnly: Bool, presence: FigureGridPresence?) {
         self.itemId = itemId
-        self.readOnly = readOnly
+        self.readThrough = readThrough
         self.shareIsReadOnly = shareIsReadOnly
         self.presence = presence
     }
@@ -127,7 +127,7 @@ final class ResearchTableMount {
         let mode = FigureGridGate.mode(
             figureMayEdit: true, parked: false, hostClosed: host.isClosed,
             shareIsReadOnly: shareIsReadOnly,
-            isInReadThrough: readOnly,
+            isInReadThrough: readThrough != nil, naming: readThrough,
             isReadingTranslation: false)
         host.refusal = shareIsReadOnly ? .viewOnlyShare : nil
         guard mode != controller.mode else { return }
@@ -135,9 +135,9 @@ final class ResearchTableMount {
     }
 
     /// The view's inputs changed: the gate is asked again.
-    func update(readOnly: Bool, shareIsReadOnly: Bool) {
-        guard readOnly != self.readOnly || shareIsReadOnly != self.shareIsReadOnly else { return }
-        self.readOnly = readOnly
+    func update(readThrough: ReadThroughRefusal?, shareIsReadOnly: Bool) {
+        guard readThrough != self.readThrough || shareIsReadOnly != self.shareIsReadOnly else { return }
+        self.readThrough = readThrough
         self.shareIsReadOnly = shareIsReadOnly
         refreshAccess()
     }
@@ -253,9 +253,9 @@ struct ResearchTableGrid: View {
     let store: ProjectStore
     let documentStore: DocumentStore
     let typography: TypographySettings
-    /// The table's piece is in read-through (`ReadThroughGate.refusesEdits(.research(id))`):
-    /// it reads, never edits.
-    let readOnly: Bool
+    /// The table's piece in read-through, named (`ReadThroughGate.refusal`):
+    /// it reads, never edits, and its reason names the piece.
+    let readThrough: ReadThroughRefusal?
     let shareIsReadOnly: Bool
     /// The project window's presence, which Format ▸ Table reads.
     var presence: FigureGridPresence? = nil
@@ -265,7 +265,7 @@ struct ResearchTableGrid: View {
     @State private var mount: ResearchTableMount?
 
     private struct Access: Equatable {
-        let readOnly: Bool, shareIsReadOnly: Bool
+        let readThrough: ReadThroughRefusal?, shareIsReadOnly: Bool
     }
 
     var body: some View {
@@ -295,13 +295,13 @@ struct ResearchTableGrid: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .onAppear {
             let mount = ResearchTableMount(
-                itemId: itemId, readOnly: readOnly, shareIsReadOnly: shareIsReadOnly, presence: presence)
+                itemId: itemId, readThrough: readThrough, shareIsReadOnly: shareIsReadOnly, presence: presence)
             self.mount = mount
             mount.open(title: title, store: documentStore, projectStore: store, typography: typography)
         }
         .onDisappear { mount?.leave() }
-        .onChange(of: Access(readOnly: readOnly, shareIsReadOnly: shareIsReadOnly)) { _, next in
-            mount?.update(readOnly: next.readOnly, shareIsReadOnly: next.shareIsReadOnly)
+        .onChange(of: Access(readThrough: readThrough, shareIsReadOnly: shareIsReadOnly)) { _, next in
+            mount?.update(readThrough: next.readThrough, shareIsReadOnly: next.shareIsReadOnly)
         }
         // The window's close: the grid's last edit is written before the store closes.
         .onReceive(NotificationCenter.default.publisher(for: NSWindow.willCloseNotification)) { note in

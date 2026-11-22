@@ -46,6 +46,9 @@ struct ResearchTreeActions {
     /// copy — nil where none is offered (`FigureActions.researchVerb`).
     var figureVerb: (ResearchItem) -> FigureActions.ResearchVerb? = { _ in nil }
     var performFigureVerb: (ResearchItem) -> Task<Void, Never>? = { _ in nil }
+    /// Why the verb toward Figures is withheld, named — Bring Back over a
+    /// figure whose piece is in read-through (`FigureActions.bringBackRefusal`).
+    var figureVerbRefusal: (ResearchItem) -> String? = { _ in nil }
     /// **What a row shows while a drag is over it** (shell p4 Task 10) — the
     /// same classification `internalDrop`/`externalDrop` perform; a fold
     /// re-routes it with its document, as it re-routes those.
@@ -255,6 +258,9 @@ struct ResearchTreeNode: View {
                 } else {
                     if let verb = actions.figureVerb(item) {
                         Button(verb.title) { _ = actions.performFigureVerb(item) }
+                        Divider()
+                    } else if let refusal = actions.figureVerbRefusal(item) {
+                        Text(refusal)
                         Divider()
                     }
                     Button("Duplicate") { actions.duplicate(item.id) }

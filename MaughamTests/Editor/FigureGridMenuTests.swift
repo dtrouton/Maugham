@@ -51,7 +51,7 @@ final class FigureGridMenuTests: FigureGridMountedTestCase {
         let a2 = CellKey(row: table.rows[1], column: table.columns[0])
         let selection = FigureGridSelection(anchor: a2, focus: a2)
 
-        let readOnly = FigureTableMenuState.of(table: table, selection: selection, mode: .readOnly(.readThrough), knowsItsPiece: true)
+        let readOnly = FigureTableMenuState.of(table: table, selection: selection, mode: .readOnly(.readThrough(nil)), knowsItsPiece: true)
         for command in FigureTableMenu.commands {
             XCTAssertFalse(readOnly.isEnabled(command), "\(command) is enabled on a read-only grid")
         }
@@ -272,7 +272,7 @@ final class FigureGridMenuTests: FigureGridMountedTestCase {
             await post(c, command)
         }
         XCTAssertEqual(c.host.state.table, before, "a read-only grid wrote nothing")
-        XCTAssertEqual(c.bars.reasonMessage, FigureGridGate.Reason.readThrough.sentence,
+        XCTAssertEqual(c.bars.reasonMessage, FigureGridGate.Reason.readThrough(nil).sentence,
                        "the reason line is said")
     }
 

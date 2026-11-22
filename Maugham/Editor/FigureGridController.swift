@@ -485,7 +485,7 @@ final class FigureGridController: FigureGridDataSource, FigureGridViewDelegate, 
         // text drops its typing (owner's ruling, 2026-11-22): from here the
         // grid's ⌘Z reaches only decisions. The visit's one window step at
         // the fold is the host's record and keeps the whole visit.
-        if reason == .readThrough, self.mode.readOnlyReason != .readThrough { gridUndo.removeAllActions() }
+        if reason?.isReadThrough == true, self.mode.readOnlyReason?.isReadThrough != true { gridUndo.removeAllActions() }
         self.mode = mode
         self.captionMayEdit = captionMayEdit
         bars.setAccess(cellsMayEdit: reason == nil, captionMayEdit: captionMayEdit)
@@ -537,7 +537,7 @@ final class FigureGridController: FigureGridDataSource, FigureGridViewDelegate, 
         syncFromHost()
         // In read-through the stack holds only decisions (the entry dropped
         // the cell typing before it, `setAccess`), and a decision is undoable.
-        if let reason = mode.readOnlyReason, reason != .readThrough { return answer(reason) }
+        if let reason = mode.readOnlyReason, !reason.isReadThrough { return answer(reason) }
         if hasOpenTyping {
             if !redo { cancelOpenTyping() }
             return

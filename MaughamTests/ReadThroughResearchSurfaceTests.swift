@@ -86,9 +86,13 @@ final class ReadThroughResearchSurfaceTests: XCTestCase {
         XCTAssertFalse(G.gate(pieces: [G.pieceB]).refusesEdits(.research(G.nestedNote)),
                        "control: another piece's read-through leaves A's folder editable")
         XCTAssertFalse(ReadThroughGate.writing.refusesEdits(.research(G.nestedNote)), "control: writing")
-        XCTAssertEqual(ResearchVersionsModel.restoreRefusal(
-            shareIsReadOnly: false, inReadThrough: reading.refusesEdits(.research(G.nestedNote))),
-            .readThrough, "its Versions list, with Restore off")
+        let refusal = reading.refusal(.research(G.nestedNote))
+        XCTAssertEqual(ResearchVersionsModel.restoreRefusal(shareIsReadOnly: false, readThrough: refusal),
+                       .readThrough(refusal), "its Versions list, with Restore off")
+        XCTAssertEqual(ResearchVersionsModel.restoreRefusal(shareIsReadOnly: false, readThrough: refusal)?
+            .sentence(noun: "note"),
+            "\u{201C}piece-a\u{201D} is in read-through \u{2014} resume writing there to change this note.",
+            "Restore's reason names the piece")
     }
 
     /// **One rule for which piece owns a figure** (carry A): the piece it
@@ -107,7 +111,7 @@ final class ReadThroughResearchSurfaceTests: XCTestCase {
                 XCTAssertEqual(gate.owners(of: .figure(G.figureA)), [G.pieceA, G.pieceB], "both its pieces")
             }
             let windows = FigureWindows()
-            windows.setReadThrough(gate)
+            windows.setReadThrough(gate, from: UUID())
             XCTAssertEqual(windows.isInReadThrough(G.figureA), refused, "a figure window and ⤢, \(pieces)")
             XCTAssertEqual(PulledUp.figure(G.figureA).refusesEdits(readThrough: gate), refused,
                            "pulled up, \(pieces)")
@@ -121,25 +125,25 @@ final class ReadThroughResearchSurfaceTests: XCTestCase {
     }
 
     /// **Every surface asks the window's one gate for a figure**: the
-    /// centre's grid is handed `readThrough.refusesEdits(.figure(id))`, a
-    /// figure window and an editor's grid in place ask `FigureWindows
-    /// .isInReadThrough` (the gate the window hands over), and the window
-    /// builds that gate once from the listing's lines.
+    /// centre's grid is handed `readThrough.refusal(.figure(id))`, a figure
+    /// window asks `FigureWindows.readThroughRefusal` and an editor's grid in
+    /// place the same gate's `refusal(among:)` (the gate the windows hand
+    /// over), and the window builds that gate once from the listing's lines.
     func test_everyFigureGateAsksTheOneRule() throws {
         func flat(_ file: String) throws -> String {
             SourceScan.codeLines(of: try SourceTree.read(file)).joined(separator: " ")
                 .components(separatedBy: .whitespacesAndNewlines).filter { !$0.isEmpty }.joined(separator: " ")
         }
         XCTAssertTrue(try flat("Maugham/Views/FigureSubjectColumns.swift")
-            .contains("isInReadThrough: readThrough.refusesEdits(.figure(figureID)),"), "the centre's grid")
+            .contains("readThrough: readThrough.refusal(.figure(figureID)),"), "the centre's grid")
         XCTAssertTrue(try flat("Maugham/Editor/FigureWindow.swift").contains(
-            "isInReadThrough: { [weak windows] in windows?.isInReadThrough(figureId) ?? false },"),
+            "readThrough: { [weak windows] in windows?.readThroughRefusal(figureId) },"),
             "a figure window")
         XCTAssertTrue(try flat("Maugham/Editor/EditorCoordinator+FigureGrid.swift").contains(
-            "isInReadThrough: isInReadThrough || (figureGridOpening?.windows?.isInReadThrough(figureId) ?? false),"),
+            "let refusal = gate.refusal(among: gate.owners(of: .figure(figureId)).union(own))"),
             "an editor's grid in place")
         XCTAssertTrue(try flat("Maugham/Views/ReadThroughModifier.swift").contains(
-            "figureWindows?.setReadThrough(next)"), "the window hands its gate to the figure windows")
+            "figureWindows?.setReadThrough(next, from: gateKey)"), "the window hands its gate to the figure windows")
         XCTAssertTrue(try flat("Maugham/Views/ProjectWindow.swift").contains(
             "figureRows: figureListing.rows, figureWindows: session?.figureWindows, gate: $readThroughGate,"),
             "built from the window's listing")
@@ -170,7 +174,7 @@ final class ReadThroughResearchSurfaceTests: XCTestCase {
                                   report: { _ in })
         XCTAssertTrue(share.refusesWrites(to: G.figureA), "a view-only share refuses with read-through off")
         XCTAssertFalse(BinderTreeSectionsState.offersNewTable(shareIsReadOnly: true), "…and offers no New Table")
-        XCTAssertEqual(ResearchVersionsModel.restoreRefusal(shareIsReadOnly: true, inReadThrough: false),
+        XCTAssertEqual(ResearchVersionsModel.restoreRefusal(shareIsReadOnly: true, readThrough: nil),
                        .viewOnlyShare)
     }
 
@@ -192,11 +196,11 @@ final class ReadThroughResearchSurfaceTests: XCTestCase {
                 XCTAssertFalse(on, "in read-through a figure is never edited (share \(share), \(posture))")
                 XCTAssertFalse(on && !off, "read-through permitted a refusal (share \(share), \(posture))")
             }
-            for inReadThrough in [false, true] {
+            for readThrough in [nil, G.gate(pieces: [G.pieceA]).refusal(.research(G.nestedNote))] {
                 let refusal = ResearchVersionsModel.restoreRefusal(shareIsReadOnly: share,
-                                                                   inReadThrough: inReadThrough)
-                if share { XCTAssertEqual(refusal, .viewOnlyShare, "the share is said first") }
-                XCTAssertEqual(refusal == nil, !share && !inReadThrough)
+                                                                   readThrough: readThrough)
+                if share { XCTAssertEqual(refusal, FigureGridGate.Reason.viewOnlyShare, "the share is said first") }
+                XCTAssertEqual(refusal == nil, !share && readThrough == nil)
             }
             XCTAssertEqual(BinderTreeSectionsState.offersNewTable(shareIsReadOnly: share), !share,
                            "New Table answers to the share alone")
@@ -268,18 +272,221 @@ final class ReadThroughResearchSurfaceTests: XCTestCase {
         let uiState = store.url.appendingPathComponent(".maugham/ui-state.json")
         try FileManager.default.createDirectory(at: uiState.deletingLastPathComponent(),
                                                 withIntermediateDirectories: true)
-        try Data(#"{"isLocked":true,"isReviewModeOn":true,"windowLock":true}"#.utf8).write(to: uiState)
-        _ = UIState.loadOrEmpty(from: uiState)
+        // An old window's ui-state: a real one, plus Lock's and Review Mode's keys.
+        var old = UIState()
+        old.detailColumnWidth = 333
+        var json = try XCTUnwrap(try JSONSerialization.jsonObject(
+            with: try JSONEncoder().encode(old)) as? [String: Any])
+        json["isLocked"] = true
+        json["isReviewModeOn"] = true
+        json["windowLock"] = true
+        try JSONSerialization.data(withJSONObject: json).write(to: uiState)
+
+        let loaded = UIState.loadOrEmpty(from: uiState)
+        XCTAssertEqual(loaded.detailColumnWidth, 333, "premise: the stored file was read, not replaced by empty")
+        XCTAssertEqual(loaded, old, "the old keys change nothing the window restores")
+        let reencoded = String(decoding: try JSONEncoder().encode(loaded), as: UTF8.self)
+        XCTAssertFalse(reencoded.lowercased().contains("lock"), "and nothing of Lock survives: \(reencoded)")
+        XCTAssertFalse(reencoded.contains("ReviewMode"))
         let readThrough = ReadThroughStore(projectRoot: store.url, device: DeviceSlug.make(from: "old-project"))
         XCTAssertEqual(readThrough.pieceIds, [], "no piece is in read-through")
-        let gate = ReadThroughModifier.gate(.init(
-            pieces: readThrough.pieceIds, structure: store.manifest.structure,
-            research: store.manifest.research, figures: store.manifest.figures ?? [], figureRows: []))
-        XCTAssertEqual(gate, .writing)
-        let stored = String(decoding: try JSONEncoder().encode(UIState()), as: UTF8.self)
-        XCTAssertFalse(stored.lowercased().contains("lock"), "UIState carries no Lock: \(stored)")
     }
 
+    // MARK: - Every refusal names the piece (fix round 1: I1, I2)
+
+    /// **The refusal names the first refusing piece in tree order, and how
+    /// many more** — the one function every refusing surface asks.
+    func test_theRefusalNamesTheFirstPieceInTreeOrder_andHowManyMore() {
+        let moved = [G.line(G.figureA, in: G.pieceB)]
+        let both = G.gate(pieces: [G.pieceA, G.pieceB], figureLines: moved).refusal(.figure(G.figureA))
+        XCTAssertEqual(both, ReadThroughRefusal(pieceId: G.pieceA, title: G.pieceA, others: 1))
+        XCTAssertEqual(both?.named, "\u{201C}piece-a\u{201D} and 1 more")
+        XCTAssertEqual(both?.sentence, "\u{201C}piece-a\u{201D} and 1 more are in read-through")
+        let onlyB = G.gate(pieces: [G.pieceB], figureLines: moved).refusal(.figure(G.figureA))
+        XCTAssertEqual(onlyB?.pieceId, G.pieceB, "the piece in read-through, not the one it was made in")
+        XCTAssertEqual(onlyB?.sentence, "\u{201C}piece-b\u{201D} is in read-through")
+        XCTAssertNil(G.gate(pieces: [G.pieceB]).refusal(.research(G.nestedNote)), "control: A's research")
+        XCTAssertEqual(G.gate(pieces: [G.pieceA]).refusal(.research(G.nestedNote))?.pieceId, G.pieceA)
+        XCTAssertEqual(G.gate(pieces: [G.pieceA]).refusal(researchPath: "pieces/01-a/research/x.md")?.pieceId,
+                       G.pieceA, "a research file's path, by the same rule")
+        XCTAssertNil(G.gate(pieces: [G.pieceA]).refusal(researchPath: "research/x.md"), "shared")
+    }
+
+    /// **Every union refusal names the piece that caused it** (I2): a figure
+    /// made in A whose line moved into B, with only B in read-through, is
+    /// refused naming B — by the grid's reason (centre, window, in place),
+    /// the inspector, the tree's row menu and the send-drop.
+    func test_everyFigureRefusalNamesThePieceThatCausedIt() async throws {
+        let store = try await collection()
+        let gate = G.gate(pieces: [G.pieceB], figureLines: [G.line(G.figureA, in: G.pieceB)])
+        let refusal = try XCTUnwrap(gate.refusal(.figure(G.figureA)))
+        let b = "\u{201C}piece-b\u{201D}"
+        // The grid: the centre's, a figure window's and an editor's in place
+        // all build their reason from this refusal.
+        let grid = FigureGridGate.mode(figureMayEdit: true, parked: false, hostClosed: false,
+                                       shareIsReadOnly: false, isInReadThrough: true, naming: refusal,
+                                       isReadingTranslation: false)
+        XCTAssertTrue(grid.readOnlyReason?.sentence.contains(b) == true, "\(String(describing: grid))")
+        let windows = FigureWindows()
+        windows.setReadThrough(gate, from: UUID())
+        XCTAssertEqual(windows.readThroughRefusal(G.figureA), refusal, "a figure window's frame asks this")
+        // The inspector.
+        let actions = FigureActions(store: store, figureWindows: windows, typography: .defaults,
+                                    windowRefusesWrites: { false }, readThrough: { gate }, report: { _ in })
+        XCTAssertEqual(actions.readThroughRefusal(of: G.figureA), refusal)
+        XCTAssertTrue(FigureInspector.refusal(mayEdit: false, reach: .here, readThrough: refusal)?
+            .contains(b) == true)
+        // The tree: the row menu and the send-drop.
+        let tree = BinderTreeSectionsState()
+        tree.figureReadThrough = gate
+        let verbs = FigureSectionVerbs(store: store, state: tree)
+        let row = FigureTreeRow(listing: G.line(G.figureA, in: G.pieceB), readsResearch: false, changed: false)
+        XCTAssertTrue(verbs.actions(for: row).refusal()?.contains(b) == true, "the row's menu says why")
+        XCTAssertTrue(FigureSectionVerbs.readThroughSendsNoFigures(refusal).contains(b))
+        XCTAssertNil(FigureSectionVerbs(store: store, state: BinderTreeSectionsState())
+            .actions(for: row).refusal(), "control: writing, the menu says nothing")
+    }
+
+    /// **The files that ask for the named refusal** (`ReadThroughGate
+    /// .refusal`), and how many times each — every refusing surface. A
+    /// surface that refused without asking would refuse in silence.
+    static let refusalSites: [String: Int] = [
+        "Maugham/Views/ReadThrough.swift": 2,               // the gate: a target, a path
+        "Maugham/Views/CentreColumn.swift": 1,              // research in the centre
+        "Maugham/Views/PulledUpView.swift": 1,              // research pulled up
+        "Maugham/Views/ProjectWindow.swift": 1,             // the padlock over research
+        "Maugham/Views/FigureSubjectColumns.swift": 1,      // the centre's grid
+        "Maugham/Views/FigureActions.swift": 3,             // the figure's, Bring Back's verb and reason
+        "Maugham/Views/FigureInspector.swift": 2,           // Compare's and the actions' refusal
+        "Maugham/Views/FigureSection.swift": 2,             // the row menu, the send-drop
+        "Maugham/Editor/FigureWindow.swift": 2,             // the session's gate, a figure window's frame
+        "Maugham/Editor/EditorCoordinator+FigureGrid.swift": 1, // an editor's grid in place
+        "Maugham/Stores/ProjectStore+Search.swift": 2,      // Replace's research arm: an item, a file
+    ]
+
+    /// The ways to ask: a gate's `refusal(.target)`, `refusal(researchPath:)`
+    /// and `refusal(among:)`, and `readThroughRefusal(…)` (the figure
+    /// windows' and `FigureActions`' forwarding of it).
+    static let refusalTokens = [".refusal(.", "refusal(researchPath:", "refusal(among:", "readThroughRefusal("]
+
+    static func refusalCounts(_ text: String) -> Int {
+        SourceScan.codeLines(of: text).reduce(0) { count, line in
+            let code = line.trimmingCharacters(in: .whitespaces)
+            guard !code.hasPrefix("func "), !code.contains(" func ") else { return count }
+            return count + refusalTokens.reduce(0) { $0 + code.components(separatedBy: $1).count - 1 }
+        }
+    }
+
+    func test_everyRefusingSurfaceAsksTheNamedRefusal() throws {
+        var counts: [String: Int] = [:]
+        for file in try SourceTree.swiftFiles(under: "Maugham") {
+            let n = Self.refusalCounts(try SourceTree.read(file))
+            if n > 0 { counts[file] = n }
+        }
+        XCTAssertEqual(counts, Self.refusalSites)
+        XCTAssertEqual(Self.refusalCounts("let r = gate.refusal(.figure(id))"), 1, "planted offender")
+        XCTAssertEqual(Self.refusalCounts("// gate.refusal(.figure(id))"), 0, "control: a comment")
+    }
+
+    /// **A read-through piece's research carries one quiet line naming the
+    /// piece, whose Resume writing resumes THAT piece** (I1), and the padlock
+    /// over it names the piece and acts on it, where "Open a piece…" would
+    /// point the wrong way.
+    func test_aReadThroughPiecesResearchNamesThePieceAndResumesIt() {
+        let alpha = ReadThroughRefusal(pieceId: "alpha", title: "Alpha", others: 0)
+        let offer = alpha.resumeOffer
+        XCTAssertEqual(ReadThroughLine.lead(for: offer), "\u{201C}Alpha\u{201D} is in read-through")
+        XCTAssertEqual(ReadThroughLine.fullText(for: offer), "\u{201C}Alpha\u{201D} is in read-through")
+        XCTAssertEqual(offer.resumeRequest, ReadThrough.Request(docId: "alpha", on: false), "the line's Resume")
+        XCTAssertNil(offer.saveCheckpointRequest)
+        let text = ReadThroughOffer.on(docId: "ch-1", lacksCheckpoint: false, mayTakeCheckpoint: true)
+        XCTAssertEqual(ReadThroughLine.fullText(for: text), ReadThroughLine.fullText(lacksCheckpoint: false),
+                       "control: over the text the line is unchanged")
+
+        func facts(_ refusal: ReadThroughRefusal?) -> ReadThroughModifier.Facts {
+            ReadThroughModifier.Facts(docId: nil, item: nil, posture: .author, shareIsReadOnly: false,
+                                      isReadingTranslation: false, route: nil, pieces: ["alpha"],
+                                      lackingCheckpoint: [], researchRefusal: refusal)
+        }
+        let padlock = ReadThroughModifier.offer(facts(alpha))
+        XCTAssertEqual(ReadThroughToggle.symbol(padlock), "lock")
+        XCTAssertEqual(ReadThroughToggle.tooltip(padlock),
+                       "Resume writing \u{201C}Alpha\u{201D} (\u{2318}\u{2325}\u{21E7}R)")
+        XCTAssertEqual(ReadThroughToggle.label(padlock), "Resume writing \u{201C}Alpha\u{201D}")
+        XCTAssertEqual(ReadThroughToggle.request(padlock), ReadThrough.Request(docId: "alpha", on: false))
+        XCTAssertNil(ReadThroughModifier.offer(facts(nil)), "control: shared research, no offer")
+        XCTAssertEqual(ReadThroughToggle.tooltip(nil), ReadThroughToggle.noPieceTooltip)
+    }
+
+    /// **The panel's own fields read for a read-through piece's research**
+    /// (M2): Title, Caption, Tags, URL and Citation, as the item does.
+    func test_thePanelsFieldsReadForAReadThroughPiecesResearch() throws {
+        XCTAssertTrue(InspectorResearchPanel.fieldsRead(
+            readThrough: ReadThroughRefusal(pieceId: "a", title: "A", others: 0)))
+        XCTAssertFalse(InspectorResearchPanel.fieldsRead(readThrough: nil), "control: writing")
+        let panel = SourceScan.codeLines(of: try SourceTree.read("Maugham/Views/InspectorResearchPanel.swift"))
+            .joined(separator: "\n")
+        XCTAssertEqual(panel.components(separatedBy: ".disabled(Self.fieldsRead(readThrough: readThrough))").count - 1,
+                       2, "the fields' group and the citation section")
+    }
+
+    /// **Bring Back to Figures is refused over a figure whose piece is in
+    /// read-through, saying which piece** (M3), as Send to Research is; Use
+    /// in Document (creation) is not.
+    func test_bringBackIsRefusedOverAFigureInReadThrough_namingThePiece() async throws {
+        let store = try await collection()
+        let table = try await store.addResearchTable(parentId: nil, title: "Copy")
+        XCTAssertTrue(FigureActions.makesAFigure(table), "premise: a table makes a figure")
+        func actions(_ gate: ReadThroughGate) -> FigureActions {
+            FigureActions(store: store, figureWindows: nil, typography: .defaults,
+                          windowRefusesWrites: { false }, readThrough: { gate }, report: { _ in })
+        }
+        let reading = G.gate(pieces: [G.pieceA])
+        XCTAssertNil(actions(reading).researchVerb(for: table, returning: G.figureA), "not offered")
+        XCTAssertTrue(actions(reading).bringBackRefusal(returning: G.figureA)?
+            .contains("\u{201C}piece-a\u{201D}") == true, "and says which piece")
+        XCTAssertEqual(actions(reading).researchVerb(for: table, returning: nil), .use,
+                       "making a new figure is creation, refused by nothing")
+        XCTAssertEqual(actions(.writing).researchVerb(for: table, returning: G.figureA),
+                       .bringBack(figureId: G.figureA), "control: writing")
+        // The drop onto Figures says it too.
+        let tree = BinderTreeSectionsState()
+        tree.figureReadThrough = reading
+        tree.figureReturns = [table.id: G.figureA]
+        XCTAssertNil(FigureSectionVerbs(store: store, state: tree).dropToUse(researchId: table.id))
+        XCTAssertTrue(tree.pendingError?.contains("\u{201C}piece-a\u{201D}") == true)
+    }
+
+    /// **One gate per session** (M6): a window just opened, whose figure
+    /// listing has not built, cannot unrefuse a figure owned through a line;
+    /// the gates every open window handed over are combined.
+    func test_aWindowWithAnEmptyListingCannotUnrefuseAFigure() {
+        let full = G.gate(pieces: [G.pieceA], figureLines: [G.line(G.bookFigure, in: G.pieceA)])
+        let empty = G.gate(pieces: [G.pieceA], figureLines: [])
+        let windows = FigureWindows()
+        let first = UUID(), second = UUID()
+        windows.setReadThrough(full, from: first)
+        XCTAssertTrue(windows.isInReadThrough(G.bookFigure), "premise: owned through its line")
+        windows.setReadThrough(empty, from: second)
+        XCTAssertTrue(windows.isInReadThrough(G.bookFigure), "the newer window's empty listing unrefuses nothing")
+        windows.dropReadThrough(from: first)
+        XCTAssertFalse(windows.isInReadThrough(G.bookFigure),
+                       "control: with only the window that has not built its listing, the line is unknown")
+        windows.setReadThrough(.writing, from: second)
+        XCTAssertFalse(windows.isInReadThrough(G.figureA), "Resume: the newest gate's set decides")
+    }
+
+    /// **The assistant's research writes are not refused** (ruling M1,
+    /// ADR 0039 §4): read-through stops the writer's own accidental edits on
+    /// this Mac; it is not a permission. No MCP tool asks it.
+    func test_noMCPToolAsksReadThrough() throws {
+        var found: [String] = []
+        for file in try SourceTree.swiftFiles(under: "Maugham/MCP") {
+            let code = SourceScan.codeLines(of: try SourceTree.read(file)).joined(separator: "\n")
+            if code.contains("ReadThrough") || code.contains("readThrough") { found.append(file) }
+        }
+        XCTAssertEqual(found, [], "deliberately left open: an assistant's research write is no accident")
+    }
     // MARK: - Mounted: a Collection piece's research
 
     private static let noteText = "Ships at anchor, unhurried."
@@ -309,6 +516,29 @@ final class ReadThroughResearchSurfaceTests: XCTestCase {
         let writing = mountCentre(f, itemID: f.pieceNote.id, gate: .writing)
         let writingEditor = try await editor(showing: Self.noteText, in: writing)
         XCTAssertEqual(writingEditor.coordinator?.lockEditing, false, "control: Resume, and it edits")
+    }
+
+    /// **The line over a read-through piece's note takes its own height
+    /// only** (I1): the note's editor starts right under it and gives up
+    /// exactly that height, measured mounted against the same note writing.
+    func test_theLineOverAPiecesNoteTakesItsOwnHeight() async throws {
+        let f = try await collectionWithNotes()
+        func editor(in window: NSWindow) async throws -> (top: CGFloat, height: CGFloat) {
+            let text = try await self.editor(showing: Self.noteText, in: window)
+            let content = try XCTUnwrap(window.contentView)
+            let scroll = try XCTUnwrap(text.enclosingScrollView)
+            let rect = scroll.convert(scroll.bounds, to: content)
+            return (content.isFlipped ? rect.minY : content.bounds.height - rect.maxY, rect.height)
+        }
+        let writing = try await editor(in: mountCentre(f, itemID: f.pieceNote.id, gate: .writing))
+        let reading = try await editor(in: mountCentre(f, itemID: f.pieceNote.id, gate: f.gate))
+        let refusal = try XCTUnwrap(f.gate.refusal(.research(f.pieceNote.id)))
+        XCTAssertEqual(refusal.title, "Alpha", "premise: the line names the piece")
+        let own = NSHostingView(rootView: ReadThroughLine(offer: refusal.resumeOffer)).fittingSize.height
+        XCTAssertGreaterThan(own, 10)
+        XCTAssertLessThan(own, 60, "one line of callout text and its padding")
+        XCTAssertEqual(reading.top - writing.top, own, accuracy: 1.5, "the note starts right under the line")
+        XCTAssertEqual(writing.height - reading.height, own, accuracy: 1.5, "and gives up its height alone")
     }
 
     /// **An image paste into the piece's note lands no file** — the paste
@@ -348,7 +578,11 @@ final class ReadThroughResearchSurfaceTests: XCTestCase {
 
         let reading = mountCentre(f, itemID: table.id, gate: gate)
         let readingGrid = try await grid(in: reading)
-        XCTAssertEqual(readingGrid.mode, .readOnly(.readThrough))
+        let alpha = ReadThroughRefusal(pieceId: f.piece.id, title: "Alpha", others: 0)
+        XCTAssertEqual(readingGrid.mode, .readOnly(.readThrough(alpha)))
+        XCTAssertEqual(readingGrid.bars.reasonMessage,
+                       "\u{201C}Alpha\u{201D} is in read-through \u{2014} resume writing there to change this table.",
+                       "the grid's reason names the piece")
 
         let shared = mountCentre(f, itemID: sharedTable.id, gate: gate)
         let sharedGrid = try await grid(in: shared)
@@ -386,7 +620,7 @@ final class ReadThroughResearchSurfaceTests: XCTestCase {
     /// toggle, key and storage.
     static let lockCapabilities: [(lock: String, home: Home)] = [
         ("Research in the centre (CentreColumn → ResearchSubjectCentre)",
-         .code(file: "Maugham/Views/CentreColumn.swift", token: "readOnly: readThrough.refusesEdits(.research(id)),")),
+         .code(file: "Maugham/Views/CentreColumn.swift", token: "readThrough: readThrough.refusal(.research(id)),")),
         ("A pulled-up research item or figure (PulledUp.refusesEdits)",
          .code(file: "Maugham/Models/PulledUp.swift", token: "func refusesEdits(readThrough: ReadThroughGate) -> Bool")),
         ("The centre's research details",
@@ -395,14 +629,14 @@ final class ReadThroughResearchSurfaceTests: XCTestCase {
         ("A figure's writes (FigureActions.windowRefusesWrites)",
          .code(file: "Maugham/Views/FigureActions.swift", token: "func refusesWrites(to figureId: String) -> Bool")),
         ("The centre figure grid (FigureSubjectColumns, FigureCentreGrid)",
-         .code(file: "Maugham/Editor/FigureGridGate.swift", token: "if isInReadThrough { return .readOnly(.readThrough) }")),
+         .code(file: "Maugham/Editor/FigureGridGate.swift", token: "if isInReadThrough { return .readOnly(.readThrough(refusal)) }")),
         ("A figure window",
-         .code(file: "Maugham/Editor/FigureWindow.swift", token: "windows?.isInReadThrough(figureId) ?? false")),
+         .code(file: "Maugham/Editor/FigureWindow.swift", token: "windows?.readThroughRefusal(figureId)")),
         ("Research versions' Restore",
          .code(file: "Maugham/Views/ResearchVersionsSection.swift",
-               token: "static func restoreRefusal(shareIsReadOnly: Bool, inReadThrough: Bool)")),
+               token: "static func restoreRefusal(shareIsReadOnly: Bool, readThrough: ReadThroughRefusal?)")),
         ("A Research table's grid",
-         .code(file: "Maugham/Editor/ResearchTableGrid.swift", token: "isInReadThrough: readOnly,")),
+         .code(file: "Maugham/Editor/ResearchTableGrid.swift", token: "isInReadThrough: readThrough != nil, naming: readThrough,")),
         ("A palette card on the wall", .dropped("no piece owns a palette card; it is the book's")),
         ("New Table", .dropped("creation is not an accidental edit; the share alone refuses it")),
         ("Accept on a figure cell", .dropped("a decision, on in read-through (Task 2)")),
@@ -430,15 +664,13 @@ final class ReadThroughResearchSurfaceTests: XCTestCase {
     /// each. A surface that stopped asking would pass every mounted test that
     /// happens not to visit it; one that asked a second way is a second rule.
     static let readThroughSites: [String: Int] = [
-        "Maugham/Views/ReadThrough.swift": 2,           // the gate's rule, the offer
+        "Maugham/Views/ReadThrough.swift": 3,           // the gate's rule, its refusal, the offer
         "Maugham/Views/ReadThroughModifier.swift": 2,   // Start's guard, the facts
         "Maugham/Models/PulledUp.swift": 2,             // a research item, a figure
         "Maugham/Views/PulledUpView.swift": 2,          // the face, the centre's details
-        "Maugham/Views/CentreColumn.swift": 1,          // research in the centre
-        "Maugham/Views/FigureSubjectColumns.swift": 1,  // the centre's grid
         "Maugham/Views/FigureActions.swift": 1,         // a figure's writes
         "Maugham/Editor/FigureWindow.swift": 1,         // figure windows, grids in place
-        "Maugham/Stores/ProjectStore+Search.swift": 2,  // Replace: a piece, its folder
+        "Maugham/Stores/ProjectStore+Search.swift": 1,  // Replace: a piece (its folder asks the refusal)
         "Maugham/Views/EditorHost.swift": 1,            // a refused key's answer
         "Maugham/Editor/EditorSurface.swift": 1,        // the mount
         "Maugham/Editor/EditorCoordinator.swift": 1,    // the mirror

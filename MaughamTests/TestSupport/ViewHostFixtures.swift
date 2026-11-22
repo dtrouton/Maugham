@@ -215,21 +215,22 @@ enum CentreTopLinesFixture {
     }
 }
 
-/// `ResearchSubjectCentre` as `CentreColumn`'s `.research` arm builds it:
-/// `readOnly` is the window's gate asked of THIS item
-/// (`ReadThroughGate.refusesEdits(.research(id))`), the share, typography and
-/// presence off the window's control plane.
+/// `ResearchSubjectCentre` as `CentreColumn`'s `.research` arm builds it
+/// (`HostBuilderCensusTests` pins the labels to that call): `readThrough` is
+/// the window's gate asked of THIS item (`ReadThroughGate.refusal(.research(id))`),
+/// the share, typography and presence off the window's control plane.
 @MainActor
 enum ResearchCentreFixture {
     static func centre(
         store: ProjectStore, documentStore: DocumentStore, itemID: String,
-        readThrough: ReadThroughGate, editorControl: EditorControl? = nil,
+        previewVisible: Bool = false,
+        readThrough: ReadThroughGate = .writing, editorControl: EditorControl? = nil,
         presence: FigureGridPresence? = nil, window: NSWindow? = nil
     ) -> ResearchSubjectCentre {
         let control = editorControl ?? EditorControl()
         return ResearchSubjectCentre(store: store, documentStore: documentStore,
-                                     itemID: itemID, previewVisible: false,
-                                     readOnly: readThrough.refusesEdits(.research(itemID)),
+                                     itemID: itemID, previewVisible: previewVisible,
+                                     readThrough: readThrough.refusal(.research(itemID)),
                                      shareIsReadOnly: control.shareIsReadOnly,
                                      typography: control.typography,
                                      presence: presence ?? FigureGridPresence(), window: window)

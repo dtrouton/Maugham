@@ -567,7 +567,8 @@ final class FigureCentreGridTests: FigureGridMountedTestCase {
                                       figures: m.store.manifest.figures ?? [], figureLines: [])
         let review = try centre(m, windows: windows, readThrough: reading)
         let r = try await mounted(review)
-        XCTAssertEqual(r.mode, .readOnly(.readThrough))
+        XCTAssertEqual(r.mode.readOnlyReason?.isReadThrough, true)
+        XCTAssertTrue(r.bars.reasonMessage?.contains("is in read-through") == true, "named")
         XCTAssertFalse(r.bars.nameField.isEditable)
         review.box.figureId = nil
         let released = await RunLoopPump.until(deadline: 5) { windows.inPlaceHolds[r.figureId] == nil }
@@ -577,7 +578,7 @@ final class FigureCentreGridTests: FigureGridMountedTestCase {
         let c = try await mounted(author)
         XCTAssertEqual(c.mode, .editable)
         author.box.readThrough = reading
-        let flipped = await RunLoopPump.until(deadline: 5) { c.mode == .readOnly(.readThrough) }
+        let flipped = await RunLoopPump.until(deadline: 5) { c.mode.readOnlyReason?.isReadThrough == true }
         XCTAssertTrue(flipped, "the figure's piece in read-through turns the open grid read-only")
         author.box.readThrough = .writing
         let back = await RunLoopPump.until(deadline: 5) { c.mode == .editable }

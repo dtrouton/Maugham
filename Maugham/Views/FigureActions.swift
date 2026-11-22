@@ -54,6 +54,12 @@ struct FigureActions {
         windowRefusesWrites() || readThrough().refusesEdits(.figure(figureId))
     }
 
+    /// **Which piece's read-through refuses this figure**, named
+    /// (`ReadThroughGate.refusal`) — what every refusing surface says.
+    func readThroughRefusal(of figureId: String) -> ReadThroughRefusal? {
+        readThrough().refusal(.figure(figureId))
+    }
+
     /// The posture's one door and the window's refusal: Send to Research,
     /// Rename and Import are offered only when this answers true.
     func mayEdit(_ figureId: String) -> Bool {
@@ -266,7 +272,17 @@ struct FigureActions {
     func researchVerb(for item: ResearchItem, returning figureId: String?) -> ResearchVerb? {
         guard Self.makesAFigure(item), store.manifest.type.holdsFigures,
               !windowRefusesWrites() else { return nil }
-        return figureId.map { .bringBack(figureId: $0) } ?? .use
+        // Bringing a figure back rewrites it: refused, as sending it is,
+        // while one of its pieces is in read-through (`bringBackRefusal`).
+        if let figureId { return readThroughRefusal(of: figureId) == nil ? .bringBack(figureId: figureId) : nil }
+        return .use
+    }
+
+    /// **Why Bring Back to Figures is refused** for `item`: the figure it
+    /// would overwrite has a piece in read-through, named; nil otherwise.
+    func bringBackRefusal(returning figureId: String?) -> String? {
+        guard let figureId, let refusal = readThroughRefusal(of: figureId) else { return nil }
+        return refusal.because("the figure it would bring back")
     }
 
     /// **Use in Document / Bring Back to Figures**: the store's verb, the

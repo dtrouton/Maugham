@@ -395,7 +395,7 @@ final class FigureGridClipboardTests: XCTestCase {
     func test_aReadOnlyGridCopies_andRefusesCutAndPasteWithTheReason() async throws {
         let (c, _, _, _) = try await openGrid()
         await type(c, "A2", "7")
-        c.setAccess(.readOnly(.readThrough), captionMayEdit: false)
+        c.setAccess(.readOnly(.readThrough(nil)), captionMayEdit: false)
         let opsBefore = try ops(of: c.figureId)
         select(c, "A2")
 
@@ -407,14 +407,14 @@ final class FigureGridClipboardTests: XCTestCase {
         board.setString("x", forType: .string)
         c.bars.showReason(nil)
         try sendFromTheGrid(#selector(NSText.cut(_:)), c)
-        XCTAssertEqual(c.bars.reasonMessage, FigureGridGate.Reason.readThrough.sentence)
+        XCTAssertEqual(c.bars.reasonMessage, FigureGridGate.Reason.readThrough(nil).sentence)
         XCTAssertEqual(board.string(forType: .string), "x", "a refused cut copies nothing")
 
         c.bars.showReason(nil)
         select(c, "B3")
         try sendFromTheGrid(#selector(NSText.paste(_:)), c)
         await c.settleWrites()
-        XCTAssertEqual(c.bars.reasonMessage, FigureGridGate.Reason.readThrough.sentence)
+        XCTAssertEqual(c.bars.reasonMessage, FigureGridGate.Reason.readThrough(nil).sentence)
         XCTAssertEqual(c.host.state.table[key(c, "A2")]?.content, .value(.number(7)))
         XCTAssertNil(c.host.state.table[key(c, "B3")])
         XCTAssertEqual(try ops(of: c.figureId), opsBefore, "nothing written")

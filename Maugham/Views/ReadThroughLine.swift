@@ -16,6 +16,11 @@ import AppKit
 /// It reads the control (`EditorControl.readThroughLineOffer(docId:)`) and
 /// feeds nothing back (tripwire 6). A refused keystroke pulses it
 /// (`TypingRefusedPulse`).
+///
+/// **Over a read-through piece's research** (a note, table or card, in the
+/// centre or pulled up) the same line names the piece — "“Alpha” is in
+/// read-through" — and its Resume writing resumes THAT piece
+/// (`ReadThroughRefusal.resumeOffer`, whose `pieceTitle` it reads).
 struct ReadThroughLine: View {
     let offer: ReadThroughOffer
     /// The hosting window, for the typing-refused pulse's key-window scope.
@@ -37,17 +42,34 @@ struct ReadThroughLine: View {
         "In read-through. Typing is off." + (lacksCheckpoint ? " No checkpoint was saved." : "")
     }
 
+    /// The lead for an offer: the piece named where it is not the one open
+    /// (its research is in front of the writer).
+    static func lead(for offer: ReadThroughOffer) -> String {
+        offer.pieceTitle.map { "\u{201C}\($0)\u{201D} is in read-through" } ?? lead
+    }
+
+    /// The full line for an offer.
+    static func fullText(for offer: ReadThroughOffer) -> String {
+        offer.pieceTitle == nil ? fullText(lacksCheckpoint: offer.lacksCheckpoint) : lead(for: offer)
+    }
+
+    /// What VoiceOver hears for an offer.
+    static func accessibilityText(for offer: ReadThroughOffer) -> String {
+        offer.pieceTitle == nil ? accessibilityText(lacksCheckpoint: offer.lacksCheckpoint)
+            : lead(for: offer) + ". Its research can be read, not changed."
+    }
+
     var body: some View {
         HStack(spacing: 8) {
             // Three widths: the whole line, the lead, and the lead cut short
             // — the last is flexible, so the buttons always stay whole.
             ViewThatFits(in: .horizontal) {
-                text(Self.fullText(lacksCheckpoint: offer.lacksCheckpoint)).fixedSize()
-                text(Self.lead).fixedSize()
-                text(Self.lead).truncationMode(.tail)
+                text(Self.fullText(for: offer)).fixedSize()
+                text(Self.lead(for: offer)).fixedSize()
+                text(Self.lead(for: offer)).truncationMode(.tail)
             }
             .accessibilityElement(children: .ignore)
-            .accessibilityLabel(Self.accessibilityText(lacksCheckpoint: offer.lacksCheckpoint))
+            .accessibilityLabel(Self.accessibilityText(for: offer))
             Spacer(minLength: 0)
             if let save = offer.saveCheckpointRequest {
                 Button(Self.saveTitle) { ReadThrough.post(save) }

@@ -452,7 +452,8 @@ struct FigureInspector: View {
     /// Why Refresh is not offered, nil when it is (this Mac may edit the
     /// figure and a grid has it open, whose stack takes the step).
     private var refreshRefusal: String? {
-        Self.refusal(mayEdit: actions.mayEdit(figureId), reach: actions.gridReach(figureId))
+        Self.refusal(mayEdit: actions.mayEdit(figureId), reach: actions.gridReach(figureId),
+                     readThrough: actions.readThroughRefusal(of: figureId))
     }
 
     // MARK: Sections
@@ -598,8 +599,20 @@ struct FigureInspector: View {
         let mayEdit = actions.mayEdit(figureId)
         let offered = Self.offered(mayEdit: mayEdit, kind: row.kind)
         let reach = actions.gridReach(figureId)
-        let importRefusal = Self.refusal(mayEdit: mayEdit, reach: reach)
+        let readThroughRefusal = actions.readThroughRefusal(of: figureId)
+        let importRefusal = Self.refusal(mayEdit: mayEdit, reach: reach, readThrough: readThroughRefusal)
         VStack(alignment: .leading, spacing: 6) {
+            // Refused for a piece's read-through: which piece, and its Resume.
+            if let readThroughRefusal {
+                Text(readThroughRefusal.because("this figure"))
+                    .font(.caption).foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                if let resume = readThroughRefusal.resumeOffer.resumeRequest {
+                    Button(ReadThroughLine.resumeTitle) { ReadThrough.post(resume) }
+                        .buttonStyle(.link)
+                        .help("Resume writing \u{201C}\(readThroughRefusal.title)\u{201D}")
+                }
+            }
             if offered.contains(.openInWindow) {
                 Button("Open in Window") { actions.openInWindow(row) }
             }
@@ -689,14 +702,16 @@ struct FigureInspector: View {
 
     /// Why Import and Refresh cannot act now, nil when they can: they write
     /// on the open grid's stack, as this Mac's edit.
-    static func refusal(mayEdit: Bool, hasGrid: Bool) -> String? {
-        refusal(mayEdit: mayEdit, reach: hasGrid ? .here : .none)
+    static func refusal(mayEdit: Bool, hasGrid: Bool, readThrough: ReadThroughRefusal?) -> String? {
+        refusal(mayEdit: mayEdit, reach: hasGrid ? .here : .none, readThrough: readThrough)
     }
 
     /// The same, where the grid may be open in another window: they act
-    /// through this window's grid only (final review M7).
-    static func refusal(mayEdit: Bool, reach: FigureActions.GridReach) -> String? {
-        guard mayEdit else { return "This figure is read-only here." }
+    /// through this window's grid only (final review M7). A figure refused
+    /// for a piece's read-through says which piece.
+    static func refusal(mayEdit: Bool, reach: FigureActions.GridReach,
+                        readThrough: ReadThroughRefusal?) -> String? {
+        guard mayEdit else { return readThrough?.because("this figure") ?? "This figure is read-only here." }
         switch reach {
         case .here: return nil
         case .none: return FigureActions.openTheTableFirst

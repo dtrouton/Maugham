@@ -222,7 +222,8 @@ final class FigureGridReadOnlyTests: FigureGridMountedTestCase {
         XCTAssertNil(m.coordinator.figureGrid, "the entry folds the open grid")
         await m.coordinator.figureGridFolding?.value
         let c = try await expand(m)
-        assertReadOnly(c, .readThrough)
+        // No window gate here to name the piece: the unnamed sentence.
+        assertReadOnly(c, .readThrough(nil))
         XCTAssertFalse(c.bars.captionField.isEditable, "the caption is the text's, and its typing is off")
         ReadThrough.post(.init(docId: docId, on: false))
         assertEditable(c)

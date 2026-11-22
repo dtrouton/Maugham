@@ -26,7 +26,10 @@ Denver's intent, in his words: "If I'm reaching for the lock I want to protect t
 
 - **A piece's research** is a Collection piece's own folder (`researchScopePieceId`). A novel's shared research linked to a chapter is the book's and stays editable.
 - **A figure's pieces** are the piece it was made in (`FigureRecord.piece`) **and** every piece whose text holds one of its lines. The centre's grid, a figure window, an editor's grid in place, the inspector, the tree's row and what is pulled up all ask this one rule, so ⤢ from a read-only grid never opens an editable window.
-- **Find & Replace** leaves a piece in read-through, and a note in its folder, as they were, and names them.
+- **Find & Replace** leaves a piece in read-through, and a note in its folder, as they were, and names them; the research arm asks the gate's own rule.
+- **A piece's research reads whole**: the item, and its inspector's Title, Caption, Tags, URL, Citation and Versions' Restore. **Bring Back to Figures** is refused over a figure whose piece is in read-through, as Send to Research is; making a new figure (Use in Document, New Table) is creation and refused by nothing.
+- **Every refusal names the piece and how to resume it** (`ReadThroughGate.refusal`, the first refusing piece in tree order and how many more): the figure grid's reason (centre, window, in place), the figure inspector, the tree's row menu and drops, Restore, and Replace. A read-through piece's research, in the centre or pulled up, carries the line the text carries — "“Alpha” is in read-through · Resume writing" — and its Resume resumes that piece; the padlock over it names the piece and acts on it.
+- **One gate per session**: each project window hands its gate to the session's figure windows, which combine them (`FigureWindows.setReadThrough(_:from:)`), so a window whose figure listing has not built cannot unrefuse a figure owned through a line.
 
 **Why.** One answer cannot drift. "Only adds" keeps a reviewer's copy, a narrowed book and a view-only share exactly as strict as before.
 
@@ -52,6 +55,7 @@ Denver's intent, in his words: "If I'm reaching for the lock I want to protect t
 - **Two windows on one piece** both show Rewind on Compare.
 - **A flush failure before the checkpoint is swallowed**, as ⌘S swallows it; a checkpoint that does not land says so and leaves read-through on, with Save one over the text where one could land.
 - **Start only over visible text**: never enter a state whose line you cannot see.
+- **The assistant's research writes are not refused** (ruling M1, 2026-11-22). `write_research_cells`, `create_research_table`, `update_research_citation` and `move_research_item` still succeed for a read-through piece's research. Read-through stops the writer's own accidental edits on this Mac; it is not a permission, and an assistant's research write is neither an accident nor manuscript text (`ResearchTableToolsTests.test_aReadThroughPiecesTableStillTakesTheAssistantsCells`, `ReadThroughResearchSurfaceTests.test_noMCPToolAsksReadThrough`). `add_note` is how the assistant comments.
 
 ## The owner's decisions (2026-11-22)
 

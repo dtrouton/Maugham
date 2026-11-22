@@ -354,12 +354,17 @@ final class FigureWindows {
         yieldInPlace(figureId)
     }
 
-    /// **The project's read-through gate**, as a project window last built
-    /// it (`ReadThroughModifier.gate`): a figure window's gate, and an
-    /// editor's grid in place, ask it (`isInReadThrough`). Observed, so an
-    /// editor's expanded grid asks its gate again when it moves
-    /// (`EditorCoordinator.observeFigureWindows`).
+    /// **The session's one read-through gate**: the newest gate a project
+    /// window handed over (`ReadThroughModifier.gate`), with every open
+    /// window's figure owners added (`ReadThroughGate.addingOwners`) — so a
+    /// window just opened, whose figure listing has not built, cannot
+    /// unrefuse a figure owned through a line. A figure window's gate, and an
+    /// editor's grid in place, ask it. Observed, so an editor's expanded grid
+    /// asks its gate again when it moves (`EditorCoordinator.observeFigureWindows`).
     private(set) var readThrough: ReadThroughGate = .writing
+    /// Each project window's last gate, and which was handed last.
+    @ObservationIgnored private var handed: [UUID: ReadThroughGate] = [:]
+    @ObservationIgnored private var newest: UUID?
 
     init() {}
 
@@ -369,11 +374,32 @@ final class FigureWindows {
         readThrough.refusesEdits(.figure(figureId))
     }
 
-    /// **The window built a new gate** (a Start, a Resume, a figure line
-    /// moved): every figure window asks its gate again. Self-guarded.
-    func setReadThrough(_ gate: ReadThroughGate) {
-        guard gate != readThrough else { return }
-        readThrough = gate
+    /// The piece a figure is refused for, named (`ReadThroughGate.refusal`).
+    func readThroughRefusal(_ figureId: String) -> ReadThroughRefusal? {
+        readThrough.refusal(.figure(figureId))
+    }
+
+    /// **A project window built a new gate** (a Start, a Resume, a figure line
+    /// moved): the session's gate is recombined, and every figure window asks
+    /// its gate again when it moved.
+    func setReadThrough(_ gate: ReadThroughGate, from window: UUID) {
+        handed[window] = gate
+        newest = window
+        recombine()
+    }
+
+    /// A project window went: its gate no longer counts.
+    func dropReadThrough(from window: UUID) {
+        guard handed.removeValue(forKey: window) != nil else { return }
+        if newest == window { newest = handed.keys.first }
+        recombine()
+    }
+
+    private func recombine() {
+        let base = newest.flatMap { handed[$0] } ?? .writing
+        let next = base.addingOwners(of: handed.filter { $0.key != newest }.map(\.value))
+        guard next != readThrough else { return }
+        readThrough = next
         for listening in listeners.values { listening.access() }
     }
 
@@ -504,7 +530,7 @@ private final class ResumeOnce {
 ///   again (a park); the gate is asked of the window's door (`.editFigure`,
 ///   observed by the controller), the host (parked, closed) and the share
 ///   as the project windows last told it (`FigureWindows.shareIsReadOnly`).
-///   Read-through is the figure's piece's (`FigureWindows.isInReadThrough`):
+///   Read-through is the figure's pieces' (`FigureWindows.readThroughRefusal`):
 ///   the grid is read-only while that piece is in read-through, its notes
 ///   still answered, and follows each Start and Resume (`setReadThrough`).
 /// - **Done closes the window**, and ⌘W; Esc with nothing to cancel does
@@ -529,8 +555,9 @@ final class FigureWindowGrid {
         var caption: String
         var piece: String?
         var typography: TypographySettings
-        /// Whether the figure's piece is in read-through.
-        var isInReadThrough: @MainActor () -> Bool
+        /// The piece the figure is refused for, if one of its pieces is in
+        /// read-through (`ReadThroughGate.refusal`).
+        var readThrough: @MainActor () -> ReadThroughRefusal?
         var shareIsReadOnly: @MainActor () -> Bool
         /// The grid takes the keys when it mounts (a window); the centre
         /// leaves them where the writer has them (the tree).
@@ -552,7 +579,7 @@ final class FigureWindowGrid {
             return Frame(
                 number: handoff?.number ?? ElementWords.english.table, caption: handoff?.caption ?? "",
                 piece: handoff?.piece, typography: handoff?.typography ?? .defaults,
-                isInReadThrough: { [weak windows] in windows?.isInReadThrough(figureId) ?? false },
+                readThrough: { [weak windows] in windows?.readThroughRefusal(figureId) },
                 shareIsReadOnly: { [weak windows] in windows?.shareIsReadOnly ?? false })
         }
     }
@@ -788,7 +815,7 @@ final class FigureWindowGrid {
             figureMayEdit: store?.posture(forDocId: controller.figureId).allows(.editFigure) ?? false,
             parked: controller.host.state.parked != nil, hostClosed: controller.host.isClosed,
             shareIsReadOnly: frame?.shareIsReadOnly() ?? false,
-            isInReadThrough: frame?.isInReadThrough() ?? false,
+            isInReadThrough: frame?.readThrough() != nil, naming: frame?.readThrough() ?? nil,
             isReadingTranslation: false)
         // `.noExpand` is a translation's alone, which no frame here is.
         guard mode != .noExpand, mode != controller.mode || controller.captionMayEdit else { return }

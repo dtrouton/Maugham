@@ -286,7 +286,7 @@ final class FigureGridStripTests: XCTestCase {
         final class Step { var undone = false }
         let typedBefore = Step()
         c.gridUndo.registerUndo(withTarget: typedBefore) { $0.undone = true }   // a cell typed before the entry
-        c.setAccess(.readOnly(.readThrough), captionMayEdit: false)
+        c.setAccess(.readOnly(.readThrough(nil)), captionMayEdit: false)
         XCTAssertFalse(c.gridUndo.canUndo, "the entry drops the grid's steps before it")
         c.handle(.click(b2, extend: false))
         XCTAssertEqual(c.stripPlan.entries.first?.actions,

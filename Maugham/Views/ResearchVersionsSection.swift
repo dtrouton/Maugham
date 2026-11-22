@@ -29,9 +29,9 @@ enum ResearchVersionsModel {
     /// the item's piece in read-through (whose grid reads the table and
     /// refuses its edits) — the grid's own reasons and sentences
     /// (`FigureGridGate.Reason`).
-    static func restoreRefusal(shareIsReadOnly: Bool, inReadThrough: Bool) -> FigureGridGate.Reason? {
+    static func restoreRefusal(shareIsReadOnly: Bool, readThrough: ReadThroughRefusal?) -> FigureGridGate.Reason? {
         if shareIsReadOnly { return .viewOnlyShare }
-        if inReadThrough { return .readThrough }
+        if let readThrough { return .readThrough(readThrough) }
         return nil
     }
 
@@ -107,9 +107,9 @@ struct ResearchVersionsSection: View {
     var kind: ResearchVersionPayload = .table
     /// What a refusal calls it (`ResearchVersionsModel.noun(for:)`).
     var noun: String = "table"
-    /// The item's piece is in read-through (`ReadThroughGate.refusesEdits`):
-    /// read, not changed.
-    let inReadThrough: Bool
+    /// The item's piece in read-through, named (`ReadThroughGate.refusal`):
+    /// read, not changed, and Restore's reason says which piece.
+    let readThrough: ReadThroughRefusal?
 
     /// Nil until the first listing lands.
     @State private var rows: [ResearchVersionsModel.Row]?
@@ -118,7 +118,7 @@ struct ResearchVersionsSection: View {
 
     var body: some View {
         let refusal = ResearchVersionsModel.restoreRefusal(shareIsReadOnly: shareIsReadOnly,
-                                                           inReadThrough: inReadThrough)
+                                                           readThrough: readThrough)
         VStack(alignment: .leading, spacing: 8) {
             HStack {
                 Text("Versions").font(.headline)

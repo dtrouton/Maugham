@@ -137,7 +137,8 @@ final class ReadThroughSurfaceTests: XCTestCase {
         ReadThroughModifier.Facts(
             docId: item?.id, item: item, posture: posture, shareIsReadOnly: false,
             isReadingTranslation: false, route: route,
-            pieces: on ? ["Chapter-1"] : [], lackingCheckpoint: lacking ? ["Chapter-1"] : [])
+            pieces: on ? ["Chapter-1"] : [], lackingCheckpoint: lacking ? ["Chapter-1"] : [],
+            researchRefusal: nil)
     }
 
     /// **On, but no checkpoint was saved** (carry B): Resume stays, and Save one
@@ -276,8 +277,13 @@ final class ReadThroughSurfaceTests: XCTestCase {
         }
         XCTAssertEqual(posters, ["Maugham/Views/ReadThrough.swift"], "one sender")
         XCTAssertEqual(Set(postCalls), ["Maugham/MaughamApp.swift", "Maugham/Views/ReadThroughLine.swift",
-                                        "Maugham/Views/ReadThroughToggle.swift"],
-                       "the routes: the menu item, the line and the padlock")
+                                        "Maugham/Views/ReadThroughToggle.swift",
+                                        "Maugham/Views/FigureInspector.swift"],
+                       "the routes: the menu item, the line, the padlock and the figure inspector's Resume")
+        let inspector = SourceScan.codeLines(of: try SourceTree.read("Maugham/Views/FigureInspector.swift"))
+            .joined(separator: "\n")
+        XCTAssertTrue(inspector.contains("if let resume = readThroughRefusal.resumeOffer.resumeRequest {"),
+                      "the inspector posts only the refusal's Resume")
         let padlock = try SourceTree.declaration(named: "struct ReadThroughToggle", under: "Maugham")
         XCTAssertTrue(padlock.contains("static func request(_ offer: ReadThroughOffer?) -> ReadThrough.Request? {"))
         XCTAssertTrue(padlock.contains("offer?.toggleRequest"), "the padlock posts only what the offer gives")
@@ -319,13 +325,13 @@ final class ReadThroughSurfaceTests: XCTestCase {
             ("visible feedback over the text", views + "EditorHost.swift",
              "ReadThroughLine(offer: offer, window: window)"),
             ("the figure grid is read-only, its notes answered", editor + "FigureGridGate.swift",
-             "if isInReadThrough { return .readOnly(.readThrough) }"),
+             "if isInReadThrough { return .readOnly(.readThrough(refusal)) }"),
             ("Accept on a figure cell writes", editor + "FigureGridStrip.swift",
-             "reason == nil || reason == .readThrough"),
+             "reason == nil || reason?.isReadThrough == true"),
             ("a figure window follows", editor + "FigureWindow.swift",
-             "isInReadThrough: frame?.isInReadThrough() ?? false,"),
+             "isInReadThrough: frame?.readThrough() != nil, naming: frame?.readThrough() ?? nil,"),
             ("the centre figure grid follows", views + "FigureSubjectColumns.swift",
-             ".refusesEdits(.figure(figureID)),"),
+             "readThrough: readThrough.refusal(.figure(figureID)),"),
             ("the Insert menu is off", views + "EditorControlMirror.swift",
              "&& !readThrough && !isReadingTranslation"),
             ("a menu item and a key", "Maugham/MaughamApp.swift", "FocusedReadThroughItem()"),
@@ -791,7 +797,7 @@ private struct ReceiverProbe: View {
             facts: ReadThroughModifier.Facts(
                 docId: item.id, item: item, posture: .author, shareIsReadOnly: false,
                 isReadingTranslation: false, route: .editor(altitude: nil, cover: nil),
-                pieces: readThrough.pieceIds, lackingCheckpoint: readThrough.piecesLackingCheckpoint),
+                pieces: readThrough.pieceIds, lackingCheckpoint: readThrough.piecesLackingCheckpoint, researchRefusal: nil),
             treeState: treeState, figureRows: [], figureWindows: nil, gate: $gate, onSaveFlash: {}))
     }
 }

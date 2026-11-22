@@ -126,6 +126,12 @@ final class ReadThroughReplaceTests: XCTestCase {
         XCTAssertTrue(view.contains(".help(Self.readThroughRowHelp)"))
         XCTAssertTrue(view.contains("case .manuscript: return store.pieceInReadThrough(atPath: path) != nil"))
         XCTAssertTrue(view.contains("case .research: return store.researchIsInReadThrough(atPath: path)"))
+        // The research arm asks the gate's own rule, never a second spelling (M8).
+        let search = SourceScan.codeLines(of: try SourceTree.read("Maugham/Stores/ProjectStore+Search.swift"))
+            .joined(separator: "\n")
+        XCTAssertTrue(search.contains("return gate.refusal(.research(item.id))"))
+        XCTAssertTrue(search.contains("return gate.refusal(researchPath: path)"))
+        XCTAssertFalse(search.contains("researchScopePieceId"), "no second spelling of the research rule")
         XCTAssertTrue(view.contains("inReadThrough: gate.isInReadThrough)"), "the confirm counts it")
     }
 
@@ -196,10 +202,11 @@ final class ReadThroughReplaceTests: XCTestCase {
             try await store.replaceMatch(tide, with: "dog")
             XCTFail("a Replace in the piece's folder must refuse")
         } catch let error as ProjectStoreError {
-            XCTAssertEqual(error, .inReadThrough(title: tide.documentTitle))
+            XCTAssertEqual(error, .inReadThrough(title: "Alpha"), "it names the piece, which can be resumed")
         }
         let outcome = try await store.replaceAll(in: results, with: "dog")
-        XCTAssertEqual(outcome.inReadThrough, [tide.documentTitle])
+        XCTAssertEqual(outcome.inReadThrough, ["\(tide.documentTitle) (in \u{201C}Alpha\u{201D})"],
+                       "the note, and the piece it is in")
         XCTAssertTrue(try read("pieces/01-a/research/tide.md").contains("A cat at the tide."), "left as it was")
         XCTAssertTrue(try read("research/ships.md").contains("A dog on the ship."), "the shared note is replaced")
     }

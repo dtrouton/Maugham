@@ -750,9 +750,10 @@ struct ProjectWindow: View {
         return id
     }
 
-    /// **The editor's membrane, asked of the posture.** The DRAWING accessor
-    /// (controller ruling I): reading it observes `postureEpoch`, so a demotion or a promotion
-    /// arriving mid-session re-mirrors with no reopen. The rule itself is
+    /// **The editor's membrane, from the facts' posture** — the drawing
+    /// posture `readThroughFacts` read once this pass (controller ruling I:
+    /// that read observes `postureEpoch`, so a demotion or a promotion
+    /// arriving mid-session re-mirrors with no reopen). The rule itself is
     /// `EditorControlMirror.membrane`, pinned without a window.
     private static func editorMembrane(_ facts: ReadThroughModifier.Facts) -> EditorControlMirror.Membrane {
         EditorControlMirror.membrane(posture: facts.posture, shareIsReadOnly: facts.shareIsReadOnly)
@@ -786,7 +787,9 @@ struct ProjectWindow: View {
                                  centreItem: centreItem)
             },
             pieces: session?.readThrough.pieceIds ?? [],
-            lackingCheckpoint: session?.readThrough.piecesLackingCheckpoint ?? [])
+            lackingCheckpoint: session?.readThrough.piecesLackingCheckpoint ?? [],
+            researchRefusal: (subject.open.researchID ?? subject.beside?.researchID)
+                .flatMap { readThroughGate.refusal(.research($0)) })
     }
 
     /// **The Insert menu's enabled state** (plan 3a Task 4), published to the

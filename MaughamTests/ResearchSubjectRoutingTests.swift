@@ -1021,9 +1021,8 @@ private struct ResearchRoutingProbeView: View {
     private var centre: some View {
         switch route {
         case .research(let id):
-            ResearchSubjectCentre(store: store, documentStore: documentStore,
-                                  itemID: id, previewVisible: false,
-                                  readOnly: readThrough.refusesEdits(.research(id)))
+            ResearchCentreFixture.centre(store: store, documentStore: documentStore, itemID: id,
+                                         readThrough: readThrough)
         case .canvas:
             CanvasView(model: canvasModel, projectRoot: store.url,
                        paletteSwatchHexes: { canvasLoads.record(); return [] })
@@ -1044,7 +1043,8 @@ private struct ResearchRoutingProbeView: View {
         if let id = placement.inspectedItemID {
             ResearchSubjectInspector(store: store, itemID: id,
                                      showsPreview: placement.previewsInTheRightColumn,
-                                     inReadThrough: readThrough.refusesEdits(.research(id)))
+                                     readOnly: readThrough.refusesEdits(.research(id)),
+                                     readThrough: readThrough.refusal(.research(id)))
         } else if ProjectWindow.inspectorRoute(subject: probe.subject,
                                                projectType: store.manifest.type) == .canvas {
             RegionInspectorPane(model: canvasModel, pieces: [],

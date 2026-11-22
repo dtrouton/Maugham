@@ -102,6 +102,14 @@ struct ReadThroughGate: Equatable {
     let pieces: Set<String>
     private let researchOwners: [String: String]
     private let figureOwners: [String: Set<String>]
+    /// Each loose piece's research folder prefix → its id: the research rule
+    /// (`owner(ofResearchPath:)`), asked of a root path here and of a file's
+    /// path by Find & Replace.
+    private let researchFolders: [(prefix: String, pieceId: String)]
+    /// The pieces in read-through, in tree order, with their titles: what a
+    /// refusal names (`refusal(_:)`).
+    private let order: [String]
+    private let titles: [String: String]
 
     /// The empty gate: refuses nothing.
     static let writing = ReadThroughGate(
@@ -116,15 +124,33 @@ struct ReadThroughGate: Equatable {
         guard !pieces.isEmpty else {
             researchOwners = [:]
             figureOwners = [:]
+            researchFolders = []
+            order = []
+            titles = [:]
             return
+        }
+        var order_: [String] = []
+        var titles_: [String: String] = [:]
+        func walk(_ items: [StructureItem]) {
+            for item in items {
+                if pieces.contains(item.id) {
+                    order_.append(item.id)
+                    titles_[item.id] = item.title
+                }
+                walk(item.children ?? [])
+            }
+        }
+        walk(structure)
+        order = order_
+        titles = titles_
+        researchFolders = structure.compactMap { piece in
+            ProjectStore.pieceResearchPrefix(for: piece).map { ($0, piece.id) }
         }
         var research_: [String: String] = [:]
         for root in research {
-            // Every descendant's root is this top-level item, so one root path
-            // per top-level item answers for the whole subtree.
-            let rootPath = ProjectStore.researchRootPath(ofItemId: root.id, in: research)
-            guard let owner = ProjectStore.researchScopePieceId(
-                ofPath: rootPath, structure: structure) else { continue }
+            // A whole subtree lives under its top-level item's folder, so one
+            // root path answers for every descendant.
+            guard let owner = Self.owner(ofResearchPath: root.path, in: researchFolders) else { continue }
             func mark(_ item: ResearchItem) {
                 research_[item.id] = owner
                 for child in item.children ?? [] { mark(child) }
@@ -142,6 +168,51 @@ struct ReadThroughGate: Equatable {
         figureOwners = figures_
     }
 
+    private init(pieces: Set<String>, researchOwners: [String: String],
+                 figureOwners: [String: Set<String>],
+                 researchFolders: [(prefix: String, pieceId: String)],
+                 order: [String], titles: [String: String]) {
+        self.pieces = pieces
+        self.researchOwners = researchOwners
+        self.figureOwners = figureOwners
+        self.researchFolders = researchFolders
+        self.order = order
+        self.titles = titles
+    }
+
+    /// **This gate with every other gate's owners added** — the session's one
+    /// gate over several windows (`FigureWindows.setReadThrough(_:from:)`):
+    /// the set, titles and order are this (the newest) gate's; a figure's
+    /// line known to any window keeps its piece, so a window whose listing has
+    /// not built yet can never unrefuse it. Only adds refusals.
+    func addingOwners(of others: [ReadThroughGate]) -> ReadThroughGate {
+        guard !pieces.isEmpty else { return self }
+        var figures = figureOwners
+        var research = researchOwners
+        for other in others {
+            for (id, owners) in other.figureOwners { figures[id, default: []].formUnion(owners) }
+            for (id, owner) in other.researchOwners where research[id] == nil { research[id] = owner }
+        }
+        return ReadThroughGate(pieces: pieces, researchOwners: research, figureOwners: figures,
+                               researchFolders: researchFolders, order: order, titles: titles)
+    }
+
+    static func == (lhs: ReadThroughGate, rhs: ReadThroughGate) -> Bool {
+        lhs.pieces == rhs.pieces && lhs.researchOwners == rhs.researchOwners
+            && lhs.figureOwners == rhs.figureOwners && lhs.order == rhs.order && lhs.titles == rhs.titles
+            && lhs.researchFolders.map(\.prefix) == rhs.researchFolders.map(\.prefix)
+            && lhs.researchFolders.map(\.pieceId) == rhs.researchFolders.map(\.pieceId)
+    }
+
+    /// **The research rule**: a path inside a loose piece's own research
+    /// folder belongs to that piece (`ProjectStore.pieceResearchPrefix`, as
+    /// `researchScopePieceId` reads it); anything else is the book's.
+    private static func owner(ofResearchPath path: String?,
+                              in folders: [(prefix: String, pieceId: String)]) -> String? {
+        guard let path else { return nil }
+        return folders.first { path.hasPrefix($0.prefix) }?.pieceId
+    }
+
     /// The pieces a target belongs to; empty for one that belongs to none.
     func owners(of target: ReadThroughTarget) -> Set<String> {
         switch target {
@@ -155,6 +226,60 @@ struct ReadThroughGate: Equatable {
     /// read-through.
     func refusesEdits(_ target: ReadThroughTarget) -> Bool {
         owners(of: target).contains { ReadThrough.isOn($0, in: pieces) }
+    }
+
+    /// **Why a target is refused, naming the piece** — the first of its
+    /// pieces in read-through, in tree order, and how many more; nil where it
+    /// is not refused. Every refusing surface says this, so a writer refused
+    /// because of a piece they cannot see is told which, and how to resume.
+    func refusal(_ target: ReadThroughTarget) -> ReadThroughRefusal? {
+        refusal(among: owners(of: target))
+    }
+
+    /// The same, over a research FILE's path (Find & Replace's research arm),
+    /// by the gate's own research rule.
+    func refusal(researchPath path: String) -> ReadThroughRefusal? {
+        refusal(among: Self.owner(ofResearchPath: path, in: researchFolders).map { [$0] } ?? [])
+    }
+
+    /// The refusal among `owners` — those in read-through, the first in tree
+    /// order named (a piece the structure lost is named by its id, last).
+    func refusal(among owners: Set<String>) -> ReadThroughRefusal? {
+        let on = owners.filter { ReadThrough.isOn($0, in: pieces) }
+        guard !on.isEmpty else { return nil }
+        let first = order.first(where: on.contains) ?? on.sorted()[0]
+        return ReadThroughRefusal(pieceId: first, title: titles[first] ?? first, others: on.count - 1)
+    }
+}
+
+/// **Which piece's read-through refuses something** — named in every refusal
+/// and on every research surface's line, with the piece Resume writing acts on.
+struct ReadThroughRefusal: Equatable, Hashable {
+    /// The first refusing piece, in tree order: what Resume writing resumes.
+    let pieceId: String
+    let title: String
+    /// How many more of the target's pieces are in read-through.
+    let others: Int
+
+    /// "“Chapter Three”", or "“Chapter Three” and 2 more".
+    var named: String {
+        others == 0 ? "\u{201C}\(title)\u{201D}" : "\u{201C}\(title)\u{201D} and \(others) more"
+    }
+
+    /// "“Chapter Three” is in read-through" / "… and 2 more are in read-through".
+    var sentence: String { "\(named) \(others == 0 ? "is" : "are") in read-through" }
+
+    /// "“Chapter Three” is in read-through — resume writing there to change
+    /// this figure." — what a surface refused for it says.
+    func because(_ what: String) -> String {
+        "\(sentence) \u{2014} resume writing there to change \(what)."
+    }
+
+    /// Resume writing for the named piece — always allowed.
+    var resumeOffer: ReadThroughOffer {
+        var offer = ReadThroughOffer.on(docId: pieceId, lacksCheckpoint: false, mayTakeCheckpoint: false)
+        offer.pieceTitle = title
+        return offer
     }
 }
 
@@ -173,9 +298,13 @@ struct ReadThroughOffer: Equatable {
     /// (`ReadThroughStore.piecesLackingCheckpoint`).
     var lacksCheckpoint: Bool = false
     /// **Save one is offered**: the checkpoint is missing AND a Start's
-    /// checkpoint could land here — the posture allows `.writeText` and the
+    /// checkpoint could land here — the posture allows `.checkpoint` and the
     /// share is writable. Elsewhere the line only says none was saved.
     var offersSaveOne: Bool = false
+    /// The piece's title, where the offer is for a piece that is NOT the open
+    /// one — a read-through piece's research is in front of the writer
+    /// (`ReadThroughRefusal.resumeOffer`) — so the padlock names it.
+    var pieceTitle: String? = nil
 
     static let postureRefusal =
         "This Mac may not change this piece’s text, so there is nothing to start."
@@ -209,10 +338,10 @@ struct ReadThroughOffer: Equatable {
     }
 
     /// **Whether a Start's checkpoint could land**: the posture allows
-    /// `.writeText` and the share is writable — the checkpoint door's own
-    /// refusals (`CheckpointFlashDecision.labelledCapture`).
+    /// `.checkpoint` — what `CheckpointCapture` itself refuses on — and the
+    /// share is writable (`CheckpointFlashDecision.labelledCapture`).
     static func mayTakeCheckpoint(posture: Posture?, shareIsReadOnly: Bool) -> Bool {
-        (posture?.allows(.writeText) ?? false) && !shareIsReadOnly
+        (posture?.allows(.checkpoint) ?? false) && !shareIsReadOnly
     }
 
     /// The offer for a piece in read-through: Resume is always enabled,

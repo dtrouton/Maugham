@@ -1076,8 +1076,7 @@ private struct AltitudeCentreProbeView: View {
         case .paletteWall:
             EmptyView()
         case .research(let id):
-            ResearchSubjectCentre(store: store, documentStore: documentStore,
-                                  itemID: id, previewVisible: false, readOnly: false)
+            ResearchCentreFixture.centre(store: store, documentStore: documentStore, itemID: id)
         case .figure(let id):
             FigureSubjectSurface(
                 figureID: id, store: store, documentStore: documentStore, figureWindows: figureWindows,

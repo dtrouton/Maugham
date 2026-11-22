@@ -603,7 +603,7 @@ struct PulledUpView: View {
             // Making a figure from Research is creation: the share alone refuses it.
             figureWritesRefused: editorControl.shareIsReadOnly,
             documentStore: documentStore, readOnly: readOnly,
-            inReadThrough: Self.centreResearchIsReadOnly(id, readThrough: readThrough),
+            readThrough: readThrough.refusal(.research(id)),
             shareIsReadOnly: editorControl.shareIsReadOnly, typography: editorControl.typography,
             window: window, presence: figureGridPresence,
             editsNotes: true)

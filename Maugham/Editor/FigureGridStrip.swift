@@ -66,13 +66,13 @@ enum FigureGridStrip {
         /// where an Accept is a decision and writes the cell (Accept, Got it,
         /// Reject). Every other reason hides the buttons.
         static func keepsAnswers(_ reason: FigureGridGate.Reason?) -> Bool {
-            reason == .readThrough
+            reason?.isReadThrough == true
         }
 
         /// Whether Accept may write the cell under `reason`: an editable grid,
         /// or one in read-through.
         static func acceptWrites(under reason: FigureGridGate.Reason?) -> Bool {
-            reason == nil || reason == .readThrough
+            reason == nil || reason?.isReadThrough == true
         }
 
         /// The entry on `page` (clamped) and its "1 of 2" (nil with one note).

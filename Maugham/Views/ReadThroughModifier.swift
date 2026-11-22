@@ -140,6 +140,10 @@ struct ReadThroughModifier: ViewModifier {
         /// The session's pieces in read-through, and those without a checkpoint.
         let pieces: Set<String>
         let lackingCheckpoint: Set<String>
+        /// The research item in front of the writer (open in the centre, else
+        /// pulled up) refused for its piece's read-through, named — what the
+        /// padlock and the menu offer to resume where no piece is open.
+        let researchRefusal: ReadThroughRefusal?
 
         /// Whether the open piece is in read-through.
         var openIsOn: Bool { ReadThrough.isOn(docId, in: pieces) }
@@ -164,10 +168,15 @@ struct ReadThroughModifier: ViewModifier {
     /// The window's gate, written here only.
     @Binding var gate: ReadThroughGate
     let onSaveFlash: () -> Void
+    /// This window's key among the session's figure windows' gates.
+    @State private var gateKey = UUID()
     @Environment(BackupCoordinator.self) private var backupCoordinator
 
     /// **The open piece's offer, from the window's facts** — what the menu
     /// bar reads through `FocusedValues.readThroughOffer`.
+    /// With no manuscript piece open, a read-through piece's research in
+    /// front of the writer offers that piece's Resume, named
+    /// (`ReadThroughRefusal.resumeOffer`).
     @MainActor
     static func offer(_ facts: Facts) -> ReadThroughOffer? {
         ReadThroughOffer.of(
@@ -176,6 +185,7 @@ struct ReadThroughModifier: ViewModifier {
             isReadingTranslation: facts.isReadingTranslation,
             isTextVisible: facts.isTextVisible,
             pieces: facts.pieces, lackingCheckpoint: facts.lackingCheckpoint)
+            ?? facts.researchRefusal?.resumeOffer
     }
 
     /// What the gate is built from; equal inputs build an equal gate.
@@ -212,8 +222,9 @@ struct ReadThroughModifier: ViewModifier {
             .onChange(of: gateInputs, initial: true) { _, inputs in
                 let next = Self.gate(inputs)
                 if gate != next { gate = next }
-                figureWindows?.setReadThrough(next)
+                figureWindows?.setReadThrough(next, from: gateKey)
             }
+            .onDisappear { figureWindows?.dropReadThrough(from: gateKey) }
             .onKeyWindowCommand(.maughamSetReadThrough, window: window) { note in
                 guard let request = ReadThrough.request(of: note.userInfo),
                       let readThrough, let documentStore else { return }

@@ -8,8 +8,10 @@ import SwiftUI
 /// It posts only what the window's offer gives it (`ReadThroughOffer
 /// .toggleRequest`), as the View menu item and ⌘⌥⇧R do: Start only while the
 /// piece's text is in the centre and a Start is allowed, Resume wherever the
-/// piece is open. Where there is no offer (the Book, an edition, research,
-/// the canvas) or it is refused, it is **drawn but disabled** — the chrome
+/// piece is open. A read-through piece's research in front of the writer
+/// offers that piece's Resume, named (`ReadThroughRefusal.resumeOffer`).
+/// Where there is no offer (the Book, an edition, other research, the
+/// canvas) or it is refused, it is **drawn but disabled** — the chrome
 /// never shifts — and its tooltip says why. Hidden with the toolbar under
 /// `⌘\` (`ProjectWindow.windowToolbarIsVisible`).
 struct ReadThroughToggle: View {
@@ -34,13 +36,18 @@ struct ReadThroughToggle: View {
     /// What a press does and its key — or, disabled, why not.
     static func tooltip(_ offer: ReadThroughOffer?) -> String {
         guard let offer else { return noPieceTooltip }
+        if offer.isOn, let title = offer.pieceTitle {
+            return "Resume writing \u{201C}\(title)\u{201D} (\u{2318}\u{2325}\u{21E7}R)"
+        }
         if offer.isOn { return resumeTooltip }
         return offer.isEnabled ? startTooltip : (offer.reason ?? noPieceTooltip)
     }
 
-    /// VoiceOver's label: what a press does.
+    /// VoiceOver's label: what a press does — naming the piece where it is
+    /// not the open one.
     static func label(_ offer: ReadThroughOffer?) -> String {
-        offer?.isOn == true ? "Resume writing" : "Start read-through"
+        guard offer?.isOn == true else { return "Start read-through" }
+        return offer?.pieceTitle.map { "Resume writing \u{201C}\($0)\u{201D}" } ?? "Resume writing"
     }
 
     /// VoiceOver's value: the piece's state.

@@ -1878,8 +1878,7 @@ struct PublishCentreProbeView: View {
         case .paletteWall:
             EmptyView()
         case .research(let id):
-            ResearchSubjectCentre(store: store, documentStore: documentStore,
-                                  itemID: id, previewVisible: false, readOnly: false)
+            ResearchCentreFixture.centre(store: store, documentStore: documentStore, itemID: id)
         case .figure:
             EmptyView()   // the probe's subjects are never figures
         case .canvas:

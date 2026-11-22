@@ -129,8 +129,8 @@ final class ResearchTableGridTests: XCTestCase {
 
     /// A mounted visit on `item`, opened.
     private func mount(_ item: ResearchItem, _ store: DocumentStore, _ projectStore: ProjectStore,
-                       readOnly: Bool = false, shareIsReadOnly: Bool = false) async -> ResearchTableMount {
-        let mount = ResearchTableMount(itemId: item.id, readOnly: readOnly, shareIsReadOnly: shareIsReadOnly,
+                       readThrough: ReadThroughRefusal? = nil, shareIsReadOnly: Bool = false) async -> ResearchTableMount {
+        let mount = ResearchTableMount(itemId: item.id, readThrough: readThrough, shareIsReadOnly: shareIsReadOnly,
                                        presence: FigureGridPresence())
         mounts.append(mount)
         mount.open(title: item.title, store: store, projectStore: projectStore, typography: .defaults)
@@ -419,10 +419,11 @@ final class ResearchTableGridTests: XCTestCase {
         let (store, projectStore) = try await openBook()
         let item = try await researchTable("model.csv", "Year,Revenue\n2025,10\n", in: projectStore)
         let before = try bytes(of: item)
-        let mount = await mount(item, store, projectStore, readOnly: true)
+        let alpha = ReadThroughRefusal(pieceId: "alpha", title: "Alpha", others: 0)
+        let mount = await mount(item, store, projectStore, readThrough: alpha)
         let c = try XCTUnwrap(mount.controller)
         let host = try XCTUnwrap(mount.host)
-        XCTAssertEqual(c.mode, .readOnly(.readThrough))
+        XCTAssertEqual(c.mode, .readOnly(.readThrough(alpha)), "its reason names the piece")
 
         await type("99", at: 2, 2, in: c)
         XCTAssertEqual(host.state.table[key(host, 2, 2)]?.content, .value(.number(10)), "typing wrote nothing")
@@ -451,18 +452,18 @@ final class ResearchTableGridTests: XCTestCase {
             XCTAssertEqual(refused.reason, .viewOnlyShare)
         }
 
-        mount.update(readOnly: false, shareIsReadOnly: false)
+        mount.update(readThrough: nil, shareIsReadOnly: false)
         XCTAssertEqual(c.mode, .editable)
         await type("99", at: 2, 2, in: c)
         XCTAssertEqual(host.state.table[key(host, 2, 2)]?.content, .value(.number(99)))
 
         // Read-only again: ⌘Z is refused with the reason, the step kept.
-        mount.update(readOnly: false, shareIsReadOnly: true)
+        mount.update(readThrough: nil, shareIsReadOnly: true)
         c.undoInGrid()
         await c.settleWrites()
         XCTAssertEqual(host.state.table[key(host, 2, 2)]?.content, .value(.number(99)), "nothing taken back")
         XCTAssertTrue(c.gridUndo.canUndo, "the step waits")
-        mount.update(readOnly: false, shareIsReadOnly: false)
+        mount.update(readThrough: nil, shareIsReadOnly: false)
         c.undoInGrid()
         await c.settleWrites()
         XCTAssertEqual(host.state.table[key(host, 2, 2)]?.content, .value(.number(10)), "and is taken back once it may be")
@@ -1039,8 +1040,7 @@ final class ResearchTableGridTests: XCTestCase {
         XCTAssertEqual(ProjectWindow.researchCentreRoute(id: item.id, in: projectStore.manifest),
                        .table(item: item, path: try XCTUnwrap(item.path)))
         let window = TestWindow.mount(
-            ResearchSubjectCentre(store: projectStore, documentStore: store, itemID: item.id,
-                                  previewVisible: false, readOnly: false),
+            ResearchCentreFixture.centre(store: projectStore, documentStore: store, itemID: item.id),
             size: CGSize(width: 640, height: 420))
         windows.append(window)
         let up = await RunLoopPump.until(deadline: 5) { Self.gridView(in: window.contentView) != nil }
@@ -1060,7 +1060,7 @@ final class ResearchTableGridTests: XCTestCase {
         let window = TestWindow.mount(
             ResearchSubjectInspector(store: projectStore, itemID: item.id,
                                      showsPreview: placement.previewsInTheRightColumn,
-                                     documentStore: store, readOnly: false, inReadThrough: false),
+                                     documentStore: store, readOnly: false, readThrough: nil),
             size: CGSize(width: 420, height: 640))
         windows.append(window)
         let up = await RunLoopPump.until(deadline: 5) { Self.gridView(in: window.contentView) != nil }

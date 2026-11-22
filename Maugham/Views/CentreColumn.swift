@@ -161,7 +161,7 @@ struct CentreColumn: View {
         case .research(let id):
             ResearchSubjectCentre(store: store, documentStore: documentStore,
                                   itemID: id, previewVisible: researchPreviewVisible,
-                                  readOnly: readThrough.refusesEdits(.research(id)),
+                                  readThrough: readThrough.refusal(.research(id)),
                                   shareIsReadOnly: editorControl.shareIsReadOnly,
                                   typography: editorControl.typography,
                                   presence: figureGridPresence, window: window)

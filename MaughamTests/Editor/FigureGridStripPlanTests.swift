@@ -107,7 +107,7 @@ final class FigureGridStripPlanTests: XCTestCase {
         let suggestion = note("s1", .suggestedChange, at: key(0, 0), suggested: number(1))
         let comment = note("c1", .comment, at: key(0, 0))
         let p = plan([suggestion, comment], active: key(0, 0), mayAccept: true, mayReject: true,
-                     readOnly: .readThrough)
+                     readOnly: .readThrough(nil))
         XCTAssertEqual(p.entries[0].actions, [.init(verb: .accept, isEnabled: true), .init(verb: .reject, isEnabled: true)])
         XCTAssertEqual(p.entries[1].actions, [.init(verb: .gotIt, isEnabled: true), .init(verb: .reject, isEnabled: true)])
         XCTAssertNil(p.reason)

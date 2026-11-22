@@ -132,7 +132,7 @@ final class ResearchTableRestoreTests: XCTestCase {
 
     private func mount(_ item: ResearchItem, _ store: DocumentStore, _ projectStore: ProjectStore,
                        shareIsReadOnly: Bool = false) async -> ResearchTableMount {
-        let mount = ResearchTableMount(itemId: item.id, readOnly: false, shareIsReadOnly: shareIsReadOnly,
+        let mount = ResearchTableMount(itemId: item.id, readThrough: nil, shareIsReadOnly: shareIsReadOnly,
                                        presence: FigureGridPresence())
         mounts.append(mount)
         mount.open(title: item.title, store: store, projectStore: projectStore, typography: .defaults)

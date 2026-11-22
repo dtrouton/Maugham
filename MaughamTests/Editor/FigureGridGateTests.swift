@@ -10,7 +10,7 @@ final class FigureGridGateTests: XCTestCase {
                       translation: Bool = false) -> FigureGridGate.Mode {
         FigureGridGate.mode(figureMayEdit: mayEdit, parked: parked, hostClosed: closed,
                             shareIsReadOnly: share,
-                            isInReadThrough: readThrough, isReadingTranslation: translation)
+                            isInReadThrough: readThrough, naming: nil, isReadingTranslation: translation)
     }
 
     func test_everyRow() {
@@ -20,7 +20,7 @@ final class FigureGridGateTests: XCTestCase {
         XCTAssertEqual(mode(closed: true), .readOnly(.closed))
         XCTAssertEqual(mode(mayEdit: false), .readOnly(.notYours), "the figure's posture refuses")
         XCTAssertEqual(mode(share: true), .readOnly(.viewOnlyShare), "a read-only share is read-only")
-        XCTAssertEqual(mode(readThrough: true), .readOnly(.readThrough), "read-through expands read-only")
+        XCTAssertEqual(mode(readThrough: true), .readOnly(.readThrough(nil)), "read-through expands read-only")
     }
 
     /// **Read-through is asked after the share**, and its strip keeps every
@@ -29,14 +29,26 @@ final class FigureGridGateTests: XCTestCase {
     func test_readThroughComesAfterTheShare_andKeepsAccept() {
         XCTAssertEqual(mode(share: true, readThrough: true), .readOnly(.viewOnlyShare))
         XCTAssertEqual(mode(readThrough: true, translation: true), .noExpand)
-        XCTAssertTrue(FigureGridStrip.Plan.keepsAnswers(.readThrough))
-        XCTAssertTrue(FigureGridStrip.Plan.acceptWrites(under: .readThrough))
+        XCTAssertTrue(FigureGridStrip.Plan.keepsAnswers(.readThrough(nil)))
+        XCTAssertTrue(FigureGridStrip.Plan.acceptWrites(under: .readThrough(nil)))
         for other in [FigureGridGate.Reason.parked, .closed, .notYours, .viewOnlyShare] {
             XCTAssertFalse(FigureGridStrip.Plan.keepsAnswers(other), "\(other)")
             XCTAssertFalse(FigureGridStrip.Plan.acceptWrites(under: other), "\(other)")
         }
-        XCTAssertEqual(FigureGridGate.Reason.readThrough.sentence,
+        XCTAssertEqual(FigureGridGate.Reason.readThrough(nil).sentence,
                        "In read-through \u{2014} the table can be read, not typed into.")
+        // Named, as every gate built from the window's `ReadThroughGate` is.
+        let three = ReadThroughRefusal(pieceId: "ch-3", title: "Chapter Three", others: 0)
+        XCTAssertEqual(FigureGridGate.mode(figureMayEdit: true, parked: false, hostClosed: false,
+                                           shareIsReadOnly: false, isInReadThrough: true, naming: three,
+                                           isReadingTranslation: false), .readOnly(.readThrough(three)))
+        XCTAssertEqual(FigureGridGate.Reason.readThrough(three).sentence,
+                       "\u{201C}Chapter Three\u{201D} is in read-through \u{2014} resume writing there "
+                       + "to change this table.")
+        XCTAssertEqual(FigureGridGate.Reason.readThrough(
+            ReadThroughRefusal(pieceId: "ch-3", title: "Chapter Three", others: 2)).sentence(noun: "note"),
+            "\u{201C}Chapter Three\u{201D} and 2 more are in read-through \u{2014} resume writing there "
+            + "to change this note.")
     }
 
     /// First match wins: translation review over everything, then the
@@ -55,7 +67,7 @@ final class FigureGridGateTests: XCTestCase {
     func test_eachReasonHasItsSentence_parkedIsTheHostsOwn() {
         XCTAssertEqual(FigureGridGate.Reason.parked.sentence, "This table is in Research.")
         let sentences = [FigureGridGate.Reason.parked, .closed, .notYours, .viewOnlyShare,
-                         .readThrough].map(\.sentence)
+                         .readThrough(nil)].map(\.sentence)
         XCTAssertEqual(Set(sentences).count, sentences.count, "each reason says something of its own")
         XCTAssertNil(FigureGridGate.Mode.editable.readOnlyReason)
         XCTAssertEqual(FigureGridGate.Mode.readOnly(.notYours).readOnlyReason, .notYours)

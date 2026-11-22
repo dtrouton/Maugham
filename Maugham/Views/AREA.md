@@ -17,7 +17,7 @@ Every file in `Maugham/Views/` appears once, plus the `Maugham/Models/` files CL
 - `WindowFlashes.swift`, `CompilerFlashSink.swift` — the window's acknowledgments in one `@State`; ⌘R's capsule as a value a suspended caller can hold.
 - `CheckpointModifier.swift` — ⌘S / ⌘⇧S delivery; `CheckpointFlashDecision`.
 - `RewindModifier.swift` — the `.maughamOpenRewind` receiver and sheet.
-- `ReadThrough.swift`, `ReadThroughModifier.swift`, `ReadThroughLine.swift` — `ReadThrough.isOn` (the one predicate), `ReadThroughGate`, `ReadThroughOffer` (routes post only what it gives), `ReadThroughVerbs`, the receiver, the line, the mark.
+- `ReadThrough.swift`, `ReadThroughModifier.swift`, `ReadThroughLine.swift` — `ReadThrough.isOn`, `ReadThroughGate`, `ReadThroughOffer` (routes post only what it gives), the verbs, the receiver, the line, the mark.
 - `FocusPostureModifier.swift` — ⌘\ no-chrome.
 - `ParagraphNavModifier.swift` — `.maughamNavigateToParagraph`, `.maughamNavigateToScene` receivers.
 - `CanvasCollapseModifier.swift`, `CanvasPromotionModifier.swift`, `CanvasClaudeArrivalModifier.swift` — ⌘\ collapse to the canvas; Promote…; Claude's arrival banner and its Show. **→ Canvas** ("`⌘\` gives the canvas the window").
@@ -35,11 +35,11 @@ Every file in `Maugham/Views/` appears once, plus the `Maugham/Models/` files CL
 ### The shell
 - `ReadThroughToggle.swift` — the open piece's padlock.
 - `ManuscriptNavigation.swift` — going to a place opens its piece.
-- `TreeTravel.swift` — the double-click: the row mark (`treeTravelOnDoubleClick`), `TreeTravelClickWatcher`, `TreeTravelModifier`.
+- `TreeTravel.swift` — the double-click: the row mark (`treeTravelOnDoubleClick`, also drawing the outlined state), `TreeTravelClickWatcher`, `TreeTravelModifier`.
 - `IntentStrip.swift`, `CentreTopLines.swift` — the signature line; the centre's top lines.
 - `LanguageSwitch.swift`, `RunningRoundIndicator.swift` — the toolbar's language switch, running round.
 - `SaveFlashOverlay.swift` — the ⌘S muscle-memory capsule.
-- `MCPBannerModel.swift`, `MCPNoteBanner.swift` — the transient "Claude added a note" banner.
+- `MCPBannerModel.swift`, `MCPNoteBanner.swift` — Claude's note banner.
 - `BackupRecoveryBanner.swift`, `ManifestRestoredBanner.swift` — the refused-backup banner (Restore); the put-back-manifest note.
 - `SharingStatusPill.swift` — *Shared* / *Shared by <owner>*: an indicator, never a role.
 - `ViewOnlyShareNotice.swift` — the banner over a read-only iCloud share (`ProjectWindow.shareIsReadOnly`).
@@ -55,7 +55,7 @@ Every file in `Maugham/Views/` appears once, plus the `Maugham/Models/` files CL
 - `ProjectRowLabel.swift` — every project row's label.
 - `FigureSection.swift` — the Figures section (shown unless parked with no legacy line) and its cached rows, piece counts and filter; `FigureSectionVerbs` (the row menu over `FigureActions`, the drops, `moveIntoFigures`, `PendingFigureSend`/`TreeAlert`), `FigureSectionWiring` (the tree's own card cache).
 - `FigureActions.swift` — the one helper the menus and inspectors share: Open in Window, Send to Research, Rename, Import/Refresh through the grid, Use in Document; the posture and `refusesWrites(to:)` gate the writes.
-- `FigureRow.swift` — a figure's tree row, a piece row's count button, `LegacyFigureRow` (a line into Research).
+- `FigureRow.swift` — a figure's tree row, a piece row's count button, `LegacyFigureRow` (a line into Research; selects nothing).
 - `TreeTopRows.swift` — `TreeRowSlot` (row order), the Inbox and Canvas rows, `TreeRowStateMark`.
 - `TreeEditionRows.swift` — the Editions rows, the source language first.
 - `BinderTreeSections.swift` — the Figures, Research, Palette (the wall's door) and Editions sections; `TreeSectionColumn.swift`, the titles' column; `BinderTreeSectionsState`, `BinderTreeSelection`, `BinderTreeVerbs`, `TreeScrollTarget`, `TreeAlert` (one alert; an error waits for a send question), `.binderTreeSections(…)`, `consumingTreeScrollRequests`; `TreeWindowWiring.swift`, its window-mounted half.
@@ -75,8 +75,8 @@ Every file in `Maugham/Views/` appears once, plus the `Maugham/Models/` files CL
 - `TreeScrollProbe.swift` — a dev-build-only diagnostic.
 
 ### Research and the palette
-- `FigureSubjectColumns.swift` — `figureSubjectPlacement` (centre / beside the canvas / nothing) and `FigureSubjectSurface`: a table's grid (`FigureCentreGrid`, read-only in Review), an image large (`FigureImageSubject`, via `SafeRelativePath`), else name and number.
-- `FigureInspector.swift` — a figure subject's inspector: name, number and section, Used-in links (`FigureUseTravel`, the source reveal), pins by source (`FigureInspectorModel`, off the body), the figure stream's notes (`ProjectStore.figureNotes`, never the project walk), actions.
+- `FigureSubjectColumns.swift` — `figureSubjectPlacement` (centre / beside the canvas / nothing) and `FigureSubjectSurface`: a table's grid (`FigureCentreGrid`), an image large (`FigureImageSubject`, via `SafeRelativePath`), else name and number.
+- `FigureInspector.swift` — name, number and section, Used-in links (`FigureUseTravel`, the source reveal), pins by source (`FigureInspectorModel`, off the body), the figure stream's notes (`ProjectStore.figureNotes`, never the project walk), actions.
 - `FigurePinsCompare.swift` — Compare: old and new per pinned cell; Refresh as one step on the open grid's stack.
 - `ResearchSubjectColumns.swift` — what each column does with a `.research` subject: `researchSubjectPlacement`, `researchCentreRoute`, `revealPulledUp`, `ResearchSubjectCentre`, `ResearchSubjectInspector`.
 - `ResearchNoteEditor.swift` — the research-note editor: saves through the note door; re-reads on `researchNoteReloadCount`; read-through or a view-only share locks it.
@@ -305,7 +305,7 @@ Every file in `Maugham/Views/` appears once, plus the `Maugham/Models/` files CL
 - **A subject may only reach a column the writer can point somewhere else again from**: `ProjectSubjectReachabilityTests.test_aNoteBesideCanBePutAwayFromItsOwnRow`.
 - **A research item `beside` shows in the right column whatever the centre; `open` takes the centre** (`ResearchSubjectRoutingTests`).
 - **Both columns route a research item through `researchCentreRoute`** (`test_bothColumnsAskTheSameRoutingFunction`).
-- **A piece in read-through reads its own research and figures** off `ReadThroughGate.refusesEdits`, beside the posture; a figure's pieces are its record's and its lines' (`ReadThroughResearchSurfaceTests` counts the sites).
+- **A piece in read-through reads its own research and figures** off `ReadThroughGate.refusesEdits`, beside the posture; a figure's pieces are its record's and its lines'; every refusal names the piece (`ReadThroughGate.refusal`; `ReadThroughResearchSurfaceTests` counts both).
 - **A placement is not a mount**: the subject's observer shows the pulled-up position when something arrives beside; a restore does not. A figure asks `figureSubjectPlacement` in both columns.
 - **The Figures section** is drawn only while a figure is not parked; a piece's count filters it, its header chip clears it.
 - **The tree's cards come from its own `FigureCardCache`**, never the editor's.

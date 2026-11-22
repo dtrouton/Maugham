@@ -8,6 +8,9 @@ struct FigureRowActions {
     /// Whether the posture lets this Mac edit the figure (Send to Research,
     /// Rename) — asked by the context menu's builder, never per render.
     let mayEdit: () -> Bool
+    /// Why it may not, where a piece's read-through refuses it — named and
+    /// shown in the menu, never silent (`FigureActions.readThroughRefusal`).
+    let refusal: () -> String?
     /// Send to Research's scopes, in menu order.
     let sendDestinations: [FigureResearchDestination]
     let openInWindow: () -> Void
@@ -127,6 +130,9 @@ struct FigureRow: View {
     @ViewBuilder
     private var menu: some View {
         Button("Open in Window", action: actions.openInWindow)
+        if let refusal = actions.refusal() {
+            Text(refusal)
+        }
         if actions.mayEdit() {
             SwiftUI.Menu(FigureTableMenu.sendToResearchTitle) {
                 ForEach(actions.sendDestinations, id: \.self) { destination in

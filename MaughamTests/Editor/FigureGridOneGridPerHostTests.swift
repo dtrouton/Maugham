@@ -173,6 +173,7 @@ final class FigureGridOneGridPerHostTests: FigureGridMountedTestCase {
     /// follows each Start and Resume (`setReadThrough`).
     func test_readThroughCarriesIntoTheFigureWindow_andFollowsResume() async throws {
         let windows = FigureWindows()
+        let key = UUID()
         var asked: [String] = []
         let m = try await mount(windows: windows, openWindow: { asked.append($0) })
         let figureId = try XCTUnwrap(m.figure?.id)
@@ -182,10 +183,11 @@ final class FigureGridOneGridPerHostTests: FigureGridMountedTestCase {
             return ReadThroughGate(pieces: on ? ["piece-a"] : [], structure: [], research: [],
                                    figures: [record], figureLines: [])
         }
-        windows.setReadThrough(gate(true))
+        windows.setReadThrough(gate(true), from: key)
         m.coordinator.setReadThrough(true)
         let c = try await expanded(m)
-        XCTAssertEqual(c.mode, .readOnly(.readThrough), "premise: read-through in place")
+        let named = ReadThroughRefusal(pieceId: "piece-a", title: "piece-a", others: 0)
+        XCTAssertEqual(c.mode, .readOnly(.readThrough(named)), "premise: read-through in place, named")
         XCTAssertFalse(c.bars.openInWindow.isHidden)
 
         c.perform(.openInWindow)
@@ -193,11 +195,11 @@ final class FigureGridOneGridPerHostTests: FigureGridMountedTestCase {
         await m.coordinator.figureGridFolding?.value
 
         let (_, w, _) = try await openWindowGrid(m, windows)
-        XCTAssertEqual(w.mode, .readOnly(.readThrough), "the window opens read-only")
-        windows.setReadThrough(gate(false))
+        XCTAssertEqual(w.mode, .readOnly(.readThrough(named)), "the window opens read-only, named")
+        windows.setReadThrough(gate(false), from: key)
         XCTAssertEqual(w.mode, .editable, "and follows Resume")
-        windows.setReadThrough(gate(true))
-        XCTAssertEqual(w.mode, .readOnly(.readThrough), "and a Start again")
+        windows.setReadThrough(gate(true), from: key)
+        XCTAssertEqual(w.mode, .readOnly(.readThrough(named)), "and a Start again")
     }
 
     // MARK: - I4: the neutral decline

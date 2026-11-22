@@ -235,9 +235,10 @@ extension ProjectStore {
             target = nil
         case .research:
             // A note in the folder of a piece in read-through takes no
-            // Replace, as the piece itself takes none.
-            if researchIsInReadThrough(atPath: match.documentPath) {
-                throw ProjectStoreError.inReadThrough(title: match.documentTitle)
+            // Replace, as the piece itself takes none — and the refusal names
+            // the piece, which is what the writer can resume.
+            if let refusal = researchReadThroughRefusal(atPath: match.documentPath) {
+                throw ProjectStoreError.inReadThrough(title: refusal.title)
             }
             // A path that escapes the project is refused as unsafe first (tripwire 58).
             url = try resolvedProjectPathToChange(match.documentPath)
@@ -510,8 +511,8 @@ extension ProjectStore {
 
             case .research:
                 // In the folder of a piece in read-through: skipped, and named.
-                if researchIsInReadThrough(atPath: path) {
-                    reading.append(matches[0].documentTitle)
+                if let refusal = researchReadThroughRefusal(atPath: path) {
+                    reading.append("\(matches[0].documentTitle) (in \(refusal.named))")
                     continue
                 }
                 // A path that escapes the project is refused as unsafe first (tripwire 58).
@@ -537,13 +538,24 @@ extension ProjectStore {
                                  inReadThrough: reading)
     }
 
-    /// **Whether a research file belongs to a piece in read-through on this
-    /// Mac**: a Collection piece's own folder (`researchScopePieceId`, the
-    /// gate's research rule). Shared research belongs to no piece.
-    func researchIsInReadThrough(atPath path: String) -> Bool {
+    /// **Which piece in read-through on this Mac a research file belongs
+    /// to**, named — asked of the gate's own research rule
+    /// (`ReadThroughGate.refusal`: the manifest item's root, or the file's
+    /// path for a file with no item). Shared research belongs to no piece.
+    func researchReadThroughRefusal(atPath path: String) -> ReadThroughRefusal? {
         let pieces = readThroughPieceIds()
-        guard !pieces.isEmpty else { return false }
-        return ReadThrough.isOn(researchScopePieceId(ofPath: path), in: pieces)
+        guard !pieces.isEmpty else { return nil }
+        let gate = ReadThroughGate(pieces: pieces, structure: manifest.structure,
+                                   research: manifest.research, figures: [], figureLines: [])
+        if let item = TreeWalk.first(in: manifest.research, where: { $0.path == path }) {
+            return gate.refusal(.research(item.id))
+        }
+        return gate.refusal(researchPath: path)
+    }
+
+    /// Whether a research file belongs to a piece in read-through.
+    func researchIsInReadThrough(atPath path: String) -> Bool {
+        researchReadThroughRefusal(atPath: path) != nil
     }
 
     /// The title of the manuscript piece at `path` when it is in read-through

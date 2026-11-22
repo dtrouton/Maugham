@@ -10,15 +10,16 @@ struct InspectorResearchPanel: View {
     /// offers no verb toward Figures.
     var figureTree: BinderTreeSectionsState? = nil
     /// The window refuses figure writes (a view-only share): no verb toward
-    /// Figures. Read-through never refuses making a figure.
+    /// Figures. Read-through never refuses making a figure, only bringing one
+    /// back over a figure whose piece is in read-through.
     var figureWritesRefused: Bool = false
-    /// The window's store and share lock, and whether the item's piece is in
-    /// read-through (`ReadThroughGate.refusesEdits(.research(id))`), for a
-    /// Research table's version list (nil store shows no list; a view-only
-    /// share or read-through lists it with Restore off).
+    /// The window's store and share lock, and the item's piece in
+    /// read-through, named (`ReadThroughGate.refusal(.research(id))`): its
+    /// Title, Caption, Tags, URL and Citation read, and a Research table's or
+    /// note's version list shows with Restore off (nil store shows no list).
     var documentStore: DocumentStore? = nil
     var shareIsReadOnly: Bool = false
-    let inReadThrough: Bool
+    let readThrough: ReadThroughRefusal?
 
     /// What the verb toward Figures last said (a refusal, the cells kept as
     /// text); cleared when the item changes or the verb flips.
@@ -44,26 +45,36 @@ struct InspectorResearchPanel: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
 
-                LabeledContent("Title") {
-                    TextField("", text: $draftTitle, onCommit: commitTitle)
-                        .textFieldStyle(.plain)
-                }
-                LabeledContent("Caption") {
-                    TextEditor(text: $draftCaption)
-                        .font(.body)
-                        .frame(minHeight: 60)
-                        .onChange(of: draftCaption) { _, _ in commitCaption() }
-                }
-                LabeledContent("Tags") {
-                    TextField("comma-separated", text: $draftTags,
-                              onCommit: commitTags)
-                        .textFieldStyle(.plain)
-                }
-                if item.kind == .link {
-                    LabeledContent("URL") {
-                        TextField("", text: $draftURL, onCommit: commitURL)
+                // Its piece in read-through: the fields read (M2), as the item does.
+                Group {
+                    LabeledContent("Title") {
+                        TextField("", text: $draftTitle, onCommit: commitTitle)
                             .textFieldStyle(.plain)
                     }
+                    LabeledContent("Caption") {
+                        TextEditor(text: $draftCaption)
+                            .font(.body)
+                            .frame(minHeight: 60)
+                            .onChange(of: draftCaption) { _, _ in commitCaption() }
+                    }
+                    LabeledContent("Tags") {
+                        TextField("comma-separated", text: $draftTags,
+                                  onCommit: commitTags)
+                            .textFieldStyle(.plain)
+                    }
+                    if item.kind == .link {
+                        LabeledContent("URL") {
+                            TextField("", text: $draftURL, onCommit: commitURL)
+                                .textFieldStyle(.plain)
+                        }
+                    }
+                }
+                .disabled(Self.fieldsRead(readThrough: readThrough))
+                if let figureTree, let refusal = Self.bringBackRefusal(for: item, store: store, tree: figureTree) {
+                    Text(refusal)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
                 if let figureTree, let verb = Self.figureVerb(for: item, store: store, tree: figureTree,
                                                              windowRefusesWrites: figureWritesRefused) {
@@ -87,7 +98,7 @@ struct InspectorResearchPanel: View {
                                             kind: versionsKind,
                                             noun: ResearchVersionsModel.noun(for: item, structure: store.manifest.structure,
                                                                              research: store.manifest.research),
-                                            inReadThrough: inReadThrough)
+                                            readThrough: readThrough)
                         .id(item.id)
                 }
                 if item.type != .group {
@@ -96,6 +107,7 @@ struct InspectorResearchPanel: View {
                     // section, so no commit of item A's draft can land on B.
                     InspectorCitationSection(store: store, item: item)
                         .id(item.id)
+                        .disabled(Self.fieldsRead(readThrough: readThrough))
                     Divider()
                 }
                 if let added = item.addedAt {
@@ -135,6 +147,17 @@ struct InspectorResearchPanel: View {
             figureMessage = nil
             isLoaded = true
         }
+    }
+
+    /// **Whether the panel's own fields read**: the item's piece is in
+    /// read-through. One answer for Title, Caption, Tags, URL and Citation.
+    static func fieldsRead(readThrough: ReadThroughRefusal?) -> Bool { readThrough != nil }
+
+    /// Why *Bring Back to Figures* is not offered for `item`, named
+    /// (`FigureActions.bringBackRefusal`); nil where it is, or isn't asked.
+    static func bringBackRefusal(for item: ResearchItem, store: ProjectStore,
+                                 tree: BinderTreeSectionsState) -> String? {
+        FigureSectionVerbs(store: store, state: tree).bringBackRefusal(for: item)
     }
 
     // MARK: Toward Figures (report plan 8b Task 4)

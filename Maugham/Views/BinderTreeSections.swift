@@ -721,7 +721,8 @@ struct BinderTreeVerbs {
             // Use in Document / Bring Back to Figures (report plan 8b Task 4):
             // the Figures section's helper, its refusals in this tree's alert.
             figureVerb: { [figures = figures] item in figures.researchVerb(for: item) },
-            performFigureVerb: { [figures = figures] item in figures.useInDocument(item) })
+            performFigureVerb: { [figures = figures] item in figures.useInDocument(item) },
+            figureVerbRefusal: { [figures = figures] item in figures.bringBackRefusal(for: item) })
         // A shared row's feedback: `internalDrop`/`externalDrop`'s own rule.
         bundle.dropAnswers = { item in dropAnswers(on: .researchRow(item.id)) }
         return bundle

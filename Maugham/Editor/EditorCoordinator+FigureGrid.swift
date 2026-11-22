@@ -938,11 +938,16 @@ extension EditorCoordinator {
     /// by this buffer's own piece at once — the line is in it, so the rule
     /// would say the same once the window's gate catches up.
     func figureGridGateMode(figureId: String, parked: Bool, hostClosed: Bool) -> FigureGridGate.Mode {
-        FigureGridGate.mode(
+        // The figure's pieces by the one rule, plus this buffer's own piece
+        // (its line is here) before the window's gate catches up; the first
+        // in read-through is named.
+        let gate = figureGridOpening?.windows?.readThrough ?? .writing
+        let own: Set<String> = isInReadThrough ? Set([documentId].compactMap { $0 }) : []
+        let refusal = gate.refusal(among: gate.owners(of: .figure(figureId)).union(own))
+        return FigureGridGate.mode(
             figureMayEdit: figureGridOpening?.figureMayEdit(figureId) ?? false,
             parked: parked, hostClosed: hostClosed, shareIsReadOnly: shareIsReadOnly,
-            isInReadThrough: isInReadThrough
-                || (figureGridOpening?.windows?.isInReadThrough(figureId) ?? false),
+            isInReadThrough: isInReadThrough || refusal != nil, naming: refusal,
             isReadingTranslation: isReadingTranslation)
     }
 

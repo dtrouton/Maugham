@@ -101,7 +101,7 @@ struct FigureSubjectSurface: View {
                     figureWindows: figureWindows, presence: presence, listing: listing,
                     typography: control.typography,
                     // One of the figure's pieces in read-through: the gate's one rule.
-                    isInReadThrough: readThrough.refusesEdits(.figure(figureID)),
+                    readThrough: readThrough.refusal(.figure(figureID)),
                     shareIsReadOnly: control.shareIsReadOnly, window: window)
                     .id(figureID)
             }

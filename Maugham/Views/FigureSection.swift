@@ -390,6 +390,11 @@ struct FigureSectionVerbs {
                              readThrough: { state.figureReadThrough }, report: report, notice: notice)
     }
 
+    /// Why a Research row's Bring Back is withheld, named.
+    func bringBackRefusal(for item: ResearchItem) -> String? {
+        shared.bringBackRefusal(returning: state.figureReturns[item.id])
+    }
+
     /// A Research row's verb toward Figures (`FigureActions.researchVerb`).
     func researchVerb(for item: ResearchItem) -> FigureActions.ResearchVerb? {
         shared.researchVerb(for: item, returning: state.figureReturns[item.id])
@@ -410,6 +415,7 @@ struct FigureSectionVerbs {
         let shared = shared, listing = row.listing
         return FigureRowActions(
             mayEdit: { shared.mayEdit(listing.figureId) },
+            refusal: { shared.readThroughRefusal(of: listing.figureId)?.because("this figure") },
             sendDestinations: shared.sendDestinations(for: listing),
             openInWindow: { shared.openInWindow(listing) },
             sendToResearch: { _ = shared.sendToResearch(listing, to: $0) },
@@ -466,7 +472,9 @@ struct FigureSectionVerbs {
     /// figure writes — the window's refusal, not the Mac's (task 5 review M4).
     static let windowSendsNoFigures = "This window doesn’t change figures, so it stays in Figures."
     /// Said when a figure whose piece is in read-through is dropped on Research.
-    static let readThroughSendsNoFigures = "This figure’s piece is in read-through, so it stays in Figures."
+    static func readThroughSendsNoFigures(_ refusal: ReadThroughRefusal) -> String {
+        "\(refusal.sentence), so the figure stays in Figures. Resume writing there to send it."
+    }
 
     /// **A Research item dropped on Figures** is *Use in Document* — Task 4's
     /// verb, no confirmation (D8-2). Refused, with the reason, where the
@@ -479,6 +487,10 @@ struct FigureSectionVerbs {
             state.pendingError = Self.windowMakesNoFigures
             return nil
         }
+        if let refusal = shared.bringBackRefusal(returning: state.figureReturns[item.id]) {
+            state.pendingError = refusal
+            return nil
+        }
         return useInDocument(item)
     }
 
@@ -489,8 +501,8 @@ struct FigureSectionVerbs {
         let shared = shared
         guard shared.mayEdit(figureId) else {
             state.pendingError = shared.windowRefusesWrites() ? Self.windowSendsNoFigures
-                : shared.refusesWrites(to: figureId) ? Self.readThroughSendsNoFigures
-                : Self.mayNotSend
+                : shared.readThroughRefusal(of: figureId).map(Self.readThroughSendsNoFigures)
+                ?? Self.mayNotSend
             return false
         }
         let row = state.figureRows.first { $0.id == figureId }

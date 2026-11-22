@@ -573,9 +573,7 @@ private struct ResearchRevealProbeView: View {
     @ViewBuilder
     private var centre: some View {
         if let id = placement.centreItemID {
-            ResearchSubjectCentre(store: store, documentStore: documentStore,
-                                  itemID: id, previewVisible: false,
-                                  readOnly: ReadThroughGate.writing.refusesEdits(.research(id)))
+            ResearchCentreFixture.centre(store: store, documentStore: documentStore, itemID: id)
         } else {
             Color.clear
         }
