@@ -2783,6 +2783,69 @@ final class TripwireGrepTests: XCTestCase {
         ])
     }
 
+    // MARK: - No test writes the general pasteboard (shell p4 Task 11)
+
+    /// **`NSPasteboard.general` is every process's.** The writer's own ⌘C, or
+    /// a Universal Clipboard arrival, replaced a test's picture mid-paste
+    /// (`StatementImageIngestTests`, red once in a full gate, 15.6 s). A test
+    /// writes and pastes from a pasteboard of its own
+    /// (`MaughamTextView.paste(from:)`; ⌘V's `paste(_:)` is that with
+    /// `.general`), and calls no `paste(nil)`, which reads `.general`.
+    func test_noTestWritesTheGeneralPasteboard() throws {
+        let testsDir = repoRoot.appendingPathComponent("MaughamTests", isDirectory: true)
+        // The two census files quote production's spelling; they paste nothing.
+        let offenders = try Self.generalPasteboardUses(under: testsDir)
+            .filter { !$0.hasPrefix("TripwireGrepTests.swift:") && !$0.hasPrefix("WiringCensusTests.swift:") }
+        XCTAssertEqual(offenders, [],
+            "A test touches the general pasteboard, which every process on the machine "
+            + "shares: give it its own (`NSPasteboard(name:)`, released in tearDown) and "
+            + "paste with `paste(from:)`.")
+    }
+
+    /// Self-check: fires on a planted write, a `pasteboard: .general` and a
+    /// `paste(nil)`; quiet on a named pasteboard and on prose.
+    func test_theGeneralPasteboardCensusFiresOnPlantedOffenders() throws {
+        let fm = FileManager.default
+        let tmp = TestTemp.root
+            .appendingPathComponent("tripwire-pasteboard-selfcheck-\(UUID().uuidString)")
+        try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: tmp) }
+        try """
+        func test_a() { NSPasteboard.general.clearContents() }
+        func test_b() { coordinator.pasteFigure(from: .general) }
+        func test_c() { textView.paste(nil) }
+        """.write(to: tmp.appendingPathComponent("Planted.swift"), atomically: true, encoding: .utf8)
+        try """
+        /// Prose naming NSPasteboard.general is not a use.
+        func test_d() {
+            let pasteboard = NSPasteboard(name: NSPasteboard.Name("maugham-test-1"))
+            textView.paste(from: pasteboard)
+        }
+        """.write(to: tmp.appendingPathComponent("Control.swift"), atomically: true, encoding: .utf8)
+        XCTAssertEqual(try Self.generalPasteboardUses(under: tmp),
+                       ["Planted.swift:1", "Planted.swift:2", "Planted.swift:3"])
+    }
+
+    /// `file:line` of every code line under `dir` that names the general
+    /// pasteboard or pastes from it implicitly. Comment lines are skipped.
+    static func generalPasteboardUses(under dir: URL) throws -> [String] {
+        guard let walker = SourceTreeCache.enumerator(at: dir) else { return [] }
+        let shapes = ["NSPasteboard.general", "from: .general", "pasteboard: .general",
+                      "NSPasteboard(name: .general)", ".paste(nil)"]
+        var hits: [String] = []
+        for case let url as URL in walker where url.pathExtension == "swift" {
+            let lines = try SourceTreeCache.text(url).components(separatedBy: "\n")
+            for (index, line) in lines.enumerated() {
+                let code = line.trimmingCharacters(in: .whitespaces)
+                guard !code.hasPrefix("//") else { continue }
+                if shapes.contains(where: { code.contains($0) }) {
+                    hits.append("\(url.lastPathComponent):\(index + 1)")
+                }
+            }
+        }
+        return hits.sorted()
+    }
+
     // MARK: - Tripwire 33, the click arm
 
     /// **The click arm (plan 3 carry C14).** A synthesised mouse click is the

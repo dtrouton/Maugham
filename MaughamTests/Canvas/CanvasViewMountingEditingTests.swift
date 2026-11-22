@@ -1073,6 +1073,32 @@ final class CanvasViewMountingEditingTests: CanvasViewMountingCase {
         XCTAssertEqual(asked, 0)
     }
 
+    /// **Nor the WINDOW** (shell p4 Task 11). A window that closes with its
+    /// canvas dimmed takes no view out of itself — SwiftUI need not dismantle a
+    /// closed scene, and AppKit pulls nothing — so neither `viewDidMoveToWindow`
+    /// nor `dismantleNSView` ran, and the window's one Escape monitor stayed
+    /// installed in the process for a window nobody can see (the canvas family
+    /// left eight armed in a worker). The arbiter hears its window close and
+    /// lets go of everything, read synchronously: `close()` posts
+    /// `willCloseNotification` before it returns.
+    @MainActor func test_closingTheWindowDisarmsItsEscape() throws {
+        let root = try projectRoot()
+        let window = host(CanvasView(model: makeModel(), projectRoot: root,
+                                     paletteSwatchHexes: { [] },
+                                     subject: .piece("ch1"),
+                                     selectTheProjectRow: {}))
+        let events = try eventView(in: window)
+        XCTAssertTrue(events.hasEscapeMonitorInstalled, "precondition: the dim is watching")
+        let arbiter = WindowEscapeArbiter.arbiter(for: window)
+        XCTAssertTrue(arbiter.isArmed, "precondition")
+
+        window.close()
+
+        XCTAssertFalse(arbiter.isArmed, "a closed window's Escape monitor is still installed")
+        XCTAssertFalse(events.hasEscapeMonitorInstalled)
+        XCTAssertFalse(arbiter.isRegistered(.canvasDim), "a closed window holds no claim")
+    }
+
     /// **Exactly one mechanism runs, and this names which.**
     ///
     /// `CanvasEventNSView.keyDown` had an Escape arm and it is gone: on a dimmed

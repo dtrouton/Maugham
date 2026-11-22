@@ -9,8 +9,9 @@ import MaughamCore
 ///
 /// **Driven through the real delivery path**, like every other statement mount
 /// test: the production `StatementPane` is hosted in an `NSHostingView`, an
-/// image is put on the general pasteboard, and `MaughamTextView.paste(_:)` — the
-/// production override — is what runs. Nothing here hand-calls the store's
+/// image is put on a pasteboard of the test's own, and
+/// `MaughamTextView.paste(from:)` — the production paste, which ⌘V's
+/// `paste(_:)` calls with `.general` — is what runs. Nothing here hand-calls the store's
 /// ingest and then asserts the store did what it was told.
 ///
 /// **The ref must reach the OP LOG.** A statement's `.md` is derived output
@@ -22,11 +23,15 @@ import MaughamCore
 final class StatementImageIngestTests: XCTestCase {
 
     private var fixtures: [StatementMountFixture] = []
+    /// This test's own pasteboard: `.general` is shared by every process on
+    /// the machine, so the writer's ⌘C during a gate replaced the picture
+    /// mid-paste (shell p4 Task 11; `test_noTestWritesTheGeneralPasteboard`).
+    private let pasteboard = NSPasteboard(name: NSPasteboard.Name("maugham-test-\(UUID().uuidString)"))
 
     override func tearDown() async throws {
         for fixture in fixtures { await fixture.closeAndTearDown() }
         fixtures.removeAll()
-        NSPasteboard.general.clearContents()
+        pasteboard.releaseGlobally()
         try await super.tearDown()
     }
 
@@ -46,12 +51,10 @@ final class StatementImageIngestTests: XCTestCase {
         return image
     }
 
-    /// Put a picture where `MaughamTextView.paste(_:)` will find one. The
-    /// production override reads `NSPasteboard.general` directly, so this is the
-    /// pasteboard the writer's own ⌘V uses.
+    /// Put a picture on this test's pasteboard, where `paste(from:)` reads it.
     private func putImageOnTheClipboard() throws {
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.writeObjects([try makeImage()])
+        pasteboard.clearContents()
+        XCTAssertTrue(pasteboard.writeObjects([try makeImage()]))
     }
 
     /// The well beside a statement, **derived from the statement's own path**
@@ -141,7 +144,7 @@ final class StatementImageIngestTests: XCTestCase {
         XCTAssertTrue(fixture.ops(forDocId: statement.id).isEmpty)
 
         try putImageOnTheClipboard()
-        textView.paste(nil)
+        textView.paste(from: pasteboard)
         await fixture.pumpUntil(deadline: 5) { !self.files(in: assets).isEmpty }
         try await fixture.settle(window, expectingOpsFor: statement.id, until: {
             fixture.derivedText(forDocId: statement.id)
@@ -199,7 +202,7 @@ final class StatementImageIngestTests: XCTestCase {
         XCTAssertEqual(textView.string, "", "control: the editor starts empty")
 
         try putImageOnTheClipboard()
-        textView.paste(nil)
+        textView.paste(from: pasteboard)
         await fixture.pumpUntil(deadline: 5) { textView.string.contains("![](") }
 
         XCTAssertTrue(
@@ -233,7 +236,7 @@ final class StatementImageIngestTests: XCTestCase {
         let window = await fixture.host(kind: .visualLanguage, subject: nil)
         let textView = try fixture.textView(in: window)
         try putImageOnTheClipboard()
-        textView.paste(nil)
+        textView.paste(from: pasteboard)
         await fixture.pumpUntil(deadline: 5) {
             fixture.store.statement(kind: .visualLanguage, scope: .project) != nil
         }
@@ -288,7 +291,7 @@ final class StatementImageIngestTests: XCTestCase {
         let textView = try fixture.textView(in: window)
 
         try putImageOnTheClipboard()
-        textView.paste(nil)
+        textView.paste(from: pasteboard)
         await fixture.pumpUntil(deadline: 5) {
             fixture.store.statement(kind: .visualLanguage, scope: .project) != nil
         }
@@ -322,7 +325,7 @@ final class StatementImageIngestTests: XCTestCase {
         let textView = try fixture.textView(in: window)
 
         try putImageOnTheClipboard()
-        textView.paste(nil)
+        textView.paste(from: pasteboard)
         // fixed window: asserting nothing happens. Both assertions below prove an
         // ABSENCE — no file in the well, no ref in the log — and an absence is
         // only worth the wall clock given to it. Not to be shortened, and `settle`

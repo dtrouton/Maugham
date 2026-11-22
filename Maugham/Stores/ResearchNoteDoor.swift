@@ -108,6 +108,11 @@ final class ResearchNoteDoor {
     var now: @MainActor () -> Date = { Date() }
     /// How long after the last keystroke the editor's edit is saved.
     var saveDelay: Duration = .milliseconds(750)
+    /// **The debounce's wait** — the clock a timer sleeps on. A test holds it
+    /// shut and opens it, so whether a timer is set is read before it can
+    /// fire (shell p4 Task 11: a zero delay let a re-armed timer fire and
+    /// leave its save in flight between two reads, neither set nor landed).
+    var debounceWait: @MainActor (Duration) async -> Void = { try? await Task.sleep(for: $0) }
     /// Told (item id, text) after each file write the door makes.
     var wroteForTesting: (@MainActor (String, String) -> Void)?
     /// Called on the main actor just before a keep goes off it.
@@ -343,8 +348,9 @@ final class ResearchNoteDoor {
         nextGeneration += 1
         let generation = nextGeneration
         let delay = saveDelay
+        let wait = debounceWait
         let timer = Task { @MainActor [weak self, weak store] in
-            try? await Task.sleep(for: delay)
+            await wait(delay)
             guard !Task.isCancelled, let self, let store else { return }
             await self.fire(itemId, generation: generation, in: store)
         }

@@ -87,8 +87,40 @@ final class WindowEscapeArbiter {
     private let monitor = CanvasEscapeMonitor()
     private weak var window: NSWindow?
     private var claims: [Consumer: () -> Bool] = [:]
+    /// The window's close, heard (`letGoOnClose`).
+    private var closeObserver: NSObjectProtocol?
 
-    private init(window: NSWindow) { self.window = window }
+    private init(window: NSWindow) {
+        self.window = window
+        // **A closed window lets go of its Escape** (shell p4 Task 11). A
+        // window that closes with a consumer registered takes no view out of
+        // itself — SwiftUI need not dismantle a closed scene and AppKit pulls
+        // nothing — so no consumer resigns, and the one monitor stayed
+        // installed for a window nobody could see. AppKit's own notification,
+        // posted on the main thread before `close()` returns.
+        closeObserver = NotificationCenter.default.addObserver(
+            forName: NSWindow.willCloseNotification, object: window, queue: nil
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { self?.letGoOnClose() }
+        }
+    }
+
+    deinit {
+        if let closeObserver { NotificationCenter.default.removeObserver(closeObserver) }
+    }
+
+    /// Every claim dropped, the monitor removed, the table entry gone: a
+    /// consumer still mounted re-registers through `arbiter(for:)` if the
+    /// window is ever shown again.
+    private func letGoOnClose() {
+        claims.removeAll()
+        monitor.remove()
+        if let closeObserver { NotificationCenter.default.removeObserver(closeObserver) }
+        closeObserver = nil
+        if let window, Self.arbiters[ObjectIdentifier(window)] === self {
+            Self.arbiters[ObjectIdentifier(window)] = nil
+        }
+    }
 
     var isArmed: Bool { monitor.isInstalled }
 

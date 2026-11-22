@@ -999,25 +999,40 @@ final class MaughamTextView: NSTextView {
     /// the pasteboard is handled there — ingested, refused or reported — and
     /// never reaches `super`.
     override func paste(_ sender: Any?) {
-        // A paste is never typing: a pasted `@` opens no completion list.
-        guard let coordinator else { return pasteAsTyped(sender) }
-        coordinator.asNotTyping { pasteAsTyped(sender) }
+        paste(from: .general, sender: sender)
     }
 
-    private func pasteAsTyped(_ sender: Any?) {
+    /// **The paste, from `pasteboard`** (shell p4 Task 11). ⌘V's `paste(_:)`
+    /// is this with `.general`; a test passes a uniquely named pasteboard,
+    /// because `.general` is shared by every process on the machine — the
+    /// writer's own ⌘C or a Universal Clipboard arrival during a gate replaced
+    /// a test's picture mid-paste (`StatementImageIngestTests`, once, 15.6 s).
+    /// Text from any other pasteboard is read as `super` reads the general
+    /// one (`readSelection(from:)`).
+    func paste(from pasteboard: NSPasteboard, sender: Any? = nil) {
+        // A paste is never typing: a pasted `@` opens no completion list.
+        guard let coordinator else { return pasteAsTyped(from: pasteboard, sender) }
+        coordinator.asNotTyping { pasteAsTyped(from: pasteboard, sender) }
+    }
+
+    private func pasteAsTyped(from pasteboard: NSPasteboard, _ sender: Any?) {
         if let coordinator, coordinator.answersFigures,
-           coordinator.pasteFigure(from: .general) {
+           coordinator.pasteFigure(from: pasteboard) {
             return
         }
         if let handler = coordinator?.imagePasteHandler,
-           NSPasteboard.general.canReadObject(forClasses: [NSImage.self], options: nil),
-           let image = NSImage(pasteboard: .general) {
+           pasteboard.canReadObject(forClasses: [NSImage.self], options: nil),
+           let image = NSImage(pasteboard: pasteboard) {
             if let ref = handler(image) {
                 insertText(ref, replacementRange: selectedRange())
             }
             return
         }
-        super.paste(sender)
+        if pasteboard === NSPasteboard.general {
+            super.paste(sender)
+        } else {
+            _ = readSelection(from: pasteboard)
+        }
     }
 
     // MARK: - Dropping a picture (plan 3a Task 6)

@@ -1257,6 +1257,22 @@ final class ResearchNoteDoorTests: XCTestCase {
 
     @MainActor private final class Box<T> { var value: T? }
 
+    /// A debounce clock the test opens: every wait on it returns once it is
+    /// open (`ResearchNoteDoor.debounceWait`).
+    @MainActor private final class DebounceGate {
+        private var isOpen = false
+        private var waiting: [CheckedContinuation<Void, Never>] = []
+        func wait() async {
+            guard !isOpen else { return }
+            await withCheckedContinuation { waiting.append($0) }
+        }
+        func open() {
+            isOpen = true
+            waiting.forEach { $0.resume() }
+            waiting = []
+        }
+    }
+
     private func exists(_ path: String) -> Bool { FileManager.default.fileExists(atPath: file(path).path) }
     private func contents(_ path: String) throws -> String {
         String(decoding: try Data(contentsOf: file(path)), as: UTF8.self)
@@ -1302,21 +1318,20 @@ final class ResearchNoteDoorTests: XCTestCase {
         XCTAssertEqual(heard.notices, [], "a timer's stop mid-move says nothing: its text lands after")
 
         // The span ends: the timer is set again (no keystroke), and its own
-        // save lands at the new path. Asked directly first, so a timer that
-        // is not set again fails here rather than leaving the test waiting.
-        let landed = Box<Bool>()
-        let waiter = Box<CheckedContinuation<Void, Never>>()
-        store.researchNoteDoor.timerSaveFinishedForTesting = { _ in
-            landed.value = true
-            waiter.value?.resume()
-            waiter.value = nil
-        }
+        // save lands at the new path. The timer's clock is held shut across
+        // the span's end, so "set again" is read before it can fire — never
+        // raced against a zero delay, which once left the save in flight
+        // between the two reads (neither set nor landed; shell p4 Task 11).
+        // Asked directly, so a timer that is not set again fails here rather
+        // than leaving the test waiting.
+        let clock = DebounceGate()
+        store.researchNoteDoor.debounceWait = { _ in await clock.wait() }
         await span.end()
-        let setAgain = store.researchNoteDoor.timerIsSetForTesting(item.id) || landed.value == true
-        XCTAssertTrue(setAgain, "the span's end set the timer again")
-        guard setAgain else { return }
-        if landed.value != true {
-            await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in waiter.value = done }
+        XCTAssertTrue(store.researchNoteDoor.timerIsSetForTesting(item.id), "the span's end set the timer again")
+        guard store.researchNoteDoor.timerIsSetForTesting(item.id) else { return }
+        await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in
+            store.researchNoteDoor.timerSaveFinishedForTesting = { _ in done.resume() }
+            clock.open()
         }
         store.researchNoteDoor.timerSaveFinishedForTesting = nil
         XCTAssertEqual(try contents(newPath), "Typed during the move.")

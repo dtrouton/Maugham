@@ -1056,9 +1056,10 @@ final class RightColumnMountingTests: XCTestCase {
         XCTAssertEqual(subject.open, .item("ch-1"), "and moved nothing else")
 
         // Through the window's arbiter, in its declared place. The count is
-        // process-wide, and an earlier suite in this worker may still hold
-        // live armed windows (the canvas-mounting family leaves eight, seen
-        // in a full gate 2026-11-21): what this test arms, it must disarm.
+        // process-wide, and an earlier suite in this worker may hold a live
+        // armed window (the canvas-mounting family once left eight; it closes
+        // its windows now, and a closed window disarms — shell p4 Task 11):
+        // what this test arms, it must disarm.
         let armedBefore = WindowEscapeArbiter.armedWindowCount
         let window = TestWindow.make(contentRect: CGRect(x: 0, y: 0, width: 200, height: 200),
                                      present: .unshown)

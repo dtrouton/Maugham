@@ -158,9 +158,10 @@ final class WiringCensusTests: XCTestCase {
               ["documentStore.unregister(path: priorPath) referenceIndex.invalidate(.piece(prior.docId))"],
               why: "the piece just left is re-read from its flushed op log at the switch itself (plan 3b I1)"),
         Entry("type:MaughamTextView", .anyOrder,
-              ["coordinator.asNotTyping { pasteAsTyped(sender) }",
-               "coordinator.asNotTyping { super.performDragOperation(sender) }"],
-              why: "a paste and a drop are not typing (no test may paste on the shared pasteboard or synthesise a drop)"),
+              ["coordinator.asNotTyping { pasteAsTyped(from: pasteboard, sender) }",
+               "coordinator.asNotTyping { super.performDragOperation(sender) }",
+               "override func paste(_ sender: Any?) { paste(from: .general, sender: sender) }"],
+              why: "a paste and a drop are not typing, and ⌘V is `paste(from: .general)` — the one body a test drives on a pasteboard of its own (shell p4 Task 11; no test synthesises a drop)"),
 
         // MARK: The canvas centre
         Entry(window, .anyOrder,

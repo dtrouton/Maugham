@@ -45,7 +45,7 @@ final class LockedResearchSurfaceTests: XCTestCase {
             UserDefaults.standard.removePersistentDomain(forName: suite)
         }
         defaultsSuites.removeAll()
-        NSPasteboard.general.clearContents()
+        pasteboard.releaseGlobally()
         temp.cleanup()
         temp = nil
     }
@@ -133,7 +133,7 @@ final class LockedResearchSurfaceTests: XCTestCase {
         XCTAssertTrue(files(in: assets).isEmpty, "precondition: nothing in the well yet")
 
         try putImageOnTheClipboard()
-        editor.paste(nil)
+        editor.paste(from: pasteboard)
         // Negative assertion: a fixed wait outlasting the synchronous write
         // path this bug used, rather than a `pumpUntil` with nothing to wait
         // for — `waitOut`'s own documented use.
@@ -161,7 +161,7 @@ final class LockedResearchSurfaceTests: XCTestCase {
             textViews(in: window).first { $0.string.contains(Self.noteText) })
 
         try putImageOnTheClipboard()
-        editor.paste(nil)
+        editor.paste(from: pasteboard)
         await pumpUntil(deadline: 5) { !self.files(in: assets).isEmpty }
 
         let landed = files(in: assets)
@@ -342,11 +342,15 @@ final class LockedResearchSurfaceTests: XCTestCase {
         return image
     }
 
-    /// Put a picture where `MaughamTextView.paste(_:)` will find one — the
-    /// same pasteboard the writer's own ⌘V uses.
+    /// This test's own pasteboard, never `.general`, which every process on
+    /// the machine shares (shell p4 Task 11).
+    private let pasteboard = NSPasteboard(name: NSPasteboard.Name("maugham-test-\(UUID().uuidString)"))
+
+    /// Put a picture where `MaughamTextView.paste(from:)` will find one — the
+    /// production paste ⌘V runs with `.general`.
     private func putImageOnTheClipboard() throws {
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.writeObjects([try makeImage()])
+        pasteboard.clearContents()
+        XCTAssertTrue(pasteboard.writeObjects([try makeImage()]))
     }
 
     private func files(in directory: URL) -> [String] {
