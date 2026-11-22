@@ -243,29 +243,51 @@ public final class Document {
     /// the deriver did before P3a.
     internal var annotationAmendments: AnnotationAmendments = .honourEverything
 
-    /// **Which writer's key sealed each note's creation line** (shell p5
-    /// Task 1), as the last load or re-read read it off the seals
-    /// (`LineSigners`). Replaced whole by each read, never edited.
+    /// **What the seal over each note's creation line says** (shell p5
+    /// Task 1), as the last load or re-read read it (`LineSigners`). Assigned
+    /// whole by each read through `adoptSealReadings(_:)`, never edited.
     ///
-    /// Not observed: it changes only beside an annotations invalidation, which
-    /// is what a surface keys its redraw on.
-    @ObservationIgnored internal var noteSignersReadOffSeals: [String: DeviceActor] = [:]
+    /// Not observed: a change bumps `annotationsVersion`, which is what a
+    /// surface keys its redraw on.
+    @ObservationIgnored internal private(set) var noteSealReadings: [String: SealReading] = [:]
 
-    /// The notes THIS Document appended, under the actor whose stream (and
-    /// key) each went to — first-hand, so a new note's signer is known before
-    /// the seal that will say so lands. Recorded only where that key can sign:
-    /// an unsigned device's line is never sealed, and a reload would then
-    /// answer nil for it, so it answers nil from the start.
-    @ObservationIgnored internal var noteSignersAppendedHere: [String: DeviceActor] = [:]
+    /// The notes THIS Document appended, under what their seal WILL say —
+    /// first-hand, so a new note's owner is known before that seal lands: the
+    /// actor whose stream (and key) it went to, or `.uncovered` where that
+    /// key cannot sign and no seal will ever come. Consulted only while the
+    /// read has no covering seal to report; dropped once one does.
+    @ObservationIgnored internal var noteSealReadingsAppendedHere: [String: SealReading] = [:]
 
-    /// **The writer whose key sealed this note's creation**, or nil where it
-    /// is not known: an unsealed line from another Document, an unsigned
-    /// file, a stranger's, a revoked or retired key's, a key nothing names.
-    /// **Nil is never a person**: a caller must not fall back to the note's
-    /// stamped author, its display name or the file's name
-    /// (`DocumentNoteSignerTests.test_theMarginNeverReadsTheStamp`).
-    func noteSigner(_ annotationId: String) -> DeviceActor? {
-        noteSignersReadOffSeals[annotationId] ?? noteSignersAppendedHere[annotationId]
+    /// **Whose note this is** — the one answer the margin asks
+    /// (`NoteOwner.of`, the one reader of a note's stamp, and only where no
+    /// seal covers its line). A seal always wins; `.unknown` is never mine.
+    func noteOwner(_ annotation: Annotation) -> NoteOwner {
+        NoteOwner.of(sealReading(annotation.id), stampedBy: annotation.author)
+    }
+
+    /// The seal reading for one note: the read's, unless it has no covering
+    /// seal yet and this Document appended the note itself.
+    internal func sealReading(_ annotationId: String) -> SealReading? {
+        let read = noteSealReadings[annotationId]
+        guard read == nil || read == .uncovered else { return read }
+        return noteSealReadingsAppendedHere[annotationId] ?? read
+    }
+
+    /// **Take a load's or re-read's readings** (fix round 1, I-2 and M-6).
+    /// A first-hand entry the read now covers with a seal is dropped — the
+    /// seal is the answer from here on, even where it disagrees. Answers
+    /// whether any note's reading changed, so a re-read that applied no new
+    /// op (a seal-only arrival, a retirement) still invalidates the marks.
+    @discardableResult
+    internal func adoptSealReadings(_ readings: [String: SealReading]) -> Bool {
+        let ids = Set(noteSealReadings.keys).union(readings.keys)
+            .union(noteSealReadingsAppendedHere.keys)
+        let before = ids.map { sealReading($0) }
+        noteSealReadings = readings
+        for (id, reading) in readings where reading != .uncovered {
+            noteSealReadingsAppendedHere[id] = nil
+        }
+        return ids.map { sealReading($0) } != before
     }
 
     /// **Whether this Document's pending file is this Document's to spend**

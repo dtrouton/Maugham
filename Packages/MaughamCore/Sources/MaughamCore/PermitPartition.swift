@@ -710,76 +710,83 @@ public enum PermitPartition {
         return nil
     }
 
-    // MARK: - Who sealed a line (shell p5 Task 1)
+    // MARK: - What the seal over a line says (shell p5 Task 1)
 
-    /// **Which of the four writers sealed each of the `wanted` lines**, read
-    /// exactly as the partition reads a key — and narrower in one direction
-    /// only: a line no seal COVERS has no signer.
+    /// **What the seal covering each of the `wanted` lines says** — read as
+    /// the partition reads a key, and narrower in one direction only: a line
+    /// no seal COVERS is `.uncovered`.
     ///
     /// `attributableKeys` lends a trailing unsealed span the key of the seal
     /// before it, and an unsealed file its filename's key, because a PERMIT
     /// must not be escaped by never sealing; that is judging conservatively.
-    /// *Whose note is this* is the other kind of question: an answer the
-    /// writer will read as a person, so it is given only where a seal this
-    /// device stands behind (`.mine`, `.admitted`) actually closes the line's
-    /// span, or a settled segment's signature covers the whole file. Every
-    /// other line is nil, which is never a person.
+    /// *Whose note is this* is the other kind of question — an answer the
+    /// writer reads as a person — so only the seal that closes the line's
+    /// span (the next seal forward), or a settled segment's signature, is
+    /// read. A covering seal the walk refused, or that will not parse, is
+    /// `.notOurs`, and the line is never lent another seal's word.
     ///
-    /// Asked by `OpLogClassifier` for the annotation creations it parsed, and
-    /// only where a load asked for `LineSigners`, so no other read pays for it.
-    public static func signers(
+    /// One backward pass finds every line's covering seal; each distinct seal
+    /// is parsed and judged once. Asked by `OpLogClassifier` for the
+    /// annotation creations it parsed, only where a load asked.
+    public static func sealReadings(
         of verification: OpLogChain.Verification, atLines wanted: [Int],
-        trust: TrustTable, deviceSlug: String?, settledByKey: String? = nil
-    ) -> [Int: DeviceActor] {
+        trust: TrustTable, deviceSlug: String?,
+        settledBy settled: (key: String, at: Date)? = nil
+    ) -> [Int: SealReading] {
         let lines = verification.lines
         let wanted = wanted.filter { lines.indices.contains($0) && isApplied(lines[$0]) }
         guard !wanted.isEmpty else { return [:] }
         // A settled segment: one signature over the whole file, no inner seals.
-        if let settledByKey {
-            guard let actor = signingActor(
-                ofSealKey: settledByKey, trust: trust, deviceSlug: deviceSlug)
-            else { return [:] }
-            return Dictionary(uniqueKeysWithValues: wanted.map { ($0, actor) })
+        if let settled {
+            let reading = sealReading(
+                ofSealKey: settled.key, sealedAt: settled.at,
+                trust: trust, deviceSlug: deviceSlug)
+            return Dictionary(uniqueKeysWithValues: wanted.map { ($0, reading) })
         }
-        // The seal that COVERS a line is the next seal forward (it closes the
-        // span ending at the line above it). None ahead: the line is in the
-        // trailing unsealed span and nobody has signed it. A covering seal
-        // the walk refused, or that does not parse, names nobody — and the
-        // line is NOT lent the seal after it, which would be a guess.
-        var actorOfSealAt: [Int: DeviceActor?] = [:]
-        var out: [Int: DeviceActor] = [:]
+        let first = wanted.min() ?? 0
+        var coveringSeal = [Int?](repeating: nil, count: lines.count)
+        var next: Int?
+        for index in stride(from: lines.count - 1, through: first, by: -1) {
+            coveringSeal[index] = next
+            if lines[index].kind == .seal { next = index }
+        }
+        var readingOfSealAt: [Int: SealReading] = [:]
+        var out: [Int: SealReading] = [:]
         for index in wanted {
-            guard let sealIndex = lines[(index + 1)...].firstIndex(where: { $0.kind == .seal })
-            else { continue }
-            let actor: DeviceActor?
-            if let known = actorOfSealAt[sealIndex] {
-                actor = known
-            } else {
-                let seal = lines[sealIndex]
-                actor = seal.state == .quarantined ? nil
-                    : OpLogChain.Seal.parse(seal.bytes).flatMap {
-                        signingActor(ofSealKey: $0.key, trust: trust, deviceSlug: deviceSlug)
-                    }
-                actorOfSealAt[sealIndex] = .some(actor)
+            guard let sealIndex = coveringSeal[index] else {
+                out[index] = .uncovered
+                continue
             }
-            if let actor { out[index] = actor }
+            if let known = readingOfSealAt[sealIndex] {
+                out[index] = known
+                continue
+            }
+            let seal = lines[sealIndex]
+            let reading: SealReading = seal.state == .quarantined ? .notOurs
+                : OpLogChain.Seal.parse(seal.bytes).map {
+                    sealReading(ofSealKey: $0.key, sealedAt: $0.at,
+                                trust: trust, deviceSlug: deviceSlug)
+                } ?? .notOurs
+            readingOfSealAt[sealIndex] = reading
+            out[index] = reading
         }
         return out
     }
 
-    /// **The writer a seal key names, where this device stands behind it** —
-    /// `actor(ofSealKey:trust:deviceSlug:)` behind the same verdict filter
-    /// `attributableKeys` applies, so the margin and the permit cannot
-    /// disagree about whose hand a key is.
-    public static func signingActor(
-        ofSealKey key: String, trust: TrustTable, deviceSlug: String?
-    ) -> DeviceActor? {
-        switch trust.verdict(forSealKey: key) {
-        case .mine, .admitted:
-            return actor(ofSealKey: key, trust: trust, deviceSlug: deviceSlug)
-        case .stranger, .revoked, .retired, .otherRoot, .noChain:
-            return nil
-        }
+    /// **What one seal says about its line** — the walk's own judgement of
+    /// the seal (`TrustVerdict.isOurWord(sealedAt:)`: a retired device's word
+    /// before it retired still counts, a revoked key's never does), the
+    /// partition's actor reading, and the table's `isThisWriters`. A key on
+    /// no chain here vouches for nothing and disowns nothing: `.uncovered`.
+    public static func sealReading(
+        ofSealKey key: String, sealedAt: Date, trust: TrustTable, deviceSlug: String?
+    ) -> SealReading {
+        let verdict = trust.verdict(forSealKey: key)
+        if case .noChain = verdict { return .uncovered }
+        guard verdict.isOurWord(sealedAt: sealedAt),
+              let actor = actor(ofSealKey: key, trust: trust, deviceSlug: deviceSlug)
+        else { return .notOurs }
+        return .sealed(actor, ofThisWriter: trust.isThisWriters(sealKey: key))
     }
 
     /// Applied by the walk: neither held back nor a torn last line.

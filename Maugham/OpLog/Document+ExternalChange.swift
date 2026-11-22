@@ -118,11 +118,11 @@ extension Document {
             docId: docId, amendmentPermits: amendmentPermits,
             lineSigners: lineSigners)
         let ops = loaded.ops
-        // Shell p5 Task 1: taken BEFORE the echo guard, because this
-        // Document's own seal arriving is exactly an echo — the re-read that
-        // turns a note's first-hand signer into one read off its seal. It is
-        // not observed, so assigning it costs no redraw.
-        noteSignersReadOffSeals = lineSigners.resolved
+        // Shell p5 Task 1: taken BEFORE the echo guard, because a seal
+        // arriving (this Document's own included) or a registry change applies
+        // no new op and still changes whose a note is; where it did, the
+        // marks keyed on `annotationsVersion` must redraw (fix round 1, I-2).
+        if adoptSealReadings(lineSigners.resolved) { invalidateAnnotationsCache() }
         if provenance != loaded.provenance { provenance = loaded.provenance }
         let kept = loaded.provenance.ownLinesKeptInHistory
         if ownLinesKeptInHistory != kept { ownLinesKeptInHistory = kept }

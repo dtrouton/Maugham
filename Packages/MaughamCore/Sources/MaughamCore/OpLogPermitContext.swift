@@ -106,64 +106,109 @@ public struct PermitContext: Sendable {
     }
 }
 
-/// **Which of the four writers sealed each annotation creation a load
-/// applied** (shell p5 Task 1) — the margin's *My Notes* asks it, and it is
-/// the one honest answer to *whose note is this*: the provenance stamp
-/// (`AnnotationAuthor.sourceKind`) is a field any writer of a line may set.
+/// **What the seal over one annotation creation's line says** (shell p5
+/// Task 1) — the fact a load can read about a line, before anybody asks
+/// whose note it is (`NoteOwner`).
 ///
-/// **Read, never guessed.** A creation is recorded only where a seal this
-/// device stands behind (`.mine`, `.admitted`) COVERS its line, or a settled
-/// segment's signature does, and the actor is named through the partition's
-/// own reading (`PermitPartition.signingActor(ofSealKey:trust:deviceSlug:)`).
-/// So an unsealed line, an unsigned file, a stranger's, a revoked or retired
-/// key's, an unrecorded key's, and a key whose actor nothing names all answer
-/// nil — and **nil is never a person**: no caller falls back to the stamp,
-/// the display name or the file name.
+/// Read by `PermitPartition.sealReading(ofSealKey:sealedAt:trust:deviceSlug:)`
+/// and nowhere else: the seal's key through the one trust table, judged by
+/// `TrustVerdict.isOurWord(sealedAt:)` — the walk's own answer to *does this
+/// device stand behind this seal* — and named through the partition's actor
+/// reading.
+public enum SealReading: Equatable, Hashable, Sendable {
+    /// A seal this device stands behind covers the line — one of its own
+    /// keys, an admitted key, or a retired device's key before it retired —
+    /// and names which of the four writers made it. `ofThisWriter` is the
+    /// table's `isThisWriters(sealKey:)`: this device's own keys, or her other
+    /// devices the root labelled as hers.
+    case sealed(DeviceActor, ofThisWriter: Bool)
+    /// Nothing this device can judge a seal by covers the line: an unsealed
+    /// tail, a file nothing ever sealed (every pre-signing book), a key on no
+    /// chain here (`.noChain`, a registerless book's other devices), a
+    /// settled segment whose signature is gone. There is no seal to believe
+    /// and none to disbelieve.
+    case uncovered
+    /// A seal covers the line, and this device does not stand behind it for
+    /// that line — a revoked key's kept lines, a key sealing after its
+    /// retirement, a stranger, another root, or a key whose writer nothing on
+    /// disk names. Never "mine", and the stamp does not get a say.
+    case notOurs
+
+    /// Two copies of one op id (ADR 0012's legacy-plus-per-device case) read
+    /// as ONE answer, whatever order the files were listed in: a seal always
+    /// outranks no seal, a disowning seal outranks an owning one, and two
+    /// seals naming different writers name nobody.
+    func merged(with other: SealReading) -> SealReading {
+        switch (self, other) {
+        case (.uncovered, _): return other
+        case (_, .uncovered): return self
+        case (.notOurs, _), (_, .notOurs): return .notOurs
+        case let (.sealed(a, mineA), .sealed(b, mineB)):
+            return a == b && mineA == mineB ? self : .notOurs
+        }
+    }
+}
+
+/// **What the seals over each annotation creation a load applied say**
+/// (shell p5 Task 1), by op id.
 ///
-/// It records ACTORS read off the one trust table, never verdicts (tripwire
-/// 39: no parallel trust table). Filled per file by `OpLogClassifier`,
-/// where each applied op is matched to the line it was parsed from; read
-/// once by the load. `@unchecked Sendable` over one lock, `AmendmentPermits`'
-/// own shape.
+/// Filled per file by `OpLogClassifier`, where each applied op is matched to
+/// the walk line it was parsed from; read once by the load. Every applied
+/// creation is recorded — `.uncovered` included — so a missing entry means
+/// the load never saw the op. It records READINGS of the one table, never
+/// verdicts (tripwire 39). `@unchecked Sendable` over one lock,
+/// `AmendmentPermits`' own shape.
 public final class LineSigners: @unchecked Sendable {
     private let lock = NSLock()
-    private var byOpId: [String: DeviceActor] = [:]
-    private var contested: Set<String> = []
+    private var byOpId: [String: SealReading] = [:]
 
     public init() {}
 
-    /// Record that `actor`'s key sealed the line carrying `opId`.
-    ///
-    /// **Two copies sealed by two different writers name nobody.** One op id
-    /// can sit in two files (ADR 0012's legacy-plus-per-device case); where
-    /// both are sealed by the same writer that is the answer, and where they
-    /// disagree there is no fact to choose between them, so the op is
-    /// contested and answers nil for good — whichever file was listed first.
-    func record(_ opId: String, _ actor: DeviceActor) {
+    func record(_ opId: String, _ reading: SealReading) {
         lock.lock()
         defer { lock.unlock() }
-        guard !contested.contains(opId) else { return }
-        if let standing = byOpId[opId], standing != actor {
-            byOpId[opId] = nil
-            contested.insert(opId)
-            return
-        }
-        byOpId[opId] = actor
+        byOpId[opId] = byOpId[opId].map { $0.merged(with: reading) } ?? reading
     }
 
-    /// The writer whose key sealed this op's line, or nil where no seal this
-    /// device stands behind covers it.
-    public func actor(ofOp opId: String) -> DeviceActor? {
+    /// The reading recorded for this op, or nil where the load never saw it.
+    public func reading(ofOp opId: String) -> SealReading? {
         lock.lock()
         defer { lock.unlock() }
         return byOpId[opId]
     }
 
     /// Everything gathered, across every file of the document.
-    public var resolved: [String: DeviceActor] {
+    public var resolved: [String: SealReading] {
         lock.lock()
         defer { lock.unlock() }
         return byOpId
+    }
+}
+
+/// **Whose note this is** (shell p5 Task 1, fix round 1's ruling A) — the
+/// one answer the margin's *My Notes* asks, with three honest arms.
+///
+/// - `verified`: a seal this device stands behind says which writer made it.
+///   A seal always wins: no stamp can override it.
+/// - `stamped`: no seal covers the line, so the note's own stamp of who wrote
+///   it is all there is — every note older than the signed op log is here.
+///   **Unverified**: a surface may show it, never as proven.
+/// - `unknown`: a seal covers it that this device does not stand behind, or
+///   nothing at all is known. Never "mine".
+public enum NoteOwner: Equatable, Hashable, Sendable {
+    case verified(DeviceActor, ofThisWriter: Bool)
+    case stamped(AnnotationAuthor.SourceKind)
+    case unknown
+
+    /// **The ONE place a note's stamp is read for ownership**, and only on
+    /// the arm where no seal covers its line
+    /// (`DocumentNoteSignerTests.test_theStampIsReadForOwnershipOnlyWhereNoSealCovers`).
+    public static func of(_ reading: SealReading?, stampedBy author: AnnotationAuthor?) -> NoteOwner {
+        switch reading {
+        case let .sealed(actor, ofThisWriter)?: return .verified(actor, ofThisWriter: ofThisWriter)
+        case .uncovered?: return author.map { .stamped($0.sourceKind) } ?? .unknown
+        case .notOurs?, nil: return .unknown
+        }
     }
 }
 

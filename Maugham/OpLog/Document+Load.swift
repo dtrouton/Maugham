@@ -739,7 +739,7 @@ extension Document {
         // nobody has claimed — the one held line the writer can answer today.
         doc.startedAPiece = amendmentPermits.whoStartedAPiece
         doc.keptWritingInATakenPiece = amendmentPermits.whoKeptWritingInATakenPiece
-        doc.noteSignersReadOffSeals = lineSigners.resolved
+        doc.adoptSealReadings(lineSigners.resolved)
         // **A diverged `.md` is re-rendered, not only snapshotted** (P3 plan
         // 3, carry C12, ruling C12-1's closed half). A trust change or a sync
         // that reached this piece while it was closed re-derived nothing on

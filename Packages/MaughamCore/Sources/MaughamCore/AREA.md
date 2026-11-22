@@ -68,7 +68,7 @@ Rules for these files are in `Maugham/OpLog/AREA.md` → Rules ("The permit", "T
 - `PermitTimeline.swift` — one person's permits in order; the check reads this, never the record's fields (tripwire 43).
 - `PermitPartition.swift` — judges a file line by line against the timeline, before the parse (tripwire 45).
 - `PermitWords.swift` — the writer-facing words for each rung, shared by both surfaces.
-- `OpLogPermitContext.swift` — the document facts (class, starter, ownership) a reader needs before asking the permit table; `LineSigners`, who sealed each note.
+- `OpLogPermitContext.swift` — the document facts (class, starter, ownership) a reader needs before asking the permit table; `LineSigners` and `NoteOwner`: whose note.
 - `DocumentClass.swift` — maps a stream's document id to the kind of place a permit names.
 - `UnsignedSnapshot.swift` — the photograph of unsigned streams taken at the first narrowing (tripwire 49).
 - `LocalWritePermit.swift` — what this device's own hand may write into one stream; `mayMintOpening` lives here (tripwire 46).
