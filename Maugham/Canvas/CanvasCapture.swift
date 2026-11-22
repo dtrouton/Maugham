@@ -169,20 +169,23 @@ enum CanvasCapture {
                      _ placement: Placement,
                      captureID: String,
                      in scene: CanvasScene,
-                     nodeID minted: CanvasNodeID? = nil) -> Landing {
+                     mintsNodeID: Bool = false) -> Landing {
         // DERIVED from the capture, never minted (RULING-8, M8-IN-004): a
         // promoted entry can never be re-sent (`entryNotFound`), so the only
         // reachable second send is the retry after a failed status flip — and
         // a derived id makes it land on the SAME card instead of a second one,
         // the shape the canvas already uses for a research row's second drop.
         // A research item's card is the canvas's own derived id; a file the
-        // Canvas row was handed is minted by its caller; a capture's is
+        // Canvas row was handed is minted against the scene it lands in
+        // (`CanvasInteraction.newNodeID`, the one minting); a capture's is
         // derived from the capture.
         let id: CanvasNodeID
         if case .item(let researchId, _) = content {
             id = CanvasNodeID.item(researchId)
+        } else if mintsNodeID {
+            id = CanvasInteraction.newNodeID(in: scene)
         } else {
-            id = minted ?? nodeID(forCapture: captureID)
+            id = nodeID(forCapture: captureID)
         }
         let origin: CGPoint
         let joins: Bool
@@ -288,7 +291,7 @@ enum CanvasCapture {
                      captureID: String,
                      store: ProjectStore,
                      projectRoot: URL,
-                     nodeID minted: CanvasNodeID? = nil) throws -> Sent {
+                     mintsNodeID: Bool = false) throws -> Sent {
         let model: CanvasModel? = CanvasClaudeWrite.liveModel(of: store)
         if let model {
             // Before anything else, the retry included (issue #44): a model
@@ -297,7 +300,7 @@ enum CanvasCapture {
             // no card anywhere. The same value the sidecar arm throws.
             if let refused = model.sidecarRefusal { throw refused }
             let landing = plan(content, placement, captureID: captureID, in: model.scene,
-                               nodeID: minted)
+                               mintsNodeID: mintsNodeID)
             // The retry: the capture's derived node is already on the scene, so
             // there is nothing to write — the caller retries only the flip.
             if model.scene.node(landing.node.id) != nil {
@@ -320,7 +323,7 @@ enum CanvasCapture {
         var scene = loaded.scene
         var scraps = loaded.scraps
         let landing = plan(content, placement, captureID: captureID, in: scene,
-                           nodeID: minted)
+                           mintsNodeID: mintsNodeID)
         if scene.node(landing.node.id) != nil { return Sent(node: landing.node.id, wrappedIn: nil) }
         let wrapped = apply(landing, to: &scene)
         scraps.merge(landing.scrapTexts) { _, new in new }

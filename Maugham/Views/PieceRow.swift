@@ -28,11 +28,14 @@ struct PieceRow: View {
     let onExternalDrop: (_ providers: [NSItemProvider], _ position: DropIntent.Position) -> Bool
 
     /// **What this row shows while a drag is over it** (shell p4 Task 10):
-    /// its caller's feedback, decided by the same classification its drop
-    /// performs (`BinderTreeVerbs.dropFeedback(on:)`). `.none` draws nothing.
-    var dropFeedback: () -> TreeDropFeedback = { .none }
+    /// its caller's answers at each drop position, decided by the same rules
+    /// its drop performs (`BinderTreeVerbs.dropAnswers(on:)`).
+    var dropAnswers: () -> TreeDropAnswers = { .none }
     @State private var internalDropTargeted = false
     @State private var externalDropTargeted = false
+    /// The row's REAL height — what a drop's location is read against
+    /// (`DropIntent.Position.of`), never an assumed 22 pt.
+    @State private var rowHeight: CGFloat = 22
     /// **The figures this piece's text uses** ("2 tables, 1 figure"; report
     /// plan 8a Task 4, D8-1), nil at none — `BinderTreeSectionsState
     /// .figureCountText`. Pressing it filters the Figures section to this
@@ -108,6 +111,7 @@ struct PieceRow: View {
                 ResolvePresenceMark(ResolvePresence.rowMark(.item(piece.id), in: presence))
             }
             .contentShape(Rectangle())
+            .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { rowHeight = $0 }
             .draggable(piece.id) {
                 Text(piece.title)
                     .padding(6)
@@ -118,9 +122,8 @@ struct PieceRow: View {
                     return false
                 }
                 // Top half = above this row; bottom half = below.
-                let rowHeight: CGFloat = 22
-                let position: DropIntent.Position =
-                    location.y < rowHeight / 2 ? .top : .bottom
+                let position = DropIntent.Position.of(y: location.y, height: rowHeight,
+                                                      halves: true)
                 // The caller's answer, never a literal — see `onDrop`.
                 return onDrop(droppedId, position)
             } isTargeted: { internalDropTargeted = $0 }
@@ -129,15 +132,14 @@ struct PieceRow: View {
             // this order works, as measured on the binder's rows (#109).
             .onDrop(of: [.fileURL, .image], isTargeted: $externalDropTargeted) { providers, location in
                 guard !providers.isEmpty else { return false }
-                let rowHeight: CGFloat = 22
-                let position: DropIntent.Position =
-                    location.y < rowHeight / 2 ? .top : .bottom
+                let position = DropIntent.Position.of(y: location.y, height: rowHeight,
+                                                      halves: true)
                 // The caller's answer, never a literal — see `onDrop`.
                 return onExternalDrop(providers, position)
             }
             // Its feedback, asked once as a drag arrives (`TreeDropHover`).
             .treeDropHover(internalTargeted: internalDropTargeted,
-                           externalTargeted: externalDropTargeted, feedback: dropFeedback)
+                           externalTargeted: externalDropTargeted, halves: true, answers: dropAnswers)
         }
     }
 

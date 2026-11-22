@@ -18,7 +18,7 @@ struct FigureRowActions {
     let drop: ([String]) -> Bool
     /// What the row shows while a drag is over it (shell p4 Task 10): the
     /// same classification `drop` performs.
-    var dropFeedback: () -> TreeDropFeedback = { .none }
+    var dropAnswers: () -> TreeDropAnswers = { .none }
 }
 
 /// **One row of the tree's Figures section** (report plan 8a Task 4, spec
@@ -108,7 +108,7 @@ struct FigureRow: View {
             .dropDestination(for: String.self) { ids, _ -> Bool in
                 return actions.drop(ids)
             } isTargeted: { dropTargeted = $0 }
-            .treeDropHover(internalTargeted: dropTargeted, feedback: actions.dropFeedback)
+            .treeDropHover(internalTargeted: dropTargeted, answers: actions.dropAnswers)
             .contextMenu { menu }
         }
     }

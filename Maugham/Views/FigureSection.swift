@@ -288,8 +288,8 @@ extension BinderTreeSections {
                         FigureRow(row: row, renamingItemId: $state.renamingItemId,
                                   actions: figureVerbs.actions(for: row, drop: { ids in
                                       figuresDrop(ids, on: .figureRow(row.id))
-                                  }, dropFeedback: {
-                                      verbs.dropFeedback(on: .figureRow(row.id))
+                                  }, dropAnswers: {
+                                      verbs.dropAnswers(on: .figureRow(row.id))
                                   }))
                         // Under the title, as every section's rows are.
                         .padding(.leading, ProjectRowLabel.childIndent)
@@ -312,7 +312,7 @@ extension BinderTreeSections {
                         return figuresDrop(ids, on: .figuresSection)
                     } isTargeted: { figuresHeaderTargeted = $0 }
                     .treeDropHover(internalTargeted: figuresHeaderTargeted) {
-                        verbs.dropFeedback(on: .figuresSection)
+                        verbs.dropAnswers(on: .figuresSection)
                     }
             }
         }
@@ -403,7 +403,7 @@ struct FigureSectionVerbs {
 
     func actions(for row: FigureTreeRow,
                  drop: @escaping ([String]) -> Bool = { _ in false },
-                 dropFeedback: @escaping () -> TreeDropFeedback = { .none }) -> FigureRowActions {
+                 dropAnswers: @escaping () -> TreeDropAnswers = { .none }) -> FigureRowActions {
         let shared = shared, listing = row.listing
         return FigureRowActions(
             mayEdit: { shared.mayEdit(listing.figureId) },
@@ -411,7 +411,7 @@ struct FigureSectionVerbs {
             openInWindow: { shared.openInWindow(listing) },
             sendToResearch: { _ = shared.sendToResearch(listing, to: $0) },
             rename: { _ = shared.rename(listing.figureId, to: $0) },
-            drop: drop, dropFeedback: dropFeedback)
+            drop: drop, dropAnswers: dropAnswers)
     }
 
     // MARK: Lines into Research (report plan 8b Task 9)

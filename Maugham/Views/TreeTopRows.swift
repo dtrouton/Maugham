@@ -1,5 +1,6 @@
 import SwiftUI
 import AppKit
+import UniformTypeIdentifiers
 import MaughamCore
 
 /// **Where each kind of row stands in the tree** (shell p1 Task 3, spec "The
@@ -50,6 +51,9 @@ struct TreeTopRows: View {
     /// nil takes no drop (a host that mounts none).
     var canvasDrop: TreeCanvasRowDrop.Host? = nil
 
+    /// The tree's one "something new arrived" look, the Inbox's and the
+    /// Canvas row's alike.
+    static let newDotColor = Color.red
     /// The words the dot says to VoiceOver.
     static let newCapturesLabel = "New captures"
     /// The words the Canvas row's dot says: something the tree sent there
@@ -61,9 +65,10 @@ struct TreeTopRows: View {
             row("Inbox", systemImage: "tray", subject: .inbox, dot: hasNewCaptures)
         }
         if let canvasDrop {
+            // The Inbox's "something new" look (red), never the accent
+            // "something to resolve" dot (fix round 1).
             row("Canvas", systemImage: "rectangle.on.rectangle.angled", subject: .canvas,
-                dot: canvasDrop.state.canvasHasArrivals, dotLabel: Self.newOnCanvasLabel,
-                dotColor: .accentColor)
+                dot: canvasDrop.state.canvasHasArrivals, dotLabel: Self.newOnCanvasLabel)
                 .modifier(TreeCanvasRowDropTarget(host: canvasDrop))
         } else {
             row("Canvas", systemImage: "rectangle.on.rectangle.angled", subject: .canvas)
@@ -73,7 +78,7 @@ struct TreeTopRows: View {
     private func row(_ title: String, systemImage: String,
                      subject: BinderSubject, dot: Bool = false,
                      dotLabel: String = Self.newCapturesLabel,
-                     dotColor: Color = .red) -> some View {
+                     dotColor: Color = Self.newDotColor) -> some View {
         HStack(spacing: 4) {
             Label(title, systemImage: systemImage)
                 .lineLimit(1)
@@ -214,6 +219,53 @@ enum TreeCanvasRowDrop {
     struct Host {
         let store: ProjectStore
         let state: BinderTreeSectionsState
+        /// What the window has open, at the drop: the row's dot is not set
+        /// for a canvas the writer is looking at (`marksArrival`).
+        var open: BinderSubject = .project
+    }
+
+    /// **The Canvas row's dot, set and cleared by one rule**: something sent
+    /// to the canvas is news only while the canvas is not what is open —
+    /// set at a drop under that condition, cleared once the canvas opens.
+    static func marksArrival(open: BinderSubject) -> Bool { open != .canvas }
+
+    /// What the verdict reads off the project, cached per manifest stamp and
+    /// canvas revision (`CanvasCardsRevision`) so a drag entering the row
+    /// costs one layout read and one manifest walk per change, not per entry.
+    struct Facts {
+        let key: Key
+        let items: CanvasItemIndex
+        let isReadOnly: Bool
+
+        struct Key: Equatable {
+            let modified: Date
+            let canvas: CanvasCardsRevision
+        }
+    }
+
+    @MainActor
+    static func facts(store: ProjectStore, state: BinderTreeSectionsState) -> Facts {
+        let key = Facts.Key(modified: store.manifest.modified,
+                            canvas: PieceFoldIndex.key(store: store,
+                                                       canvasWrites: state.closedCanvasWrites).canvas)
+        if let cached = state.canvasRowFacts, cached.key == key { return cached }
+        let fresh = Facts(key: key, items: CanvasItemIndex.over(research: store.manifest.research),
+                          isReadOnly: CanvasClaudeWrite.refusal(of: store, projectRoot: store.url) != nil)
+        state.canvasRowFacts = fresh
+        return fresh
+    }
+
+    /// Whether a drag carries a picture the canvas can hold — an image file
+    /// or image data. A text file or a PDF is not one: the canvas's ingest
+    /// would decline it, so the row refuses it at the hover and the drop.
+    static func carriesPictures(_ pasteboard: NSPasteboard) -> Bool {
+        if pasteboard.canReadObject(forClasses: [NSURL.self], options: [
+            .urlReadingFileURLsOnly: true,
+            .urlReadingContentsConformToTypes: [UTType.image.identifier],
+        ]) { return true }
+        let hasFiles = pasteboard.canReadObject(forClasses: [NSURL.self],
+                                                options: [.urlReadingFileURLsOnly: true])
+        return !hasFiles && pasteboard.canReadItem(withDataConformingToTypes: [UTType.image.identifier])
     }
 
     /// What a drop on the row would do.
@@ -240,11 +292,13 @@ enum TreeCanvasRowDrop {
     ///   (`CanvasEditGate.accepts`, the canvas's own answer).
     @MainActor
     static func verdict(typeIdentifiers: [String], draggedId: String?,
-                        items: CanvasItemIndex, isReadOnly: Bool) -> Verdict {
+                        items: CanvasItemIndex, isReadOnly: Bool,
+                        carriesPictures: Bool = true) -> Verdict {
         switch ProviderDropRoute.route(typeIdentifiers: typeIdentifiers) {
         case .refuse:
             return .refuse
         case .external:
+            guard carriesPictures else { return .refuse }
             return CanvasEditGate.accepts(.external, isReadOnly: isReadOnly) ? .files : .refuse
         case .internalPayload:
             guard let raw = draggedId else { return .refuse }
@@ -262,11 +316,13 @@ enum TreeCanvasRowDrop {
     /// The verdict for the drag in flight, read off the drag pasteboard —
     /// the hover's and the drop's one read.
     @MainActor
-    static func verdict(on pasteboard: NSPasteboard, store: ProjectStore) -> Verdict {
-        verdict(typeIdentifiers: (pasteboard.types ?? []).map(\.rawValue),
-                draggedId: BinderTreeSections.draggedId(on: pasteboard),
-                items: CanvasItemIndex.over(research: store.manifest.research),
-                isReadOnly: CanvasClaudeWrite.refusal(of: store, projectRoot: store.url) != nil)
+    static func verdict(on pasteboard: NSPasteboard, store: ProjectStore,
+                        state: BinderTreeSectionsState) -> Verdict {
+        let facts = facts(store: store, state: state)
+        return verdict(typeIdentifiers: (pasteboard.types ?? []).map(\.rawValue),
+                       draggedId: BinderTreeSections.draggedId(on: pasteboard),
+                       items: facts.items, isReadOnly: facts.isReadOnly,
+                       carriesPictures: carriesPictures(pasteboard))
     }
 
     /// **The drop itself**: `verdict`'s answer, performed through the Send to
@@ -277,9 +333,10 @@ enum TreeCanvasRowDrop {
                         report: @escaping (String) -> Void) -> Bool {
         let store = host.store
         let state = host.state
+        let open = host.open
         func landed(_ node: CanvasNodeID) {
             CanvasCapture.show(node, in: store)
-            state.canvasHasArrivals = true
+            if marksArrival(open: open) { state.canvasHasArrivals = true }
         }
         switch verdict {
         case .refuse:
@@ -318,7 +375,7 @@ enum TreeCanvasRowDrop {
                         let sent = try CanvasCapture.send(
                             .picture(path: path, aspect: outcome.aspects[path]), .loose,
                             captureID: path, store: store, projectRoot: store.url,
-                            nodeID: CanvasNodeID("drop-" + UUID().uuidString.lowercased()))
+                            mintsNodeID: true)
                         landed(sent.node)
                     }
                     if let message = outcome.message { report(message) }
@@ -355,7 +412,7 @@ struct TreeCanvasRowDropTarget: ViewModifier {
             // a capture, a research id and a file reach the same verdict.
             .onDrop(of: ProviderDropRoute.acceptedTypes, isTargeted: $isTargeted) { providers in
                 let verdict = TreeCanvasRowDrop.verdict(on: NSPasteboard(name: .drag),
-                                                        store: host.store)
+                                                        store: host.store, state: host.state)
                 return TreeCanvasRowDrop.perform(
                     verdict, providers: providers, host: host,
                     report: { host.state.pendingError = $0 })
@@ -364,7 +421,7 @@ struct TreeCanvasRowDropTarget: ViewModifier {
             // look at the canvas's layout file.
             .onChange(of: isTargeted) { _, now in
                 hovering = now ? TreeCanvasRowDrop.verdict(on: NSPasteboard(name: .drag),
-                                                           store: host.store) : .refuse
+                                                           store: host.store, state: host.state) : .refuse
             }
     }
 }

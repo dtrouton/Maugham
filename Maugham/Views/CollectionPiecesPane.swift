@@ -88,7 +88,8 @@ struct CollectionPiecesPane: View {
                 TreeTopRows(hasInbox: TreeTopRows.hasInbox(
                     state: treeState, store: store, subject: subject),
                             hasNewCaptures: TreeTopRows.hasNewCaptures(store: store),
-                            canvasDrop: .init(store: store, state: treeState))
+                            canvasDrop: .init(store: store, state: treeState,
+                                              open: subject.open))
                 ForEach(store.manifest.structure) { piece in
                     pieceEntry(for: piece)
                 }
@@ -189,11 +190,11 @@ struct CollectionPiecesPane: View {
                     target: .pieceRow(piece.id))
             },
             // `BinderView`'s twin (shell p4 Task 10): the drop's own rule.
-            dropFeedback: {
-                treeVerbs.dropFeedback(on: .pieceRow(piece.id), refusesStructure: { id in
+            dropAnswers: {
+                treeVerbs.dropAnswers(on: .pieceRow(piece.id), refusesStructure: { id in
                     store.manifest.structure.first(where: { $0.id == id })
                         .map { !structureVerbs(for: $0).move } ?? false
-                })
+                }, halves: true)
             },
             // `BinderView.row(for:)`'s figure count, the same two reads.
             figureCount: treeState.figureCountText(
@@ -324,9 +325,7 @@ struct CollectionPiecesPane: View {
               let targetIdx = store.manifest.structure.firstIndex(where: { $0.id == targetId }) else {
             return
         }
-        // .top = before target; .bottom/.middle = after target.
-        // Pieces don't have children so .middle is treated as .top (just above).
-        var destIdx = (position == .bottom) ? targetIdx + 1 : targetIdx
+        var destIdx = Self.landsBelow(position) ? targetIdx + 1 : targetIdx
         // If the source is before the target, removing it shifts indices down
         // by 1, so the effective destination index decreases by 1.
         if sourceIdx < destIdx { destIdx -= 1 }
@@ -334,6 +333,12 @@ struct CollectionPiecesPane: View {
             try? await store.movePiece(pieceId: draggedId, toIndex: destIdx)
         }
     }
+
+    /// **Where a piece dropped on a piece row lands** — below it from the
+    /// bottom half, above it otherwise (a piece has no children, and the row
+    /// reads halves: `DropIntent.Position.of(…, halves: true)`). The drop and
+    /// its hover's insertion line both ask this.
+    static func landsBelow(_ position: DropIntent.Position) -> Bool { position == .bottom }
 
     /// The pieces' structural verbs, from the window's posture door —
     /// `BinderView.structureVerbs`' twin; no door, no verb (fails closed).

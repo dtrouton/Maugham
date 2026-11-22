@@ -190,48 +190,79 @@ extension BinderTreeVerbs {
 
     // MARK: - What a target shows while a drag is over it (shell p4 Task 10)
 
-    /// **The feedback a target shows for the drag in flight** — the drop's own
-    /// classification (`classify`, `classifyExternal`), read off the drag
-    /// pasteboard as the header's drop reads it (`BinderTreeSections.draggedId`).
-    /// A drag of files or a picture asks the external rule; any other drag the
+    /// **The answers a target shows for the drag in flight**, at each of the
+    /// drop's positions — the drop's own rules, read off the drag pasteboard
+    /// as the header's drop reads it (`BinderTreeSections.draggedId`). A drag
+    /// of files or a picture asks the external rule; any other drag the
     /// internal one, with its id. `refusesStructure`: a host's posture refusal
-    /// of a structure row it may not move (`BinderView`'s and the Collection's
-    /// `onDrop` ask the same).
-    func dropFeedback(on target: TreeDropIntent.Target,
-                      pasteboard: NSPasteboard = NSPasteboard(name: .drag),
-                      refusesStructure: (String) -> Bool = { _ in false }) -> TreeDropFeedback {
+    /// of a structure row it may not move (the hosts' `onDrop` ask the same).
+    /// `halves`: a Collection piece row, whose drop reads halves.
+    func dropAnswers(on target: TreeDropIntent.Target,
+                     pasteboard: NSPasteboard = NSPasteboard(name: .drag),
+                     refusesStructure: (String) -> Bool = { _ in false },
+                     halves: Bool = false) -> TreeDropAnswers {
         let types = (pasteboard.types ?? []).map(\.rawValue)
         switch ProviderDropRoute.route(typeIdentifiers: types) {
         case .external:
-            return externalFeedback(on: target, position: .middle)
+            return TreeDropAnswers { externalFeedback(on: target, position: $0) }
         case .refuse:
             return .none
         case .internalPayload:
             guard let id = BinderTreeSections.draggedId(on: pasteboard) else { return .none }
-            return feedback(draggedId: id, on: target, refusesStructure: refusesStructure)
+            return answers(draggedId: id, on: target, refusesStructure: refusesStructure,
+                           halves: halves)
         }
     }
 
-    /// The internal half, by id. The same `classify` every route performs;
-    /// a reorder onto a row the drag itself carries is refused, as `reorder`
-    /// refuses it.
-    func feedback(draggedId: String, on target: TreeDropIntent.Target,
-                  refusesStructure: (String) -> Bool = { _ in false }) -> TreeDropFeedback {
-        if TreeWalk.find(id: draggedId, in: store.manifest.structure) != nil,
-           refusesStructure(draggedId) { return .none }
+    /// The internal half, by id: `classify`, then — where the landing depends
+    /// on the drop's position — the very rule the drop performs at that
+    /// position (`DropIntent.classify` for a manuscript reorder,
+    /// `CollectionPiecesPane.landsBelow` for a piece, `reorderLanding` for a
+    /// research reorder, `insertionIndex` for a move beside a row).
+    func answers(draggedId: String, on target: TreeDropIntent.Target,
+                 refusesStructure: (String) -> Bool = { _ in false },
+                 halves: Bool = false) -> TreeDropAnswers {
+        let structure = store.manifest.structure
+        if TreeWalk.find(id: draggedId, in: structure) != nil, refusesStructure(draggedId) {
+            return .none
+        }
         let intent = classify(draggedId, on: target)
-        if case .researchReorder = intent {
-            let rowId: String?
-            switch target {
-            case .researchRow(let id), .foldRow(let id, _): rowId = id
-            default: rowId = nil
+        switch intent {
+        case .structureReorder:
+            guard case .pieceRow(let rowId) = target,
+                  let row = TreeWalk.find(id: rowId, in: structure) else { return .none }
+            if halves {
+                return TreeDropAnswers { CollectionPiecesPane.landsBelow($0) ? .below : .above }
             }
-            if let rowId, actingIds(forRow: draggedId).contains(rowId) { return .none }
+            return TreeDropAnswers { position in
+                switch DropIntent.classify(position: position, target: row) {
+                case .insertAbove: return .above
+                case .insertBelow: return .below
+                case .insertChild: return .into
+                }
+            }
+        case .researchReorder:
+            guard let row = researchRow(of: target) else { return .none }
+            let moving = batchIds(for: intent, draggedId: draggedId, on: target)
+            return TreeDropAnswers { reorderLanding(position: $0, target: row, movingIds: moving) }
+        case .rescope:
+            let flat = TreeDropFeedback.of(intent, on: target)
+            guard flat == .beside, let row = researchRow(of: target) else {
+                return TreeDropAnswers(same: flat)
+            }
+            // Beside a leaf: the drop names an index from its position.
+            let moving = batchIds(for: intent, draggedId: draggedId, on: target)
+            return TreeDropAnswers { position in
+                insertionIndex(movingIds: moving, position: position, target: row) == nil
+                    ? .beside : (position == .top ? .above : .below)
+            }
+        default:
+            return TreeDropAnswers(same: TreeDropFeedback.of(intent, on: target))
         }
-        return TreeDropFeedback.of(intent, on: target)
     }
 
-    /// The external half: `routeExternalDrop`'s own classification.
+    /// The external half at one position: `routeExternalDrop`'s own
+    /// classification.
     func externalFeedback(on target: TreeDropIntent.Target,
                           position: DropIntent.Position) -> TreeDropFeedback {
         TreeDropFeedback.of(TreeDropIntent.classifyExternal(
@@ -239,6 +270,28 @@ extension BinderTreeVerbs {
             structure: store.manifest.structure,
             research: store.manifest.research,
             projectType: store.manifest.type), on: target)
+    }
+
+    /// **Where a research reorder lands at `position`** — the rule `reorder`
+    /// performs: a group's middle takes it in; anywhere else beside the row,
+    /// where an index exists for the batch the drag carries
+    /// (`postRemovalInsertionIndex`), else refused. Pure over the manifest.
+    func reorderLanding(position: DropIntent.Position, target: ResearchItem,
+                        movingIds: [String]) -> TreeDropFeedback {
+        if position == .middle, target.type == .group { return .into }
+        guard ResearchSelectionSync.postRemovalInsertionIndex(
+            targetId: target.id, position: position, movingIds: movingIds,
+            siblings: siblings(of: findParentId(of: target.id))) != nil else { return .none }
+        return position == .top ? .above : .below
+    }
+
+    private func researchRow(of target: TreeDropIntent.Target) -> ResearchItem? {
+        switch target {
+        case .researchRow(let id), .foldRow(let id, _):
+            return TreeWalk.find(id: id, in: store.manifest.research)
+        case .pieceRow, .sharedSection, .figuresSection, .figureRow:
+            return nil
+        }
     }
 
     // MARK: - What a drag carries
@@ -370,6 +423,12 @@ extension BinderTreeVerbs {
         let batched = movingIds.count > 1
         let toParentId: String?
         let destIndex: Int
+        // The hover's answer at this position, asked here too, so the two
+        // cannot disagree about a refusal (review Minor 3).
+        guard reorderLanding(position: position, target: target,
+                             movingIds: movingIds).accepts else {
+            return refuseDrop("research row \(target.id)", payload: draggedId, reason: .sameRow)
+        }
         if position == .middle, target.type == .group {
             // Into the group, at its head — the target is the new parent here,
             // not a sibling, so there is no insertion index to compute.

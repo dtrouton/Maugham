@@ -473,8 +473,10 @@ struct PieceFoldIndex: Equatable {
         // **A palette card a bound region holds is that region's card** (shell
         // p4 Task 10), listed once, under the region, as the region pulled up
         // shows it — never ALSO under Palette, which would read as two cards.
-        // Region first whatever the shelf's section order: a card pinned to
-        // the piece and set inside its region is still one card, in its region.
+        // A card pinned to the piece AND set inside its region lists once,
+        // under Palette: the shelf gives an item to its first claim, the pin
+        // (`PinnedReferences.pinned`), so its region section never holds it.
+        // That case is with the owner.
         let paletteInARegion = Set(shelf.sections.filter { $0.regionId != nil }
             .flatMap(\.references).compactMap { ref -> String? in
                 if case .palette(let cardId) = ref.kind { return cardId }

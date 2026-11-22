@@ -78,7 +78,8 @@ struct BinderView: View {
                 TreeTopRows(hasInbox: TreeTopRows.hasInbox(
                     state: treeState, store: store, subject: subject),
                             hasNewCaptures: TreeTopRows.hasNewCaptures(store: store),
-                            canvasDrop: .init(store: store, state: treeState))
+                            canvasDrop: .init(store: store, state: treeState,
+                                              open: subject.open))
                 outline(items: store.manifest.structure)
                 BinderTreeSections(store: store, state: treeState,
                                    subject: $subject)
@@ -319,8 +320,8 @@ struct BinderView: View {
             },
             // What the row shows while a drag is over it: the drop's own
             // classification, with the same posture refusal (shell p4 Task 10).
-            dropFeedback: {
-                treeVerbs.dropFeedback(on: .pieceRow(item.id), refusesStructure: { id in
+            dropAnswers: {
+                treeVerbs.dropAnswers(on: .pieceRow(item.id), refusesStructure: { id in
                     TreeWalk.find(id: id, in: store.manifest.structure)
                         .map { !structureVerbs(for: $0).move } ?? false
                 })

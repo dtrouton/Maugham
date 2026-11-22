@@ -619,31 +619,28 @@ enum TreeDropIntent {
 // MARK: - What a target shows while a drag is over it (shell p4 Task 10)
 
 /// **Drop-target feedback on the tree** (spec "The tree": the target must say
-/// which drop is about to happen; ADR 0035's "Not yet built"). Decided from
-/// the SAME classification the drop performs (`TreeDropIntent.classify`,
-/// `classifyExternal`, `TreeCanvasRowDrop.verdict`), so a target that will
-/// refuse shows nothing and one that will accept says how:
-/// - `.into`: the row or section takes the drop into itself — a note linked
-///   to a chapter or moved into a piece, into a group, out to Research, a
-///   table into Figures, a file into a piece, a capture onto the canvas.
-///   Drawn as an accent fill and outline.
-/// - `.beside`: accepted, and it lands beside this row — a reorder, or into
-///   the row's own container. Drawn as an accent outline alone.
+/// which drop is about to happen; ADR 0035). Decided from the SAME rules the
+/// drop performs (`TreeDropIntent.classify`, `classifyExternal`,
+/// `DropIntent.classify`, `ResearchSelectionSync.postRemovalInsertionIndex`,
+/// `TreeCanvasRowDrop.verdict`), at the drop's own position
+/// (`DropIntent.Position.of`), so a target that will refuse shows nothing
+/// and one that will accept says how:
+/// - `.into`: the row or section takes the drop into itself.
+/// - `.above` / `.below`: it lands between rows — the insertion line.
+/// - `.beside`: accepted, and where it lands cannot be drawn as a line (into
+///   the row's container, appended; or the position is not known while
+///   hovering). The neutral look.
 /// - `.none`: refused; nothing is drawn, and the drag springs back.
-///
-/// **No insertion line between rows**: a reorder's above/below is the drop's
-/// vertical position, which the tree's drop modifiers report only at the
-/// drop (`.dropDestination`'s location), never while hovering. Reading it
-/// live needs a `DropDelegate` in their place, and the pair's order on a
-/// `List` row is measured dispatch (#109) no headless test can re-measure.
 enum TreeDropFeedback: Equatable {
-    case none, into, beside
+    case none, into, above, below, beside
 
     var accepts: Bool { self != .none }
 
     static func into(_ accepted: Bool) -> TreeDropFeedback { accepted ? .into : .none }
 
-    /// What an internal drag's classification shows on `target`. Pure.
+    /// What an internal drag's classification shows on `target`, where its
+    /// landing does not depend on the drop's position (a reorder's does:
+    /// `BinderTreeVerbs.dropAnswers`). Pure.
     static func of(_ intent: TreeDropIntent.Intent,
                    on target: TreeDropIntent.Target) -> TreeDropFeedback {
         switch intent {
@@ -664,7 +661,9 @@ enum TreeDropFeedback: Equatable {
         }
     }
 
-    /// What a Finder file's classification shows on `target`. Pure.
+    /// What a Finder file's classification shows on `target` — asked at
+    /// each position, since a group's middle takes it in and its edges
+    /// file it beside (`classifyExternal`). Pure.
     static func of(_ intent: TreeDropIntent.ExternalIntent,
                    on target: TreeDropIntent.Target) -> TreeDropFeedback {
         switch intent {
@@ -695,29 +694,120 @@ enum TreeDropFeedback: Equatable {
     }
 }
 
-/// The tree's drop-target look (`TreeDropFeedback`), on a row's or a
-/// header's content. Takes no hits.
+/// **A target's feedback at each of the drop's positions** — what the hover
+/// shows once it knows where over the row the pointer is (`look(at:)`).
+struct TreeDropAnswers: Equatable {
+    var top: TreeDropFeedback
+    var middle: TreeDropFeedback
+    var bottom: TreeDropFeedback
+
+    static let none = TreeDropAnswers(same: .none)
+
+    init(top: TreeDropFeedback, middle: TreeDropFeedback, bottom: TreeDropFeedback) {
+        self.top = top
+        self.middle = middle
+        self.bottom = bottom
+    }
+
+    init(same feedback: TreeDropFeedback) {
+        self.init(top: feedback, middle: feedback, bottom: feedback)
+    }
+
+    init(_ at: (DropIntent.Position) -> TreeDropFeedback) {
+        self.init(top: at(.top), middle: at(.middle), bottom: at(.bottom))
+    }
+
+    var accepts: Bool { top.accepts || middle.accepts || bottom.accepts }
+
+    /// **What the hover draws.** At a known position, that position's answer.
+    /// Unknown, it never promises what some third would not do: `.into` only
+    /// when every third goes into, nothing when every third refuses, else the
+    /// neutral `.beside`. Pure.
+    func look(at position: DropIntent.Position?) -> TreeDropFeedback {
+        if let position {
+            switch position {
+            case .top: return top
+            case .middle: return middle
+            case .bottom: return bottom
+            }
+        }
+        let all = [top, middle, bottom]
+        if all.allSatisfy({ $0 == .into }) { return .into }
+        if all.allSatisfy({ $0 == .none }) { return .none }
+        return .beside
+    }
+}
+
+/// **The tree's drop-target look** — one nothing else in the tree uses (the
+/// standing marks are solid: the open row's fill, the faces' and the
+/// pulled-up row's solid outline, the `List`'s selection): a DASHED inset
+/// ring, with a light fill for `.into`; an insertion line with a hollow
+/// leading dot for `.above` / `.below`. On a selected row (raised background
+/// prominence) it is drawn in the selection's own contrast colour. Takes no
+/// hits.
 struct TreeDropHighlight: ViewModifier {
     let feedback: TreeDropFeedback
+    @Environment(\.backgroundProminence) private var prominence
+
+    static let ringDash: [CGFloat] = [5, 3]
 
     func body(content: Content) -> some View {
+        let ink = prominence == .increased ? Color.white : Color.accentColor
         content
             .background {
                 if feedback == .into {
                     RoundedRectangle(cornerRadius: 4)
-                        .fill(Color.accentColor.opacity(0.18))
+                        .fill(ink.opacity(0.12))
                         .padding(-3)
                         .allowsHitTesting(false)
                 }
             }
             .overlay {
-                if feedback != .none {
+                switch feedback {
+                case .into, .beside:
                     RoundedRectangle(cornerRadius: 4)
-                        .strokeBorder(Color.accentColor, lineWidth: 2)
+                        .strokeBorder(ink, style: StrokeStyle(lineWidth: 2, dash: Self.ringDash))
                         .padding(-3)
                         .allowsHitTesting(false)
+                case .above, .below:
+                    TreeDropInsertionLine(ink: ink)
+                        .frame(maxHeight: .infinity,
+                               alignment: feedback == .above ? .top : .bottom)
+                        .offset(y: feedback == .above ? -3 : 3)
+                        .allowsHitTesting(false)
+                case .none:
+                    EmptyView()
                 }
             }
+            .accessibilityHint(Self.spoken(feedback) ?? "")
+    }
+
+    /// What VoiceOver hears while a drop target is shown.
+    static func spoken(_ feedback: TreeDropFeedback) -> String? {
+        switch feedback {
+        case .into: return "Drop here to put it in"
+        case .above: return "Drop here to place it above"
+        case .below: return "Drop here to place it below"
+        case .beside: return "Drop here"
+        case .none: return nil
+        }
+    }
+}
+
+/// The insertion line: a hollow dot at its leading end, then a rule.
+private struct TreeDropInsertionLine: View {
+    let ink: Color
+
+    var body: some View {
+        HStack(spacing: 0) {
+            Circle()
+                .strokeBorder(ink, lineWidth: 2)
+                .frame(width: 7, height: 7)
+            Rectangle()
+                .fill(ink)
+                .frame(height: 2)
+        }
+        .frame(height: 7)
     }
 }
 
@@ -727,32 +817,99 @@ extension View {
     }
 }
 
-/// **A tree row's hover**: which of its two drop modifiers a drag is over,
-/// and the feedback asked once as the drag arrives (never per frame). The
-/// row's drop closures are unchanged; only their `isTargeted` reports land
-/// here.
+/// **A tree row's hover**: which of its drop modifiers a drag is over, the
+/// target's answers asked once as the drag arrives, and — while it is over
+/// the row — the pointer's place on the row, sampled from `NSEvent
+/// .mouseLocation` against the row's own frame on screen and classified by
+/// the drop's own `DropIntent.Position.of`. The row's drop modifiers are
+/// untouched (#109's measured order); only their `isTargeted` reports land
+/// here. Where the frame cannot be read the position is unknown and
+/// `TreeDropAnswers.look(at: nil)` never over-promises.
 struct TreeDropHover: ViewModifier {
     let internalTargeted: Bool
     let externalTargeted: Bool
-    /// The target's feedback for the drag in flight
-    /// (`BinderTreeVerbs.dropFeedback(on:)` and its kin).
-    let feedback: () -> TreeDropFeedback
-    @State private var shown: TreeDropFeedback = .none
+    /// Whether the target's drop reads halves (a Collection piece row) or
+    /// thirds (`DropIntent.Position.of`).
+    let halves: Bool
+    /// The target's answers for the drag in flight
+    /// (`BinderTreeVerbs.dropAnswers(on:)` and its kin).
+    let answers: () -> TreeDropAnswers
+    @State private var held: TreeDropAnswers = .none
+    @State private var position: DropIntent.Position?
+    @State private var frame = TreeRowScreenFrame.Box()
+
+    /// How often the pointer is sampled while a drag is over the row.
+    static let sampling: Duration = .milliseconds(40)
 
     func body(content: Content) -> some View {
         let targeted = internalTargeted || externalTargeted
         content
-            .treeDropHighlight(targeted ? shown : .none)
+            .background(TreeRowScreenFrame(box: frame))
+            .treeDropHighlight(targeted ? held.look(at: position) : .none)
             .onChange(of: targeted) { _, now in
-                shown = now ? feedback() : .none
+                held = now ? answers() : .none
+                position = nil
             }
+            .task(id: targeted) {
+                guard targeted else { return }
+                while !Task.isCancelled {
+                    let next = frame.screenRect().flatMap {
+                        Self.position(mouse: NSEvent.mouseLocation, rowOnScreen: $0, halves: halves)
+                    }
+                    if next != position { position = next }
+                    try? await Task.sleep(for: Self.sampling)
+                }
+            }
+    }
+
+    /// The drop position of a pointer at `mouse` (screen coordinates, origin
+    /// bottom-left) over a row whose frame on screen is `rowOnScreen`; nil
+    /// when the pointer is not over it. Pure.
+    static func position(mouse: CGPoint, rowOnScreen: CGRect,
+                         halves: Bool) -> DropIntent.Position? {
+        guard rowOnScreen.height > 0, mouse.y >= rowOnScreen.minY, mouse.y <= rowOnScreen.maxY
+        else { return nil }
+        return DropIntent.Position.of(y: rowOnScreen.maxY - mouse.y,
+                                      height: rowOnScreen.height, halves: halves)
     }
 }
 
 extension View {
     func treeDropHover(internalTargeted: Bool, externalTargeted: Bool = false,
-                       feedback: @escaping () -> TreeDropFeedback) -> some View {
+                       halves: Bool = false,
+                       answers: @escaping () -> TreeDropAnswers) -> some View {
         modifier(TreeDropHover(internalTargeted: internalTargeted,
-                               externalTargeted: externalTargeted, feedback: feedback))
+                               externalTargeted: externalTargeted, halves: halves,
+                               answers: answers))
+    }
+}
+
+/// **Where a row is on screen**, for the hover's pointer sampling: an AppKit
+/// view behind the row that answers `nil` from `hitTest(_:)` and registers
+/// for no drag type, so it can never take a click or a drop from the row
+/// (`TreeTravelTargetView`'s arrangement). It only reports its own frame.
+struct TreeRowScreenFrame: NSViewRepresentable {
+    /// A handle on the view, held by the hover's `@State`.
+    final class Box {
+        weak var view: NSView?
+
+        @MainActor func screenRect() -> CGRect? {
+            guard let view, let window = view.window else { return nil }
+            return window.convertToScreen(view.convert(view.bounds, to: nil))
+        }
+    }
+
+    let box: Box
+
+    func makeNSView(context: Context) -> NSView {
+        let view = PassThroughView()
+        box.view = view
+        return view
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) { box.view = nsView }
+
+    private final class PassThroughView: NSView {
+        override func hitTest(_ point: NSPoint) -> NSView? { nil }
     }
 }

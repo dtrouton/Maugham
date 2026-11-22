@@ -14,6 +14,11 @@ struct TreeWindowWiring: ViewModifier {
     let window: NSWindow?
     @Bindable var state: BinderTreeSectionsState
     @Binding var subject: WindowSubject
+    /// The right column's visibility and position (shell p4 Task 10 fix
+    /// round 1): a settled landing pulls up only where it shows the
+    /// pulled-up position, and Return shows it (`TreeRowSettle`).
+    @Binding var showInspector: Bool
+    @Binding var position: RightColumnPosition
 
     func body(content: Content) -> some View {
         content
@@ -34,7 +39,37 @@ struct TreeWindowWiring: ViewModifier {
             // The Canvas row's dot goes when the canvas is opened: what the
             // row was handed is there, selected (`TreeCanvasRowDrop`).
             .onChange(of: subject.open) { _, open in
-                if open == .canvas, state.canvasHasArrivals { state.canvasHasArrivals = false }
+                if !TreeCanvasRowDrop.marksArrival(open: open), state.canvasHasArrivals {
+                    state.canvasHasArrivals = false
+                }
+            }
+            .onChange(of: TreeRowSettle.columnShowsPulledUp(showInspector: showInspector,
+                                                           position: position),
+                      initial: true) { _, shows in
+                state.columnShowsPulledUp = shows
+            }
+            // **A landing settles** (the arrow ruling): the row the keys
+            // landed on is pulled up after `TreeRowSettle.delay` with no
+            // further landing — outside the `List`'s setter (tripwire 3), and
+            // cancelled by the next landing (the key moves).
+            .task(id: state.pendingSettle) {
+                guard let pulled = state.pendingSettle else { return }
+                try? await Task.sleep(for: TreeRowSettle.delay)
+                guard !Task.isCancelled, state.pendingSettle == pulled else { return }
+                state.pendingSettle = nil
+                guard let next = TreeRowSettle.settled(
+                    pulled, subject: subject, columnShowsPulledUp: state.columnShowsPulledUp)
+                else { return }
+                // The row stays the one drawn selected.
+                state.record(selection: state.selection, subject: next,
+                             pullUp: state.selectedPullUp)
+                subject = next
+            }
+            // Return / Space shows what it pulled up (`ProjectWindow.revealPulledUp`).
+            .onChange(of: state.pulledUpRevealRequests) { _, _ in
+                ProjectWindow.revealPulledUp(subject: subject,
+                                             showInspector: &showInspector,
+                                             position: &position)
             }
     }
 }

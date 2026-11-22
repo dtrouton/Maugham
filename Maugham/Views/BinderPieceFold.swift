@@ -315,19 +315,73 @@ struct BinderPieceFold: View {
     /// (`press`, pure). The button fires once per click, so the pair is read
     /// from the presses themselves, never from a gesture (tripwire 9).
     private func pressed(_ entry: PieceFoldEntry) {
-        let now = ProcessInfo.processInfo.systemUptime
-        let press = Self.press(entry.id, at: now, last: state.lastFoldPress,
-                               interval: NSEvent.doubleClickInterval)
-        // A double-click's pair is spent: a third click starts a new one.
-        state.lastFoldPress = press == .single ? LastPress(entryId: entry.id, at: now) : nil
-        switch press {
+        let outcome = Self.buttonPress(
+            entry, at: ProcessInfo.processInfo.systemUptime, last: state.lastFoldPress,
+            interval: NSEvent.doubleClickInterval, subject: subject,
+            structure: store.manifest.structure, projectType: store.manifest.type)
+        state.lastFoldPress = outcome.lastFoldPress
+        state.lastRowPress = outcome.rowPress
+        // The press is the click's act: a selection waiting to settle on this
+        // row (the keys', or a misread pointer's) waits no more.
+        state.pendingSettle = nil
+        switch outcome.press {
         case .single:
-            subject = Self.clicked(entry, subject: subject,
-                                   structure: store.manifest.structure,
-                                   projectType: store.manifest.type)
+            guard let next = outcome.subject, let pulled = entry.pulledUp else { return }
+            // The keyboard carries on from the row clicked (review Minor 8).
+            state.record(selection: [], subject: next, pullUp: pulled)
+            subject = next
         case .double:
             openInCentre(entry)
         }
+    }
+
+    /// Every press on a pull-up row: which row (what it pulls up) and when.
+    struct RowPress: Equatable {
+        let pulled: PulledUp
+        let at: TimeInterval
+    }
+
+    /// What a press on a pull-up row does, worked out from the state BEFORE
+    /// the click (shell p4 Task 10 fix round 1, review I1).
+    struct ButtonPress: Equatable {
+        let press: Press
+        /// A single press's subject: the click rule's toggle. Nil for a
+        /// double (Open in Centre, performed by the view).
+        let subject: WindowSubject?
+        let lastFoldPress: LastPress?
+        let rowPress: RowPress?
+    }
+
+    /// **A press on a pull-up row, pure.** The click's one act: whether the
+    /// table also selected the row (before or after) never changes it, since
+    /// a pointer's selection only selects (`BinderTreeSelection.resolvedTags`)
+    /// and a selection arriving within `interval` of this press waits for
+    /// nothing (`pressedJustNow`). A double is the pair's second press.
+    static func buttonPress(_ entry: PieceFoldEntry, at now: TimeInterval, last: LastPress?,
+                            interval: TimeInterval, subject: WindowSubject,
+                            structure: [StructureItem], projectType: ProjectType) -> ButtonPress {
+        let press = Self.press(entry.id, at: now, last: last, interval: interval)
+        let rowPress = entry.pulledUp.map { RowPress(pulled: $0, at: now) }
+        switch press {
+        case .single:
+            // A double-click's pair is spent: a third click starts a new one.
+            return ButtonPress(press: .single,
+                               subject: clicked(entry, subject: subject, structure: structure,
+                                                projectType: projectType),
+                               lastFoldPress: LastPress(entryId: entry.id, at: now),
+                               rowPress: rowPress)
+        case .double:
+            return ButtonPress(press: .double, subject: nil, lastFoldPress: nil, rowPress: rowPress)
+        }
+    }
+
+    /// Whether `pulled`'s row was pressed within the system's double-click
+    /// interval — a selection of it now is that click's other arrival. The
+    /// pairing's own clock, read; never a timer of its own.
+    static func pressedJustNow(_ pulled: PulledUp, last: RowPress?, now: TimeInterval,
+                               interval: TimeInterval = NSEvent.doubleClickInterval) -> Bool {
+        guard let last, last.pulled == pulled, now >= last.at else { return false }
+        return now - last.at <= interval
     }
 
     /// Open in Centre from a pulled-up row's menu, or its double-click: what
@@ -346,8 +400,8 @@ struct BinderPieceFold: View {
     @MainActor
     static func openInCentre(_ pulled: PulledUp, subject: Binding<WindowSubject>,
                              store: ProjectStore, windowCanvas: CanvasModel?) {
-        let opening = PulledUpView.opening(
-            pulled, subject: ClickRule.pullUp(pulled, current: subject.wrappedValue),
+        let opening = Self.opening(
+            pulled, subject: subject.wrappedValue,
             structure: store.manifest.structure, projectType: store.manifest.type,
             photoNode: { path in PulledUpView.photoNode(path, store: store) })
         switch opening {
@@ -509,9 +563,18 @@ struct BinderPieceFold: View {
                               structure: [StructureItem], projectType: ProjectType,
                               photoNode: (String) -> CanvasNodeID?) -> PulledUpView.Opening? {
         guard let pulled = entry.pulledUp else { return nil }
-        return PulledUpView.opening(pulled, subject: ClickRule.pullUp(pulled, current: subject),
-                                    structure: structure, projectType: projectType,
-                                    photoNode: photoNode)
+        return opening(pulled, subject: subject, structure: structure,
+                       projectType: projectType, photoNode: photoNode)
+    }
+
+    /// Open in Centre on `pulled`, as if pulled up first — the one spelling
+    /// the double-click, the menu, VoiceOver and ⌘↓ share. Pure.
+    static func opening(_ pulled: PulledUp, subject: WindowSubject,
+                        structure: [StructureItem], projectType: ProjectType,
+                        photoNode: (String) -> CanvasNodeID?) -> PulledUpView.Opening {
+        PulledUpView.opening(pulled, subject: ClickRule.pullUp(pulled, current: subject),
+                             structure: structure, projectType: projectType,
+                             photoNode: photoNode)
     }
 
     /// A figure row's glyph, the Figures section's.
@@ -623,8 +686,8 @@ struct BinderPieceFold: View {
         }
         // **And its feedback, for the same reason** (shell p4 Task 10): the
         // row shows what the fold's drop does, never the shared row's.
-        actions.dropFeedback = { [verbs, documentId] item in
-            verbs.dropFeedback(on: .foldRow(rowId: item.id, documentId: documentId))
+        actions.dropAnswers = { [verbs, documentId] item in
+            verbs.dropAnswers(on: .foldRow(rowId: item.id, documentId: documentId))
         }
         return actions
     }

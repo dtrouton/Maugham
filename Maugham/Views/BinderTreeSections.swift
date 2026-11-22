@@ -104,7 +104,7 @@ struct BinderTreeSections: View {
                         sharedSectionDrop(ids)
                     }, onExternalDrop: { providers in
                         sharedSectionExternalDrop(providers)
-                    }, feedback: { verbs.dropFeedback(on: .sharedSection) })
+                    }, answers: { verbs.dropAnswers(on: .sharedSection) })
                     .padding(.leading, ProjectRowLabel.childIndent)
                 } else {
                     ForEach(roots) { item in
@@ -171,7 +171,7 @@ struct BinderTreeSections: View {
                     draggedId: { Self.draggedId(on: NSPasteboard(name: .drag)) })
             }
             .treeDropHover(internalTargeted: researchHeaderTargeted) {
-                verbs.dropFeedback(on: .sharedSection)
+                verbs.dropAnswers(on: .sharedSection)
             }
         }
     }
@@ -481,10 +481,10 @@ struct BinderTreeSections: View {
     private func placeholder(
         _ text: String, onDrop: @escaping ([String]) -> Bool,
         onExternalDrop: @escaping ([NSItemProvider]) -> Bool,
-        feedback: @escaping () -> TreeDropFeedback = { .none }
+        answers: @escaping () -> TreeDropAnswers = { .none }
     ) -> some View {
         TreeDropPlaceholder(text: text, onDrop: onDrop, onExternalDrop: onExternalDrop,
-                            feedback: feedback)
+                            answers: answers)
     }
 
     // MARK: - Actions
@@ -723,7 +723,7 @@ struct BinderTreeVerbs {
             figureVerb: { [figures = figures] item in figures.researchVerb(for: item) },
             performFigureVerb: { [figures = figures] item in figures.useInDocument(item) })
         // A shared row's feedback: `internalDrop`/`externalDrop`'s own rule.
-        bundle.dropFeedback = { item in dropFeedback(on: .researchRow(item.id)) }
+        bundle.dropAnswers = { item in dropAnswers(on: .researchRow(item.id)) }
         return bundle
     }
 
@@ -935,6 +935,9 @@ final class BinderTreeSectionsState {
     /// (shell p4 Task 10): the row's dot, until the canvas is next opened
     /// (`TreeWindowWiring`), where the card is selected and in view.
     var canvasHasArrivals = false
+    /// What the Canvas row's drop verdict reads off the project, cached per
+    /// manifest stamp and canvas revision (`TreeCanvasRowDrop.facts`).
+    @ObservationIgnored var canvasRowFacts: TreeCanvasRowDrop.Facts?
 
     /// What a write through the tree's `List` leaves behind.
     func record(selection: Set<BinderSubject>, subject: WindowSubject,
@@ -1162,6 +1165,23 @@ final class BinderTreeSectionsState {
     /// The last press on a fold's pull-up row, for telling a double-click
     /// from two clicks (`BinderPieceFold.press`). A press record, never drawn.
     @ObservationIgnored var lastFoldPress: BinderPieceFold.LastPress?
+    /// **Every press on a pull-up row, single or double** (shell p4 Task 10
+    /// fix round 1): which row and when, so a `List` selection of the same
+    /// row within the double-click interval is read as the same click's
+    /// second arrival and waits for nothing (`BinderPieceFold.pressedJustNow`).
+    @ObservationIgnored var lastRowPress: BinderPieceFold.RowPress?
+    /// **The row a key landing waits to pull up** (the controller's arrow
+    /// ruling): set by the `List`'s setter, performed after the selection
+    /// settles by `TreeWindowWiring` (`TreeRowSettle`), cleared by the next
+    /// landing elsewhere and by a press on a row. Observed: it keys the wait.
+    var pendingSettle: PulledUp?
+    /// Whether the window's right column is showing the pulled-up position —
+    /// mirrored by `TreeWindowWiring`, read by a settle and by Return.
+    var columnShowsPulledUp = false
+    /// Bumped by Return / Space on a row: the window shows the pulled-up
+    /// position (`ProjectWindow.revealPulledUp`'s rule), even when what is
+    /// beside did not change. Served by `TreeWindowWiring`.
+    var pulledUpRevealRequests = 0
     /// **The groups of a grouped fold (past six entries) that are OPEN**,
     /// keyed per piece — the open-ids-only spelling `expandedPieceFolds` uses,
     /// for its reasons. Not persisted.
@@ -1720,20 +1740,30 @@ enum BinderTreeSelection {
     }
 
     /// What a write of tags leaves behind: the subjects' selection, the
-    /// fold row selected (or nil), and the subject.
+    /// fold row selected (or nil), the subject, and the row a key landing
+    /// waits to pull up once the selection settles (`TreeRowSettle`).
     struct TagWrite: Equatable {
         let selection: Set<BinderSubject>
         let pullUp: PulledUp?
         let subject: WindowSubject
+        var settle: PulledUp? = nil
     }
 
-    /// **The selection and the subject after the `List` writes `written`.**
-    /// A pull-up row's tag written alone — the arrow keys landing on a card,
-    /// a region, a palette pin or a figure in a fold, or the table selecting
-    /// it — pulls that row up beside (`ClickRule.pullUp`: never puts it away,
-    /// moves nothing else), so arrowing through a fold never moves the
-    /// centre or the faces. A modifier click adding one is that row alone.
-    /// Every other write is a subject write, today's `resolved` unchanged.
+    /// **The selection and the subject after the `List` writes `written`**
+    /// (shell p4 Task 10, fix round 1 — the controller's ruling on arrows).
+    ///
+    /// - **A pull-up row's tag** (a fold's card, picture, region, palette pin,
+    ///   figure) only SELECTS: the subject does not move. From the keys, the
+    ///   row waits to be pulled up once the selection settles (`settle`,
+    ///   performed by `TreeRowSettle` outside this setter). From the pointer —
+    ///   the table selecting on a click — nothing waits: the row's own button
+    ///   is the click's one act (`BinderPieceFold.buttonPress`), so the order
+    ///   in which the two arrive cannot matter. A press on this row within the
+    ///   double-click interval (`recentPress`, the pairing's own clock) also
+    ///   waits for nothing: that selection is the same click's second arrival.
+    /// - **A research row from the keys** selects alike and waits to settle, so
+    ///   a walk through a fold or the Research section is one rule.
+    /// - Every other write is a subject write, today's `resolved` unchanged.
     static func resolvedTags(
         written: Set<TreeRowTag>,
         stored: Set<BinderSubject>,
@@ -1744,18 +1774,27 @@ enum BinderTreeSelection {
         research: [ResearchItem],
         figures: [String],
         projectType: ProjectType,
+        gesture: TreeSelectionGesture = .pointer,
+        recentPress: (PulledUp) -> Bool = { _ in false },
         accepts: (BinderSubject) -> Bool = { _ in true }
     ) -> TagWrite {
         let pulls = written.compactMap(\.pullUp)
         let added = written.subtracting(shownNow).compactMap(\.pullUp)
         if let one = (written.count == 1 ? pulls.first : nil) ?? (added.count == 1 ? added.first : nil) {
-            return TagWrite(selection: [], pullUp: one,
-                            subject: ClickRule.pullUp(one, current: subject))
+            let waits = gesture == .keys && !recentPress(one)
+            return TagWrite(selection: [], pullUp: one, subject: subject,
+                            settle: waits ? one : nil)
         }
         // A set holding a pull-up row with nothing new: the `List` handing
         // back what it drew. Nothing moves.
         if !pulls.isEmpty, written == shownNow {
             return TagWrite(selection: stored, pullUp: storedPullUp, subject: subject)
+        }
+        // A research row the keys land on: selected, waiting to settle.
+        if gesture == .keys, written.count == 1, case .subject(let row)? = written.first,
+           let id = row.researchID, accepts(row) {
+            return TagWrite(selection: [row], pullUp: nil, subject: subject,
+                            settle: recentPress(.research(id)) ? nil : .research(id))
         }
         let next = resolved(
             written: Set(written.compactMap(\.subject)), stored: stored,
@@ -1798,6 +1837,8 @@ enum BinderTreeSelection {
                       subject: Binding<WindowSubject>, store: ProjectStore,
                       accepts: (BinderSubject) -> Bool = { _ in true }) {
         let current = subject.wrappedValue
+        let now = ProcessInfo.processInfo.systemUptime
+        let lastPress = state.lastRowPress
         let next = resolvedTags(
             written: written, stored: state.selection, storedPullUp: state.selectedPullUp,
             shown: drawnTags(state: state, subject: current).filter {
@@ -1808,21 +1849,25 @@ enum BinderTreeSelection {
             research: store.manifest.research,
             figures: drawnFigureOrder(state),
             projectType: store.manifest.type,
+            gesture: TreeSelectionGesture.current,
+            recentPress: { BinderPieceFold.pressedJustNow($0, last: lastPress, now: now) },
             accepts: accepts)
         // An untagged write moves nothing, the record included.
         if next.selection != state.selection || next.subject != current
             || next.pullUp != state.selectedPullUp {
             state.record(selection: next.selection, subject: next.subject, pullUp: next.pullUp)
         }
+        if state.pendingSettle != next.settle { state.pendingSettle = next.settle }
         subject.wrappedValue = next.subject
     }
 }
 
 /// **The tree's keys for the row the `List` has selected** (shell p4 Task
-/// 10). The arrows are the `List`'s own (a landing is a write the binding
-/// answers); these are the two acts a click and a double-click make:
-/// - **Return or Space** on a fold's pull-up row is its click — pulled up
-///   beside, or put away when it is the one up. The row stays selected, so a
+/// 10). The arrows are the `List`'s own (a landing selects, and a pull-up
+/// or research row settles — `TreeRowSettle`); these are the explicit acts:
+/// - **Return or Space** on a fold's pull-up row or a research row pulls it
+///   up NOW and shows the column on the pulled-up position; on the row
+///   already up and shown it puts it away. The row stays selected, so a
 ///   second press brings it back. On any other row nothing: landing on it
 ///   already did what its click does.
 /// - **⌘↓** on any one row is its double-click — Open in Centre (Finder's
@@ -1848,17 +1893,23 @@ enum TreeRowKeys {
     static func act(_ key: Key, drawn: Set<TreeRowTag>) -> Act? {
         guard drawn.count == 1, let row = drawn.first else { return nil }
         switch key {
-        case .returnOrSpace: return row.pullUp.map(Act.click)
+        case .returnOrSpace:
+            if let pulled = row.pullUp { return .click(pulled) }
+            if let id = row.subject?.researchID { return .click(.research(id)) }
+            return nil
         case .openInCentre: return .openInCentre(row)
         }
     }
 
-    /// The subject after a Return or Space on a pulled-up row: the fold
-    /// row's click (`BinderPieceFold.clicked`'s pull-up arm). Pure.
-    static func clicked(_ pulled: PulledUp, subject: WindowSubject) -> WindowSubject {
-        subject.beside == pulled
-            ? ClickRule.putAway(current: subject)
-            : ClickRule.pullUp(pulled, current: subject)
+    /// The subject after a Return or Space on `pulled`, and whether the
+    /// column is to show the pulled-up position: put away only when it is
+    /// the one up AND on show; otherwise pulled up and shown. Pure.
+    static func returned(_ pulled: PulledUp, subject: WindowSubject,
+                         columnShowsPulledUp: Bool) -> (subject: WindowSubject, reveals: Bool) {
+        if subject.beside == pulled, columnShowsPulledUp {
+            return (ClickRule.putAway(current: subject), false)
+        }
+        return (ClickRule.pullUp(pulled, current: subject), true)
     }
 }
 
@@ -1881,10 +1932,17 @@ struct TreeRowKeysModifier: ViewModifier {
             else { return .ignored }
             switch act {
             case .click(let pulled):
-                let next = TreeRowKeys.clicked(pulled, subject: subject)
+                let next = TreeRowKeys.returned(pulled, subject: subject,
+                                                columnShowsPulledUp: state.columnShowsPulledUp)
                 // The row stays the one selected, so Return again brings it back.
-                state.record(selection: [], subject: next, pullUp: pulled)
-                subject = next
+                if state.selectedPullUp != pulled, let id = pulled.researchID {
+                    state.record(selection: [.research(id)], subject: next.subject)
+                } else {
+                    state.record(selection: [], subject: next.subject, pullUp: pulled)
+                }
+                state.pendingSettle = nil
+                subject = next.subject
+                if next.reveals { state.pulledUpRevealRequests += 1 }
             case .openInCentre(.pullUp(let pulled)):
                 BinderPieceFold.openInCentre(pulled, subject: $subject, store: store,
                                              windowCanvas: windowCanvas)
@@ -1904,6 +1962,43 @@ extension View {
                      subject: Binding<WindowSubject>, hostIsRenaming: Bool = false) -> some View {
         modifier(TreeRowKeysModifier(store: store, state: state, subject: subject,
                                      hostIsRenaming: hostIsRenaming))
+    }
+}
+
+/// **What made a `List` selection write**: the keys (an arrow, type-select —
+/// a key-down being dispatched) or anything else, read as the pointer (the
+/// table selecting on a click, a selection set in code). Read off the event
+/// being dispatched, at the write — a cheap read the setter may make
+/// (tripwire 3).
+enum TreeSelectionGesture: Equatable {
+    case pointer, keys
+
+    static func of(_ type: NSEvent.EventType?) -> TreeSelectionGesture {
+        type == .keyDown ? .keys : .pointer
+    }
+
+    @MainActor static var current: TreeSelectionGesture { of(NSApp.currentEvent?.type) }
+}
+
+/// **The arrow ruling's second half** (shell p4 Task 10 fix round 1): a row
+/// the keys landed on is pulled up once the selection has settled —
+/// `delay` with no further landing — and only where the right column is
+/// already showing the pulled-up position. Anywhere else the selection alone
+/// moved: an arrow never opens a hidden column nor swaps To resolve or Brief
+/// away. Return / Space is the explicit act (`TreeRowKeys`).
+enum TreeRowSettle {
+    static let delay: Duration = .milliseconds(300)
+
+    /// Whether the column is on the pulled-up position and drawn.
+    static func columnShowsPulledUp(showInspector: Bool, position: RightColumnPosition) -> Bool {
+        showInspector && position == .pulledUp
+    }
+
+    /// The subject after `pulled` settles, or nil when nothing moves. Pure.
+    static func settled(_ pulled: PulledUp, subject: WindowSubject,
+                        columnShowsPulledUp: Bool) -> WindowSubject? {
+        guard columnShowsPulledUp, subject.beside != pulled else { return nil }
+        return ClickRule.pullUp(pulled, current: subject)
     }
 }
 
@@ -1955,7 +2050,7 @@ private struct TreeDropPlaceholder: View {
     let text: String
     let onDrop: ([String]) -> Bool
     let onExternalDrop: ([NSItemProvider]) -> Bool
-    let feedback: () -> TreeDropFeedback
+    let answers: () -> TreeDropAnswers
     @State private var internalTargeted = false
     @State private var externalTargeted = false
 
@@ -1982,6 +2077,6 @@ private struct TreeDropPlaceholder: View {
                 return onExternalDrop(providers)
             }
             .treeDropHover(internalTargeted: internalTargeted,
-                           externalTargeted: externalTargeted, feedback: feedback)
+                           externalTargeted: externalTargeted, answers: answers)
     }
 }

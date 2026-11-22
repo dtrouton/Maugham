@@ -31,11 +31,14 @@ struct ResearchRow: View {
     let onExternalDrop: (_ providers: [NSItemProvider], _ position: DropIntent.Position) -> Bool
 
     /// **What this row shows while a drag is over it** (shell p4 Task 10):
-    /// its caller's feedback, decided by the same classification its drop
-    /// performs (`BinderTreeVerbs.dropFeedback(on:)`). `.none` draws nothing.
-    var dropFeedback: () -> TreeDropFeedback = { .none }
+    /// its caller's answers at each drop position, decided by the same rules
+    /// its drop performs (`BinderTreeVerbs.dropAnswers(on:)`).
+    var dropAnswers: () -> TreeDropAnswers = { .none }
     @State private var internalDropTargeted = false
     @State private var externalDropTargeted = false
+    /// The row's REAL height — what a drop's location is read against
+    /// (`DropIntent.Position.of`), never an assumed 22 pt.
+    @State private var rowHeight: CGFloat = 22
 
     /// **Drawn as a link to shared research, not as research this piece
     /// owns** (shell p3 Task 7): a novel chapter's fold lists the chapter's
@@ -116,6 +119,7 @@ struct ResearchRow: View {
             }
             .contentShape(Rectangle())
             .help(look.help ?? "")
+            .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { rowHeight = $0 }
             .draggable(item.id) {
                 Text(item.title)
                     .padding(6)
@@ -123,27 +127,19 @@ struct ResearchRow: View {
             }
             .dropDestination(for: String.self) { ids, location in
                 guard let droppedId = ids.first else { return false }
-                let rowHeight: CGFloat = 22
-                let position: DropIntent.Position
-                if location.y < rowHeight / 3 { position = .top }
-                else if location.y > (rowHeight * 2 / 3) { position = .bottom }
-                else { position = .middle }
+                let position = DropIntent.Position.of(y: location.y, height: rowHeight)
                 // The caller's answer, never a literal — see `onDrop`.
                 return onDrop(droppedId, position)
             } isTargeted: { internalDropTargeted = $0 }
             .onDrop(of: [.fileURL, .image], isTargeted: $externalDropTargeted) { providers, location in
                 guard !providers.isEmpty else { return false }
-                let rowHeight: CGFloat = 22
-                let position: DropIntent.Position
-                if location.y < rowHeight / 3 { position = .top }
-                else if location.y > (rowHeight * 2 / 3) { position = .bottom }
-                else { position = .middle }
+                let position = DropIntent.Position.of(y: location.y, height: rowHeight)
                 // The caller's answer, never a literal — see `onDrop`.
                 return onExternalDrop(providers, position)
             }
             // Its feedback, asked once as a drag arrives (`TreeDropHover`).
             .treeDropHover(internalTargeted: internalDropTargeted,
-                           externalTargeted: externalDropTargeted, feedback: dropFeedback)
+                           externalTargeted: externalDropTargeted, answers: dropAnswers)
         }
     }
 

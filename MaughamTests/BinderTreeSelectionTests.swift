@@ -25,32 +25,132 @@ final class BinderTreeSelectionTests: XCTestCase {
 
     private func write(_ written: Set<TreeRowTag>, from subject: WindowSubject,
                        stored: Set<BinderSubject> = [], storedPullUp: PulledUp? = nil,
-                       clickedAt: WindowSubject? = nil) -> BinderTreeSelection.TagWrite {
+                       clickedAt: WindowSubject? = nil,
+                       gesture: TreeSelectionGesture = .pointer,
+                       recentPress: @escaping (PulledUp) -> Bool = { _ in false })
+        -> BinderTreeSelection.TagWrite {
         BinderTreeSelection.resolvedTags(
             written: written, stored: stored, storedPullUp: storedPullUp,
             shown: BinderTreeSelection.shownTags(stored, pullUp: storedPullUp,
                                                   subject: subject, clickedAt: clickedAt),
             subject: subject, structure: structure, research: research, figures: [],
-            projectType: .novel)
+            projectType: .novel, gesture: gesture, recentPress: recentPress)
     }
 
     // MARK: - The pull-up tag
 
-    func test_aPullUpTagWritePullsTheRowUp() {
+    /// The arrow ruling: a key landing on a fold row SELECTS at once, moves
+    /// nothing, and waits to settle; a pointer's selection only selects (the
+    /// row's button is the click's act).
+    func test_aKeyLandingOnAPullUpRowSelectsAndWaitsToSettle() {
         for pulled: PulledUp in [.canvasScrap(nodeId: "s1"), .canvasPhoto(path: "canvas_assets/a.png"),
                                  .canvasRegion(id: "r1"), .research("pal-1"), .figure("fig-1")] {
-            let next = write([.pullUp(pulled)], from: chapter)
-            XCTAssertEqual(next.subject.beside, pulled, "\(pulled) is pulled up beside")
-            XCTAssertEqual(next.subject.open, chapter.open, "the centre never moves")
-            XCTAssertEqual(next.subject.faces, chapter.faces, "the faces never move")
-            XCTAssertEqual(next.pullUp, pulled, "and the List keeps drawing it selected")
-            XCTAssertEqual(next.selection, [])
-            // Drawn selected while the subject is the one the landing made.
-            XCTAssertEqual(BinderTreeSelection.shownTags(next.selection, pullUp: next.pullUp,
-                                                          subject: next.subject,
-                                                          clickedAt: next.subject),
+            let keys = write([.pullUp(pulled)], from: chapter, gesture: .keys)
+            XCTAssertEqual(keys.subject, chapter, "\(pulled): the setter moves nothing")
+            XCTAssertEqual(keys.pullUp, pulled, "and the List draws it selected")
+            XCTAssertEqual(keys.settle, pulled, "it waits to settle")
+            XCTAssertEqual(BinderTreeSelection.shownTags(keys.selection, pullUp: keys.pullUp,
+                                                          subject: keys.subject,
+                                                          clickedAt: keys.subject),
                            [.pullUp(pulled)])
+            let pointer = write([.pullUp(pulled)], from: chapter, gesture: .pointer)
+            XCTAssertEqual(pointer.subject, chapter)
+            XCTAssertNil(pointer.settle, "a click's selection waits for nothing")
+            let sameClick = write([.pullUp(pulled)], from: chapter, gesture: .keys,
+                                  recentPress: { $0 == pulled })
+            XCTAssertNil(sameClick.settle, "the same click's other arrival waits for nothing")
         }
+    }
+
+    /// Research rows follow the same rule from the keys; a pointer's click on
+    /// one is today's click.
+    func test_aKeyLandingOnAResearchRowSelectsAndWaitsToSettle() {
+        let keys = write([.subject(.research("res-1"))], from: chapter, gesture: .keys)
+        XCTAssertEqual(keys.subject, chapter)
+        XCTAssertEqual(keys.selection, [.research("res-1")])
+        XCTAssertEqual(keys.settle, .research("res-1"))
+        let click = write([.subject(.research("res-1"))], from: chapter, gesture: .pointer)
+        XCTAssertEqual(click.subject.beside, .research("res-1"), "a click pulls it up at once")
+        XCTAssertNil(click.settle)
+        // A chapter from the keys is today's click (the faces move).
+        let chapterTwo = write([.subject(.item("ch-2"))], from: chapter, gesture: .keys)
+        XCTAssertEqual(chapterTwo.subject.faces, .item("ch-2"))
+        XCTAssertNil(chapterTwo.settle)
+    }
+
+    /// The settle: pulled up only where the column already shows the
+    /// pulled-up position; otherwise the selection alone moved.
+    func test_aSettledLandingPullsUpOnlyWhereTheColumnShowsThePulledUpPosition() {
+        let pulled = PulledUp.canvasScrap(nodeId: "s1")
+        XCTAssertEqual(TreeRowSettle.settled(pulled, subject: chapter, columnShowsPulledUp: true)?.beside,
+                       pulled)
+        XCTAssertNil(TreeRowSettle.settled(pulled, subject: chapter, columnShowsPulledUp: false),
+                     "never reveals a hidden column nor swaps To resolve or Brief away")
+        var up = chapter
+        up.beside = pulled
+        XCTAssertNil(TreeRowSettle.settled(pulled, subject: up, columnShowsPulledUp: true),
+                     "already up: nothing moves (and Back records nothing)")
+        XCTAssertTrue(TreeRowSettle.columnShowsPulledUp(showInspector: true, position: .pulledUp))
+        XCTAssertFalse(TreeRowSettle.columnShowsPulledUp(showInspector: false, position: .pulledUp))
+        XCTAssertFalse(TreeRowSettle.columnShowsPulledUp(showInspector: true, position: .resolve))
+        XCTAssertEqual(TreeRowSettle.delay, .milliseconds(300))
+    }
+
+    func test_aSelectionsGestureIsReadOffTheEvent() {
+        XCTAssertEqual(TreeSelectionGesture.of(.keyDown), .keys)
+        XCTAssertEqual(TreeSelectionGesture.of(nil), .pointer, "a selection set in code is a click's")
+        XCTAssertEqual(TreeSelectionGesture.of(.flagsChanged), .pointer)
+    }
+
+    /// **Review I1: a click on a fold row is one act, whichever of the
+    /// table's selection and the button's action arrives first** — the
+    /// outcome is decided from the state before the click, the second
+    /// arrival is a no-op, and nothing waits to settle afterwards. Both
+    /// orders, both readings of the selection's gesture, a row up and not.
+    func test_aClickOnAFoldRowIsOneActInEitherOrder() {
+        let entry: PieceFoldEntry = .card(PinnedReference(id: "s1", kind: .scrap(nodeId: "s1"),
+                                                          title: "A thought"))
+        let pulled = entry.pulledUp!
+        var up = chapter
+        up.beside = pulled
+        for before in [chapter, up] {
+            let expected = BinderPieceFold.clicked(entry, subject: before, structure: structure,
+                                                   projectType: .novel)
+            for gesture: TreeSelectionGesture in [.pointer, .keys] {
+                // The selection first, then the button.
+                let selected = write([.pullUp(pulled)], from: before, gesture: gesture)
+                let pressed = BinderPieceFold.buttonPress(
+                    entry, at: 10.0, last: nil, interval: 0.5, subject: selected.subject,
+                    structure: structure, projectType: .novel)
+                XCTAssertEqual(pressed.subject, expected, "selection then button, \(gesture)")
+                // The button clears what waits (`pressed` sets pendingSettle = nil).
+                // The button first, then the selection.
+                let first = BinderPieceFold.buttonPress(
+                    entry, at: 10.0, last: nil, interval: 0.5, subject: before,
+                    structure: structure, projectType: .novel)
+                let then = write([.pullUp(pulled)], from: first.subject!, gesture: gesture,
+                                 recentPress: {
+                                     BinderPieceFold.pressedJustNow($0, last: first.rowPress,
+                                                                    now: 10.1, interval: 0.5)
+                                 })
+                XCTAssertEqual(then.subject, expected, "button then selection, \(gesture)")
+                XCTAssertNil(then.settle, "and nothing pulls it back up later")
+            }
+            // The double-click: the pair's second press opens in the centre.
+            let one = BinderPieceFold.buttonPress(entry, at: 10.0, last: nil, interval: 0.5,
+                                                  subject: before, structure: structure,
+                                                  projectType: .novel)
+            let two = BinderPieceFold.buttonPress(entry, at: 10.2, last: one.lastFoldPress,
+                                                  interval: 0.5, subject: one.subject!,
+                                                  structure: structure, projectType: .novel)
+            XCTAssertEqual(two.press, .double)
+            XCTAssertNil(two.subject, "the view opens it in the centre")
+        }
+        XCTAssertFalse(BinderPieceFold.pressedJustNow(
+            pulled, last: .init(pulled: pulled, at: 10), now: 11, interval: 0.5), "too late")
+        XCTAssertFalse(BinderPieceFold.pressedJustNow(
+            .canvasRegion(id: "r1"), last: .init(pulled: pulled, at: 10), now: 10.1, interval: 0.5),
+            "another row")
     }
 
     /// Landing on the row already up never puts it away (only a click on it,
@@ -116,7 +216,9 @@ final class BinderTreeSelectionTests: XCTestCase {
             XCTAssertEqual(TreeRowKeys.act(.openInCentre, drawn: [.pullUp(pulled)]),
                            .openInCentre(.pullUp(pulled)))
         }
-        for row: BinderSubject in [.item("ch-1"), .research("res-1"), .project, .canvas] {
+        XCTAssertEqual(TreeRowKeys.act(.returnOrSpace, drawn: [.subject(.research("res-1"))]),
+                       .click(.research("res-1")), "a research row's Return pulls it up now")
+        for row: BinderSubject in [.item("ch-1"), .project, .canvas] {
             XCTAssertNil(TreeRowKeys.act(.returnOrSpace, drawn: [.subject(row)]),
                          "landing on \(row) already did what its click does")
             XCTAssertEqual(TreeRowKeys.act(.openInCentre, drawn: [.subject(row)]),
@@ -138,22 +240,25 @@ final class BinderTreeSelectionTests: XCTestCase {
         XCTAssertNil(TreeRowKeys.key(.downArrow, modifiers: [.command, .option]))
     }
 
-    /// Return on the row up puts it away and keeps it selected, so a second
-    /// Return brings it back.
-    func test_returnTogglesThePulledUpRow() {
-        let up = TreeRowKeys.clicked(.canvasRegion(id: "r1"), subject: chapter)
-        XCTAssertEqual(up.beside, .canvasRegion(id: "r1"))
-        let away = TreeRowKeys.clicked(.canvasRegion(id: "r1"), subject: up)
-        XCTAssertNil(away.beside)
-        XCTAssertEqual(away.open, chapter.open)
-        XCTAssertEqual(BinderTreeSelection.shownTags([], pullUp: .canvasRegion(id: "r1"),
-                                                     subject: away, clickedAt: away),
-                       [.pullUp(.canvasRegion(id: "r1"))],
-                       "the row stays the one selected")
-        // The same act the mouse's click makes.
-        let entry: PieceFoldEntry = .region(id: "r1", title: "Fog", cards: [])
-        XCTAssertEqual(BinderPieceFold.clicked(entry, subject: up, structure: structure,
-                                               projectType: .novel), away)
+    /// Return / Space pulls up NOW and shows the column; on the row up and
+    /// shown it puts it away. The row stays selected (the modifier records it).
+    func test_returnPullsUpNowAndShowsTheColumn() {
+        let region = PulledUp.canvasRegion(id: "r1")
+        let hidden = TreeRowKeys.returned(region, subject: chapter, columnShowsPulledUp: false)
+        XCTAssertEqual(hidden.subject.beside, region)
+        XCTAssertTrue(hidden.reveals, "the explicit act shows the column")
+        var up = chapter
+        up.beside = region
+        let behind = TreeRowKeys.returned(region, subject: up, columnShowsPulledUp: false)
+        XCTAssertEqual(behind.subject.beside, region, "up but not shown: shown, never put away")
+        XCTAssertTrue(behind.reveals)
+        let away = TreeRowKeys.returned(region, subject: up, columnShowsPulledUp: true)
+        XCTAssertNil(away.subject.beside)
+        XCTAssertFalse(away.reveals)
+        XCTAssertEqual(away.subject.open, chapter.open)
+        XCTAssertEqual(BinderTreeSelection.shownTags([], pullUp: region,
+                                                     subject: away.subject, clickedAt: away.subject),
+                       [.pullUp(region)], "the row stays the one selected")
     }
 
     func test_voiceOverNamesEachRowAndWhatActivatingItDoes() {
@@ -210,14 +315,26 @@ final class BinderTreeSelectionTests: XCTestCase {
         let start = try XCTUnwrap(source.range(of: "    static func write(_ written: Set<TreeRowTag>"))
         let end = try XCTUnwrap(source.range(of: "\n    }\n", range: start.upperBound..<source.endIndex))
         let body = String(source[start.upperBound..<end.lowerBound])
-        for call in ["resolvedTags(", "state.record(", "drawnTags(", "drawnFigureOrder("] {
+        for call in ["resolvedTags(", "state.record(", "drawnTags(", "drawnFigureOrder(",
+                     "state.pendingSettle", "TreeSelectionGesture.current"] {
             XCTAssertTrue(body.contains(call), call)
         }
         for forbidden in ["Task", "await", "perform", "post("] {
             XCTAssertFalse(body.contains(forbidden), "the setter does \(forbidden)")
         }
-        XCTAssertTrue(source.contains("ClickRule.pullUp(one, current: subject)"),
-                      "a pull-up landing is ClickRule.pullUp")
+        // The settle is performed outside the setter, by the window.
+        let wiring = try CanvasSourceCensus.source(at: "Maugham/Views/TreeWindowWiring.swift")
+        XCTAssertTrue(wiring.contains(".task(id: state.pendingSettle)"))
+        XCTAssertTrue(wiring.contains("try? await Task.sleep(for: TreeRowSettle.delay)"))
+        XCTAssertTrue(wiring.contains("TreeRowSettle.settled("))
+        XCTAssertTrue(wiring.contains("ProjectWindow.revealPulledUp(subject: subject,"))
+        let window = try CanvasSourceCensus.source(at: "Maugham/Views/ProjectWindow.swift")
+        XCTAssertTrue(window.contains("position: $rightColumnPosition))"),
+                      "the window hands the wiring its column")
+        // The button clears what waits and records the row (Minor 8).
+        let fold = try CanvasSourceCensus.source(at: "Maugham/Views/BinderPieceFold.swift")
+        XCTAssertTrue(fold.contains("state.pendingSettle = nil"))
+        XCTAssertTrue(fold.contains("state.lastRowPress = outcome.rowPress"))
     }
 
     /// Each host's `List` selects over tags, and each carries the keys.
@@ -232,7 +349,7 @@ final class BinderTreeSelectionTests: XCTestCase {
 
     // MARK: - Mounted: the List's own selection
 
-    func test_selectingAFoldCardRowPullsItUpAndMovesNothingElse() async throws {
+    func test_selectingAFoldCardRowSelectsItAndMovesNothing() async throws {
         let temp = TempDirectory()
         defer { temp.cleanup() }
         let url = try await ProjectFactory.createNovelProject(
@@ -267,11 +384,11 @@ final class BinderTreeSelectionTests: XCTestCase {
 
         let before = probe.subject
         outline.selectRowIndexes(IndexSet(integer: chapterRow + 1), byExtendingSelection: false)
-        XCTAssertEqual(probe.subject.beside, .canvasScrap(nodeId: scrap.raw),
-                       "the List's own selection on the card row pulls the card up")
-        XCTAssertEqual(probe.subject.open, before.open)
-        XCTAssertEqual(probe.subject.faces, before.faces)
-        XCTAssertEqual(state.selectedPullUp, .canvasScrap(nodeId: scrap.raw))
+        XCTAssertEqual(state.selectedPullUp, .canvasScrap(nodeId: scrap.raw),
+                       "the List's own selection reaches the card row")
+        XCTAssertEqual(probe.subject, before, "a landing moves nothing at once")
+        XCTAssertNil(state.pendingSettle,
+                     "a selection set in code is a click's: the row's button is the act")
     }
 
     private func outline(in window: NSWindow) -> NSOutlineView? {

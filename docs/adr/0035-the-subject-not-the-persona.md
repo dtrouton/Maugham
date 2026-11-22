@@ -66,13 +66,13 @@ The right column has three positions in one order, To resolve (⌘1), Brief (⌘
 - One answer to "what is this window about", asked of one value, instead of a mode and a subject that could disagree.
 - ADRs 0005, 0025 and 0031 are superseded in part (each carries a line saying which part); their bodies are history.
 - A window state file written before this has no `windowSubject`: `UIState` seeds it from the old selection keys and `outlineLayout`, and the persona keys are no longer read.
-- Known limits, in this plan: there is no capture-to-canvas drag within one window (Inbox takes the centre; Send to Canvas remains; a drop on the tree's Canvas row closes this, shell p4 Task 10); every edition shows the same book in preview.
+- Known limits, in this plan: there was no capture-to-canvas drag within one window (Inbox takes the centre; Send to Canvas remains) until shell p4 Task 10's drop on the tree's Canvas row; every edition shows the same book in preview.
 
 ## Not yet built
 
 Later plans of the same milestone. None of these exist; nothing above depends on them.
 
-- Built since: To resolve ([ADR 0036](0036-to-resolve.md)) and its one dot on the tree's rows (`ResolvePresence`; the stage dot was already drawn); Brief, the pulled-up thing, the fold, ⌘2 and ⌘3, the old inspector's dispersal, the faces' piece readable without the editor for History, and the Canvas centre's right column ([ADR 0037](0037-brief-and-the-pulled-up-thing.md)). The rest of this list is what remains.
+- Built since: To resolve ([ADR 0036](0036-to-resolve.md)) and its one dot on the tree's rows (`ResolvePresence`; the stage dot was already drawn); Brief, the pulled-up thing, the fold, ⌘2 and ⌘3, the old inspector's dispersal, the faces' piece readable without the editor for History, and the Canvas centre's right column ([ADR 0037](0037-brief-and-the-pulled-up-thing.md)); drop-target feedback on the tree — into, an insertion line above or below, or nothing, from each drop's own rule at the pointer's place (shell p4 Task 10). The rest of this list is what remains.
 - Status views beyond the board.
 - Per-language preview: every edition shows the same book today.
 - Round letters per piece.
@@ -81,7 +81,6 @@ Later plans of the same milestone. None of these exist; nothing above depends on
 - The spec's open decision on the Inbox at scale. (A drop on the tree's Canvas row is built, shell p4 Task 10: `TreeCanvasRowDrop` lands a capture, a research item or a file loose through the Send to Canvas route, and the row carries a dot until the canvas is next opened.)
 - **The faces' piece readable without the editor, for Translation.** To resolve, Brief and History have it; the translation review pane still needs the piece open, and a run flashes for a faces' piece the centre does not have open.
 - The toolbar's view switch, its language switch on a piece with translations, and its standing running-round indicator; only Lock is built.
-- An insertion line between rows for a reorder. (Drop-target feedback is built, shell p4 Task 10: `TreeDropFeedback` — into, beside, or nothing — asked of each target's drop's own classifier; the line needs the drop's position while hovering, which the rows' drop modifiers do not report.)
 - Per-piece publishing settings in the edition's Status view (they are "Publishing…" in a piece's row menu until then).
 - An edition's centre scrolling the book to a piece clicked in the tree, and the separate translation-review mode going.
 

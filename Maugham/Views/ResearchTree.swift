@@ -49,7 +49,7 @@ struct ResearchTreeActions {
     /// **What a row shows while a drag is over it** (shell p4 Task 10) — the
     /// same classification `internalDrop`/`externalDrop` perform; a fold
     /// re-routes it with its document, as it re-routes those.
-    var dropFeedback: (ResearchItem) -> TreeDropFeedback = { _ in .none }
+    var dropAnswers: (ResearchItem) -> TreeDropAnswers = { _ in .none }
 }
 
 struct ResearchTreeNode: View {
@@ -220,7 +220,7 @@ struct ResearchTreeNode: View {
             onExternalDrop: { providers, position in
                 actions.externalDrop(providers, position, item)
             },  // both pass the bundle's accept/refuse straight back to the row
-            dropFeedback: { actions.dropFeedback(item) },
+            dropAnswers: { actions.dropAnswers(item) },
             linkedFromResearch: linkedFromResearch)
             .tag(TreeRowTag.subject(tagFor(item)))
             .contextMenu {

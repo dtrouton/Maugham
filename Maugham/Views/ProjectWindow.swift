@@ -669,7 +669,9 @@ struct ProjectWindow: View {
         // hidden. Load-bearing: without it Tags…, Add Link… and Publishing…
         // open nothing.
         .modifier(TreeWindowWiring(store: store, url: url, window: window,
-                                   state: treeState, subject: subjectBinding))
+                                   state: treeState, subject: subjectBinding,
+                                   showInspector: $showInspector,
+                                   position: $rightColumnPosition))
         // The tree's "something to resolve" marks, read once per key with the
         // tree hidden too. Load-bearing: without it no row is ever marked.
         .modifier(ResolvePresenceWiring(
