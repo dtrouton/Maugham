@@ -102,12 +102,31 @@ final class PromotionLeavesTheStoreLiveTests: XCTestCase {
     }
 
     /// Whether `text` is in `docId`'s op log on disk — what autosave reaching
-    /// the source of truth means.
-    private func opLogHolds(_ text: String, docId: String, in projectURL: URL) throws -> Bool {
+    /// the source of truth means. A needle made only of hex/base64 characters
+    /// is refused: the log's hashes and signatures are those characters, so
+    /// "ebb" matched a `head` hash in about one run in thirty.
+    private func opLogHolds(_ text: String, docId: String, in projectURL: URL,
+                            file: StaticString = #filePath, line: UInt = #line) throws -> Bool {
+        let hashAlphabet = CharacterSet(charactersIn:
+            "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=")
+        guard text.unicodeScalars.contains(where: { !hashAlphabet.contains($0) }) else {
+            XCTFail("needle \"\(text)\" could match a hash or signature; give it a space or punctuation",
+                    file: file, line: line)
+            return false
+        }
         let needle = Data(text.utf8)
         return try OpLogStore.opLogFileURLs(forDocId: docId, in: projectURL).contains { url in
             try Data(contentsOf: url).range(of: needle) != nil
         }
+    }
+
+    /// Every byte of `docId`'s op log files, by file name.
+    private func opLogBytes(docId: String, in projectURL: URL) throws -> [String: Data] {
+        var bytes: [String: Data] = [:]
+        for url in try OpLogStore.opLogFileURLs(forDocId: docId, in: projectURL) {
+            bytes[url.lastPathComponent] = try Data(contentsOf: url)
+        }
+        return bytes
     }
 
     /// The window is live: B still open and registered, the presenter still
@@ -408,6 +427,8 @@ final class PromotionLeavesTheStoreLiveTests: XCTestCase {
                        "premise: the search found every piece before the promotion")
 
         let hold = await w.store.withdrawForPromotion(path: aPath)
+        // The hold flushed and closed A: its op log is final until the return.
+        let aLogBefore = try opLogBytes(docId: w.aDoc.docId, in: w.collection)
         let during = await ProjectSearchEngine().search(query: "tide", options: SearchOptions(), in: w.projectStore)
         XCTAssertEqual(Set(during.matches.map(\.documentTitle)), ["Story B", "Story C"],
                        "Find listed a piece a promotion is moving")
@@ -420,7 +441,7 @@ final class PromotionLeavesTheStoreLiveTests: XCTestCase {
         try await w.bDoc.flushBurstNow()
         XCTAssertTrue(try opLogHolds("Story B, the ebb.", docId: w.bDoc.docId, in: w.collection))
         XCTAssertTrue(try opLogHolds("Story C, the ebb.", docId: cDoc.docId, in: w.collection))
-        XCTAssertFalse(try opLogHolds("ebb", docId: w.aDoc.docId, in: w.collection),
+        XCTAssertEqual(try opLogBytes(docId: w.aDoc.docId, in: w.collection), aLogBefore,
                        "Replace All wrote to the op log of a piece a promotion is moving")
         XCTAssertNil(w.store.document(for: aPath), "nothing registered the held piece")
 
