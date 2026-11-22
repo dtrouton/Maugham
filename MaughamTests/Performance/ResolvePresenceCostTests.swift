@@ -87,7 +87,7 @@ final class ResolvePresenceCostTests: XCTestCase {
             let manifest = store.manifest
             let read = ResolveReader.read(
                 scope: ResolveScope.of(.project, readIn: nil, sourceLanguage: "en", structure: manifest.structure, projectType: manifest.type),
-                store: store, documentStore: documentStore, diagnostics: nil)
+                store: store, documentStore: documentStore, diagnostics: nil, figureChanges: [])
             let owners = ProjectStore.figureNoteOwners(manifest.figures ?? [])
             _ = ResolvePresence.marks(read, structure: manifest.structure, figureOwners: owners, sceneIndex: nil)
             _ = ResolvePresence.openToDos(read.items, figureOwners: owners)
@@ -106,7 +106,7 @@ final class ResolvePresenceCostTests: XCTestCase {
         let start = clock.now
         for _ in 0..<4 {
             let key = ResolvePresenceReader.key(store: store, documentStore: documentStore,
-                                                diagnostics: nil, annotationsToken: token, script: nil)
+                                                diagnostics: nil, annotationsToken: token, script: nil, figureChanges: [])
             cost.add(ms(clock.measure {
                 reader.update(key, store: store, documentStore: documentStore, diagnostics: nil)
             }))
@@ -125,7 +125,7 @@ final class ResolvePresenceCostTests: XCTestCase {
             }
             if key == ResolvePresenceReader.key(store: store, documentStore: documentStore,
                                                 diagnostics: nil, annotationsToken: token,
-                                                script: nil) { break }
+                                                script: nil, figureChanges: []) { break }
         }
         cost.wall = ms(clock.now - start)
         return cost
@@ -247,7 +247,7 @@ final class ResolvePresenceCostTests: XCTestCase {
         let manifest = store.manifest
         let read = ResolveReader.read(
             scope: ResolveScope.of(.project, readIn: nil, sourceLanguage: "en", structure: manifest.structure, projectType: manifest.type),
-            store: store, documentStore: documentStore, diagnostics: nil)
+            store: store, documentStore: documentStore, diagnostics: nil, figureChanges: [])
         return ResolvePresence.marks(read, structure: manifest.structure,
                                      figureOwners: ProjectStore.figureNoteOwners(manifest.figures ?? []),
                                      sceneIndex: nil)

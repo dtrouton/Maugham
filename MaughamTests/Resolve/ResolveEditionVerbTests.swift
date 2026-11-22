@@ -513,7 +513,7 @@ final class ResolveEditionVerbTests: XCTestCase {
         var walks = ResolveWalkHold()
         let key = ResolvePane.readKey(scope: .edition(language: "es", isSource: false, docIds: ["doc-1", "doc-9"]),
                                       annotationsToken: 0, store: h.store, documentStore: h.documentStore,
-                                      diagnostics: nil, localName: "", presence: presence)
+                                      diagnostics: nil, localName: "", presence: presence, figureChanges: [])
         let read = ResolvePane.refreshed(.empty, step: .read, key: key, walks: &walks, presence: presence,
                                          store: h.store, documentStore: h.documentStore, diagnostics: nil)
         XCTAssertEqual(read.items.map(\.id), ["note:doc-9/q"])
@@ -670,7 +670,7 @@ final class ResolveEditionVerbTests: XCTestCase {
         let book = try await ResolvePresenceTests.book(in: temp.url, chapters: 3, noted: [0])
         let reader = ResolvePresenceReader()
         let key = ResolvePresenceReader.key(store: book.store, documentStore: book.documentStore,
-                                            diagnostics: nil, annotationsToken: 0, script: nil)
+                                            diagnostics: nil, annotationsToken: 0, script: nil, figureChanges: [])
         reader.update(key, store: book.store, documentStore: book.documentStore, diagnostics: nil)
         XCTAssertFalse(reader.hasFinishedAWalk, "before the walk the book is not read")
         XCTAssertFalse(ResolvePresence.bookReading(reader.snapshot, complete: reader.hasFinishedAWalk).isComplete)

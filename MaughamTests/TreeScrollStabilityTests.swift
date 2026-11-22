@@ -795,7 +795,7 @@ private struct AnnotationsPaneProbe: View {
             script: nil, diagnostics: diagnostics, orchestrator: orchestrator, world: nil,
             compilerModel: .standard, onCompilerModelChange: { _ in },
             onSetPassState: { _, _, _ in }, onSetActivePass: { _, _ in },
-            request: .constant(nil), onSelectionShown: { _ in })
+            request: .constant(nil), onSelectionShown: { _ in }, figureTree: nil)
         .environment(UserPreferences())
     }
 }
@@ -839,7 +839,7 @@ private struct PassSwapColumnProbe: View {
             script: nil, diagnostics: diagnostics, orchestrator: orchestrator, world: nil,
             compilerModel: .standard, onCompilerModelChange: { _ in },
             onSetPassState: { _, _, _ in }, onSetActivePass: { _, _ in },
-            request: .constant(nil), onSelectionShown: { _ in })
+            request: .constant(nil), onSelectionShown: { _ in }, figureTree: nil)
         }
         .environment(UserPreferences())
     }

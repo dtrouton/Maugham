@@ -111,7 +111,7 @@ final class ResolvePresenceTests: XCTestCase {
         let snapshot = ResolveReader.gather(
             scope: book,
             annotations: ProjectAnnotationsSnapshot(annotations: [], unreadableDocIds: [], sequences: [:]),
-            tasks: [], figureOwners: [:],
+            tasks: [], figureOwners: [:], figureChanges: [],
             liveFindings: { docId, currentText in
                 (sidecar[docId] ?? []).filter { currentText($0.anchor!.paragraphId) == $0.anchor!.anchorText }
             },
@@ -457,7 +457,7 @@ final class ResolvePresenceTests: XCTestCase {
 
         @MainActor var key: ResolvePresenceReader.Key {
             ResolvePresenceReader.key(store: book.store, documentStore: book.documentStore,
-                                      diagnostics: nil, annotationsToken: token, script: nil)
+                                      diagnostics: nil, annotationsToken: token, script: nil, figureChanges: [])
         }
 
         /// What the view's two tasks do — `update` on the key, then the walk
@@ -624,7 +624,7 @@ final class ResolvePresenceTests: XCTestCase {
         let manifest = book.store.manifest
         let read = ResolveReader.read(
             scope: ResolveScope.of(.project, readIn: nil, sourceLanguage: "en", structure: manifest.structure, projectType: manifest.type),
-            store: book.store, documentStore: book.documentStore, diagnostics: nil)
+            store: book.store, documentStore: book.documentStore, diagnostics: nil, figureChanges: [])
         let owners = ProjectStore.figureNoteOwners(manifest.figures ?? [])
         return (ResolvePresence.marks(read, structure: manifest.structure, figureOwners: owners, sceneIndex: nil),
                 ResolvePresence.openToDos(read.items, figureOwners: owners))

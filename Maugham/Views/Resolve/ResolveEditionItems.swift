@@ -407,7 +407,7 @@ enum ResolveEditionItems {
     static func authorKey(_ item: ResolveItem) -> String {
         switch item {
         case .translationChange, .glossaryProposal: return item.docId
-        case .note, .finding, .todo, .designProposal, .compileProblem: return ""
+        case .note, .finding, .todo, .designProposal, .compileProblem, .figureSourceChanged: return ""
         }
     }
 
@@ -475,7 +475,7 @@ enum ResolveEditionItems {
         let kept = held.items.filter { item in
             switch item {
             case .translationChange, .glossaryProposal, .designProposal, .compileProblem: return false
-            case .note, .finding, .todo: return true
+            case .note, .finding, .todo, .figureSourceChanged: return true
             }
         }
         return ResolveSnapshot(items: kept + items, sequences: held.sequences,
@@ -643,7 +643,7 @@ struct ResolveEditionRow: View {
             if let row = read.problemRows[item.id] {
                 EditionProblemRow(row: row, verbs: verbs)
             }
-        case .note, .finding, .todo:
+        case .note, .finding, .todo, .figureSourceChanged:
             EmptyView()
         }
     }

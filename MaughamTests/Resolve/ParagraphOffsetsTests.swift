@@ -178,7 +178,7 @@ final class ParagraphOffsetsTests: XCTestCase {
         // The closed path: the reader's snapshot and the derived script.
         let documentStore = try await DocumentStore.open(url: store.url)
         let snapshot = ResolveReader.read(scope: .piece(docId: item.id, includesBookLevel: true),
-                                          store: store, documentStore: documentStore, diagnostics: nil)
+                                          store: store, documentStore: documentStore, diagnostics: nil, figureChanges: [])
         let script = try XCTUnwrap(ScreenplayScriptSource.derive(store: store))
         XCTAssertNil(documentStore.document(forDocId: item.id), "premise: the piece is closed")
         let sequence = try XCTUnwrap(snapshot.sequences[item.id])

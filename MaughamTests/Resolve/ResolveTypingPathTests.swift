@@ -94,7 +94,7 @@ final class ResolveTypingPathTests: XCTestCase {
         @MainActor var key: ResolveListKey {
             ResolvePane.listKey(scope: scope, annotationsToken: token, store: book.store,
                                 documentStore: book.documentStore, diagnostics: nil,
-                                localName: "Me", script: nil)
+                                localName: "Me", script: nil, figureChanges: [])
         }
 
         /// What `.task(id: listKey)` does when the key moved.

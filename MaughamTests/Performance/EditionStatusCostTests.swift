@@ -144,7 +144,7 @@ final class EditionStatusCostTests: XCTestCase {
                 var walks = ResolveWalkHold()
                 let key = ResolvePane.readKey(scope: scope, annotationsToken: 0, store: book.store,
                                               documentStore: book.documentStore, diagnostics: nil,
-                                              localName: "", presence: presence)
+                                              localName: "", presence: presence, figureChanges: [])
                 let start = clock.now
                 _ = ResolvePane.refreshed(.empty, step: .read, key: key, walks: &walks, presence: presence,
                                           store: book.store, documentStore: book.documentStore,
@@ -159,7 +159,7 @@ final class EditionStatusCostTests: XCTestCase {
         let reading = ResolvePresence.bookReading(ResolveReader.read(
             scope: ResolveScope.of(.project, readIn: nil, sourceLanguage: "en",
                                    structure: book.store.manifest.structure, projectType: .novel),
-            store: book.store, documentStore: book.documentStore, diagnostics: nil))
+            store: book.store, documentStore: book.documentStore, diagnostics: nil, figureChanges: []))
         let after = run(presence: reading)
         await book.documentStore.close()
         return "\(chapters) chapters, es → fr → es — before: \(before.text); after: \(after.text)"

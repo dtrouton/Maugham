@@ -291,7 +291,8 @@ enum ResolveGrouping {
             case .todo(let task): todos.append(task)
             // An edition's own kinds are placed by `editionGroups`; any that
             // reach here keep the reader's order, after the notes.
-            case .translationChange, .glossaryProposal, .designProposal, .compileProblem:
+            case .translationChange, .glossaryProposal, .designProposal, .compileProblem,
+                 .figureSourceChanged:
                 others.append(item)
             }
         }

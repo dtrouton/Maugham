@@ -25,6 +25,8 @@ import MaughamCore
 /// - `projectTasksVersion`: `ProjectStore.projectTasksVersion`, the Book's own
 ///   to-dos (the project op log).
 /// - `diagnosticsVersion`: `DiagnosticsStore.version`.
+/// - `figureChanges`: the tree's changed figures (shell p5 Task 3): a card
+///   fill or a listing change re-gathers, and walks nothing.
 /// - `passes`, `localName`: what the chips depend on
 ///   (`manifest.effectiveReviewPasses`, the collaborator display name), so a
 ///   pass added, renamed or reordered, or a new name, refreshes the chips.
@@ -41,11 +43,13 @@ struct ResolveReadKey: Equatable {
     /// behind the list, the read takes its notes from here — read off the
     /// main actor — and never asks the annotation walk. Nil elsewhere.
     var presence: ResolvePresence.BookReading? = nil
+    let figureChanges: [ResolveFigureChange]
 
     init(scope: ResolveScope, annotationsToken: Int, openPieces: [String],
          projectTasksVersion: Int, diagnosticsVersion: Int,
          passes: [ReviewPass], localName: String,
-         presence: ResolvePresence.BookReading? = nil) {
+         presence: ResolvePresence.BookReading? = nil,
+         figureChanges: [ResolveFigureChange]) {
         self.scope = scope
         self.annotationsToken = annotationsToken
         self.openPieces = Array(Set(openPieces)).sorted()
@@ -54,6 +58,7 @@ struct ResolveReadKey: Equatable {
         self.passes = passes
         self.localName = localName
         self.presence = presence
+        self.figureChanges = figureChanges
     }
 
     /// What the annotation walk is re-run on: the real cross-piece signals.

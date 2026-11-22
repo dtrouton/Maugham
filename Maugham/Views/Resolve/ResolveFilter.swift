@@ -50,6 +50,9 @@ enum ResolveFilter {
         case .translationChange, .glossaryProposal: return .changes
         case .designProposal: return .design
         case .compileProblem: return .compile
+        // A figure's source moving on is no model's flag and nobody's note:
+        // Others, so the margin never ticks it (`MarginMarks`).
+        case .figureSourceChanged: return .others
         case .note(let note):
             let annotation = note.annotation
             if annotation.language != nil { return .questions }

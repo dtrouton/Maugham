@@ -43,7 +43,8 @@ final class ResolveTriageTests: XCTestCase {
         case .note(let note): return note.annotation.id
         case .todo(let task): return task.id
         case .finding(_, let finding): return finding.id
-        case .translationChange, .glossaryProposal, .designProposal, .compileProblem: return item.id
+        case .translationChange, .glossaryProposal, .designProposal, .compileProblem, .figureSourceChanged:
+            return item.id
         }
     }
 

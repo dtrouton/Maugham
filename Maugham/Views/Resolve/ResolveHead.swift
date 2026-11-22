@@ -228,7 +228,9 @@ enum ResolveHead {
             // A finding's Answer files a ruling; an edition's kinds act
             // through the round's record, the gate or the centre — none
             // needs the piece open.
-            case .finding, .translationChange, .glossaryProposal, .designProposal, .compileProblem:
+            // A figure's changed source acts through the figure, wherever listed.
+            case .finding, .translationChange, .glossaryProposal, .designProposal, .compileProblem,
+                 .figureSourceChanged:
                 return false
             }
         }

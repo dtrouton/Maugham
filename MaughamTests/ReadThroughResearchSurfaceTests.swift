@@ -358,6 +358,7 @@ final class ReadThroughResearchSurfaceTests: XCTestCase {
         "Maugham/Views/FigureSubjectColumns.swift": 1,      // the centre's grid
         "Maugham/Views/FigureActions.swift": 4,             // the figure's, Bring Back's verb and reason, Move's
         "Maugham/Views/FigureInspector.swift": 2,           // Compare's and the actions' refusal
+        "Maugham/Views/Resolve/ResolveFigureSource.swift": 1, // To resolve's Compare, the inspector's words
         "Maugham/Views/FigureSection.swift": 2,             // the row menu, the send-drop
         "Maugham/Editor/FigureWindow.swift": 2,             // the session's gate, a figure window's frame
         "Maugham/Editor/EditorCoordinator+FigureGrid.swift": 2, // an editor's grid in place, its visit's ⌘Z

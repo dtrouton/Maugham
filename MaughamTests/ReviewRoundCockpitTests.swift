@@ -1751,7 +1751,7 @@ final class ReviewRoundCockpitTests: XCTestCase {
             onCompilerModelChange: { _ in },
             onSetPassState: { _, _, _ in },
             onSetActivePass: { _, _ in },
-            request: .constant(nil), onSelectionShown: { _ in })
+            request: .constant(nil), onSelectionShown: { _ in }, figureTree: nil)
             .environment(UserPreferences(
                 defaults: UserDefaults(suiteName: "Cockpit-\(UUID())")!))),
             width: width)

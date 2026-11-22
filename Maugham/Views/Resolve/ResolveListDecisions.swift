@@ -74,7 +74,8 @@ extension ResolvePane {
     static func readKey(scope: ResolveScope, annotationsToken: Int, store: ProjectStore,
                         documentStore: DocumentStore, diagnostics: DiagnosticsStore?,
                         localName: String,
-                        presence: ResolvePresence.BookReading? = nil) -> ResolveReadKey {
+                        presence: ResolvePresence.BookReading? = nil,
+                        figureChanges: [ResolveFigureChange]) -> ResolveReadKey {
         let inScope = Set(scope.docIds)
         return ResolveReadKey(
             scope: scope, annotationsToken: annotationsToken,
@@ -82,19 +83,21 @@ extension ResolvePane {
             projectTasksVersion: store.projectTasksVersion,
             diagnosticsVersion: diagnostics?.version ?? 0,
             passes: store.manifest.effectiveReviewPasses,
-            localName: localName, presence: presence)
+            localName: localName, presence: presence, figureChanges: figureChanges)
     }
 
     /// The whole key the view's `.task(id:)` runs on.
     static func listKey(scope: ResolveScope, annotationsToken: Int, store: ProjectStore,
                         documentStore: DocumentStore, diagnostics: DiagnosticsStore?,
                         localName: String, script: FountainScript?,
-                        presence: ResolvePresence.BookReading? = nil) -> ResolveListKey {
+                        presence: ResolvePresence.BookReading? = nil,
+                        figureChanges: [ResolveFigureChange]) -> ResolveListKey {
         ResolveListKey(
             regroup: ResolveRegroupKey(
                 read: readKey(scope: scope, annotationsToken: annotationsToken, store: store,
                               documentStore: documentStore, diagnostics: diagnostics,
-                              localName: localName, presence: presence),
+                              localName: localName, presence: presence,
+                              figureChanges: figureChanges),
                 script: script),
             openTodos: openTodoVersion(scope: scope, documentStore: documentStore),
             openNotes: openNoteVersion(scope: scope, documentStore: documentStore))
@@ -157,13 +160,16 @@ extension ResolvePane {
             if scope.translationLanguage != nil, let presence {
                 return ResolveReader.read(
                     scope: scope, annotations: presence.languageNotesSnapshot, tasks: [],
-                    live: live, store: store, documentStore: documentStore, diagnostics: diagnostics)
+                    live: live, store: store, documentStore: documentStore, diagnostics: diagnostics,
+                    figureChanges: key.figureChanges)
             }
             return ResolveReader.read(
                 scope: scope,
                 annotations: walks.annotations(for: key.walk, store: store),
                 tasks: walks.tasks(for: key.tasksWalk, store: store),
-                live: live, store: store, documentStore: documentStore, diagnostics: diagnostics)
+                live: live, store: store, documentStore: documentStore, diagnostics: diagnostics,
+                // The tree's changed figures, which the key carries.
+                figureChanges: key.figureChanges)
         case .reread:
             let text = ResolveReader.rereadText(held, scope: scope, store: store,
                                                 documentStore: documentStore)
@@ -208,7 +214,8 @@ extension ResolvePane {
         func isLive(_ item: ResolveItem) -> Bool {
             switch item {
             case .note, .todo: return live[item.docId] != nil
-            case .finding, .translationChange, .glossaryProposal, .designProposal, .compileProblem:
+            case .finding, .translationChange, .glossaryProposal, .designProposal, .compileProblem,
+                 .figureSourceChanged:
                 return false
             }
         }
@@ -438,7 +445,7 @@ extension ResolvePane {
         case .note:
             return ResolveFilter.source(of: item, localName: localName) == .checks
                 ? fromTheCheckCaption : nil
-        case .todo: return nil
+        case .todo, .figureSourceChanged: return nil
         }
     }
 

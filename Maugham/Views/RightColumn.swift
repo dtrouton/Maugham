@@ -401,6 +401,8 @@ struct RightColumn: View {
             onSetActivePass: { piece, passId in recordActivePass(piece, passId) },
             request: $resolveRequest,
             onSelectionShown: onResolveSelectionShown,
+            // The tree's changed figures, listed with its figure verbs.
+            figureTree: figureTree,
             onOpenProjectSettings: openProjectSettings,
             onTravel: { subject in
                 // Travelling to a figure is the window's SUBJECT write and

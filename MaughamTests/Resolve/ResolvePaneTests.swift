@@ -102,12 +102,12 @@ final class ResolvePaneTests: XCTestCase {
         func read(_ token: Int) -> ResolveReadKey {
             ResolvePane.readKey(scope: scope, annotationsToken: token, store: store,
                                 documentStore: documentStore, diagnostics: diagnostics,
-                                localName: "Me")
+                                localName: "Me", figureChanges: [])
         }
         func key(_ token: Int) -> ResolveListKey {
             ResolvePane.listKey(scope: scope, annotationsToken: token, store: store,
                                 documentStore: documentStore, diagnostics: diagnostics,
-                                localName: "Me", script: nil)
+                                localName: "Me", script: nil, figureChanges: [])
         }
         let start = key(0)
         XCTAssertEqual(key(0), start, "premise: nothing moved, nothing moves")
@@ -142,7 +142,7 @@ final class ResolvePaneTests: XCTestCase {
 
         XCTAssertNotEqual(
             ResolvePane.readKey(scope: .outside, annotationsToken: 0, store: store,
-                                documentStore: documentStore, diagnostics: diagnostics, localName: "Me"),
+                                documentStore: documentStore, diagnostics: diagnostics, localName: "Me", figureChanges: []),
             read(0), "the faces' scope")
     }
 
@@ -158,7 +158,7 @@ final class ResolvePaneTests: XCTestCase {
             ResolveListKey(
                 regroup: ResolveRegroupKey(read: ResolvePane.readKey(
                     scope: scope, annotationsToken: 0, store: store,
-                    documentStore: documentStore, diagnostics: nil, localName: "Me"), script: nil),
+                    documentStore: documentStore, diagnostics: nil, localName: "Me", figureChanges: []), script: nil),
                 openTodos: ResolvePane.openTodoVersion(scope: scope, documentStore: documentStore))
         }
         var held = refreshed(.empty, step: .read, scope: scope, store: store, documentStore: documentStore)
@@ -188,7 +188,7 @@ final class ResolvePaneTests: XCTestCase {
                 ResolveListKey(
                     regroup: ResolveRegroupKey(read: ResolvePane.readKey(
                         scope: scope, annotationsToken: 0, store: store,
-                        documentStore: documentStore, diagnostics: nil, localName: "Me"), script: nil),
+                        documentStore: documentStore, diagnostics: nil, localName: "Me", figureChanges: []), script: nil),
                     openTodos: ResolvePane.openTodoVersion(scope: scope, documentStore: documentStore))
             }
             var held = refreshed(.empty, step: .read, scope: scope, store: store, documentStore: documentStore)
@@ -220,7 +220,7 @@ final class ResolvePaneTests: XCTestCase {
         return ResolvePane.refreshed(
             held, step: step,
             key: ResolvePane.readKey(scope: scope, annotationsToken: 0, store: store,
-                                     documentStore: documentStore, diagnostics: nil, localName: "Me"),
+                                     documentStore: documentStore, diagnostics: nil, localName: "Me", figureChanges: []),
             walks: &walks, store: store, documentStore: documentStore, diagnostics: nil)
     }
 
@@ -234,10 +234,10 @@ final class ResolvePaneTests: XCTestCase {
     func test_aReadRunsBeforeARegroupAndAScriptAloneOnlyRereads() {
         let read = ResolveReadKey(scope: .piece(docId: "doc-a", includesBookLevel: false),
                                   annotationsToken: 0, openPieces: [], projectTasksVersion: 0,
-                                  diagnosticsVersion: 0, passes: [], localName: "Me")
+                                  diagnosticsVersion: 0, passes: [], localName: "Me", figureChanges: [])
         let moved = ResolveReadKey(scope: .piece(docId: "doc-a", includesBookLevel: false),
                                    annotationsToken: 1, openPieces: [], projectTasksVersion: 0,
-                                   diagnosticsVersion: 0, passes: [], localName: "Me")
+                                   diagnosticsVersion: 0, passes: [], localName: "Me", figureChanges: [])
         let script = FountainTokenizer().parse("INT. KITCHEN - DAY\n\nShe waits.")
         let key = ResolveListKey(regroup: ResolveRegroupKey(read: read, script: nil), openTodos: 0)
         XCTAssertEqual(ResolvePane.refreshStep(key, last: nil), .read, "the first build reads")
@@ -333,7 +333,7 @@ final class ResolvePaneTests: XCTestCase {
             ResolveListKey(
                 regroup: ResolveRegroupKey(read: ResolvePane.readKey(
                     scope: scope, annotationsToken: 0, store: store,
-                    documentStore: documentStore, diagnostics: nil, localName: "Me"), script: nil),
+                    documentStore: documentStore, diagnostics: nil, localName: "Me", figureChanges: []), script: nil),
                 openTodos: ResolvePane.openTodoVersion(scope: scope, documentStore: documentStore))
         }
         var held = refreshed(.empty, step: .read, scope: scope, store: store, documentStore: documentStore)

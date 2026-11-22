@@ -124,9 +124,9 @@ Every file in `Maugham/Views/` appears once, plus the `Maugham/Models/` files CL
 - `Maugham/Views/Review/ReviewBoardRows.swift` — the board's pre-order row flattening.
 - `Maugham/Views/Review/RunWhenDocumentOpens.swift` — wait for a piece to open, then run its round.
 - `ReviewPassEditorLogic.swift` — pure array transforms behind Project Settings' Review Passes editor.
-- `Maugham/Views/Resolve/ResolveScope.swift`, `ResolveItem.swift`, `ResolveReader.swift`, `ResolvePresence.swift`, `ResolveChunkedWalk.swift` — To resolve's scope, items, loadless reader; the tree's marks, walked off-main.
+- `Maugham/Views/Resolve/ResolveScope.swift`, `ResolveItem.swift`, `ResolveReader.swift`, `ResolveFigureSource.swift`, `ResolvePresence.swift`, `ResolveChunkedWalk.swift` — To resolve's scope, items, loadless reader, changed figures; the tree's marks, walked off-main.
 - `Maugham/Views/Resolve/ResolveGrouping.swift`, `ParagraphOffsets.swift` — grouping by paragraph, scene or piece; display-text offsets placing a closed screenplay's paragraphs among scenes.
-- `Maugham/Views/Resolve/ResolveFilter.swift`, `ResolveTriage.swift`, `ResolveRefresh.swift` — To resolve's sources and chips, the triage choice (offered while a note carries a mark; ANDs with the chips), density past twelve, the caret's group and the open groups; its refresh key and its may-be-incomplete notice.
+- `Maugham/Views/Resolve/ResolveFilter.swift`, `ResolveTriage.swift`, `ResolveRefresh.swift` — To resolve's sources and chips, the triage choice (offered while a note carries a mark; ANDs with the chips), density past twelve, the caret's and open groups; its refresh key and its may-be-incomplete notice.
 - `Maugham/Views/Resolve/ResolveVerbGate.swift`, `ResolveNavigation.swift` — act only on the open piece; a row's click goes to its piece and paragraph.
 - `Maugham/Views/Resolve/ResolveNoteVerbs.swift`, `ResolveNoteStatics.swift`, `ResolveDialogs.swift`, `AnnotationRowHost.swift`, `ResolveTaskVerbs.swift`, `NewTaskSheet.swift` — note verbs and sheets, one note row, to-do verbs and sheet.
 - `Maugham/Views/Resolve/AnnotationRowWiring.swift`, `FigureRowGate.swift`, `AnnotationsBulkBar.swift` — a row's closures, a figure note's gate, the multiselect bar.

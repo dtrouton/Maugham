@@ -443,7 +443,7 @@ final class ResolveFilterTests: XCTestCase {
                          passes: [ReviewPass]? = nil, localName: String = "Denver") -> ResolveReadKey {
         ResolveReadKey(scope: scope, annotationsToken: token, openPieces: open,
                        projectTasksVersion: project, diagnosticsVersion: diagnostics,
-                       passes: passes ?? self.passes, localName: localName)
+                       passes: passes ?? self.passes, localName: localName, figureChanges: [])
     }
 
     func test_theReadKeyChangesWithEverySnapshotInput() {

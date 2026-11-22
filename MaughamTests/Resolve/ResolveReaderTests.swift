@@ -278,7 +278,7 @@ final class ResolveReaderTests: XCTestCase {
         XCTAssertNil(f.ds.document(forDocId: "doc-a"), "premise: the piece is closed")
 
         let read = ResolveReader.read(scope: .piece(docId: "doc-a", includesBookLevel: false), store: f.store,
-                                      documentStore: f.ds, diagnostics: nil)
+                                      documentStore: f.ds, diagnostics: nil, figureChanges: [])
 
         let notes = read.items.compactMap { if case .note(let n) = $0 { return n.annotation.body } else { return nil } }
         let todos = read.items.compactMap { if case .todo(let t) = $0 { return t.body } else { return nil } }
@@ -298,7 +298,7 @@ final class ResolveReaderTests: XCTestCase {
               on: "doc-a", in: f)
 
         let read = ResolveReader.read(scope: .piece(docId: "doc-a", includesBookLevel: false), store: f.store,
-                                      documentStore: f.ds, diagnostics: f.diagnostics)
+                                      documentStore: f.ds, diagnostics: f.diagnostics, figureChanges: [])
 
         let findings = read.items.filter(\.isReplacedByTheNextCheck).map(\.id)
         XCTAssertEqual(findings, ["finding:doc-a/s-live"],
@@ -323,7 +323,7 @@ final class ResolveReaderTests: XCTestCase {
                         reads: inout [String]) -> ResolveSnapshot {
         var log: [String] = []
         let result = ResolveReader.gather(
-            scope: scope, annotations: walk([]), tasks: [], figureOwners: [:],
+            scope: scope, annotations: walk([]), tasks: [], figureOwners: [:], figureChanges: [],
             liveFindings: sidecar.map(live),
             paragraphs: { docId in log.append(docId); return ["aa11": "Two opens."] })
         reads = log
@@ -373,7 +373,7 @@ final class ResolveReaderTests: XCTestCase {
                                     runId: "run-1", kind: .conformanceStrain)
         let read = ResolveReader.gather(
             scope: .pieces(docIds: ["doc-a", "doc-b"], includesBookLevel: false),
-            annotations: walk([note("n-b", on: "doc-b")]), tasks: [], figureOwners: [:],
+            annotations: walk([note("n-b", on: "doc-b")]), tasks: [], figureOwners: [:], figureChanges: [],
             liveFindings: live(["doc-b": [strain("s-b", on: "doc-b"), unanchored]]),
             paragraphs: { _ in throw Unreadable() })
         XCTAssertEqual(read.unreadableDocIds, ["doc-b"])
@@ -416,5 +416,26 @@ final class ResolveReaderTests: XCTestCase {
             XCTAssertEqual(Self.offenders(in: planted), ["Planted.swift: \(spelling)"],
                            "the census must catch \(spelling)")
         }
+
+        // **A changed figure source is read off the tree's cards** (shell p5
+        // Task 3): the reader, the figure items' file and the presence read
+        // open no figure, lend none, read no figure stream and fill no cards
+        // of their own. (A figure NOTE's verbs act through its host; they
+        // live in the verb files, outside this list.)
+        let readers = ["ResolveReader.swift", "ResolveFigureSource.swift", "ResolvePresence.swift"]
+        XCTAssertEqual(Set(readers).subtracting(sources.keys), [], "the census must read each of them")
+        XCTAssertEqual(Self.figureReadOffenders(in: sources.filter { readers.contains($0.key) }), [])
+        for spelling in Self.figureReads {
+            XCTAssertEqual(Self.figureReadOffenders(in: ["Planted.swift": "x.\(spelling)y)"]),
+                           ["Planted.swift: \(spelling)"], "the census must catch \(spelling)")
+        }
+    }
+
+    static let figureReads = ["withFigureHost", "openFigure(", "figureCache.", "figureCardInputs(",
+                              "FigureDocument.load("]
+
+    static func figureReadOffenders(in sources: [String: String]) -> [String] {
+        sources.flatMap { name, text in figureReads.filter { text.contains($0) }.map { "\(name): \($0)" } }
+            .sorted()
     }
 }

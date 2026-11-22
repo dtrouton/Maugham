@@ -513,7 +513,7 @@ final class MarginMountedTests: XCTestCase {
         projectStore.documentStore = store
         store.projectStore = projectStore
         let read = ResolveReader.read(scope: .piece(docId: Self.docId, includesBookLevel: false),
-                                      store: projectStore, documentStore: store, diagnostics: nil)
+                                      store: projectStore, documentStore: store, diagnostics: nil, figureChanges: [])
         XCTAssertTrue(read.items.contains { $0.id == "note:\(Self.docId)/\(claudes)" },
                       "Claude's note is still in To resolve")
     }

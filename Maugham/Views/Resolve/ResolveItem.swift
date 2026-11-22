@@ -22,6 +22,12 @@ import MaughamCore
 ///   same lifetime;
 /// - a design proposal still pending — replaced by the next design round;
 /// - a problem the last compile reported — replaced by the next compile.
+///
+/// And one kind the figure cards answer (shell p5 Task 3, `ResolveFigureChange`):
+/// a figure whose source data changed, listed on each piece placing it (at
+/// its line's paragraph where the read holds the piece's text), the Book's
+/// when no piece does, the figure's own at its scope — until the pin is
+/// current again.
 enum ResolveItem: Identifiable, Equatable {
     case note(ProjectAnnotation)
     case finding(docId: String, Diagnostic)
@@ -34,6 +40,9 @@ enum ResolveItem: Identifiable, Equatable {
                           TranslationRound.GlossaryProposalRecord)
     case designProposal(DesignProposalStore.Proposal)
     case compileProblem(TectonicLogParser.Diagnostic)
+    /// `docId`: the piece placing the figure; nil for an unused one (the
+    /// Book's); the figure's own id at its own scope.
+    case figureSourceChanged(figureId: String, docId: String?, paragraphId: String?)
 
     /// Kind-prefixed and document-qualified, so a note, a finding and a to-do
     /// never collide, nor two kinds' ids minted in two documents.
@@ -53,6 +62,8 @@ enum ResolveItem: Identifiable, Equatable {
             return "compile:\(problem.level.rawValue)/\(problem.pieceID ?? "")/"
                 + "\(problem.paragraphID ?? "")/\(problem.bodyLanguage ?? "")/"
                 + "\(problem.line.map(String.init) ?? "")/\(problem.message)"
+        case .figureSourceChanged(let figureId, _, _):
+            return "figure-source:\(docId)/\(figureId)"
         }
     }
 
@@ -66,7 +77,9 @@ enum ResolveItem: Identifiable, Equatable {
         case .todo(let task): return task.anchor?.docId ?? ProjectStore.projectTasksDocId
         case .translationChange(let docId, _, _, _), .glossaryProposal(let docId, _, _, _):
             return docId
-        case .designProposal, .compileProblem: return ProjectStore.projectTasksDocId
+        case .figureSourceChanged(_, let docId?, _): return docId
+        case .designProposal, .compileProblem, .figureSourceChanged(_, nil, _):
+            return ProjectStore.projectTasksDocId
         }
     }
 
@@ -77,6 +90,7 @@ enum ResolveItem: Identifiable, Equatable {
         case .finding(_, let finding): return finding.anchor?.paragraphId
         case .todo(let task): return task.anchor?.paragraphId
         case .translationChange(_, _, _, let departure): return departure.paragraphId
+        case .figureSourceChanged(_, _, let paragraphId): return paragraphId
         case .glossaryProposal, .designProposal, .compileProblem: return nil
         }
     }
@@ -87,7 +101,7 @@ enum ResolveItem: Identifiable, Equatable {
         switch self {
         case .finding: return true
         case .note, .todo, .translationChange, .glossaryProposal, .designProposal,
-             .compileProblem: return false
+             .compileProblem, .figureSourceChanged: return false
         }
     }
 }

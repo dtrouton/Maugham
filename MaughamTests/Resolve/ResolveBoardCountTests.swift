@@ -91,7 +91,7 @@ final class ResolveBoardCountTests: XCTestCase {
 
         let board = projectStore.openNotesSummaries()
         let read = ResolveReader.read(scope: .piece(docId: "doc-a", includesBookLevel: false), store: projectStore,
-                                      documentStore: store, diagnostics: nil)
+                                      documentStore: store, diagnostics: nil, figureChanges: [])
         let notes = read.items.filter { if case .note = $0 { return true } else { return false } }
 
         XCTAssertEqual(board["doc-a"]?.total, 2, "premise: the board counts the paragraph note and the table's")

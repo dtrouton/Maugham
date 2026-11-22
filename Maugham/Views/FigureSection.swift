@@ -250,6 +250,11 @@ extension BinderTreeSectionsState {
             figureCards.model(forFigureId: $0)?.kind == .parked
         })
         if parked != parkedFigureIds { parkedFigureIds = parked }
+        // The changed sources To resolve lists and the tree marks: before the
+        // drawn-rows guard, since a line moving places their items anew.
+        let changes = ResolveFigureChange.of(listing: figureListingRows,
+                                             card: figureCards.model(forFigureId:))
+        if changes != figureSourceChanges { figureSourceChanges = changes }
         let next = FigureTreeRow.build(listing: figureListingRows,
                                        card: figureCards.model(forFigureId:))
         // Only what a row draws: a line index moving redraws no tree.

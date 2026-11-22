@@ -393,9 +393,13 @@ final class ResolvePresenceReader {
     /// How long a burst of closed-piece events waits before its one walk.
     static let coalesce: Duration = .milliseconds(250)
 
+    /// - Parameter figureChanges: the tree's changed figures
+    ///   (`BinderTreeSectionsState.figureSourceChanges`): a placing piece is
+    ///   marked, an unused figure marks the Book. Read from the cards, never
+    ///   walked; no default, so the watch cannot drop them unseen.
     static func key(store: ProjectStore, documentStore: DocumentStore,
                     diagnostics: DiagnosticsStore?, annotationsToken: Int,
-                    script: FountainScript?) -> Key {
+                    script: FountainScript?, figureChanges: [ResolveFigureChange]) -> Key {
         let structure = store.manifest.structure
         let scope = ResolveScope.of(.project, readIn: nil,
                                     sourceLanguage: PublishConfig.Metadata().language,
@@ -412,7 +416,9 @@ final class ResolvePresenceReader {
                 diagnosticsVersion: diagnostics?.version ?? 0,
                 passes: store.manifest.effectiveReviewPasses,
                 // The local name only sorts To resolve's chips; never read here.
-                localName: ""),
+                localName: "",
+                // A card fill moves the read, never the walk.
+                figureChanges: figureChanges),
             script: ResolvePane.script(for: scope, structure: structure, openDocId: nil, script: script),
             open: open, structure: structure,
             figureOwners: ProjectStore.figureNoteOwners(store.manifest.figures ?? []),
@@ -529,7 +535,7 @@ final class ResolvePresenceReader {
             snapshot = held
         } else {
             snapshot = gather(scope: scope, live: live, store: store, documentStore: documentStore,
-                              diagnostics: diagnostics)
+                              diagnostics: diagnostics, figureChanges: key.read.figureChanges)
         }
         last = key
         return remark()
@@ -590,7 +596,8 @@ final class ResolvePresenceReader {
         let scope = key.read.scope
         snapshot = gather(scope: scope,
                           live: ResolvePane.livePieces(scope: scope, documentStore: documentStore),
-                          store: store, documentStore: documentStore, diagnostics: diagnostics)
+                          store: store, documentStore: documentStore, diagnostics: diagnostics,
+                          figureChanges: key.read.figureChanges)
         return remark()
     }
 
@@ -694,7 +701,8 @@ final class ResolvePresenceReader {
     /// answers for itself, and a closed piece's text is the walk's while its
     /// file set has not moved, else read through the derived cache.
     private func gather(scope: ResolveScope, live: [String: ResolveLivePiece], store: ProjectStore,
-                        documentStore: DocumentStore, diagnostics: DiagnosticsStore?) -> ResolveSnapshot {
+                        documentStore: DocumentStore, diagnostics: DiagnosticsStore?,
+                        figureChanges: [ResolveFigureChange]) -> ResolveSnapshot {
         guard !scope.docIds.isEmpty || scope.includesBookLevel else { return .empty }
         var annotations: [ProjectAnnotation] = []
         var unreadableIds: [String] = []
@@ -725,6 +733,8 @@ final class ResolvePresenceReader {
                                              removed: store.manifest.removedEditions),
             tasks: ResolveReader.overlaying(heldTasks + bookTasks, live: live),
             figureOwners: ProjectStore.figureNoteOwners(store.manifest.figures ?? []),
+            // The changed figures ride this read: a placing chapter's mark.
+            figureChanges: figureChanges,
             liveFindings: liveFindings,
             paragraphs: { docId in
                 if let piece = live[docId] { return piece.paragraphs }
@@ -790,7 +800,8 @@ struct ResolvePresenceWatch: View {
 
     private var key: ResolvePresenceReader.Key {
         ResolvePresenceReader.key(store: store, documentStore: documentStore, diagnostics: diagnostics,
-                                  annotationsToken: annotationsToken, script: script)
+                                  annotationsToken: annotationsToken, script: script,
+                                  figureChanges: state.figureSourceChanges)
     }
 
     /// What the editions' half is read on: the edition rows, the book's

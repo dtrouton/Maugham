@@ -480,7 +480,7 @@ final class PromotionLeavesTheStoreLiveTests: XCTestCase {
         let reader = ResolvePresenceReader()
         for _ in 0..<4 {
             let key = ResolvePresenceReader.key(store: w.projectStore, documentStore: w.store,
-                                                diagnostics: nil, annotationsToken: 0, script: nil)
+                                                diagnostics: nil, annotationsToken: 0, script: nil, figureChanges: [])
             reader.update(key, store: w.projectStore, documentStore: w.store, diagnostics: nil)
             while let request = reader.pendingRequest {
                 await reader.run(request, store: w.projectStore, documentStore: w.store, diagnostics: nil)

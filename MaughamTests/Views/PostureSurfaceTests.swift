@@ -719,7 +719,7 @@ final class PostureSurfaceTests: XCTestCase {
             script: nil, diagnostics: nil, orchestrator: nil, world: nil,
             compilerModel: .standard, onCompilerModelChange: { _ in },
             onSetPassState: { _, _, _ in }, onSetActivePass: { _, _ in },
-            request: .constant(nil), onSelectionShown: { _ in })
+            request: .constant(nil), onSelectionShown: { _ in }, figureTree: nil)
             .environment(UserPreferences(
                 defaults: UserDefaults(suiteName: "PostureSurface-\(UUID())")!))
         let window = TestWindow.mount(AnyView(view), size: CGSize(width: 360, height: 700))
@@ -1041,7 +1041,7 @@ final class PostureSurfaceTests: XCTestCase {
                 script: nil, diagnostics: diagnostics, orchestrator: CompilerOrchestrator(),
                 world: nil, compilerModel: .standard, onCompilerModelChange: { _ in },
                 onSetPassState: { _, _, _ in }, onSetActivePass: { _, _ in },
-                request: .constant(nil), onSelectionShown: { _ in })
+                request: .constant(nil), onSelectionShown: { _ in }, figureTree: nil)
                 .environment(UserPreferences(
                     defaults: UserDefaults(suiteName: "PostureSurface-\(UUID())")!))
             let window = TestWindow.mount(AnyView(view), size: CGSize(width: 360, height: 700))

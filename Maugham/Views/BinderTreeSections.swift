@@ -1005,6 +1005,11 @@ final class BinderTreeSectionsState {
     /// its own re-asks at the cards' rate: the figure inspector's Reads
     /// from Research (final review I2). Nothing in the tree reads it.
     var figureCardsVersion = 0
+    /// **The figures whose source data changed**, from these cards and the
+    /// listing (`ResolveFigureChange.of`): what To resolve lists and the
+    /// presence read marks (shell p5 Task 3). Written only by
+    /// `rebuildFigureRows`, and only when it moved.
+    var figureSourceChanges: [ResolveFigureChange] = []
     /// The listing as last told, so a card fill can rebuild the rows.
     @ObservationIgnored var figureListingRows: [FigureListing.Row] = []
     /// The store the cards are attached to, so a new one detaches the old.

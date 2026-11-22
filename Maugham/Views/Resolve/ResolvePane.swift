@@ -162,6 +162,12 @@ struct ResolvePane: View {
     /// Margin's ticks follow a piece's own list's, and keep the last value
     /// while the column is hidden.
     let onSelectionShown: (ResolveShownSelection) -> Void
+    /// **The window's tree** (shell p5 Task 3): its figure cards' changed
+    /// sources are listed (`figureSourceChanges`, carried by the read key)
+    /// and its figure verbs act on them (`FigureSectionVerbs.shared`). Nil
+    /// where no tree stands behind the list: no figure's source is listed.
+    /// No default, so a host that has one cannot drop it unseen.
+    let figureTree: BinderTreeSectionsState?
     /// The check header's "Define a first reader…" (the window's sheet).
     var onOpenProjectSettings: () -> Void = {}
     /// A figure note's click travels to its figure (the window's subject).
@@ -304,6 +310,8 @@ struct ResolvePane: View {
     @State private var filedLineAtPress: UUID??
     /// The row a strain mark's jump marked (`.focusFinding`).
     @State private var markedItemId: String?
+    /// The figure whose Compare sheet is up, from a changed source's row.
+    @State private var comparing: ResolveFigureCompare?
 
     // MARK: - Derived per render (no walk)
 
@@ -460,7 +468,8 @@ struct ResolvePane: View {
                      documentStore: documentStore, diagnostics: diagnostics, localName: localName,
                      script: Self.script(for: scope, structure: store.manifest.structure,
                                          openDocId: openDocId, script: script),
-                     presence: editionPresence)
+                     presence: editionPresence,
+                     figureChanges: figureTree?.figureSourceChanges ?? [])
     }
 
     /// The presence read, at an edition scope only — what its questions
@@ -642,6 +651,13 @@ struct ResolvePane: View {
             bulkNotice: $bulkNotice, editSheet: $editSheet,
             withdrawConfirm: $withdrawConfirm,
             figureRejectSheet: $figureRejectSheet, figureReplySheet: $figureReplySheet))
+        .sheet(item: $comparing) { target in
+            if let actions = figureActions {
+                ResolveFigureCompareSheet(figureId: target.figureId, store: store,
+                                          documentStore: documentStore, actions: actions,
+                                          done: { comparing = nil })
+            }
+        }
         .sheet(isPresented: $showCreateSheet) {
             let creation = creationVerbs.creation
             NewTaskSheet(
@@ -922,6 +938,8 @@ struct ResolvePane: View {
                 findingRow(item, docId: docId, finding: finding, acting: acting)
             case .todo(let task):
                 todoRow(task, acting: acting, reorders: reorders)
+            case .figureSourceChanged(let figureId, let docId, _):
+                figureSourceRow(item, figureId: figureId, docId: docId)
             case .translationChange, .glossaryProposal, .designProposal, .compileProblem:
                 ResolveEditionRow(item: item, read: editionRead, verbs: editionVerbs ?? ResolveEditionVerbs(),
                                   authorVerbs: editionAuthorVerbs[ResolveEditionItems.authorKey(item)] ?? .none)
@@ -1209,6 +1227,51 @@ struct ResolvePane: View {
         guard let diagnostics, let docId = Self.unreadDocId(scope: scope),
               ResolveFilter.clearsUnreadChecks(selection: shownSelection) else { return }
         diagnostics.markRead(docId: docId, kind: .check)
+    }
+
+    // MARK: - A figure's changed source (shell p5 Task 3)
+
+    /// The tree's figure helper, acting for this window (Compare's Refresh).
+    private var figureActions: FigureActions? {
+        guard let figureTree else { return nil }
+        var actions = FigureSectionVerbs(store: store, state: figureTree).shared
+        actions.window = window
+        return actions
+    }
+
+    private func figureSourceRow(_ item: ResolveItem, figureId: String, docId: String?) -> some View {
+        let change = figureTree?.figureSourceChanges.first { $0.figureId == figureId }
+        let atFigureScope = if case .figure = scope { true } else { false }
+        return ResolveFigureSourceRow(
+            sentence: change?.sentence ?? "A figure\u{2019}s source data changed",
+            detail: change?.detail,
+            offers: ResolveFigureSourceOffers.of(
+                change: change, figureId: figureId, docId: docId, hasTree: figureActions != nil,
+                drawsFigure: drawsFigure(figureId), atFigureScope: atFigureScope),
+            goToTheLine: { goToFigureLine(item, change: change) },
+            compare: { comparing = ResolveFigureCompare(figureId: figureId) },
+            open: {
+                // The travel a figure note's click makes: a subject write.
+                revealFigure(figureId)
+                onTravel(.figure(figureId))
+            })
+    }
+
+    /// The sentence's click: the line placing the figure, in its piece — on
+    /// the paragraph the read placed it at, else the one the line is in now.
+    private func goToFigureLine(_ item: ResolveItem, change: ResolveFigureChange?) {
+        let docId = item.docId
+        var paragraphId = item.paragraphId
+        if paragraphId == nil, let use = change?.placement(in: docId),
+           case .paragraph(let reveal) = FigureUseTravel.destination(for: use, store: store,
+                                                                      documentStore: documentStore) {
+            paragraphId = reveal.paragraphId
+        }
+        if ResolveNavigation.opensInsideTheFaces(docId: docId, scope: scope) {
+            ResolveNavigation.goInsideTheFaces(toDocId: docId, paragraphId: paragraphId)
+        } else {
+            ResolveNavigation.go(toDocId: docId, paragraphId: paragraphId)
+        }
     }
 
     // MARK: - Going to a place

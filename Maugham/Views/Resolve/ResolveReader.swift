@@ -17,8 +17,9 @@ struct ResolveSnapshot: Equatable {
 
 /// **To resolve's reader: what a scope holds, without a load** (shell plan 2,
 /// Task 1). Every source is store-level — the project's annotation walk, its
-/// task walk, the diagnostics sidecar and `currentParagraphState` (the open
-/// document, else `derivedCache`). It never loads, transiently or otherwise,
+/// task walk, the diagnostics sidecar, `currentParagraphState` (the open
+/// document, else `derivedCache`) and the tree's figure cards' changed
+/// sources (`ResolveFigureChange`, shell p5 Task 3). It never loads, transiently or otherwise,
 /// and registers no document (`ResolveReaderTests.test_noResolveSourceLoadsADocument`).
 ///
 /// `read` is called once per refresh, never from a row (tripwire 4).
@@ -159,21 +160,26 @@ enum ResolveReader {
     /// walks it holds (`ResolveWalkHold`); this is that, with fresh walks.
     @MainActor
     static func read(scope: ResolveScope, store: ProjectStore,
-                     documentStore: DocumentStore, diagnostics: DiagnosticsStore?) -> ResolveSnapshot {
+                     documentStore: DocumentStore, diagnostics: DiagnosticsStore?,
+                     figureChanges: [ResolveFigureChange]) -> ResolveSnapshot {
         guard !scope.docIds.isEmpty || scope.includesBookLevel else { return .empty }
         return read(scope: scope, annotations: store.listAnnotationsAcrossProject(),
                     tasks: store.listTasksAcrossProject(filter: TaskFilter(scope: .project, statuses: [.open])),
                     live: ResolvePane.livePieces(scope: scope, documentStore: documentStore),
-                    store: store, documentStore: documentStore, diagnostics: diagnostics)
+                    store: store, documentStore: documentStore, diagnostics: diagnostics,
+                    figureChanges: figureChanges)
     }
 
     /// **One read of `scope` over walks already held** (review C1): each open
     /// piece in `live` answers for itself — its notes, to-dos and order off its
     /// `Document` — and the walks answer for every closed piece and figure.
+    /// `figureChanges` is the tree's (`BinderTreeSectionsState
+    /// .figureSourceChanges`); no default, so no caller drops them unseen.
     @MainActor
     static func read(scope: ResolveScope, annotations: ProjectAnnotationsSnapshot,
                      tasks: [WriterTask], live: [String: ResolveLivePiece], store: ProjectStore,
-                     documentStore: DocumentStore, diagnostics: DiagnosticsStore?) -> ResolveSnapshot {
+                     documentStore: DocumentStore, diagnostics: DiagnosticsStore?,
+                     figureChanges: [ResolveFigureChange]) -> ResolveSnapshot {
         guard !scope.docIds.isEmpty || scope.includesBookLevel else { return .empty }
         let liveFindings: ((String, (String) -> String?) -> [Diagnostic])? = diagnostics.map { diagnostics in
             { docId, currentText in diagnostics.live(docId: docId, currentText: currentText) }
@@ -185,6 +191,7 @@ enum ResolveReader {
                                              removed: store.manifest.removedEditions),
             tasks: overlaying(tasks, live: live),
             figureOwners: ProjectStore.figureNoteOwners(store.manifest.figures ?? []),
+            figureChanges: figureChanges,
             liveFindings: liveFindings,
             paragraphs: { docId in
                 if let piece = live[docId] { return piece.paragraphs }
@@ -237,9 +244,12 @@ enum ResolveReader {
     ///     when there is no diagnostics store (no strains at all).
     ///   - paragraphs: a document's `[paragraphId: text]`; throws when it
     ///     will not read.
+    ///   - figureChanges: the changed figures, listed after everything else
+    ///     (`figureSourceItems`); they read no text of their own.
     @MainActor
     static func gather(scope: ResolveScope, annotations: ProjectAnnotationsSnapshot,
                        tasks: [WriterTask], figureOwners: [String: String?],
+                       figureChanges: [ResolveFigureChange],
                        liveFindings: ((String, (String) -> String?) -> [Diagnostic])?,
                        paragraphs: (String) throws -> [String: String]) -> ResolveSnapshot {
         var texts: [String: [String: String]] = [:]
@@ -281,7 +291,9 @@ enum ResolveReader {
                             findings: findings, paragraphText: paragraphText,
                             figureOwners: figureOwners)
         let named = read.unreadableDocIds + unreadable.filter { !read.unreadableDocIds.contains($0) }
-        return ResolveSnapshot(items: read.items, sequences: read.sequences,
+        let figures = figureSourceItems(scope: scope, changes: figureChanges, sequences: read.sequences,
+                                        paragraphText: read.paragraphText)
+        return ResolveSnapshot(items: read.items + figures, sequences: read.sequences,
                                paragraphText: read.paragraphText, unreadableDocIds: named)
     }
 }
