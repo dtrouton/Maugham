@@ -46,6 +46,120 @@ final class BinderTreeDropRoutingTests: XCTestCase {
         temp = nil
     }
 
+    // MARK: - The Canvas row: a drop of several files is one step (shell p5 Task 4)
+
+    /// Five photographs on the Canvas row with the canvas live: ⌘Z once and
+    /// all five go, ⇧⌘Z and all five come back, under one name.
+    func test_aFiveFileDropIsOneUndoStep() async throws {
+        let (store, model) = try await canvasNovel()
+        let paths = try await ingested(5, into: store)
+        XCTAssertFalse(model.undoManager.canUndo, "premise: nothing to undo yet")
+
+        let sent = try TreeCanvasRowDrop.land(pictures: paths, aspects: [:], store: store)
+        XCTAssertEqual(sent.count, 5)
+        let nodes = Set(sent.map(\.node))
+        XCTAssertEqual(nodes.count, 5, "five cards")
+        XCTAssertTrue(nodes.allSatisfy { model.scene.node($0) != nil })
+        XCTAssertEqual(model.undoManager.undoActionName, "Add 5 Files")
+
+        model.undo.undo()
+        XCTAssertTrue(nodes.allSatisfy { model.scene.node($0) == nil }, "one ⌘Z takes all five")
+        XCTAssertFalse(model.undoManager.canUndo, "and it was one step")
+        model.undo.redo()
+        XCTAssertTrue(nodes.allSatisfy { model.scene.node($0) != nil }, "one ⇧⌘Z brings all five")
+        XCTAssertEqual(paths.filter { FileManager.default.fileExists(
+            atPath: store.url.appendingPathComponent($0).path) }.count, 5,
+            "the copies stay in the well, as any canvas undo leaves them")
+        model.flush()
+        store.liveCanvas = nil
+    }
+
+    /// One picture keeps the send's own name.
+    func test_aOneFileDropKeepsItsName() async throws {
+        let (store, model) = try await canvasNovel()
+        let paths = try await ingested(1, into: store)
+        _ = try TreeCanvasRowDrop.land(pictures: paths, aspects: [:], store: store)
+        XCTAssertEqual(model.undoManager.undoActionName, CanvasCapture.undoStepName)
+        XCTAssertEqual(TreeCanvasRowDrop.undoStepName(count: 1), "Send to Canvas")
+        model.flush()
+        store.liveCanvas = nil
+    }
+
+    /// A drop where one file fails its ingest names it, and its one step
+    /// holds exactly the four that landed.
+    func test_aDropWithAFailedFileNamesItAndItsStepHoldsTheRest() async throws {
+        let (store, model) = try await canvasNovel()
+        var providers: [NSItemProvider] = []
+        for index in 0..<5 {
+            let url = temp.url.appendingPathComponent("photo-\(index).png")
+            try TestImageBytes.png(seed: index).write(to: url)
+            providers.append(try XCTUnwrap(NSItemProvider(contentsOf: url)))
+        }
+        let outcome = await CanvasExternalDrop.ingest(
+            providers: providers,
+            using: CanvasAssetIngest(
+                file: { url in
+                    if url.lastPathComponent == "photo-2.png" {
+                        throw CocoaError(.fileWriteNoPermission)
+                    }
+                    return try await store.ingestCanvasAsset(fileURL: url)
+                },
+                image: { try await store.ingestCanvasAsset(image: $0) }))
+        XCTAssertEqual(outcome.paths.count, 4)
+        XCTAssertEqual(outcome.message, "Couldn't add “photo-2.png” to the canvas.")
+        let sent = try TreeCanvasRowDrop.land(pictures: outcome.paths, aspects: outcome.aspects,
+                                              store: store)
+        XCTAssertEqual(model.undoManager.undoActionName, "Add 4 Files")
+        model.undo.undo()
+        XCTAssertTrue(sent.allSatisfy { model.scene.node($0.node) == nil })
+        XCTAssertFalse(model.undoManager.canUndo)
+        model.flush()
+        store.liveCanvas = nil
+    }
+
+    /// The closed canvas: one load and one save, five cards (no undo stack
+    /// stands behind a closed canvas, as for one picture).
+    func test_aFiveFileDropOnAClosedCanvasLandsAllFive() async throws {
+        let url = try await ProjectFactory.createNovelProject(
+            named: "Novel-\(UUID().uuidString.prefix(6))", in: temp.url)
+        let store = try await ProjectStore.load(from: url)
+        let paths = try await ingested(5, into: store)
+        let sent = try TreeCanvasRowDrop.land(pictures: paths, aspects: [:], store: store)
+        let scene = CanvasStore(projectRoot: store.url).load().scene
+        XCTAssertTrue(sent.allSatisfy { scene.node($0.node) != nil })
+        XCTAssertEqual(Set(sent.map(\.node)).count, 5)
+    }
+
+    /// The Canvas row's drop lands through the batch: deleting the wiring
+    /// turns this red.
+    func test_theCanvasRowsDropLandsThroughTheBatch() throws {
+        let code = SourceScan.codeLines(of: try SourceTree.declaration(
+            named: "enum TreeCanvasRowDrop", under: "Maugham")).joined(separator: "\n")
+        XCTAssertTrue(code.contains("for sent in try land(pictures: outcome.paths, aspects: outcome.aspects,"))
+        XCTAssertFalse(code.contains(".picture(path: path,"), "no per-file send")
+    }
+
+    private func canvasNovel() async throws -> (ProjectStore, CanvasModel) {
+        let url = try await ProjectFactory.createNovelProject(
+            named: "Novel-\(UUID().uuidString.prefix(6))", in: temp.url)
+        let store = try await ProjectStore.load(from: url)
+        let model = CanvasModel()
+        model.attach(projectRoot: store.url)
+        store.liveCanvas = model
+        return (store, model)
+    }
+
+    /// `count` pictures ingested into the well, as a drop's ingest leaves them.
+    private func ingested(_ count: Int, into store: ProjectStore) async throws -> [String] {
+        var paths: [String] = []
+        for index in 0..<count {
+            let url = temp.url.appendingPathComponent("photo-\(index).png")
+            try TestImageBytes.png(seed: index).write(to: url)
+            paths.append(try await store.ingestCanvasAsset(fileURL: url))
+        }
+        return paths
+    }
+
     // MARK: - A novel: the chapter row links
 
     func test_aNoteDroppedOnAChapterBecomesThatChaptersResearch() async throws {

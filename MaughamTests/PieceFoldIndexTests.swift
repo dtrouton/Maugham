@@ -141,6 +141,88 @@ final class PieceFoldIndexTests: XCTestCase {
         XCTAssertNil(scenes[prose.id], "prose has no Scenes")
     }
 
+    // MARK: - A peer's sync into a closed script (shell p5 Task 4)
+
+    /// Which arrivals re-read the Scenes: a closed Collection script's, or
+    /// an event naming no document; never an open script's (it re-parses
+    /// itself), prose's, or a project that holds no pieces.
+    func test_whichArrivalsMoveTheScenes() {
+        let script = StructureItem(id: "pc-1", title: "Walk", type: .document,
+                                   path: "pieces/01-walk/walk.fountain")
+        let prose = StructureItem(id: "pc-2", title: "Story", type: .document,
+                                  path: "pieces/02-story/story.md")
+        let structure = [script, prose]
+        XCTAssertTrue(PieceFoldIndex.arrivalMovesScenes(
+            docId: "pc-1", isOpen: false, structure: structure, projectType: .collection))
+        XCTAssertFalse(PieceFoldIndex.arrivalMovesScenes(
+            docId: "pc-1", isOpen: true, structure: structure, projectType: .collection))
+        XCTAssertFalse(PieceFoldIndex.arrivalMovesScenes(
+            docId: "pc-2", isOpen: false, structure: structure, projectType: .collection))
+        XCTAssertFalse(PieceFoldIndex.arrivalMovesScenes(
+            docId: "gone", isOpen: false, structure: structure, projectType: .collection))
+        XCTAssertTrue(PieceFoldIndex.arrivalMovesScenes(
+            docId: nil, isOpen: false, structure: structure, projectType: .collection))
+        XCTAssertFalse(PieceFoldIndex.arrivalMovesScenes(
+            docId: "pc-1", isOpen: false, structure: structure, projectType: .novel))
+    }
+
+    /// **A peer's edit moves a closed script's Scenes**: the sync lands on
+    /// disk, the store's presenter announces it, the fold's rule hears a
+    /// re-read, and the re-read lists the peer's new slugline.
+    func test_aPeersEditMovesAClosedScriptsScenes() async throws {
+        let temp = TempDirectory()
+        defer { temp.cleanup() }
+        let url = try await ProjectFactory.createCollectionProject(
+            named: "Collection-\(UUID().uuidString.prefix(6))", in: temp.url)
+        let store = try await ProjectStore.load(from: url)
+        let ds = try await DocumentStore.open(url: store.url)
+        store.documentStore = ds
+        ds.projectStore = store
+        defer { Task { await ds.close() } }
+        let script = try await store.addLoosePiece(title: "The Walk", format: .fountain)
+        XCTAssertNil(ds.document(forDocId: script.id), "premise: the script is closed")
+        let before = PieceFoldIndex.scenes(store: store)[script.id] ?? []
+        XCTAssertFalse(before.contains { if case .scene(_, _, "INT. KITCHEN - DAY") = $0 { return true }; return false },
+                       "premise: no kitchen yet")
+
+        // The peer's op: a new paragraph holding a slugline, at the end.
+        let state = try store.derivedCache.state(forDocId: script.id, in: store.url)
+        let added = ParagraphID.mintUnique(excluding: Set(state.sequence))
+        let op = Op(opId: ULID.generate(), docId: script.id, at: Date(), device: "peer-mac",
+                    session: "peer-session", kind: .typingBurst,
+                    changes: [.init(paragraphId: added, prior: nil, next: "INT. KITCHEN - DAY")],
+                    sequence: state.sequence + [added], provenance: nil)
+        var heard: [String?] = []
+        let token = NotificationCenter.default.addObserver(  // adr-0021-ok: a test observing the post, not a production receiver
+            forName: .maughamAnnotationsChanged, object: nil, queue: nil) { note in
+            heard.append(note.userInfo?[MaughamEvent.annotationDocIdKey] as? String)
+        }
+        defer { NotificationCenter.default.removeObserver(token) }
+        try await OpLogStore(projectURL: store.url).append(op)
+        let log = try XCTUnwrap(OpLogStore.opLogFileURLs(forDocId: script.id, in: store.url).first)
+        ds.presenterDidChangeSubitem(at: log)
+
+        let docId = try XCTUnwrap(heard.first { $0 == script.id }, "the arrival is announced")
+        XCTAssertTrue(PieceFoldIndex.arrivalMovesScenes(
+            docId: docId, isOpen: ds.document(forDocId: script.id) != nil,
+            structure: store.manifest.structure, projectType: store.manifest.type),
+            "the fold re-reads its Scenes on it")
+        let after = PieceFoldIndex.scenes(store: store)[script.id] ?? []
+        XCTAssertTrue(after.contains { if case .scene(_, added, "INT. KITCHEN - DAY") = $0 { return true }; return false },
+                      "the re-read lists the peer's slugline")
+    }
+
+    /// The fold's modifier hears the arrival and asks the rule: deleting the
+    /// wiring turns this red.
+    func test_theFoldHearsClosedArrivals() throws {
+        let code = SourceScan.codeLines(of: try SourceTree.declaration(
+            named: "struct PieceFoldIndexing", under: "Maugham")).joined(separator: "\n")
+        XCTAssertTrue(code.contains(".onProjectEvent(.maughamAnnotationsChanged, url: store.url, window: nil)"))
+        XCTAssertTrue(code.contains("PieceFoldIndex.arrivalMovesScenes("))
+        XCTAssertEqual(code.components(separatedBy: "state.scriptRevision += 1").count - 1, 2,
+                       "a re-parse and an arrival each move the Scenes' key")
+    }
+
     // MARK: - A palette card inside a region
 
     private func paletteGroup(_ cards: [ResearchItem]) -> ResearchItem {

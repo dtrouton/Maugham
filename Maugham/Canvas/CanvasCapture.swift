@@ -292,6 +292,36 @@ enum CanvasCapture {
                      store: ProjectStore,
                      projectRoot: URL,
                      mintsNodeID: Bool = false) throws -> Sent {
+        let sent = try send([Capture(content: content, captureID: captureID)], placement,
+                            undoStepName: undoStepName, store: store, projectRoot: projectRoot,
+                            mintsNodeID: mintsNodeID)
+        // One capture in, one `Sent` out: every capture answers.
+        return sent[0]
+    }
+
+    /// One capture of a batch: what it is and the entry it derives its id from.
+    struct Capture: Equatable {
+        let content: Content
+        let captureID: String
+    }
+
+    /// **Several captures as ONE step** (shell p5 Task 4) — the tree's Canvas
+    /// row handed five pictures, ⌘Z once and all five go, as the canvas's own
+    /// drop of five files is one step. Each is planned against the scene with
+    /// the ones before it already applied (a draft of the scene it is about to
+    /// be written to, so each id and each loose origin is unique against what
+    /// the write produces), then all are applied inside one bracket named
+    /// `undoStepName`. Nothing else can register between them: the plan and
+    /// the bracket are one synchronous main-actor stretch. A capture already on
+    /// the canvas answers its node and writes nothing; a batch that writes
+    /// nothing registers no step. Returns one `Sent` per capture, in order.
+    @discardableResult
+    static func send(_ captures: [Capture],
+                     _ placement: Placement,
+                     undoStepName name: String,
+                     store: ProjectStore,
+                     projectRoot: URL,
+                     mintsNodeID: Bool) throws -> [Sent] {
         let model: CanvasModel? = CanvasClaudeWrite.liveModel(of: store)
         if let model {
             // Before anything else, the retry included (issue #44): a model
@@ -299,38 +329,64 @@ enum CanvasCapture {
             // answering with a node id would flip the capture to promoted with
             // no card anywhere. The same value the sidecar arm throws.
             if let refused = model.sidecarRefusal { throw refused }
-            let landing = plan(content, placement, captureID: captureID, in: model.scene,
-                               mintsNodeID: mintsNodeID)
-            // The retry: the capture's derived node is already on the scene, so
-            // there is nothing to write — the caller retries only the flip.
-            if model.scene.node(landing.node.id) != nil {
-                return Sent(node: landing.node.id, wrappedIn: nil)
-            }
-            var wrapped: CanvasRegionID?
-            model.mutateFromInspector(undoStepName, scrapTexts: landing.scrapTexts) {
-                wrapped = apply(landing, to: &$0)
+            let batch = planned(captures, placement, in: model.scene, mintsNodeID: mintsNodeID)
+            // The retry: every capture's derived node is already on the scene,
+            // so there is nothing to write — the caller retries only the flip.
+            guard !batch.landings.isEmpty else { return batch.sent }
+            var wrapped: [CanvasNodeID: CanvasRegionID] = [:]
+            model.mutateFromInspector(name, scrapTexts: batch.scrapTexts) { scene in
+                for landing in batch.landings {
+                    wrapped[landing.node.id] = apply(landing, to: &scene)
+                }
             }
             model.bumpSceneRevision()
             model.flush()
-            return Sent(node: landing.node.id, wrappedIn: wrapped)
+            return batch.sent.map { Sent(node: $0.node, wrappedIn: wrapped[$0.node] ?? $0.wrappedIn) }
         }
 
         // The canvas is not open — which is the command's whole point, since a
         // drag is unreachable from the keyboard and unavailable with no canvas
-        // on screen. `CanvasClaudeWrite`'s second arm, for its reasons.
+        // on screen. `CanvasClaudeWrite`'s second arm, for its reasons. One
+        // load and one save for the batch.
         let sidecar = CanvasStore(projectRoot: projectRoot)
         let loaded = try sidecar.loadForTransientWrite()
         var scene = loaded.scene
         var scraps = loaded.scraps
-        let landing = plan(content, placement, captureID: captureID, in: scene,
-                           mintsNodeID: mintsNodeID)
-        if scene.node(landing.node.id) != nil { return Sent(node: landing.node.id, wrappedIn: nil) }
-        let wrapped = apply(landing, to: &scene)
-        scraps.merge(landing.scrapTexts) { _, new in new }
+        let batch = planned(captures, placement, in: scene, mintsNodeID: mintsNodeID)
+        guard !batch.landings.isEmpty else { return batch.sent }
+        var wrapped: [CanvasNodeID: CanvasRegionID] = [:]
+        for landing in batch.landings {
+            wrapped[landing.node.id] = apply(landing, to: &scene)
+        }
+        scraps.merge(batch.scrapTexts) { _, new in new }
         // `save` and not `scheduleSave`: this store is transient and nothing would
         // ever fire its debounce.
         sidecar.save(scene: scene, scraps: scraps)
-        return Sent(node: landing.node.id, wrappedIn: wrapped)
+        return batch.sent.map { Sent(node: $0.node, wrappedIn: wrapped[$0.node] ?? $0.wrappedIn) }
+    }
+
+    /// A batch's landings, each planned against `scene` with the landings
+    /// before it applied; a capture already there lands nothing. Pure.
+    private static func planned(_ captures: [Capture], _ placement: Placement,
+                                in scene: CanvasScene, mintsNodeID: Bool)
+        -> (landings: [Landing], sent: [Sent], scrapTexts: [CanvasNodeID: String]) {
+        var draft = scene
+        var landings: [Landing] = []
+        var sent: [Sent] = []
+        var texts: [CanvasNodeID: String] = [:]
+        for capture in captures {
+            let landing = plan(capture.content, placement, captureID: capture.captureID,
+                               in: draft, mintsNodeID: mintsNodeID)
+            if draft.node(landing.node.id) != nil {
+                sent.append(Sent(node: landing.node.id, wrappedIn: nil))
+                continue
+            }
+            apply(landing, to: &draft)
+            landings.append(landing)
+            texts.merge(landing.scrapTexts) { _, new in new }
+            sent.append(Sent(node: landing.node.id, wrappedIn: nil))
+        }
+        return (landings, sent, texts)
     }
 
     /// Asked by `InboxStore.sendToCanvas` BEFORE it copies a picture into the

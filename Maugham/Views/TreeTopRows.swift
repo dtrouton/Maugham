@@ -388,18 +388,37 @@ enum TreeCanvasRowDrop {
                         using: CanvasAssetIngest(
                             file: { try await store.ingestCanvasAsset(fileURL: $0) },
                             image: { try await store.ingestCanvasAsset(image: $0) }))
-                    for path in outcome.paths {
-                        let sent = try CanvasCapture.send(
-                            .picture(path: path, aspect: outcome.aspects[path]), .loose,
-                            captureID: path, store: store, projectRoot: store.url,
-                            mintsNodeID: true)
+                    for sent in try land(pictures: outcome.paths, aspects: outcome.aspects,
+                                         store: store) {
                         landed(sent.node)
                     }
+                    // What did not ingest is named; the step holds what landed.
                     if let message = outcome.message { report(message) }
                 } catch { report(error.localizedDescription) }
             }
             return true
         }
+    }
+
+    /// **The pictures a drop ingested, landed as ONE undo step** (shell p5
+    /// Task 4): every path the ingest copied, loose, in one bracket — five
+    /// photographs, ⌘Z once, all five go (the canvas's own step; the files
+    /// stay in `canvas_assets/`, as any canvas undo leaves them). A path that
+    /// failed to ingest is not here and not in the step. Called after the
+    /// ingest's await, so the step holds exactly this drop.
+    @MainActor
+    static func land(pictures paths: [String], aspects: [String: CGFloat],
+                     store: ProjectStore) throws -> [CanvasCapture.Sent] {
+        try CanvasCapture.send(
+            paths.map { .init(content: .picture(path: $0, aspect: aspects[$0]), captureID: $0) },
+            .loose, undoStepName: undoStepName(count: paths.count),
+            store: store, projectRoot: store.url, mintsNodeID: true)
+    }
+
+    /// What ⌘Z reads after a Canvas-row drop: one picture keeps the send's
+    /// own name; several say how many.
+    static func undoStepName(count: Int) -> String {
+        count == 1 ? CanvasCapture.undoStepName : "Add \(count) Files"
     }
 
     /// A research picture's shape from its file's header, so its card is

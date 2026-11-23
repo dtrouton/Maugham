@@ -930,8 +930,11 @@ final class BinderTreeSectionsState {
     /// **The fold row the keys last landed on** (shell p4 Task 10), when the
     /// `List`'s last write was a pull-up row's tag: what the `List` draws
     /// selected while the subject is still the one that write made
-    /// (`BinderTreeSelection.shownTags`). Nil after any other write.
-    var selectedPullUp: PulledUp?
+    /// (`BinderTreeSelection.shownTags`). Nil after any other write. It names
+    /// the fold too (p5 Task 4): a card listed in two open folds is two rows.
+    var selectedFoldRow: TreeRowTag.FoldRow?
+    /// What `selectedFoldRow` pulls up.
+    var selectedPullUp: PulledUp? { selectedFoldRow?.pulled }
     /// **Something the tree's Canvas row was handed waits on the canvas**
     /// (shell p4 Task 10): the row's dot, until the canvas is next opened
     /// (`TreeWindowWiring`), where the card is selected and in view.
@@ -942,9 +945,9 @@ final class BinderTreeSectionsState {
 
     /// What a write through the tree's `List` leaves behind.
     func record(selection: Set<BinderSubject>, subject: WindowSubject,
-                pullUp: PulledUp? = nil) {
+                foldRow: TreeRowTag.FoldRow? = nil) {
         self.selection = selection
-        selectedPullUp = pullUp
+        selectedFoldRow = foldRow
         subjectAtLastClick = subject
     }
 
@@ -1182,6 +1185,9 @@ final class BinderTreeSectionsState {
     /// row within the double-click interval is read as the same click's
     /// second arrival and waits for nothing (`BinderPieceFold.pressedJustNow`).
     @ObservationIgnored var lastRowPress: BinderPieceFold.RowPress?
+    /// The last key-down type-select collected (system uptime), for a Space
+    /// within its interval (`TreeTypeSelect`). Not observed: nothing draws it.
+    @ObservationIgnored var lastTypeSelectKey: TimeInterval?
     /// **The row a key landing waits to pull up** (the controller's arrow
     /// ruling): set by the `List`'s setter, performed after the selection
     /// settles by `TreeWindowWiring` (`TreeRowSettle`), cleared by the next
@@ -1742,11 +1748,11 @@ enum BinderTreeSelection {
     /// **What the `List` draws selected, as tags**: the fold row the keys
     /// last landed on (or put away with Return) while the subject is still
     /// the one that key made; otherwise `shown`, every row a subject's tag.
-    static func shownTags(_ stored: Set<BinderSubject>, pullUp: PulledUp?,
+    static func shownTags(_ stored: Set<BinderSubject>, foldRow: TreeRowTag.FoldRow?,
                           subject: WindowSubject,
                           clickedAt: WindowSubject?) -> Set<TreeRowTag> {
-        if clickedAt == subject, let pullUp {
-            return [.pullUp(pullUp)]
+        if clickedAt == subject, let foldRow {
+            return [.pullUp(foldRow)]
         }
         return Set(shown(stored, subject: subject, clickedAt: clickedAt).map(TreeRowTag.subject))
     }
@@ -1756,7 +1762,7 @@ enum BinderTreeSelection {
     /// waits to pull up once the selection settles (`TreeRowSettle`).
     struct TagWrite: Equatable {
         let selection: Set<BinderSubject>
-        let pullUp: PulledUp?
+        let foldRow: TreeRowTag.FoldRow?
         let subject: WindowSubject
         var settle: PulledUp? = nil
     }
@@ -1779,7 +1785,7 @@ enum BinderTreeSelection {
     static func resolvedTags(
         written: Set<TreeRowTag>,
         stored: Set<BinderSubject>,
-        storedPullUp: PulledUp?,
+        storedFoldRow: TreeRowTag.FoldRow?,
         shown shownNow: Set<TreeRowTag>,
         subject: WindowSubject,
         structure: [StructureItem],
@@ -1790,22 +1796,22 @@ enum BinderTreeSelection {
         recentPress: (PulledUp) -> Bool = { _ in false },
         accepts: (BinderSubject) -> Bool = { _ in true }
     ) -> TagWrite {
-        let pulls = written.compactMap(\.pullUp)
-        let added = written.subtracting(shownNow).compactMap(\.pullUp)
+        let pulls = written.compactMap(\.foldRow)
+        let added = written.subtracting(shownNow).compactMap(\.foldRow)
         if let one = (written.count == 1 ? pulls.first : nil) ?? (added.count == 1 ? added.first : nil) {
-            let waits = gesture == .keys && !recentPress(one)
-            return TagWrite(selection: [], pullUp: one, subject: subject,
-                            settle: waits ? one : nil)
+            let waits = gesture == .keys && !recentPress(one.pulled)
+            return TagWrite(selection: [], foldRow: one, subject: subject,
+                            settle: waits ? one.pulled : nil)
         }
         // A set holding a pull-up row with nothing new: the `List` handing
         // back what it drew. Nothing moves.
         if !pulls.isEmpty, written == shownNow {
-            return TagWrite(selection: stored, pullUp: storedPullUp, subject: subject)
+            return TagWrite(selection: stored, foldRow: storedFoldRow, subject: subject)
         }
         // A research row the keys land on: selected, waiting to settle.
         if gesture == .keys, written.count == 1, case .subject(let row)? = written.first,
            let id = row.researchID, accepts(row) {
-            return TagWrite(selection: [row], pullUp: nil, subject: subject,
+            return TagWrite(selection: [row], foldRow: nil, subject: subject,
                             settle: recentPress(.research(id)) ? nil : .research(id))
         }
         let next = resolved(
@@ -1815,8 +1821,8 @@ enum BinderTreeSelection {
             projectType: projectType, accepts: accepts)
         // An untagged (or refused) write moves nothing — the fold row still
         // drawn selected included.
-        let pullUp = next.selection == stored && next.subject == subject ? storedPullUp : nil
-        return TagWrite(selection: next.selection, pullUp: pullUp, subject: next.subject)
+        let foldRow = next.selection == stored && next.subject == subject ? storedFoldRow : nil
+        return TagWrite(selection: next.selection, foldRow: foldRow, subject: next.subject)
     }
 
     /// The tree's `List(selection:)` binding, for the two hosts whose rows are
@@ -1837,7 +1843,7 @@ enum BinderTreeSelection {
     @MainActor
     static func drawnTags(state: BinderTreeSectionsState,
                           subject: WindowSubject) -> Set<TreeRowTag> {
-        shownTags(state.selection, pullUp: state.selectedPullUp, subject: subject,
+        shownTags(state.selection, foldRow: state.selectedFoldRow, subject: subject,
                   clickedAt: state.subjectAtLastClick)
     }
 
@@ -1852,7 +1858,7 @@ enum BinderTreeSelection {
         let now = ProcessInfo.processInfo.systemUptime
         let lastPress = state.lastRowPress
         let next = resolvedTags(
-            written: written, stored: state.selection, storedPullUp: state.selectedPullUp,
+            written: written, stored: state.selection, storedFoldRow: state.selectedFoldRow,
             shown: drawnTags(state: state, subject: current).filter {
                 $0.subject.map(accepts) ?? true
             },
@@ -1866,8 +1872,8 @@ enum BinderTreeSelection {
             accepts: accepts)
         // An untagged write moves nothing, the record included.
         if next.selection != state.selection || next.subject != current
-            || next.pullUp != state.selectedPullUp {
-            state.record(selection: next.selection, subject: next.subject, pullUp: next.pullUp)
+            || next.foldRow != state.selectedFoldRow {
+            state.record(selection: next.selection, subject: next.subject, foldRow: next.foldRow)
         }
         if state.pendingSettle != next.settle { state.pendingSettle = next.settle }
         subject.wrappedValue = next.subject
@@ -1889,13 +1895,18 @@ enum TreeRowKeys {
     enum Key: Equatable { case returnOrSpace, openInCentre }
 
     enum Act: Equatable {
-        case click(PulledUp)
+        /// Pull up (or put away) what the row names; `row` is the fold row
+        /// that stays selected, nil for a research row.
+        case click(PulledUp, row: TreeRowTag.FoldRow?)
         case openInCentre(TreeRowTag)
     }
 
-    /// The key a press is, or nil. Pure.
-    static func key(_ key: KeyEquivalent, modifiers: EventModifiers) -> Key? {
+    /// The key a press is, or nil. A Space while the `List`'s type-select is
+    /// collecting (`TreeTypeSelect`) is the search's, never the row's. Pure.
+    static func key(_ key: KeyEquivalent, modifiers: EventModifiers,
+                    typeSelecting: Bool) -> Key? {
         let mods = modifiers.subtracting([.numericPad, .function, .capsLock])
+        if mods.isEmpty, key == .space, typeSelecting { return nil }
         if mods.isEmpty, key == .return || key == .space { return .returnOrSpace }
         if mods == .command, key == .downArrow { return .openInCentre }
         return nil
@@ -1906,8 +1917,8 @@ enum TreeRowKeys {
         guard drawn.count == 1, let row = drawn.first else { return nil }
         switch key {
         case .returnOrSpace:
-            if let pulled = row.pullUp { return .click(pulled) }
-            if let id = row.subject?.researchID { return .click(.research(id)) }
+            if let foldRow = row.foldRow { return .click(foldRow.pulled, row: foldRow) }
+            if let id = row.subject?.researchID { return .click(.research(id), row: nil) }
             return nil
         case .openInCentre: return .openInCentre(row)
         }
@@ -1925,6 +1936,40 @@ enum TreeRowKeys {
     }
 }
 
+/// **Whether the `List`'s type-select is collecting** (shell p5 Task 4): a
+/// printable key typed into the tree starts or extends AppKit's type-select
+/// search, and a Space within its interval of the last one is part of the
+/// search ("The C…"), not `TreeRowKeys`' Return-or-Space. AppKit publishes no
+/// interval and no API saying a search is live; `interval` is measured: on
+/// macOS 27 an `NSTableView`'s search keeps a key 1.2 s after the last and
+/// starts afresh by 1.25 s; an arrow ends it, and a lone Space starts none.
+/// Pure, the time injected; no timer (tripwire 33).
+enum TreeTypeSelect {
+    static let interval: TimeInterval = 1.2
+
+    /// Whether a key-down at `now` falls inside a search the last
+    /// collected key (`lastKey`) started or extended.
+    static func isCollecting(at now: TimeInterval, lastKey: TimeInterval?,
+                             interval: TimeInterval) -> Bool {
+        guard let lastKey, now >= lastKey else { return false }
+        return now - lastKey <= interval
+    }
+
+    /// Whether this key-down is type-select's: a printable character with no
+    /// ⌘ or ⌃, and a Space only while a search is collecting (a lone Space
+    /// is the row's).
+    static func collects(_ characters: String, modifiers: EventModifiers,
+                         collecting: Bool) -> Bool {
+        guard modifiers.isDisjoint(with: [.command, .control]),
+              let scalar = characters.unicodeScalars.first,
+              characters.unicodeScalars.count == 1 else { return false }
+        if scalar == " " { return collecting }
+        let props = scalar.properties
+        return !props.isWhitespace && scalar.value >= 0x20 && scalar.value != 0x7F
+            && !(0xF700...0xF8FF).contains(scalar.value)
+    }
+}
+
 /// `TreeRowKeys` on a tree's `List`, one modifier for the three hosts.
 struct TreeRowKeysModifier: ViewModifier {
     let store: ProjectStore
@@ -1936,27 +1981,40 @@ struct TreeRowKeysModifier: ViewModifier {
     @Environment(\.windowCanvas) private var windowCanvas
 
     func body(content: Content) -> some View {
-        content.onKeyPress(keys: [.return, .space, .downArrow], phases: .down) { press in
+        // Every key-down passes here so type-select's collecting is known
+        // (`TreeTypeSelect`); only Return, Space and ⌘↓ are ever handled.
+        content.onKeyPress(phases: .down) { press in
+            let now = ProcessInfo.processInfo.systemUptime
+            let typeSelecting = TreeTypeSelect.isCollecting(
+                at: now, lastKey: state.lastTypeSelectKey, interval: TreeTypeSelect.interval)
+            if TreeTypeSelect.collects(press.characters, modifiers: press.modifiers,
+                                       collecting: typeSelecting) {
+                state.lastTypeSelectKey = now
+            } else {
+                // Any other key (an arrow, Return) ends AppKit's search.
+                state.lastTypeSelectKey = nil
+            }
             guard !hostIsRenaming, state.renamingItemId == nil,
-                  let key = TreeRowKeys.key(press.key, modifiers: press.modifiers),
+                  let key = TreeRowKeys.key(press.key, modifiers: press.modifiers,
+                                            typeSelecting: typeSelecting),
                   let act = TreeRowKeys.act(key, drawn: BinderTreeSelection.drawnTags(
                     state: state, subject: subject))
             else { return .ignored }
             switch act {
-            case .click(let pulled):
+            case .click(let pulled, let foldRow):
                 let next = TreeRowKeys.returned(pulled, subject: subject,
                                                 columnShowsPulledUp: state.columnShowsPulledUp)
                 // The row stays the one selected, so Return again brings it back.
-                if state.selectedPullUp != pulled, let id = pulled.researchID {
+                if let foldRow {
+                    state.record(selection: [], subject: next.subject, foldRow: foldRow)
+                } else if let id = pulled.researchID {
                     state.record(selection: [.research(id)], subject: next.subject)
-                } else {
-                    state.record(selection: [], subject: next.subject, pullUp: pulled)
                 }
                 state.pendingSettle = nil
                 subject = next.subject
                 if next.reveals { state.pulledUpRevealRequests += 1 }
-            case .openInCentre(.pullUp(let pulled)):
-                BinderPieceFold.openInCentre(pulled, subject: $subject, store: store,
+            case .openInCentre(.pullUp(let foldRow)):
+                BinderPieceFold.openInCentre(foldRow.pulled, subject: $subject, store: store,
                                              windowCanvas: windowCanvas)
             case .openInCentre(.subject(let row)):
                 subject = TreeTravel.openInCentre(row, current: subject,
@@ -2020,19 +2078,33 @@ enum TreeRowSettle {
 /// opened — carry `.pullUp`, so the arrow keys reach them without a
 /// `BinderSubject` case for each (the persisted `WindowSubject` is
 /// untouched). Link and scene rows travel and carry no tag.
+///
+/// **A pull-up tag names its fold** (shell p5 Task 4): a palette card pinned
+/// to two chapters is two rows when both folds are open, and one shared tag
+/// had the `List` select both. Never persisted (no `Codable`): nothing on
+/// disk carries the old shape.
 enum TreeRowTag: Hashable {
     case subject(BinderSubject)
-    case pullUp(PulledUp)
+    case pullUp(FoldRow)
+
+    /// A fold row: what it pulls up, and the piece whose fold lists it.
+    struct FoldRow: Hashable {
+        let pulled: PulledUp
+        let piece: String
+    }
 
     var subject: BinderSubject? {
         if case .subject(let row) = self { return row }
         return nil
     }
 
-    var pullUp: PulledUp? {
-        if case .pullUp(let pulled) = self { return pulled }
+    var foldRow: FoldRow? {
+        if case .pullUp(let row) = self { return row }
         return nil
     }
+
+    /// What the row pulls up, whichever fold lists it.
+    var pullUp: PulledUp? { foldRow?.pulled }
 }
 
 extension Binding where Value == WindowSubject {

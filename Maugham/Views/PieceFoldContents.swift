@@ -387,6 +387,20 @@ struct PieceFoldIndex: Equatable {
         return out
     }
 
+    /// **Whether an op-log arrival re-reads the Scenes** (shell p5 Task 4): a
+    /// peer's sync into a CLOSED Collection script, heard as To resolve's
+    /// presence hears it (`.maughamAnnotationsChanged`, posted for any closed
+    /// log's change, `ResolvePane.annotationsEventMovesTheWalk`). An open
+    /// script re-parses itself (`.maughamScriptDidUpdate`); an event naming
+    /// no document re-reads too. Pure.
+    static func arrivalMovesScenes(docId: String?, isOpen: Bool,
+                                   structure: [StructureItem], projectType: ProjectType) -> Bool {
+        guard projectType.holdsPieces, !isOpen else { return false }
+        guard let docId else { return true }
+        guard let item = TreeWalk.find(id: docId, in: structure) else { return false }
+        return isCollectionScript(item, projectType: projectType)
+    }
+
     @MainActor
     static func key(store: ProjectStore, canvasWrites: Int) -> Key {
         Key(modified: store.manifest.modified,

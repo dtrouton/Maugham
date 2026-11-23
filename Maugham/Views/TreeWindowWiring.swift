@@ -62,7 +62,7 @@ struct TreeWindowWiring: ViewModifier {
                 else { return }
                 // The row stays the one drawn selected.
                 state.record(selection: state.selection, subject: next,
-                             pullUp: state.selectedPullUp)
+                             foldRow: state.selectedFoldRow)
                 subject = next
             }
             // Return / Space shows what it pulled up (`ProjectWindow.revealPulledUp`).

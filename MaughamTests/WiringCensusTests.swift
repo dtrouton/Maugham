@@ -400,7 +400,7 @@ final class WiringCensusTests: XCTestCase {
               ["resolvedTags(", "projectType: store.manifest.type"],
               why: "the one setter resolves every write through the one rule"),
         Entry("decl:static func resolvedTags(", .anyOrder,
-              ["resolved(", "settle: waits ? one : nil"],
+              ["resolved(", "settle: waits ? one.pulled : nil"],
               why: "a subject's tag is today's resolution, whose single-row arm is `ClickRule.resolve(_, .click, …)`; a fold row's tag selects and, from the keys, waits to settle (shell p4 Task 10 fix round 1)"),
         Entry("decl:enum TreeRowSettle {", .anyOrder,
               ["ClickRule.pullUp(pulled, current: subject)", "guard columnShowsPulledUp"],

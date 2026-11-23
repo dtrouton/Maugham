@@ -248,7 +248,7 @@ struct BinderPieceFold: View {
         .accessibilityHint(Self.accessibilityHint(entry, subject: subject))
         .accessibilityAction(named: BesideHeader.openInCentreLabel) { openInCentre(entry) }
         .overlay {
-            if Self.drawsOutline(entry, subject: subject, state: state) {
+            if Self.drawsOutline(entry, inFoldOf: documentId, subject: subject, state: state) {
                 RoundedRectangle(cornerRadius: 4)
                     .strokeBorder(Color.accentColor, lineWidth: 1.5)
                     .padding(-3)
@@ -263,7 +263,7 @@ struct BinderPieceFold: View {
         // with `ClickRule.pullUp` — the row pulled up beside, the centre and
         // the faces untouched. The button above stays the mouse's: it takes
         // the click, so the table never selects on it and nothing fires twice.
-        .tag(Self.tag(of: entry))
+        .tag(Self.tag(of: entry, inFoldOf: documentId))
     }
 
     private func thumbnailSource(of entry: PieceFoldEntry) -> RowThumbnails.Source? {
@@ -326,9 +326,10 @@ struct BinderPieceFold: View {
         state.pendingSettle = nil
         switch outcome.press {
         case .single:
-            guard let next = outcome.subject, let pulled = entry.pulledUp else { return }
+            guard let next = outcome.subject,
+                  let row = Self.foldRow(of: entry, inFoldOf: documentId) else { return }
             // The keyboard carries on from the row clicked (review Minor 8).
-            state.record(selection: [], subject: next, pullUp: pulled)
+            state.record(selection: [], subject: next, foldRow: row)
             subject = next
         case .double:
             openInCentre(entry)
@@ -465,22 +466,30 @@ struct BinderPieceFold: View {
     }
 
     /// **The `List` tag a pull-up row carries** (shell p4 Task 10): what it
-    /// pulls up, tree-local. Every row `pullUpRow` draws names one
-    /// (`PieceFoldEntry.pulledUp`); the fallback is never reached.
-    static func tag(of entry: PieceFoldEntry) -> TreeRowTag {
-        entry.pulledUp.map(TreeRowTag.pullUp) ?? .subject(.project)
+    /// pulls up and, since p5 Task 4, the piece whose fold lists it — one
+    /// card in two open folds is two rows. Every row `pullUpRow` draws names
+    /// something to pull up (`PieceFoldEntry.pulledUp`); the fallback is
+    /// never reached.
+    static func tag(of entry: PieceFoldEntry, inFoldOf piece: String) -> TreeRowTag {
+        foldRow(of: entry, inFoldOf: piece).map(TreeRowTag.pullUp) ?? .subject(.project)
+    }
+
+    /// The fold row `entry` is in `piece`'s fold; nil for a row that travels.
+    static func foldRow(of entry: PieceFoldEntry, inFoldOf piece: String) -> TreeRowTag.FoldRow? {
+        entry.pulledUp.map { TreeRowTag.FoldRow(pulled: $0, piece: piece) }
     }
 
     /// Whether a pull-up row draws its outline: it is what is beside, and the
     /// `List` is not already drawing it selected (`BinderTreeSelection.outlined`'s
     /// rule for the rows the tree tags with a subject).
     @MainActor
-    static func drawsOutline(_ entry: PieceFoldEntry, subject: WindowSubject,
+    static func drawsOutline(_ entry: PieceFoldEntry, inFoldOf piece: String,
+                             subject: WindowSubject,
                              state: BinderTreeSectionsState) -> Bool {
-        guard isPulledUp(entry, subject: subject), let pulled = entry.pulledUp else { return false }
+        guard isPulledUp(entry, subject: subject) else { return false }
         return !BinderTreeSelection.shownTags(
-            state.selection, pullUp: state.selectedPullUp, subject: subject,
-            clickedAt: state.subjectAtLastClick).contains(.pullUp(pulled))
+            state.selection, foldRow: state.selectedFoldRow, subject: subject,
+            clickedAt: state.subjectAtLastClick).contains(tag(of: entry, inFoldOf: piece))
     }
 
     /// What VoiceOver calls a pull-up row: its kind, then its name.
@@ -722,7 +731,8 @@ struct PieceFoldIndexing: ViewModifier {
             // **A Collection script's Scenes, on their own key** (shell p4
             // Task 10): the manifest's stamp and the window's count of script
             // re-parses (`.maughamScriptDidUpdate`, the editor's own debounced
-            // signal), so typing re-reads the sluglines and never the canvas.
+            // signal) and closed scripts' arrivals, so typing re-reads the
+            // sluglines and never the canvas.
             .task(id: PieceFoldScenesKey(modified: store.manifest.modified,
                                          scriptRevision: state.scriptRevision)) {
                 let scenes = PieceFoldIndex.scenes(store: store)
@@ -732,6 +742,16 @@ struct PieceFoldIndexing: ViewModifier {
             }
             .onProjectEvent(.maughamScriptDidUpdate, url: store.url, window: nil) { _ in
                 state.scriptRevision += 1
+            }
+            // A peer's sync into a closed script (`arrivalMovesScenes`).
+            .onProjectEvent(.maughamAnnotationsChanged, url: store.url, window: nil) { note in
+                let docId = note.userInfo?[MaughamEvent.annotationDocIdKey] as? String
+                if PieceFoldIndex.arrivalMovesScenes(
+                    docId: docId,
+                    isOpen: docId.flatMap { store.documentStore?.document(forDocId: $0) } != nil,
+                    structure: store.manifest.structure, projectType: store.manifest.type) {
+                    state.scriptRevision += 1
+                }
             }
     }
 }
