@@ -55,6 +55,28 @@ struct ResolveFigureChange: Equatable, Sendable {
         number == FigureListing.unusedNumber ? nil : title
     }
 
+    /// The line index a keyed placement carries where no read places by its
+    /// line (`keyed(_:for:)`): `FigureUseTravel.place` answers nil for it.
+    static let unplacedLine = -1
+
+    /// **What `scope`'s read is keyed on, and reads** (fix round 1, I2):
+    /// every placement's piece, and a line only for a `.piece` scope's own
+    /// piece — the one placement a read puts on a paragraph. A line moving
+    /// anywhere else (typing above a changed figure while a Book, a Part or
+    /// the presence read is keyed) moves no key, so it reads nothing.
+    static func keyed(_ changes: [ResolveFigureChange], for scope: ResolveScope) -> [ResolveFigureChange] {
+        var placing: String?
+        if case .piece(let docId, _) = scope { placing = docId }
+        return changes.map { change in
+            ResolveFigureChange(
+                figureId: change.figureId, number: change.number, title: change.title,
+                pinsChanged: change.pinsChanged,
+                placements: change.placements.map { use in
+                    use.docId == placing ? use : FigureListing.Use(docId: use.docId, lineIndex: unplacedLine)
+                })
+        }
+    }
+
     /// The line placing the figure in `docId`, nil where it places none.
     func placement(in docId: String) -> FigureListing.Use? {
         placements.first { $0.docId == docId }
@@ -195,34 +217,129 @@ struct ResolveFigureCompare: Identifiable, Equatable {
 /// **Compare, from To resolve**: the details' own sheet (`FigurePinsCompare`),
 /// over a model of its own — its rows read when it opens, through the
 /// figure's host, as the inspector's are — and the figure helper's Refresh,
-/// refused by the same answer and words as the inspector's.
+/// refused by the same answer and words as the inspector's (`refusal`). A
+/// failed Refresh is said here, in the sheet the writer is looking at (fix
+/// round 1, M1): the helper reports into the sheet's own model, never the
+/// tree's alert, which is silent with the sidebar hidden.
 struct ResolveFigureCompareSheet: View {
     let figureId: String
     let store: ProjectStore
     let documentStore: DocumentStore
-    let actions: FigureActions
+    /// The window's figure helper, reporting to `report`
+    /// (`FigureSectionVerbs.shared(report:windowRefusesWrites:)`).
+    let actions: (_ report: @escaping (String) -> Void) -> FigureActions
+    /// The row's Open (the travel to the figure, whose grid then stands in
+    /// this window's centre); nil where the tree draws no row to go to.
+    let openTheTable: (() -> Void)?
     let done: () -> Void
 
     @State private var model: FigureInspectorModel
 
     init(figureId: String, store: ProjectStore, documentStore: DocumentStore,
-         actions: FigureActions, done: @escaping () -> Void) {
+         actions: @escaping (_ report: @escaping (String) -> Void) -> FigureActions,
+         openTheTable: (() -> Void)?, done: @escaping () -> Void) {
         self.figureId = figureId
         self.store = store
         self.documentStore = documentStore
         self.actions = actions
+        self.openTheTable = openTheTable
         self.done = done
         _model = State(initialValue: FigureInspectorModel(figureId: figureId))
     }
 
+    /// **Why Refresh is not offered**, nil when it is: this Mac may not edit
+    /// the figure (the posture's `.editFigure`, a view-only share, a piece
+    /// in read-through — named), else no grid on it in this window. Pure
+    /// over the helper; the sheet draws exactly this.
+    static func refusal(actions: FigureActions, figureId: String) -> String? {
+        FigureInspector.refusal(mayEdit: actions.mayEdit(figureId), reach: actions.gridReach(figureId),
+                                readThrough: actions.readThroughRefusal(of: figureId))
+    }
+
+    /// **Refresh needs the table open in this window** (fix round 1, M5): a
+    /// sheet refused for that alone offers the way there — the row's Open,
+    /// after which Compare… on the figure's own list refreshes. Refused for
+    /// any other reason (who may write), it offers nothing more. Pure.
+    static func offersOpenTheTable(refusal: String?, canOpen: Bool) -> Bool {
+        canOpen && refusal == FigureActions.openTheTableFirst
+    }
+
+    static let openTheTableTitle = "Open the Table"
+
     var body: some View {
-        FigurePinsCompare(
-            model: model,
-            refusal: FigureInspector.refusal(mayEdit: actions.mayEdit(figureId),
-                                             reach: actions.gridReach(figureId),
-                                             readThrough: actions.readThroughRefusal(of: figureId)),
-            load: { await model.loadComparisons(store: store, documentStore: documentStore) },
-            refresh: { actions.refreshPins(figureId) },
-            done: done)
+        let actions = actions { [weak model] in model?.message = $0 }
+        let refusal = Self.refusal(actions: actions, figureId: figureId)
+        VStack(alignment: .leading, spacing: 0) {
+            FigurePinsCompare(
+                model: model,
+                refusal: refusal,
+                load: { await model.loadComparisons(store: store, documentStore: documentStore) },
+                refresh: {
+                    model.message = nil
+                    return actions.refreshPins(figureId)
+                },
+                done: done)
+            if let openTheTable, Self.offersOpenTheTable(refusal: refusal, canOpen: true) {
+                Button(Self.openTheTableTitle) {
+                    done()
+                    openTheTable()
+                }
+                .padding([.horizontal, .bottom])
+            }
+            if let message = model.message {
+                Text(message)
+                    .font(.caption).foregroundStyle(.red)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding([.horizontal, .bottom])
+            }
+        }
+    }
+}
+
+// MARK: - The row's verbs (fix round 1, M4)
+
+/// **Where a changed source's row takes the writer**, decided without a
+/// view, so the closures `ResolvePane` hands the row are pinned without an
+/// assistive client.
+@MainActor
+enum ResolveFigureSourceVerbs {
+
+    /// The sentence's destination: a piece, its paragraph, and whether the
+    /// piece opens inside the faces (a Book or Part list stays).
+    struct Place: Equatable {
+        let docId: String
+        let paragraphId: String?
+        let insideTheFaces: Bool
+    }
+
+    /// **The line placing the figure, in its piece** — on the paragraph the
+    /// read placed it at, else the one `paragraphOfLine` finds the line in
+    /// now (production: `FigureUseTravel.destination`, the open `Document`
+    /// or the derived cache — never a load). Nil where the item names no
+    /// piece: an unused figure's, or the figure's own list's.
+    static func place(of item: ResolveItem, change: ResolveFigureChange?, scope: ResolveScope,
+                      paragraphOfLine: (FigureListing.Use) -> String?) -> Place? {
+        guard case .figureSourceChanged = item else { return nil }
+        let docId = item.docId
+        guard docId != ProjectStore.projectTasksDocId, !DocumentClass.isFigureDocId(docId),
+              let use = change?.placement(in: docId) else { return nil }
+        return Place(docId: docId, paragraphId: item.paragraphId ?? paragraphOfLine(use),
+                     insideTheFaces: ResolveNavigation.opensInsideTheFaces(docId: docId, scope: scope))
+    }
+
+    /// Go there: the going-to-a-place path every row uses.
+    static func go(to place: Place) {
+        if place.insideTheFaces {
+            ResolveNavigation.goInsideTheFaces(toDocId: place.docId, paragraphId: place.paragraphId)
+        } else {
+            ResolveNavigation.go(toDocId: place.docId, paragraphId: place.paragraphId)
+        }
+    }
+
+    /// **Open**: the travel a figure note's click makes — the tree reveals
+    /// its row, then the window's subject becomes the figure.
+    static func open(_ figureId: String, reveal: (String) -> Void, travel: (BinderSubject) -> Void) {
+        reveal(figureId)
+        travel(.figure(figureId))
     }
 }

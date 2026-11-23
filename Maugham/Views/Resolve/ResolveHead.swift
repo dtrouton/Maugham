@@ -137,8 +137,15 @@ enum ResolveHead {
         var pieces: Set<String> = []
         var bookTodos = 0
         var bookFigures = 0
+        var bookFigureSources = 0
         for item in items {
             let docId = item.docId
+            // A changed figure source is never a to-do (fix round 1, I1): on
+            // its placing piece, else its own line.
+            if case .figureSourceChanged(_, let placing, _) = item {
+                if let placing, held.contains(placing) { pieces.insert(placing) } else { bookFigureSources += 1 }
+                continue
+            }
             if docId == ProjectStore.projectTasksDocId {
                 bookTodos += 1
             } else if let piece = ProjectStore.countsOn(docId, owners: figureOwners) {
@@ -148,7 +155,7 @@ enum ResolveHead {
             }
         }
         return ResolveBookCount(pieces: pieces.count, bookTodos: bookTodos,
-                                bookFigures: bookFigures)
+                                bookFigures: bookFigures, bookFigureSources: bookFigureSources)
     }
 
     /// **The Book's or a Part's lines** — one per kind of thing open, never
@@ -162,6 +169,7 @@ enum ResolveHead {
         }
         if count.bookTodos > 0 { lines.append(bookTodosLine) }
         if count.bookFigures > 0 { lines.append(bookFiguresLine) }
+        if count.bookFigureSources > 0 { lines.append(bookFigureSourcesLine(count.bookFigureSources)) }
         return lines.isEmpty ? [nothingLine] : lines
     }
 
@@ -197,6 +205,12 @@ enum ResolveHead {
     static let nothingLine = "Nothing to resolve"
     static let bookTodosLine = "Book to-dos open"
     static let bookFiguresLine = "Book figures have notes open"
+    /// Figures no piece places whose source data changed (shell p5 Task 3,
+    /// fix round 1): never a to-do, so never `bookTodosLine`.
+    static func bookFigureSourcesLine(_ count: Int) -> String {
+        count == 1 ? "A figure no piece uses has changed source data"
+            : "\(count) figures no piece uses have changed source data"
+    }
 
     /// **The identity the letter block takes**: its piece and its run. The
     /// block holds the letter's refusals and confirmations, so a new piece or
@@ -333,6 +347,8 @@ struct ResolveBookCount: Equatable {
     let bookTodos: Int
     /// Notes on figures no piece owns (a whole-book figure).
     let bookFigures: Int
+    /// Changed sources of figures no piece places (`figureSourceChanged`).
+    var bookFigureSources: Int = 0
 }
 
 // MARK: - The head

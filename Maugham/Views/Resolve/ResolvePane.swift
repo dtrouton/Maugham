@@ -645,9 +645,15 @@ struct ResolvePane: View {
             withdrawConfirm: $withdrawConfirm,
             figureRejectSheet: $figureRejectSheet, figureReplySheet: $figureReplySheet))
         .sheet(item: $comparing) { target in
-            if let actions = figureActions {
+            if let tree = figureTree {
                 ResolveFigureCompareSheet(figureId: target.figureId, store: store,
-                                          documentStore: documentStore, actions: actions,
+                                          documentStore: documentStore,
+                                          actions: { report in figureActions(tree: tree, report: report) },
+                                          // Refresh needs the table here: the row's Open takes it there.
+                                          openTheTable: drawsFigure(target.figureId) ? {
+                                              ResolveFigureSourceVerbs.open(target.figureId, reveal: revealFigure,
+                                                                            travel: onTravel)
+                                          } : nil,
                                           done: { comparing = nil })
             }
         }
@@ -1227,10 +1233,12 @@ struct ResolvePane: View {
 
     // MARK: - A figure's changed source (shell p5 Task 3)
 
-    /// The tree's figure helper, acting for this window (Compare's Refresh).
-    private var figureActions: FigureActions? {
-        guard let figureTree else { return nil }
-        var actions = FigureSectionVerbs(store: store, state: figureTree).shared
+    /// The tree's figure helper, acting for this window (Compare's Refresh),
+    /// reporting to `report` — the Compare sheet's own line (fix round 1, M1).
+    private func figureActions(tree: BinderTreeSectionsState,
+                               report: @escaping (String) -> Void) -> FigureActions {
+        var actions = FigureSectionVerbs(store: store, state: tree)
+            .shared(report: report, windowRefusesWrites: tree.figureWritesRefused)
         actions.window = window
         return actions
     }
@@ -1242,32 +1250,25 @@ struct ResolvePane: View {
             sentence: change?.sentence ?? "A figure\u{2019}s source data changed",
             detail: change?.detail,
             offers: ResolveFigureSourceOffers.of(
-                change: change, figureId: figureId, docId: docId, hasTree: figureActions != nil,
+                change: change, figureId: figureId, docId: docId, hasTree: figureTree != nil,
                 drawsFigure: drawsFigure(figureId), atFigureScope: atFigureScope),
-            goToTheLine: { goToFigureLine(item, change: change) },
+            goToTheLine: {
+                if let place = ResolveFigureSourceVerbs.place(of: item, change: change, scope: scope,
+                                                              paragraphOfLine: paragraphOfLine) {
+                    ResolveFigureSourceVerbs.go(to: place)
+                }
+            },
             compare: { comparing = ResolveFigureCompare(figureId: figureId) },
-            open: {
-                // The travel a figure note's click makes: a subject write.
-                revealFigure(figureId)
-                onTravel(.figure(figureId))
-            })
+            open: { ResolveFigureSourceVerbs.open(figureId, reveal: revealFigure, travel: onTravel) })
     }
 
-    /// The sentence's click: the line placing the figure, in its piece — on
-    /// the paragraph the read placed it at, else the one the line is in now.
-    private func goToFigureLine(_ item: ResolveItem, change: ResolveFigureChange?) {
-        let docId = item.docId
-        var paragraphId = item.paragraphId
-        if paragraphId == nil, let use = change?.placement(in: docId),
-           case .paragraph(let reveal) = FigureUseTravel.destination(for: use, store: store,
+    /// The paragraph a figure's line is in now (`FigureUseTravel.destination`).
+    private func paragraphOfLine(_ use: FigureListing.Use) -> String? {
+        if case .paragraph(let reveal) = FigureUseTravel.destination(for: use, store: store,
                                                                       documentStore: documentStore) {
-            paragraphId = reveal.paragraphId
+            return reveal.paragraphId
         }
-        if ResolveNavigation.opensInsideTheFaces(docId: docId, scope: scope) {
-            ResolveNavigation.goInsideTheFaces(toDocId: docId, paragraphId: paragraphId)
-        } else {
-            ResolveNavigation.go(toDocId: docId, paragraphId: paragraphId)
-        }
+        return nil
     }
 
     // MARK: - Going to a place

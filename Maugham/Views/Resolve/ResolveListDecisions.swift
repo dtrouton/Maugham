@@ -90,7 +90,9 @@ extension ResolvePane {
             projectTasksVersion: store.projectTasksVersion,
             diagnosticsVersion: diagnostics?.version ?? 0,
             passes: store.manifest.effectiveReviewPasses,
-            localName: localName, presence: presence, figureChanges: figureChanges)
+            localName: localName, presence: presence,
+            // A line only where the read places by it (fix round 1, I2).
+            figureChanges: ResolveFigureChange.keyed(figureChanges, for: scope))
     }
 
     /// The whole key the view's `.task(id:)` runs on.

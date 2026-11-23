@@ -417,8 +417,9 @@ final class ResolvePresenceReader {
                 passes: store.manifest.effectiveReviewPasses,
                 // The local name only sorts To resolve's chips; never read here.
                 localName: "",
-                // A card fill moves the read, never the walk.
-                figureChanges: figureChanges),
+                // A card fill moves the read, never the walk; a line moving
+                // in a Book's piece moves neither (`keyed`, fix round 1 I2).
+                figureChanges: ResolveFigureChange.keyed(figureChanges, for: scope)),
             script: ResolvePane.script(for: scope, structure: structure, openDocId: nil, script: script),
             open: open, structure: structure,
             figureOwners: ProjectStore.figureNoteOwners(store.manifest.figures ?? []),
@@ -434,6 +435,8 @@ final class ResolvePresenceReader {
     private(set) var piecesRead = 0
     /// Test seam: walks asked for so far.
     private(set) var walksRequested = 0
+    /// Test seam: gathers over what is held (what "nothing read" counts).
+    private(set) var gathers = 0
 
     // What is held, per piece — replaced, never added to.
     private var notes: [String: [ProjectAnnotation]] = [:]
@@ -704,6 +707,7 @@ final class ResolvePresenceReader {
                         documentStore: DocumentStore, diagnostics: DiagnosticsStore?,
                         figureChanges: [ResolveFigureChange]) -> ResolveSnapshot {
         guard !scope.docIds.isEmpty || scope.includesBookLevel else { return .empty }
+        gathers += 1
         var annotations: [ProjectAnnotation] = []
         var unreadableIds: [String] = []
         var heldTasks: [WriterTask] = []

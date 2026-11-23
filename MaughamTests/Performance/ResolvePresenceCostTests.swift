@@ -135,6 +135,8 @@ final class ResolvePresenceCostTests: XCTestCase {
         try XCTSkipUnless(
             ProcessInfo.processInfo.environment["MAUGHAM_PERF_FIXTURE"] == "1",
             "perf fixture: run with TEST_RUNNER_MAUGHAM_PERF_FIXTURE=1")
+        // A changed figure (shell p5 Task 3, fix round 1), on its own book.
+        try await measureAChangedFigure()
         let book = try await ResolvePresenceTests.book(
             in: temp.url, chapters: Self.chapters, noted: Set(0..<Self.chapters))
 
@@ -241,6 +243,125 @@ final class ResolvePresenceCostTests: XCTestCase {
         XCTAssertEqual(navigationWalks, 0, "the reader walks nothing on navigation")
         XCTAssertEqual(reader.marks, oneShotMarks(store: store, documentStore: documentStore),
                        "the chunked read ends at the one-shot answer")
+    }
+
+    /// **What a changed figure costs a 200-chapter book** (shell p5 Task 3,
+    /// fix round 1, I2): one chapter open, a changed table placed in it.
+    /// Typing above the figure moves its line: the presence read and a Book
+    /// list beside the chapter should do nothing; the chapter's own list
+    /// re-reads its one piece. A card fill (a figure's source changing)
+    /// re-gathers the presence and re-reads the Book over its held walks.
+    /// Each row is the median and the worst of `navigations` runs, main actor.
+    /// Run inside `test_whatThePresenceReadCostsABook`, behind its one gate
+    /// (the skip baseline counts one skipped probe, not two).
+    private func measureAChangedFigure() async throws {
+        let book = try await ResolvePresenceTests.book(
+            in: temp.url, chapters: Self.chapters, noted: Set(0..<Self.chapters))
+        let store = book.store, documentStore = book.documentStore
+        let chapter = book.ids[2]
+        let rel = "manuscript/\(chapter).md"
+        let doc = try await Document.load(url: book.url.appendingPathComponent(rel), actor: .author,
+                                          session: "fig", presenter: nil)
+        documentStore.register(document: doc, for: rel)
+        func change(_ id: String, line: Int, in docId: String) -> ResolveFigureChange {
+            ResolveFigureChange(figureId: id, number: "Table 1", title: "cash", pinsChanged: true,
+                                placements: [FigureListing.Use(docId: docId, lineIndex: line)])
+        }
+        let clock = ContinuousClock()
+        func presenceKey(_ changes: [ResolveFigureChange]) -> ResolvePresenceReader.Key {
+            ResolvePresenceReader.key(store: store, documentStore: documentStore, diagnostics: nil,
+                                      annotationsToken: 0, script: nil, figureChanges: changes)
+        }
+        // The presence read, settled over the whole book first.
+        let reader = ResolvePresenceReader()
+        reader.update(presenceKey([change("fig-00000001", line: 0, in: chapter)]),
+                      store: store, documentStore: documentStore, diagnostics: nil)
+        while let request = reader.pendingRequest {
+            await reader.run(request, store: store, documentStore: documentStore, diagnostics: nil)
+        }
+        let bookScope = ResolveScope.of(.project, readIn: nil, sourceLanguage: "en",
+                                        structure: store.manifest.structure, projectType: .novel)
+        let pieceScope = ResolveScope.piece(docId: chapter, includesBookLevel: false)
+        // One list per scope, each holding its own walks, as each pane does.
+        var bookWalks = ResolveWalkHold(), pieceWalks = ResolveWalkHold()
+        func listKey(_ scope: ResolveScope, _ changes: [ResolveFigureChange]) -> ResolveListKey {
+            ResolvePane.listKey(scope: scope, annotationsToken: 0, store: store, documentStore: documentStore,
+                                diagnostics: nil, localName: "", script: nil, figureChanges: changes)
+        }
+        func refresh(_ scope: ResolveScope, from: [ResolveFigureChange], to: [ResolveFigureChange],
+                     held: inout ResolveSnapshot, walks: inout ResolveWalkHold) -> (ResolveRefreshStep, Double) {
+            let last = listKey(scope, from), next = listKey(scope, to)
+            let step = ResolvePane.refreshStep(next, last: last)
+            var out = held
+            let before = held
+            var hold = walks
+            let elapsed = ms(clock.measure {
+                out = ResolvePane.refreshed(before, step: step, key: next.regroup.read, walks: &hold,
+                                            store: store, documentStore: documentStore, diagnostics: nil)
+            })
+            walks = hold
+            held = out
+            return (step, elapsed)
+        }
+        let projectTasksAtFirst = store.projectTasksVersion
+        var bookHeld = ResolvePane.refreshed(.empty, step: .read, key: listKey(bookScope, []).regroup.read,
+                                             walks: &bookWalks, store: store, documentStore: documentStore,
+                                             diagnostics: nil)
+        var pieceHeld = ResolvePane.refreshed(.empty, step: .read, key: listKey(pieceScope, []).regroup.read,
+                                              walks: &pieceWalks, store: store, documentStore: documentStore,
+                                              diagnostics: nil)
+        // The first read in a store's life also loads the project's own log
+        // (ADR 0036's accepted one-off): its version moves after the first
+        // read, so the next re-walks the tasks once. Settle that first, so
+        // the rows below time the figures alone; the one-off is reported.
+        let projectTasksBefore = store.projectTasksVersion
+        let warm = ms(clock.measure {
+            bookHeld = ResolvePane.refreshed(bookHeld, step: .read, key: listKey(bookScope, []).regroup.read,
+                                             walks: &bookWalks, store: store, documentStore: documentStore,
+                                             diagnostics: nil)
+        })
+        let warmMoved = projectTasksBefore != store.projectTasksVersion
+        let firstMoved = projectTasksAtFirst != projectTasksBefore
+        var rows: [String: [Double]] = [:]
+        var steps: [String: ResolveRefreshStep] = [:]
+        for run in 0..<Self.navigations {
+            let from = [change("fig-00000001", line: run, in: chapter)]
+            let moved = [change("fig-00000001", line: run + 1, in: chapter)]
+            let filled = moved + [change(String(format: "fig-%08x", 0x100 + run), line: 0, in: book.ids[150])]
+            rows["presence, line move", default: []].append(ms(clock.measure {
+                reader.update(presenceKey(moved), store: store, documentStore: documentStore, diagnostics: nil)
+            }))
+            rows["presence, card fill", default: []].append(ms(clock.measure {
+                reader.update(presenceKey(filled), store: store, documentStore: documentStore, diagnostics: nil)
+            }))
+            reader.update(presenceKey(from), store: store, documentStore: documentStore, diagnostics: nil)
+            var (step, elapsed) = refresh(bookScope, from: from, to: moved, held: &bookHeld, walks: &bookWalks)
+            steps["Book list, line move"] = step; rows["Book list, line move", default: []].append(elapsed)
+            (step, elapsed) = refresh(bookScope, from: moved, to: filled, held: &bookHeld, walks: &bookWalks)
+            steps["Book list, card fill"] = step; rows["Book list, card fill", default: []].append(elapsed)
+            (step, elapsed) = refresh(pieceScope, from: from, to: moved, held: &pieceHeld, walks: &pieceWalks)
+            steps["chapter's own list, line move"] = step
+            rows["chapter's own list, line move", default: []].append(elapsed)
+        }
+        documentStore.unregister(path: rel)
+        await doc.close()
+        await documentStore.close()
+        let order = ["presence, line move", "presence, card fill", "Book list, line move",
+                     "Book list, card fill", "chapter's own list, line move"]
+        let table = (["CHANGED FIGURE COST (\(Self.chapters) chapters, one open, each with one open note; no strains)",
+                      String(format: "first Book re-read in the store's life (no figure): %.1f ms", warm)
+                        + " (project tasks version moved during the first read: \(firstMoved); during this one: \(warmMoved))"]
+            + order.map { name in
+                String(format: "%@: median %.2f ms, worst %.2f ms%@ [%@]", name, median(rows[name] ?? [0]),
+                       (rows[name] ?? [0]).max() ?? 0, steps[name].map { " (step \($0))" } ?? "",
+                       (rows[name] ?? []).map { String(format: "%.1f", $0) }.joined(separator: " "))
+            }).joined(separator: "\n")
+        let attachment = XCTAttachment(string: table)
+        attachment.name = "changed-figure-cost.txt"
+        attachment.lifetime = .keepAlways
+        add(attachment)
+        print("\n" + table)
+        XCTAssertEqual(steps["Book list, line move"], .live)
     }
 
     private func oneShotMarks(store: ProjectStore, documentStore: DocumentStore) -> ResolvePresence.Marks {
