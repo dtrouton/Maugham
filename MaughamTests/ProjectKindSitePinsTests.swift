@@ -100,7 +100,7 @@ final class ProjectKindSitePinsTests: XCTestCase {
     func test_sharedResearchRoots_dropPieceScopedRootsInACollectionOnly() {
         for type in everyKind {
             let roots = TreeSectionDerivation.sharedResearchRoots(
-                research: [pieceNote, sharedNote], projectType: type)
+                structure: [piece], research: [pieceNote, sharedNote], projectType: type)
             XCTAssertEqual(roots.map(\.id),
                            holdsPiecesExpected(type) ? ["res-shared"] : ["res-piece", "res-shared"],
                            "\(type)")

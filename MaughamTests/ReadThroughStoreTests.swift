@@ -278,18 +278,40 @@ final class ReadThroughStoreTests: XCTestCase {
         XCTAssertEqual(gate.owners(of: .figure("fig-book")), [])
     }
 
-    /// A novel's research linked to the chapter is the book's, and stays
-    /// editable while the chapter is in read-through.
-    func test_aNovelsLinkedResearchIsShared() {
-        var chapter = doc("ch-1", "manuscript/ch-1.md")
-        chapter.linkedResearchIds = ["linked"]
+    /// **Read-through follows ownership** (shell p5 Task 4a, ruling awaiting
+    /// the owner, ADR 0039 §2): a novel's research a chapter links is that
+    /// chapter's — refused while it is in read-through, naming it; linked to
+    /// two, refused while either is (the union rule), naming the one reading;
+    /// a note in a group the chapter links is the chapter's too. The book's
+    /// research is never frozen.
+    func test_aNovelsLinkedResearchReadsThroughWithItsChapter() {
+        var one = doc("ch-1", "manuscript/ch-1.md")
+        one.linkedResearchIds = ["linked", "both", "group"]
+        var two = doc("ch-2", "manuscript/ch-2.md")
+        two.linkedResearchIds = ["both"]
+        func note(_ id: String) -> ResearchItem {
+            ResearchItem(id: id, title: id, type: .asset, kind: .document, path: "research/\(id).md")
+        }
+        let research = [note("linked"), note("both"), note("book"),
+                        ResearchItem(id: "group", title: "World", type: .group, path: "research/world",
+                                     children: [note("inside")])]
         let gate = ReadThroughGate(
-            pieces: ["ch-1"], structure: [chapter],
-            research: [ResearchItem(id: "linked", title: "Ships", type: .asset,
-                                    kind: .document, path: "research/ships.md")],
-            figures: [], figureLines: [])
+            pieces: ["ch-1"], structure: [one, two], research: research,
+            projectType: .novel, figures: [], figureLines: [])
         XCTAssertTrue(gate.refusesEdits(.piece("ch-1")))
-        XCTAssertFalse(gate.refusesEdits(.research("linked")))
+        XCTAssertTrue(gate.refusesEdits(.research("linked")))
+        XCTAssertEqual(gate.refusal(.research("linked"))?.pieceId, "ch-1")
+        XCTAssertTrue(gate.refusesEdits(.research("both")), "the union rule")
+        XCTAssertEqual(gate.refusal(.research("both"))?.pieceId, "ch-1",
+                       "named by the chapter that is reading")
+        XCTAssertTrue(gate.refusesEdits(.research("inside")), "a linked group's note is the chapter's")
+        XCTAssertFalse(gate.refusesEdits(.research("book")), "the book's research is never frozen")
+
+        let otherReading = ReadThroughGate(
+            pieces: ["ch-2"], structure: [one, two], research: research,
+            projectType: .novel, figures: [], figureLines: [])
+        XCTAssertFalse(otherReading.refusesEdits(.research("linked")), "control: its chapter writes")
+        XCTAssertEqual(otherReading.refusal(.research("both"))?.pieceId, "ch-2")
     }
 
     // MARK: - The offer

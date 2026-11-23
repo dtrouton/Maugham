@@ -18,7 +18,8 @@ import MaughamCore
 /// One row of a piece's fold.
 enum PieceFoldEntry: Identifiable, Equatable {
     /// `owned`: research a Collection piece holds in its own folder; otherwise
-    /// shared research the piece links to. The two are drawn differently.
+    /// research the piece links to. Since either/or (shell p5 Task 4a) the two
+    /// are drawn alike: neither has a second row in the Research section.
     case research(id: String, title: String, owned: Bool)
     /// A scrap, an owned picture, or a research card the canvas holds for the
     /// piece: bound to the piece itself, or one of a region's `cards`.
@@ -426,6 +427,9 @@ struct PieceFoldIndex: Equatable {
             forDocIds: documents.map(\.id), store: store, projectRoot: projectRoot,
             promotedRegionsListTheirCards: true)
         let figures = manifest.figures ?? []
+        // Which research each piece holds — derived once for every piece.
+        let homes = ResearchHomes.derive(structure: manifest.structure,
+                                         research: manifest.research, projectType: manifest.type)
         var out: [String: [PieceFoldEntry]] = [:]
         var grouped = Set<String>()
         for item in documents {
@@ -441,8 +445,7 @@ struct PieceFoldIndex: Equatable {
                 grouped.insert(item.id)
             }
             let fold = TreeSectionDerivation.pieceFold(
-                for: item, structure: manifest.structure,
-                research: manifest.research, projectType: manifest.type)
+                for: item, projectType: manifest.type, homes: homes)
             let rows = entries(docId: item.id,
                                shelf: shelves[item.id] ?? PinnedShelf(sections: []),
                                fold: fold, figures: figures, links: item.links ?? [],
@@ -456,10 +459,10 @@ struct PieceFoldIndex: Equatable {
     /// One piece's fold, from values. Pure.
     ///
     /// - Research: the shelf's research in shelf order (linked, then derived —
-    ///   manifest order), then the research fold's items it has not already
-    ///   named. Research a `.contained` fold holds is listed by the fold, as the
-    ///   tree draws it (a group root is one row, its contents inside it), and
-    ///   is `owned`; everything else is linked.
+    ///   manifest order), then the research fold's roots it has not already
+    ///   named (`ResearchHomes.foldRoots`). A root the piece's folder holds is
+    ///   listed by the fold in folder order and is `owned`; an item inside a
+    ///   root's group is drawn under it and never again.
     /// - Cards: one `.region` per bound region in the shelf's order, holding
     ///   its cards in the shelf's order, then the loose cards.
     /// - Palette: palette cards outside every bound region; one a region holds
@@ -527,17 +530,24 @@ struct PieceFoldIndex: Equatable {
             }
         }
 
-        let owns = fold.semantic == .contained
+        // **Each research item once** (shell p5 Task 4a): one inside a root's
+        // group is drawn under it, never again flat; a root the piece's folder
+        // holds is listed below in the folder's order; a linked root keeps the
+        // shelf's order (the order the piece linked it in).
+        let insideRoots = Set(fold.items.flatMap { root in
+            TreeWalk.collect(in: root.children ?? [], where: { _ in true }).map(\.id)
+        })
+        let ownedRoots = fold.owned
         var researchRows: [PieceFoldEntry] = []
         for ref in shelfResearch {
-            // What a contained fold holds is listed below, as its root.
-            if owns && TreeWalk.contains(id: ref.id, in: fold.items) { continue }
+            if insideRoots.contains(ref.id) || ownedRoots.contains(ref.id) { continue }
             if claimed.insert(ref.id).inserted {
                 researchRows.append(.research(id: ref.id, title: ref.title, owned: false))
             }
         }
         for root in fold.items where claimed.insert(root.id).inserted {
-            researchRows.append(.research(id: root.id, title: root.title, owned: owns))
+            researchRows.append(.research(id: root.id, title: root.title,
+                                          owned: ownedRoots.contains(root.id)))
         }
 
         let owners = ProjectStore.figureNoteOwners(figures)

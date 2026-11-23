@@ -431,7 +431,8 @@ final class ResolveFigureSourceTests: XCTestCase {
                        FigureActions.openTheTableFirst, "control: this Mac may edit it; no grid is open")
 
         let gate = ReadThroughGate(pieces: [novel.chapter.id], structure: novel.store.manifest.structure,
-                                   research: [], figures: novel.store.manifest.figures ?? [],
+                                   research: [], projectType: .novel,
+                                   figures: novel.store.manifest.figures ?? [],
                                    figureLines: [ReadThroughGateFixture.line(figure, in: novel.chapter.id)])
         let reading = try XCTUnwrap(ResolveFigureCompareSheet.refusal(actions: actions(novel.store, gate: gate),
                                                                       figureId: figure))

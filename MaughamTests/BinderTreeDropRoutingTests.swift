@@ -196,6 +196,70 @@ final class BinderTreeDropRoutingTests: XCTestCase {
                         + "deleting, and shared research still holds it")
     }
 
+    /// **A note given a closed chapter lands in sight** (shell p5 Task 4a, G):
+    /// it leaves the Research section, so the chapter's fold opens and its row
+    /// there is the one drawn selected — never a note that seems to vanish.
+    func test_aNoteDroppedOnAClosedChapterOpensItsFold() async throws {
+        let store = try await novel(notes: ["Ships"])
+        let note = try XCTUnwrap(research(named: "Ships", in: store))
+        let chapter = try XCTUnwrap(store.manifest.structure.first)
+        let state = state(for: store)
+        XCTAssertFalse(state.expandedPieceFolds.contains(chapter.id), "premise: closed")
+
+        XCTAssertTrue(verbs(store).routePieceRowDrop(
+            draggedId: note.id, documentId: chapter.id, structureReorder: {}))
+
+        XCTAssertTrue(state.expandedPieceFolds.contains(chapter.id))
+        XCTAssertEqual(state.researchRowFolds[note.id], chapter.id)
+        await settle(store) { !store.linkedResearchIds(forDocumentId: chapter.id).isEmpty }
+        // And back: the section opens for it.
+        state.researchSectionExpanded = false
+        XCTAssertTrue(verbs(store).routeSharedSectionDrop(draggedId: note.id))
+        XCTAssertTrue(state.researchSectionExpanded)
+        XCTAssertNil(state.researchRowFolds[note.id])
+        await settle(store) { store.linkedResearchIds(forDocumentId: chapter.id).isEmpty }
+    }
+
+    /// **Linked to two chapters, dragged out of the second one's fold**: the
+    /// drag recorded its fold as it began (`researchDragSource`), and the drop
+    /// unlinks that chapter alone.
+    func test_aNoteDraggedOutOfOneOfItsTwoFoldsLeavesThatChapterOnly() async throws {
+        let store = try await novel(notes: ["Ships"])
+        let note = try XCTUnwrap(research(named: "Ships", in: store))
+        let one = try XCTUnwrap(store.manifest.structure.first)
+        let two = try await store.addStructureItem(parentId: nil, title: "Two",
+                                                   kind: .document(.markdown))
+        try await store.linkResearch(researchId: note.id, toDocumentId: one.id)
+        try await store.linkResearch(researchId: note.id, toDocumentId: two.id)
+
+        let verbs = verbs(store)
+        verbs.bundle.dragStarted(note.id, two.id)
+        XCTAssertTrue(verbs.routeSharedSectionDrop(draggedId: note.id))
+        await settle(store) { store.linkedResearchIds(forDocumentId: two.id).isEmpty }
+        XCTAssertEqual(store.linkedResearchIds(forDocumentId: one.id), [note.id],
+                       "chapter one keeps it")
+    }
+
+    /// **A link edit asks what linking asks**: with no posture door behind the
+    /// tree, the drop is refused, named, and its hover shows nothing.
+    func test_aLinkThisMacMayNotMakeIsRefusedAndNamed() async throws {
+        let store = try await novel(notes: ["Ships"])
+        let note = try XCTUnwrap(research(named: "Ships", in: store))
+        let chapter = try XCTUnwrap(store.manifest.structure.first)
+        let verbs = verbs(store)
+        XCTAssertTrue(verbs.mayEditResearchLinks(of: chapter.id), "premise: the author may")
+        store.documentStore = nil
+        XCTAssertEqual(verbs.permitted(.link(researchId: note.id, toDocumentId: chapter.id)),
+                       .refuse(.linksNotPermitted))
+        XCTAssertEqual(TreeDropIntent.Reason.linksNotPermitted.explanation,
+                       "this Mac may not change that piece's research links")
+        XCTAssertFalse(verbs.routePieceRowDrop(draggedId: note.id, documentId: chapter.id,
+                                               structureReorder: {}))
+        XCTAssertFalse(verbs.answers(draggedId: note.id, on: .pieceRow(chapter.id)).accepts)
+        XCTAssertEqual(verbs.permitted(.researchReorder), .researchReorder,
+                       "control: a reorder is no link edit")
+    }
+
     func test_aNoteDroppedInsideAChaptersFoldLinksToThatChapter() async throws {
         let store = try await novel(notes: ["Ships", "Tides"])
         let ships = try XCTUnwrap(research(named: "Ships", in: store))

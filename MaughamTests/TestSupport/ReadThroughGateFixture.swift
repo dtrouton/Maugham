@@ -52,6 +52,6 @@ enum ReadThroughGateFixture {
 
     static func gate(pieces: Set<String>, figureLines: [FigureListing.Row] = []) -> ReadThroughGate {
         ReadThroughGate(pieces: pieces, structure: structure, research: research,
-                        figures: figures, figureLines: figureLines)
+                        projectType: .collection, figures: figures, figureLines: figureLines)
     }
 }

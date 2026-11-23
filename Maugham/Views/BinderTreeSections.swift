@@ -24,6 +24,9 @@ enum TreeScrollTarget: Hashable {
     case researchHeader
     case paletteHeader
     case row(BinderSubject)
+    /// A research row inside a piece's fold (shell p5 Task 4a): the row's own
+    /// `.id` is its tag there (`TreeRowTag.inFold`), one per fold.
+    case foldRow(researchId: String, piece: String)
 }
 
 /// **The Research and Palette sections at the foot of every binder tree**
@@ -96,11 +99,15 @@ struct BinderTreeSections: View {
         // header being the one that stays.
         Section {
             if state.researchSectionExpanded {
-                let roots = TreeSectionDerivation.sharedResearchRoots(
-                    research: store.manifest.research,
-                    projectType: store.manifest.type)
+                // **The book's research only** (shell p5 Task 4a, either/or):
+                // a piece's is drawn in its fold, never here too. One
+                // derivation per manifest, cached (tripwire 4).
+                let homes = state.researchHomes(in: store.manifest)
+                let roots = homes.wholeBook
                 if roots.isEmpty {
-                    placeholder("No research yet.", onDrop: { ids in
+                    placeholder(Self.emptyResearchText(
+                        anyUnderAPiece: !homes.pieceOrder.allSatisfy { homes.foldRoots(of: $0).isEmpty }),
+                                onDrop: { ids in
                         sharedSectionDrop(ids)
                     }, onExternalDrop: { providers in
                         sharedSectionExternalDrop(providers)
@@ -117,18 +124,19 @@ struct BinderTreeSections: View {
                             // `List`s select over `Set<String>` and tag bare
                             // ids; the tree's selection is the WINDOW's subject.
                             tagFor: { BinderSubject.research($0.id) },
+                            inFold: nil,
+                            // Drawn once: the book's research has no fold row.
+                            offersRename: { _ in true },
+                            caption: nil,
                             // The section's groups open out of the shared state,
                             // so `reveal` can open the ones between a revealed
                             // item and the root. The piece folds pass nothing
                             // and keep SwiftUI's own — see
                             // `ResearchTreeNode.expandedGroups`.
                             expandedGroups: $state.expandedResearchGroups,
-                            // **The shared section's own rows carry
-                            // `.id(tagFor(item))`** (Task 8) — the one call
-                            // site that does, since a piece fold's linked rows
-                            // are a second drawing of the same tag and
-                            // `reveal` already answers a linked note with THIS
-                            // row, never the fold's copy.
+                            // **The section's rows carry `.id(tagFor(item))`**
+                            // (Task 8), a fold's rows their fold tag: either/or
+                            // draws no row twice under one id.
                             appliesScrollIdentity: true)
                             // Under the section's title, as the Palette's
                             // cards are; on the node, so a group's own
@@ -156,10 +164,7 @@ struct BinderTreeSections: View {
             // rows** (Task 7). The placeholder below is the target when it has
             // none, and a `Section` gets no live drop region of its own — so
             // without this there would be no way to drag a note OUT of a
-            // chapter's fold in a novel at all: a novel's linked note is a
-            // shared item that is already showing in this very section, so the
-            // empty-section placeholder can never be on screen while a fold
-            // has something in it.
+            // chapter's fold onto a section that has whole-book rows.
             // ONE provider `.onDrop` (#109): AppKit offers a drag to the innermost
             // drop modifier only, and a header is no table-dispatched List row.
             // Census: `test_theProviderRouteIsMountedOnTheCanvasAndTheResearchHeaderOnly`.
@@ -478,6 +483,12 @@ struct BinderTreeSections: View {
     /// selected anyway and writes `nil` through the binding — measured on
     /// `BinderView`'s old empty-state row, macOS 26.5 — which would blank the
     /// centre column every time a writer clicked "No research yet."
+    /// The empty Research section's line: none yet, or — every item being
+    /// some piece's (shell p5 Task 4a) — none that is the whole book's.
+    static func emptyResearchText(anyUnderAPiece: Bool) -> String {
+        anyUnderAPiece ? "No whole-book research." : "No research yet."
+    }
+
     private func placeholder(
         _ text: String, onDrop: @escaping ([String]) -> Bool,
         onExternalDrop: @escaping ([NSItemProvider]) -> Bool,
@@ -718,6 +729,9 @@ struct BinderTreeVerbs {
             deleteMany: { ids in
                 perform { try await store.deleteResearchItems(ids: ids) }
             },
+            dragStarted: { [state] id, fold in state.researchDragSource = (id, fold) },
+            homeMenu: { item, fold in homeMenu(for: item, inFold: fold) },
+            performHome: { verb in performHome(verb) },
             // Use in Document / Bring Back to Figures (report plan 8b Task 4):
             // the Figures section's helper, its refusals in this tree's alert.
             figureVerb: { [figures = figures] item in figures.researchVerb(for: item) },
@@ -730,6 +744,50 @@ struct BinderTreeVerbs {
 
     /// The Figures section's verbs, for a Research row's verb toward Figures.
     var figures: FigureSectionVerbs { FigureSectionVerbs(store: store, state: state) }
+
+    // MARK: - Where research belongs (shell p5 Task 4a)
+
+    /// **Whether this Mac may change `pieceId`'s research links** — what
+    /// "Link Research…" asks (`TreeStructureVerbs.linkResearch`, the posture's
+    /// one door). A piece the structure does not hold: no.
+    func mayEditResearchLinks(of pieceId: String) -> Bool {
+        guard let piece = TreeWalk.find(id: pieceId, in: store.manifest.structure) else { return false }
+        return TreeStructureVerbs.decide(for: piece, in: store).linkResearch
+    }
+
+    /// A row's `ResearchHomeMenu`, in the project's own noun for a piece.
+    func homeMenu(for item: ResearchItem, inFold fold: String?) -> ResearchHomeMenu? {
+        ResearchHomeMenu.of(
+            itemId: item.id, inFold: fold, homes: state.researchHomes(in: store.manifest),
+            noun: ResolveGrouping.pieceNoun(isScript: false, projectType: store.manifest.type),
+            mayLink: { mayEditResearchLinks(of: $0) })
+    }
+
+    /// **A menu's link edit**, landed where the row is then drawn
+    /// (`showLanding`): the chapter it went to, or — once no chapter holds it
+    /// — the Research section.
+    func performHome(_ verb: ResearchHomeMenu.Verb) {
+        let homes = state.researchHomes(in: store.manifest)
+        switch verb {
+        case .link(let id, let piece):
+            state.showLanding(of: [id], inFoldOf: piece)
+            perform { try await store.linkResearch(researchId: id, toDocumentId: piece) }
+        case .move(let id, let from, let to):
+            state.showLanding(of: [id], inFoldOf: to)
+            perform {
+                try await store.unlinkResearch(researchId: id, fromDocumentId: from)
+                try await store.linkResearch(researchId: id, toDocumentId: to)
+            }
+        case .unlink(let id, let pieces):
+            let remaining = homes.homes(of: id).filter { !pieces.contains($0) }
+            state.showLanding(of: [id], inFoldOf: remaining.first)
+            perform {
+                for piece in pieces {
+                    try await store.unlinkResearch(researchId: id, fromDocumentId: piece)
+                }
+            }
+        }
+    }
 
     /// **What a verb aimed at `rowId` acts on** — the tree's whole selection
     /// when that row is in it, else the row alone (stage-2b Task 3).
@@ -935,6 +993,49 @@ final class BinderTreeSectionsState {
     var selectedFoldRow: TreeRowTag.FoldRow?
     /// What `selectedFoldRow` pulls up.
     var selectedPullUp: PulledUp? { selectedFoldRow?.pulled }
+    /// **Which fold's row a selected research item is drawn selected in**
+    /// (shell p5 Task 4a): a note two chapters link is a row under each, and
+    /// the one the writer clicked (or a reveal opened) is the one the `List`
+    /// draws selected — research id → that fold's piece. An id absent here is
+    /// drawn in its preferred fold (`ResearchHomes.preferredFold`) or, being the
+    /// book's, in the Research section.
+    var researchRowFolds: [String: String] = [:]
+    /// **The research drag in flight, and the fold it started in** — recorded
+    /// as the drag begins (`ResearchRow`'s payload is built then), read by the
+    /// drop's classifier as `sourcePiece`. Never drawn.
+    @ObservationIgnored var researchDragSource: (id: String, piece: String?)?
+
+    /// The fold a drag of `id` started in, or nil (a Research-section row, or
+    /// a drag this window did not start).
+    func dragSource(of id: String) -> String? {
+        guard let source = researchDragSource, source.id == id else { return nil }
+        return source.piece
+    }
+
+    /// **The window's `ResearchHomes`** for `manifest`, derived once per
+    /// change of its structure, research or kind (`ResearchHomesCache`) — what
+    /// the Research section, the folds' rows, the selection and the menus ask.
+    @ObservationIgnored let researchHomesCache = ResearchHomesCache()
+
+    func researchHomes(in manifest: ProjectManifest) -> ResearchHomes {
+        researchHomesCache.homes(structure: manifest.structure, research: manifest.research,
+                                 projectType: manifest.type)
+    }
+
+    /// **Where a link edit lands, opened** (shell p5 Task 4a): a note a drop
+    /// or a menu gave a chapter shows in that chapter's fold, one made the
+    /// book's in the Research section — never in a closed row, as if gone.
+    /// Its row there is the one a selection draws. Only ever opens.
+    func showLanding(of ids: [String], inFoldOf piece: String?) {
+        if let piece {
+            expandedPieceFolds.insert(piece)
+            expandedFoldGroups.insert(PieceFoldGroupKey(docId: piece, group: .research))
+            for id in ids { researchRowFolds[id] = piece }
+        } else {
+            researchSectionExpanded = true
+            for id in ids { researchRowFolds[id] = nil }
+        }
+    }
     /// **Something the tree's Canvas row was handed waits on the canvas**
     /// (shell p4 Task 10): the row's dot, until the canvas is next opened
     /// (`TreeWindowWiring`), where the card is selected and in view.
@@ -1193,6 +1294,10 @@ final class BinderTreeSectionsState {
     /// settles by `TreeWindowWiring` (`TreeRowSettle`), cleared by the next
     /// landing elsewhere and by a press on a row. Observed: it keys the wait.
     var pendingSettle: PulledUp?
+    /// **A piece the tree landed on, whose fold opens once the landing
+    /// settles** (shell p5 Task 4a, `TreeFoldAutoOpen`): set by the `List`'s
+    /// setter, performed by `TreeWindowWiring`. Observed: it keys the wait.
+    var pendingFoldOpen: TreeFoldAutoOpen.Pending?
     /// Whether the window's right column is showing the pulled-up position —
     /// mirrored by `TreeWindowWiring`, read by a settle and by Return.
     var columnShowsPulledUp = false
@@ -1243,6 +1348,8 @@ final class BinderTreeSectionsState {
         case .researchHeader: proxy.scrollTo(TreeScrollTarget.researchHeader, anchor: .center)
         case .paletteHeader: proxy.scrollTo(TreeScrollTarget.paletteHeader, anchor: .center)
         case .row(let subject): proxy.scrollTo(subject, anchor: .center)
+        case .foldRow(let id, let piece):
+            proxy.scrollTo(TreeRowTag.inFold(.research(id), piece: piece), anchor: .center)
         }
         scrollRequest = nil
     }
@@ -1285,96 +1392,62 @@ final class BinderTreeSectionsState {
 
     /// **Open whatever it takes for `itemId`'s row to be on screen** — the
     /// section or the piece FOLD that holds it, and every group between it and
-    /// that root — and answer with the row the tree can now show.
+    /// that root — and answer with the row the tree can now show, to scroll to.
     ///
-    /// The window's two forced entries call this beside their subject write:
-    /// **Open** on a promoted card and **Show** on Claude's banner both name an
-    /// item the writer is not necessarily looking at, and selecting a row inside
-    /// a closed section highlights nothing. Everything else in the tree is
-    /// already visible when it is clicked, which is why this is a call at two
-    /// sites rather than an observer of the subject (a subject can also arrive
-    /// from a restore, and a restore may not move the writer's tree).
+    /// The window's forced entries call this beside their subject write:
+    /// **Open** on a promoted card, **Show** on Claude's banner, a Find result —
+    /// each names an item the writer is not necessarily looking at, and
+    /// selecting a row inside a closed section or fold highlights nothing.
+    /// Everything else in the tree is already visible when it is clicked, which
+    /// is why this is a call at those sites rather than an observer of the
+    /// subject (a subject can also arrive from a restore, and a restore may not
+    /// move the writer's tree).
     ///
     /// **It only ever opens.** A reveal is an addition to what is visible; a
     /// writer's other open groups are none of its business, and closing one
     /// stays the writer's own click.
     ///
-    /// **The guard is OWNERSHIP, not existence** (stage-3b Task 7, and the
-    /// narrowing is the task). It used to be `TreeWalk.contains` over the whole
-    /// manifest, which every research id passes — including a collection
-    /// piece's, whose row is drawn in that piece's FOLD and nowhere near the
-    /// shared section (`sharedResearchRoots` filters `pieces/…` out). So a Show
-    /// on a note Claude wrote into a piece opened the shared section, which does
-    /// not hold the row, and left the fold that does hold it shut: the writer's
-    /// tree moved and the note still was not there. Ownership is asked of
-    /// `TreeSectionDerivation` — `sharedResearchRoots` and `pieceFold` — because
-    /// those are the derivations the tree DRAWS from, and a second path-prefix
-    /// spelling here is a rule that can come to disagree with what is on screen.
+    /// **Where the row is drawn is `ResearchHomes`' answer, and only its**
+    /// (shell p5 Task 4a, either/or): the book's research in the Research
+    /// section, a piece's in that piece's fold — and a note two chapters link
+    /// in ONE fold, the open piece's when it is one of them, else the first in
+    /// tree order (`preferredFold`), whose row is then the one drawn selected
+    /// (`researchRowFolds`). The Parts above that piece open too, so its row,
+    /// and the fold under it, are on screen.
     ///
-    /// The return is the row the tree can now show, for a caller that wants to
-    /// scroll to it: the item itself where it is a row of its own, and the
-    /// PIECE where the item is inside a fold — a fold's rows are reached
-    /// through the piece's row, which is where the chevron is.
-    ///
-    /// The ancestor walk is `TreeWalk`'s — a group is an ancestor when it
-    /// CONTAINS the item, which is `ResearchSelectionSync.moveTargets`' own
-    /// spelling of the same question. No tree-walking code of its own lives here.
+    /// An id no tree holds names no row: nothing moves. A Show banner for a
+    /// note that has since been deleted must not move a writer's tree.
     @discardableResult
     func reveal(_ itemId: String, structure: [StructureItem],
                 research: [ResearchItem],
-                projectType: ProjectType) -> BinderSubject? {
+                projectType: ProjectType,
+                openPiece: String?) -> TreeScrollTarget? {
         // A card is a research item under the palette group — but the Palette
         // section draws its cards FLAT, so the group is not an ancestor anything
-        // shows. Role-first, through the one lookup `sharedResearchRoots` filters
+        // shows. Role-first, through the one lookup `ResearchHomes` filters
         // with, so the two cannot disagree about what the palette group is.
         if let palette = PaletteLookup.paletteGroup(in: research),
            palette.id == itemId
             || TreeWalk.contains(id: itemId, in: palette.children ?? []) {
             paletteSectionExpanded = true
-            return .research(itemId)
+            return .row(.research(itemId))
         }
-        // The shared section first, and a novel's LINKED note is revealed here:
-        // it is a shared item, drawn in the section it lives in, and the copy of
-        // it in a chapter's fold is a second drawing of the same row. Opening
-        // the chapter instead would take the writer to a chapter for a note that
-        // belongs to the project.
-        if TreeWalk.contains(id: itemId, in: TreeSectionDerivation.sharedResearchRoots(
-            research: research, projectType: projectType)) {
+        let homes = researchHomesCache.homes(structure: structure, research: research,
+                                             projectType: projectType)
+        if homes.isWholeBook(itemId) {
             researchSectionExpanded = true
             openAncestorGroups(of: itemId, in: research)
-            return .research(itemId)
+            return .row(.research(itemId))
         }
-        // Otherwise a piece's own research — the fold under that piece's row.
-        if let ownerId = Self.foldOwner(of: itemId, structure: structure,
-                                        research: research, projectType: projectType) {
-            expandedPieceFolds.insert(ownerId)
+        if let piece = homes.preferredFold(of: itemId, openPiece: openPiece) {
+            openStructureAncestors(of: piece, in: structure)
+            expandedPieceFolds.insert(piece)
             // A fold past six entries draws its research in a collapsed
             // group (shell p3 Task 7): the reveal opens that too.
-            expandedFoldGroups.insert(PieceFoldGroupKey(docId: ownerId, group: .research))
+            expandedFoldGroups.insert(PieceFoldGroupKey(docId: piece, group: .research))
             openAncestorGroups(of: itemId, in: research)
-            return .item(ownerId)
-        }
-        // An id no tree holds names no row: nothing moves. A Show banner for a
-        // note that has since been deleted must not move a writer's tree.
-        return nil
-    }
-
-    /// The document whose fold draws `itemId`, or nil where no fold does.
-    ///
-    /// Asked of `TreeSectionDerivation.pieceFold` per document rather than by
-    /// testing the item's path, because the fold is what the tree draws and the
-    /// routing rule behind it (`ProjectStore.researchRouting`) is the seam's,
-    /// not this file's. The walk is over the structure once, on the two forced
-    /// entries only — never on a body path (tripwire 4).
-    private static func foldOwner(
-        of itemId: String, structure: [StructureItem],
-        research: [ResearchItem], projectType: ProjectType
-    ) -> String? {
-        for document in TreeWalk.collect(in: structure, where: { _ in true }) {
-            let fold = TreeSectionDerivation.pieceFold(
-                for: document, structure: structure,
-                research: research, projectType: projectType)
-            if TreeWalk.contains(id: itemId, in: fold.items) { return document.id }
+            researchRowFolds[itemId] = piece
+            return .foldRow(researchId: itemId, piece: piece)
         }
         return nil
     }
@@ -1748,13 +1821,46 @@ enum BinderTreeSelection {
     /// **What the `List` draws selected, as tags**: the fold row the keys
     /// last landed on (or put away with Return) while the subject is still
     /// the one that key made; otherwise `shown`, every row a subject's tag.
+    ///
+    /// `rowFold`: the fold whose row draws a subject, or nil for a row of its
+    /// own (`rowFold(of:chosen:homes:openPiece:)`, shell p5 Task 4a) — a note
+    /// two chapters link is drawn selected in ONE of its folds.
     static func shownTags(_ stored: Set<BinderSubject>, foldRow: TreeRowTag.FoldRow?,
                           subject: WindowSubject,
-                          clickedAt: WindowSubject?) -> Set<TreeRowTag> {
+                          clickedAt: WindowSubject?,
+                          rowFold: (BinderSubject) -> String?) -> Set<TreeRowTag> {
         if clickedAt == subject, let foldRow {
             return [.pullUp(foldRow)]
         }
-        return Set(shown(stored, subject: subject, clickedAt: clickedAt).map(TreeRowTag.subject))
+        return Set(shown(stored, subject: subject, clickedAt: clickedAt).map { row in
+            rowFold(row).map { TreeRowTag.inFold(row, piece: $0) } ?? .subject(row)
+        })
+    }
+
+    /// **Which fold's row draws `row` selected** (shell p5 Task 4a): the fold
+    /// the writer clicked it in or a reveal opened (`chosen`) while that fold
+    /// still draws it; else, for research no section draws, its preferred
+    /// fold (`ResearchHomes.preferredFold` — the open piece's, else the first);
+    /// nil for every row of its own. A chosen piece that keeps no fold of its
+    /// own (a single-document project's) draws everything, so it stands. Pure.
+    static func rowFold(of row: BinderSubject, chosen: [String: String],
+                        homes: ResearchHomes, openPiece: String?) -> String? {
+        guard let id = row.researchID else { return nil }
+        if let piece = chosen[id], homes.homes(of: id).contains(piece) || !homes.isAHome(piece) {
+            return piece
+        }
+        return homes.preferredFold(of: id, openPiece: openPiece)
+    }
+
+    /// The research rows a write selected inside a fold, by the fold — what
+    /// `researchRowFolds` holds after it.
+    static func rowFolds(of written: Set<TreeRowTag>,
+                         selecting selection: Set<BinderSubject>) -> [String: String] {
+        var out: [String: String] = [:]
+        for case .inFold(let row, let piece) in written where selection.contains(row) {
+            if let id = row.researchID { out[id] = piece }
+        }
+        return out
     }
 
     /// What a write of tags leaves behind: the subjects' selection, the
@@ -1764,6 +1870,8 @@ enum BinderTreeSelection {
         let selection: Set<BinderSubject>
         let foldRow: TreeRowTag.FoldRow?
         let subject: WindowSubject
+        /// The selected research rows' folds (`researchRowFolds`).
+        let rowFolds: [String: String]
         var settle: PulledUp? = nil
     }
 
@@ -1786,6 +1894,7 @@ enum BinderTreeSelection {
         written: Set<TreeRowTag>,
         stored: Set<BinderSubject>,
         storedFoldRow: TreeRowTag.FoldRow?,
+        storedRowFolds: [String: String],
         shown shownNow: Set<TreeRowTag>,
         subject: WindowSubject,
         structure: [StructureItem],
@@ -1800,18 +1909,21 @@ enum BinderTreeSelection {
         let added = written.subtracting(shownNow).compactMap(\.foldRow)
         if let one = (written.count == 1 ? pulls.first : nil) ?? (added.count == 1 ? added.first : nil) {
             let waits = gesture == .keys && !recentPress(one.pulled)
-            return TagWrite(selection: [], foldRow: one, subject: subject,
+            return TagWrite(selection: [], foldRow: one, subject: subject, rowFolds: [:],
                             settle: waits ? one.pulled : nil)
         }
         // A set holding a pull-up row with nothing new: the `List` handing
         // back what it drew. Nothing moves.
         if !pulls.isEmpty, written == shownNow {
-            return TagWrite(selection: stored, foldRow: storedFoldRow, subject: subject)
+            return TagWrite(selection: stored, foldRow: storedFoldRow, subject: subject,
+                            rowFolds: storedRowFolds)
         }
-        // A research row the keys land on: selected, waiting to settle.
-        if gesture == .keys, written.count == 1, case .subject(let row)? = written.first,
+        // A research row the keys land on — in a section or a fold: selected,
+        // waiting to settle.
+        if gesture == .keys, written.count == 1, let row = written.first?.subject,
            let id = row.researchID, accepts(row) {
             return TagWrite(selection: [row], foldRow: nil, subject: subject,
+                            rowFolds: rowFolds(of: written, selecting: [row]),
                             settle: recentPress(.research(id)) ? nil : .research(id))
         }
         let next = resolved(
@@ -1821,8 +1933,11 @@ enum BinderTreeSelection {
             projectType: projectType, accepts: accepts)
         // An untagged (or refused) write moves nothing — the fold row still
         // drawn selected included.
-        let foldRow = next.selection == stored && next.subject == subject ? storedFoldRow : nil
-        return TagWrite(selection: next.selection, foldRow: foldRow, subject: next.subject)
+        let movesNothing = next.selection == stored && next.subject == subject
+        return TagWrite(selection: next.selection,
+                        foldRow: movesNothing ? storedFoldRow : nil, subject: next.subject,
+                        rowFolds: movesNothing ? storedRowFolds
+                            : rowFolds(of: written, selecting: next.selection))
     }
 
     /// The tree's `List(selection:)` binding, for the two hosts whose rows are
@@ -1833,7 +1948,7 @@ enum BinderTreeSelection {
                         state: BinderTreeSectionsState,
                         store: ProjectStore) -> Binding<Set<TreeRowTag>> {
         Binding(
-            get: { drawnTags(state: state, subject: subject.wrappedValue) },
+            get: { drawnTags(state: state, subject: subject.wrappedValue, store: store) },
             set: { written in
                 write(written, state: state, subject: subject, store: store)
             })
@@ -1842,9 +1957,20 @@ enum BinderTreeSelection {
     /// What the tree's `List` draws selected now.
     @MainActor
     static func drawnTags(state: BinderTreeSectionsState,
-                          subject: WindowSubject) -> Set<TreeRowTag> {
+                          subject: WindowSubject, store: ProjectStore) -> Set<TreeRowTag> {
         shownTags(state.selection, foldRow: state.selectedFoldRow, subject: subject,
-                  clickedAt: state.subjectAtLastClick)
+                  clickedAt: state.subjectAtLastClick,
+                  rowFold: rowFold(state: state, subject: subject, store: store))
+    }
+
+    /// The window's `rowFold` — its chosen folds, its homes, its open piece.
+    @MainActor
+    static func rowFold(state: BinderTreeSectionsState, subject: WindowSubject,
+                        store: ProjectStore) -> (BinderSubject) -> String? {
+        let homes = state.researchHomes(in: store.manifest)
+        let chosen = state.researchRowFolds
+        let openPiece = subject.openPieceId
+        return { rowFold(of: $0, chosen: chosen, homes: homes, openPiece: openPiece) }
     }
 
     /// **The binding's setter, whole** — `resolvedTags`, then the record; it
@@ -1857,9 +1983,11 @@ enum BinderTreeSelection {
         let current = subject.wrappedValue
         let now = ProcessInfo.processInfo.systemUptime
         let lastPress = state.lastRowPress
+        let gesture = TreeSelectionGesture.current
         let next = resolvedTags(
             written: written, stored: state.selection, storedFoldRow: state.selectedFoldRow,
-            shown: drawnTags(state: state, subject: current).filter {
+            storedRowFolds: state.researchRowFolds,
+            shown: drawnTags(state: state, subject: current, store: store).filter {
                 $0.subject.map(accepts) ?? true
             },
             subject: current,
@@ -1867,13 +1995,20 @@ enum BinderTreeSelection {
             research: store.manifest.research,
             figures: drawnFigureOrder(state),
             projectType: store.manifest.type,
-            gesture: TreeSelectionGesture.current,
+            gesture: gesture,
             recentPress: { BinderPieceFold.pressedJustNow($0, last: lastPress, now: now) },
             accepts: accepts)
         // An untagged write moves nothing, the record included.
         if next.selection != state.selection || next.subject != current
             || next.foldRow != state.selectedFoldRow {
             state.record(selection: next.selection, subject: next.subject, foldRow: next.foldRow)
+        }
+        if state.researchRowFolds != next.rowFolds { state.researchRowFolds = next.rowFolds }
+        // A landing on another piece opens its fold once it settles, outside
+        // this setter (`TreeFoldAutoOpen`, opened by `TreeWindowWiring`).
+        if let landing = TreeFoldAutoOpen.landing(from: current, to: next.subject,
+                                                  gesture: gesture, at: now) {
+            state.pendingFoldOpen = landing
         }
         if state.pendingSettle != next.settle { state.pendingSettle = next.settle }
         subject.wrappedValue = next.subject
@@ -1998,7 +2133,7 @@ struct TreeRowKeysModifier: ViewModifier {
                   let key = TreeRowKeys.key(press.key, modifiers: press.modifiers,
                                             typeSelecting: typeSelecting),
                   let act = TreeRowKeys.act(key, drawn: BinderTreeSelection.drawnTags(
-                    state: state, subject: subject))
+                    state: state, subject: subject, store: store))
             else { return .ignored }
             switch act {
             case .click(let pulled, let foldRow):
@@ -2016,7 +2151,7 @@ struct TreeRowKeysModifier: ViewModifier {
             case .openInCentre(.pullUp(let foldRow)):
                 BinderPieceFold.openInCentre(foldRow.pulled, subject: $subject, store: store,
                                              windowCanvas: windowCanvas)
-            case .openInCentre(.subject(let row)):
+            case .openInCentre(.subject(let row)), .openInCentre(.inFold(let row, _)):
                 subject = TreeTravel.openInCentre(row, current: subject,
                                                   structure: store.manifest.structure,
                                                   projectType: store.manifest.type)
@@ -2072,6 +2207,49 @@ enum TreeRowSettle {
     }
 }
 
+/// **Selecting a piece opens its fold** (shell p5 Task 4a, the owner's
+/// ruling): its research, cards and figures come into sight — when the fold
+/// holds anything. Once per landing: a landing is a write that makes a piece
+/// open which was not, so a fold the writer closes stays closed while the
+/// piece stays selected, and one they opened is never closed (this only
+/// opens). **The arrows' settle rule** (`TreeRowSettle`): a pointer's
+/// landing opens at once; a key's only once no other landing followed within
+/// the settle delay, so holding ↓ through the chapters never pops a fold open
+/// under the writer's hands. Pure, the time injected (tripwire 33).
+enum TreeFoldAutoOpen {
+    struct Pending: Equatable {
+        let piece: String
+        /// A key's landing waits to settle; a pointer's does not.
+        let settles: Bool
+        /// System uptime at the landing.
+        let landedAt: TimeInterval
+    }
+
+    /// The settle delay, in seconds (`TreeRowSettle.delay`).
+    static var settleSeconds: TimeInterval {
+        let parts = TreeRowSettle.delay.components
+        return TimeInterval(parts.seconds) + TimeInterval(parts.attoseconds) / 1e18
+    }
+
+    /// The landing a write from `current` to `next` is, or nil where it opens
+    /// no piece it was not already on.
+    static func landing(from current: WindowSubject, to next: WindowSubject,
+                        gesture: TreeSelectionGesture, at now: TimeInterval) -> Pending? {
+        guard case .item(let piece) = next.open, next.open != current.open else { return nil }
+        return Pending(piece: piece, settles: gesture == .keys, landedAt: now)
+    }
+
+    /// Whether `pending` opens its fold at `now`: the piece is still the one
+    /// open, its fold holds something and is closed, and the landing has
+    /// settled.
+    static func opens(_ pending: Pending, now: TimeInterval, subject: WindowSubject,
+                      foldHoldsAnything: Bool, foldIsOpen: Bool) -> Bool {
+        guard case .item(let piece) = subject.open, piece == pending.piece,
+              foldHoldsAnything, !foldIsOpen else { return false }
+        return !pending.settles || now - pending.landedAt >= settleSeconds
+    }
+}
+
 /// **A row's tag in the tree's `List`** (shell p4 Task 10, plan call 5).
 /// Every row that is a subject of the window carries `.subject`; a fold's
 /// card, region, palette pin and figure — which are pulled up beside, never
@@ -2086,6 +2264,11 @@ enum TreeRowSettle {
 enum TreeRowTag: Hashable {
     case subject(BinderSubject)
     case pullUp(FoldRow)
+    /// **A research row inside a piece's fold** (shell p5 Task 4a): the
+    /// subject it is, and the piece whose fold lists it. A note two chapters
+    /// link is a row under each, and one shared tag had the `List` select
+    /// both; each fold's row is its own.
+    case inFold(BinderSubject, piece: String)
 
     /// A fold row: what it pulls up, and the piece whose fold lists it.
     struct FoldRow: Hashable {
@@ -2093,8 +2276,17 @@ enum TreeRowTag: Hashable {
         let piece: String
     }
 
+    /// The subject a row is — a section's row or a fold's research row.
     var subject: BinderSubject? {
-        if case .subject(let row) = self { return row }
+        switch self {
+        case .subject(let row), .inFold(let row, _): return row
+        case .pullUp: return nil
+        }
+    }
+
+    /// The piece whose fold draws a research row; nil for any other row.
+    var foldPiece: String? {
+        if case .inFold(_, let piece) = self { return piece }
         return nil
     }
 
@@ -2105,6 +2297,15 @@ enum TreeRowTag: Hashable {
 
     /// What the row pulls up, whichever fold lists it.
     var pullUp: PulledUp? { foldRow?.pulled }
+}
+
+extension WindowSubject {
+    /// The piece open in the centre, if a piece is — a research row two
+    /// chapters link is revealed and drawn in this one's fold first.
+    var openPieceId: String? {
+        if case .item(let id) = open { return id }
+        return nil
+    }
 }
 
 extension Binding where Value == WindowSubject {

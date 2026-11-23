@@ -137,6 +137,11 @@ extension BinderTreeVerbs {
         case .refuse(let reason):
             return refuseDrop(site(of: target), payload: nil, reason: reason)
         case .importFiles(let destination):
+            // A file a chapter takes lands in its fold: open it, so it never
+            // seems to vanish (shell p5 Task 4a).
+            if case .sharedAndLink(let documentId) = destination {
+                state.expandedPieceFolds.insert(documentId)
+            }
             perform {
                 let urls = await DropClassification.fileURLs(from: providers)
                 guard !urls.isEmpty else { return }
@@ -329,6 +334,7 @@ extension BinderTreeVerbs {
         case (.rescope(_, let a), .rescope(_, let b)): return a == b
         case (.link(_, let a), .link(_, let b)): return a == b
         case (.unlink(_, let a), .unlink(_, let b)): return a == b
+        case (.moveLink(_, let a, let c), .moveLink(_, let b, let d)): return a == b && c == d
         case (.researchReorder, .researchReorder): return true
         // Everything else disagrees — including a row whose own answer is a
         // refusal or `.alreadyThere`, which is the case this filter exists for.
@@ -341,12 +347,29 @@ extension BinderTreeVerbs {
     private func classify(
         _ payloadId: String, on target: TreeDropIntent.Target
     ) -> TreeDropIntent.Intent {
-        TreeDropIntent.classify(
+        permitted(TreeDropIntent.classify(
             payloadId: payloadId, target: target,
+            sourcePiece: state.dragSource(of: payloadId),
             structure: store.manifest.structure,
             research: store.manifest.research,
             figures: store.manifest.figures ?? [],
-            projectType: store.manifest.type)
+            projectType: store.manifest.type))
+    }
+
+    /// **A link edit asks what linking asks** (shell p5 Task 4a): the piece's
+    /// structure door (`TreeStructureVerbs.linkResearch`, the posture's one
+    /// door — what "Link Research…" asks). Refused, it names why, and its hover
+    /// shows nothing.
+    func permitted(_ intent: TreeDropIntent.Intent) -> TreeDropIntent.Intent {
+        switch intent {
+        case .link(_, let piece), .unlink(_, let piece):
+            return mayEditResearchLinks(of: piece) ? intent : .refuse(.linksNotPermitted)
+        case .moveLink(_, let from, let to):
+            return mayEditResearchLinks(of: from) && mayEditResearchLinks(of: to)
+                ? intent : .refuse(.linksNotPermitted)
+        default:
+            return intent
+        }
     }
 
     /// Performs `intent` for every row the drag carries (stage-2b Task 3). The
@@ -367,6 +390,7 @@ extension BinderTreeVerbs {
             return true
         case .link(let researchId, let documentId):
             let batch = batch.isEmpty ? [researchId] : batch
+            state.showLanding(of: batch, inFoldOf: documentId)
             perform {
                 for id in batch {
                     try await store.linkResearch(
@@ -376,10 +400,21 @@ extension BinderTreeVerbs {
             return true
         case .unlink(let researchId, let documentId):
             let batch = batch.isEmpty ? [researchId] : batch
+            state.showLanding(of: batch, inFoldOf: nil)
             perform {
                 for id in batch {
                     try await store.unlinkResearch(
                         researchId: id, fromDocumentId: documentId)
+                }
+            }
+            return true
+        case .moveLink(let researchId, let from, let to):
+            let batch = batch.isEmpty ? [researchId] : batch
+            state.showLanding(of: batch, inFoldOf: to)
+            perform {
+                for id in batch {
+                    try await store.unlinkResearch(researchId: id, fromDocumentId: from)
+                    try await store.linkResearch(researchId: id, toDocumentId: to)
                 }
             }
             return true

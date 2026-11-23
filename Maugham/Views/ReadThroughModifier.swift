@@ -193,6 +193,7 @@ struct ReadThroughModifier: ViewModifier {
         let pieces: Set<String>
         let structure: [StructureItem]
         let research: [ResearchItem]
+        let projectType: ProjectType
         let figures: [FigureRecord]
         let figureRows: [FigureListing.Row]
     }
@@ -202,17 +203,20 @@ struct ReadThroughModifier: ViewModifier {
     static func gate(_ inputs: GateInputs) -> ReadThroughGate {
         guard !inputs.pieces.isEmpty else { return .writing }
         return ReadThroughGate(pieces: inputs.pieces, structure: inputs.structure,
-                               research: inputs.research, figures: inputs.figures,
+                               research: inputs.research, projectType: inputs.projectType,
+                               figures: inputs.figures,
                                figureLines: inputs.figureRows)
     }
 
     private var gateInputs: GateInputs {
         // The book is read only while some piece is in read-through.
         guard !facts.pieces.isEmpty, let manifest = store?.manifest else {
-            return GateInputs(pieces: facts.pieces, structure: [], research: [], figures: [], figureRows: [])
+            return GateInputs(pieces: facts.pieces, structure: [], research: [], projectType: .novel,
+                              figures: [], figureRows: [])
         }
         return GateInputs(pieces: facts.pieces, structure: manifest.structure,
-                          research: manifest.research, figures: manifest.figures ?? [],
+                          research: manifest.research, projectType: manifest.type,
+                          figures: manifest.figures ?? [],
                           figureRows: figureRows)
     }
 

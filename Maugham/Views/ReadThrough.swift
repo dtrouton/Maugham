@@ -85,11 +85,13 @@ enum ReadThroughTarget: Equatable {
 /// **Whether a target refuses edits because its piece is in read-through** —
 /// the value every non-editor surface asks, built once per change by the
 /// window (`ReadThroughModifier.gate`) and handed to the session's figure
-/// windows (`FigureWindows.setReadThrough`). A piece owns itself; a research
-/// item belongs to the Collection piece whose folder holds it (nested items
-/// through their root, `ProjectStore.researchRootPath`). Shared research and
-/// a book-wide figure no line places belong to no piece and are refused by
-/// nothing.
+/// windows (`FigureWindows.setReadThrough`). A piece owns itself; **a research
+/// item belongs to every piece whose fold draws it** (`ResearchHomes`): the
+/// Collection piece whose folder holds it, and — since shell p5 Task 4a,
+/// ruling awaiting the owner (ADR 0039 §2) — every chapter that links it, or
+/// links the group it is in. Refused while ANY of them is in read-through
+/// (the union rule figures use). The book's research and a book-wide figure
+/// no line places belong to no piece and are refused by nothing.
 ///
 /// **A figure's pieces — the one rule, asked everywhere** (the centre's grid,
 /// a figure window, an editor's grid in place, the inspector, the tree's row,
@@ -100,7 +102,7 @@ enum ReadThroughTarget: Equatable {
 /// read-through — never editable in one surface and read-only in the next.
 struct ReadThroughGate: Equatable {
     let pieces: Set<String>
-    private let researchOwners: [String: String]
+    private let researchOwners: [String: Set<String>]
     private let figureOwners: [String: Set<String>]
     /// Each loose piece's research folder prefix → its id: the research rule
     /// (`owner(ofResearchPath:)`), asked of a root path here and of a file's
@@ -113,13 +115,13 @@ struct ReadThroughGate: Equatable {
 
     /// The empty gate: refuses nothing.
     static let writing = ReadThroughGate(
-        pieces: [], structure: [], research: [], figures: [], figureLines: [])
+        pieces: [], structure: [], research: [], projectType: .novel, figures: [], figureLines: [])
 
     /// Builds the owner maps only when some piece is in read-through — the
     /// common case asks nothing of the structure. `figureLines` is the
     /// window's figure listing (`FigureListingModel.rows`).
     init(pieces: Set<String>, structure: [StructureItem], research: [ResearchItem],
-         figures: [FigureRecord], figureLines: [FigureListing.Row]) {
+         projectType: ProjectType, figures: [FigureRecord], figureLines: [FigureListing.Row]) {
         self.pieces = pieces
         guard !pieces.isEmpty else {
             researchOwners = [:]
@@ -143,19 +145,15 @@ struct ReadThroughGate: Equatable {
         walk(structure)
         order = order_
         titles = titles_
-        researchFolders = structure.compactMap { piece in
-            ProjectStore.pieceResearchPrefix(for: piece).map { ($0, piece.id) }
-        }
-        var research_: [String: String] = [:]
-        for root in research {
-            // A whole subtree lives under its top-level item's folder, so one
-            // root path answers for every descendant.
-            guard let owner = Self.owner(ofResearchPath: root.path, in: researchFolders) else { continue }
-            func mark(_ item: ResearchItem) {
-                research_[item.id] = owner
-                for child in item.children ?? [] { mark(child) }
-            }
-            mark(root)
+        researchFolders = ProjectStore.researchFolders(in: structure)
+        // Whose each item is — the tree's own answer (`ResearchHomes`), one
+        // walk: its folder's piece and every piece linking it or its group.
+        let homes = ResearchHomes.derive(structure: structure, research: research,
+                                         projectType: projectType)
+        var research_: [String: Set<String>] = [:]
+        for item in TreeWalk.collect(in: research, where: { _ in true }) {
+            let owners = homes.homes(of: item.id)
+            if !owners.isEmpty { research_[item.id] = Set(owners) }
         }
         researchOwners = research_
         var figures_: [String: Set<String>] = [:]
@@ -168,7 +166,7 @@ struct ReadThroughGate: Equatable {
         figureOwners = figures_
     }
 
-    private init(pieces: Set<String>, researchOwners: [String: String],
+    private init(pieces: Set<String>, researchOwners: [String: Set<String>],
                  figureOwners: [String: Set<String>],
                  researchFolders: [(prefix: String, pieceId: String)],
                  order: [String], titles: [String: String]) {
@@ -191,7 +189,7 @@ struct ReadThroughGate: Equatable {
         var research = researchOwners
         for other in others {
             for (id, owners) in other.figureOwners { figures[id, default: []].formUnion(owners) }
-            for (id, owner) in other.researchOwners where research[id] == nil { research[id] = owner }
+            for (id, owners) in other.researchOwners { research[id, default: []].formUnion(owners) }
         }
         return ReadThroughGate(pieces: pieces, researchOwners: research, figureOwners: figures,
                                researchFolders: researchFolders, order: order, titles: titles)
@@ -217,7 +215,7 @@ struct ReadThroughGate: Equatable {
     func owners(of target: ReadThroughTarget) -> Set<String> {
         switch target {
         case .piece(let id): return [id]
-        case .research(let id): return researchOwners[id].map { [$0] } ?? []
+        case .research(let id): return researchOwners[id] ?? []
         case .figure(let id): return figureOwners[id] ?? []
         }
     }

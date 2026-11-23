@@ -50,7 +50,7 @@ final class FindMatchScrollTests: XCTestCase {
         state.researchSectionExpanded = false
 
         let target = ProjectWindow.findMatchScrollTarget(
-            for: .research(note.id), store: store, treeState: state)
+            for: .research(note.id), store: store, treeState: state, openPiece: nil)
 
         XCTAssertEqual(target, .row(.research(note.id)))
         XCTAssertTrue(state.researchSectionExpanded,
@@ -68,7 +68,7 @@ final class FindMatchScrollTests: XCTestCase {
         let state = BinderTreeSectionsState()
 
         let target = ProjectWindow.findMatchScrollTarget(
-            for: .item(chapter.id), store: store, treeState: state)
+            for: .item(chapter.id), store: store, treeState: state, openPiece: nil)
 
         XCTAssertEqual(target, .row(.item(chapter.id)))
         XCTAssertTrue(state.expandedResearchGroups.isEmpty,
@@ -85,7 +85,7 @@ final class FindMatchScrollTests: XCTestCase {
         let state = BinderTreeSectionsState()
 
         let target = ProjectWindow.findMatchScrollTarget(
-            for: .research("no-such-item"), store: store, treeState: state)
+            for: .research("no-such-item"), store: store, treeState: state, openPiece: nil)
 
         XCTAssertNil(target, "an id no tree holds names no row to scroll to")
     }
@@ -300,7 +300,7 @@ private struct FindMatchScrollProbeView: View {
             else { return }
             box.subject = subject
             box.treeState.scrollRequest = ProjectWindow.findMatchScrollTarget(
-                for: subject, store: store, treeState: box.treeState)
+                for: subject, store: store, treeState: box.treeState, openPiece: nil)
         }
     }
 }

@@ -13,12 +13,14 @@ import AppKit
 /// (`BinderView`, `CollectionPiecesPane`) for the reason `BinderTreeSections`
 /// is one: a copy drifts.
 ///
-/// **Linked and owned research look different.** A Collection piece's fold
-/// holds research in the piece's own folder (owned): drawn as the Research
-/// section draws it, renamable, its groups expanding. A novel chapter's fold
-/// holds LINKS to shared research: a quieter title, a trailing link glyph and
-/// "Linked from Research" (`ResearchRow.linkedFromResearch`), flat and never
-/// renamed here — its twin in the Research section is where it lives.
+/// **Research is the book's or a piece's, never both** (shell p5 Task 4a,
+/// `ResearchHomes`). A fold holds what the piece's folder files (a
+/// Collection's) and what the piece links (a novel's), drawn alike — as the
+/// Research section draws research, its groups opening — since neither has a
+/// twin in the section any more. A root whose group lives elsewhere names
+/// that group beside its title (`ResearchHomes.place`); a note two chapters
+/// link is a row in each fold, its tag naming the fold (`TreeRowTag.inFold`),
+/// and renames only where it is drawn once.
 ///
 /// **How each row acts** (`act(of:)`, the click rule): research is a `List`
 /// tag, as anywhere in the tree; a card, a region, a palette pin or a figure
@@ -57,6 +59,7 @@ struct BinderPieceFold: View {
         // the piece's own title for its link rows' help.
         let fold = FoldContext(mayEditLinks: mayEditLinks,
                                items: Self.researchItems(for: layout, in: store.manifest.research),
+                               homes: state.researchHomes(in: store.manifest),
                                pieceTitle: TreeWalk.find(id: documentId, in: store.manifest.structure)?.title
                                    ?? "")
         switch layout {
@@ -84,6 +87,8 @@ struct BinderPieceFold: View {
     private struct FoldContext {
         let mayEditLinks: Bool
         let items: [String: ResearchItem]
+        /// The window's homes: each row's place, and whether it is drawn twice.
+        let homes: ResearchHomes
         let pieceTitle: String
     }
 
@@ -113,7 +118,7 @@ struct BinderPieceFold: View {
     private func row(_ entry: PieceFoldEntry, actions: ResearchTreeActions,
                      fold: FoldContext) -> some View {
         switch entry {
-        case .research(let id, _, let owned):
+        case .research(let id, _, _):
             if let item = fold.items[id] {
                 ResearchTreeNode(
                     item: item,
@@ -121,25 +126,24 @@ struct BinderPieceFold: View {
                     findParentId: { findParentId(of: $0) },
                     actions: actions,
                     // A folded row is a subject of the window exactly like a
-                    // row in the Research section below — same case, same id.
-                    //
-                    // **In a novel that is the SAME tag twice in one `List`**,
-                    // on this row and on its twin in the shared Research
-                    // section, and that is intended: both rows are the one
-                    // subject. What the duplicate must NOT duplicate is a
-                    // control — see `offersRename`.
+                    // row in the Research section — same case, same id — and
+                    // its tag names this fold (`TreeRowTag.inFold`), so the
+                    // same note under two chapters is two rows.
                     tagFor: { BinderSubject.research($0.id) },
-                    // A linked group's children are not linked to the piece by
-                    // anything, so a linked fold renders flat.
-                    expandsGroups: owned,
-                    // A linked row is drawn a second time in the shared
-                    // section, and one `renamingItemId` matching two rows
-                    // mounts two rename fields (finding I2).
-                    offersRename: owned,
+                    inFold: documentId,
+                    // One `renamingItemId` matching two rows mounts two rename
+                    // fields (finding I2): a note two chapters hold renames in
+                    // the first of them, in tree order, and nowhere else. (A
+                    // single-document project's fold lists the book's research,
+                    // whose row in the Research section renames it.)
+                    offersRename: { [homes = fold.homes, documentId] in
+                        homes.homes(of: $0).first == documentId
+                    },
+                    caption: fold.homes.place(of: id),
                     // **The fold's own groups share the tree's set of open
                     // ids** (stage-3b Task 7), so a reveal can open them.
                     expandedGroups: $state.expandedResearchGroups,
-                    linkedFromResearch: !owned)
+                    appliesScrollIdentity: true)
             }
         case .card(let ref):
             cardRow(entry, ref: ref)
@@ -487,9 +491,12 @@ struct BinderPieceFold: View {
                              subject: WindowSubject,
                              state: BinderTreeSectionsState) -> Bool {
         guard isPulledUp(entry, subject: subject) else { return false }
+        // A pull-up row's tag is never a research subject's, so where a
+        // research row is drawn (`rowFold`) changes nothing asked here.
         return !BinderTreeSelection.shownTags(
             state.selection, foldRow: state.selectedFoldRow, subject: subject,
-            clickedAt: state.subjectAtLastClick).contains(tag(of: entry, inFoldOf: piece))
+            clickedAt: state.subjectAtLastClick, rowFold: { _ in nil })
+            .contains(tag(of: entry, inFoldOf: piece))
     }
 
     /// What VoiceOver calls a pull-up row: its kind, then its name.
@@ -656,18 +663,39 @@ struct BinderPieceFold: View {
     var actions: ResearchTreeActions {
         let base = verbs.bundle
         var actions = base
+        // **A group this piece does not hold is the same hole** (shell p5
+        // Task 4a): a fold's root may sit in a whole-book group (its place is
+        // named beside it), and New Note beside it there would file the note
+        // in that group — the Research section's, not this fold's. It is made
+        // there and linked to this chapter, as its neighbour is; in a
+        // Collection, in the piece's own folder.
+        let homes = state.researchHomes(in: store.manifest)
         actions.newNote = { [verbs, documentId, store] parentId in
-            guard parentId == nil else { return base.newNote(parentId) }
-            verbs.create {
-                try await store.createResearchNote(scope: .document(documentId))
+            switch Self.creation(under: parentId, inFoldOf: documentId, homes: homes) {
+            case .asAsked: base.newNote(parentId)
+            case .piecesScope:
+                verbs.create { try await store.createResearchNote(scope: .document(documentId)) }
+            case .inGroupLinked(let group):
+                verbs.create {
+                    let note = try await store.addResearchTextNote(parentId: group, title: "Untitled Note")
+                    try await store.linkResearch(researchId: note.id, toDocumentId: documentId)
+                    return note
+                }
             }
         }
         // New Table, for New Note's reason (D8b-2) — offered where the bundle offers it.
         actions.newTable = base.newTable.map { baseNewTable in
             { [verbs, documentId, store] parentId in
-                guard parentId == nil else { return baseNewTable(parentId) }
-                return verbs.create {
-                    try await store.createResearchTable(scope: .document(documentId))
+                switch Self.creation(under: parentId, inFoldOf: documentId, homes: homes) {
+                case .asAsked: return baseNewTable(parentId)
+                case .piecesScope:
+                    return verbs.create { try await store.createResearchTable(scope: .document(documentId)) }
+                case .inGroupLinked(let group):
+                    return verbs.create {
+                        let table = try await store.addResearchTable(parentId: group)
+                        try await store.linkResearch(researchId: table.id, toDocumentId: documentId)
+                        return table
+                    }
                 }
             }
         }
@@ -703,6 +731,30 @@ struct BinderPieceFold: View {
 
     private var verbs: BinderTreeVerbs {
         BinderTreeVerbs(store: store, state: state, subject: $subject)
+    }
+
+    /// Where a fold's New Note or New Table goes, so it lands in this fold.
+    enum Creation: Equatable {
+        /// Into the group asked for: this piece holds it.
+        case asAsked
+        /// The piece's own research (`ResearchScope.document`).
+        case piecesScope
+        /// Into a group this chapter does not hold, then linked to it.
+        case inGroupLinked(String)
+    }
+
+    /// **Where a creation from this fold lands** (shell p5 Task 4a, G): at the
+    /// fold's top, the piece's own; inside a group this piece holds, there;
+    /// inside a group that is not its (a linked note's whole-book group), in
+    /// that group and linked to the chapter — or, a Collection piece taking no
+    /// links, its own folder. Pure.
+    static func creation(under parentId: String?, inFoldOf piece: String,
+                         homes: ResearchHomes) -> Creation {
+        guard let parentId else { return .piecesScope }
+        // A single-document project's piece keeps no fold of its own: its
+        // fold lists the book's research, so every group is its.
+        if homes.homes(of: parentId).contains(piece) || !homes.isAHome(piece) { return .asAsked }
+        return homes.takesLinks(piece) ? .inGroupLinked(parentId) : .piecesScope
     }
 
     private func findParentId(of childId: String) -> String? {

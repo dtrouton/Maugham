@@ -54,14 +54,27 @@ extension ProjectStore {
     nonisolated static func researchScopePieceId(
         ofPath path: String?, structure: [StructureItem]
     ) -> String? {
-        guard let path, path.hasPrefix("pieces/") else { return nil }
-        for piece in structure where piece.pieceKind == .loose {
-            if let prefix = pieceResearchPrefix(for: piece),
-               path.hasPrefix(prefix) {
-                return piece.id
-            }
+        researchScopePieceId(ofPath: path, in: researchFolders(in: structure))
+    }
+
+    /// Each loose piece's research folder prefix and its id, worked out once
+    /// so a caller asking of many paths (`ResearchHomes`, `ReadThroughGate`)
+    /// walks the structure once.
+    nonisolated static func researchFolders(
+        in structure: [StructureItem]
+    ) -> [(prefix: String, pieceId: String)] {
+        structure.compactMap { piece in
+            guard piece.pieceKind == .loose else { return nil }
+            return pieceResearchPrefix(for: piece).map { ($0, piece.id) }
         }
-        return nil
+    }
+
+    /// `researchScopePieceId(ofPath:structure:)` over folders already worked out.
+    nonisolated static func researchScopePieceId(
+        ofPath path: String?, in folders: [(prefix: String, pieceId: String)]
+    ) -> String? {
+        guard let path, path.hasPrefix("pieces/") else { return nil }
+        return folders.first { path.hasPrefix($0.prefix) }?.pieceId
     }
 
     /// Drop ids that are descendants of another selected group — the group's

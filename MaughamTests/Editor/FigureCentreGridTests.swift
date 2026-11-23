@@ -564,7 +564,7 @@ final class FigureCentreGridTests: FigureGridMountedTestCase {
         let piece = try XCTUnwrap(m.store.manifest.figures?.first { $0.id == m.figure?.id }?.piece,
                                   "premise: the figure is its chapter's")
         let reading = ReadThroughGate(pieces: [piece], structure: m.store.manifest.structure, research: [],
-                                      figures: m.store.manifest.figures ?? [], figureLines: [])
+                                      projectType: m.store.manifest.type, figures: m.store.manifest.figures ?? [], figureLines: [])
         let review = try centre(m, windows: windows, readThrough: reading)
         let r = try await mounted(review)
         XCTAssertEqual(r.mode.readOnlyReason?.isReadThrough, true)

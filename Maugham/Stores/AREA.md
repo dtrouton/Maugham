@@ -43,26 +43,26 @@ Every file in `Maugham/Stores/` appears once.
 - `ProjectStore+Statements.swift` — statements: lookup, `createStatement`, `withStatementDocument`, `mutateStatementText`, `appendToStatement`, `statementText(of:)`, the open registry and gate. Tripwires 20, 52.
 - `ProjectStore+StatementAssets.swift` — a statement's asset well (`addImage(toStatement:scope:…)`).
 - `ProjectStore+StatementAdoption.swift` — one-time adoption of legacy craft-intent notes (`adoptLegacyCraftIntentIfNeeded`).
-- `ProjectStore+ProductionRoles.swift` — the cast: translator, reader, collator per language, and the designer.
+- `ProjectStore+ProductionRoles.swift` — the cast: translator, reader, collator per language; designer.
 - `ProjectStore+ManifestAdoption.swift` — `adoptExternalManifest`, `beginStructuralVerb()`/`endStructuralVerb()`.
 - `ProjectStore+RemovedElsewhere.swift` — `refreshRemovedElsewhere()`, `restoreRemovedElsewhere(id:)`.
-- `ResearchScope.swift` — where a new research item lands (typed seam, ADR 0010) and `pieceResearchPrefix`.
+- `ResearchScope.swift` — where a new research item lands (typed seam, ADR 0010) and `pieceResearchPrefix`; `ResearchHomes.swift`, an item as the book's or a piece's.
 
 ### Small stores and helpers
 - `DebounceScheduler.swift` — cancel-and-restart task helper; the 750 ms autosave window.
 - `RecentsStore.swift` — recently opened project folders (UserDefaults).
 - `SessionLog.swift` — the session event log type (.maugham/sessions.json).
-- `SessionTracker.swift` — the active writing session in memory (`shiftBaseline(by:)`, idle threshold).
+- `SessionTracker.swift` — the active writing session (`shiftBaseline(by:)`, idle threshold).
 - `UIState.swift` — per-project UI state (.maugham/ui-state.json), `AuthorReaderChoice`.
 - `ReadThroughStore.swift` — the pieces in read-through on this Mac. Tripwires 17, 24.
 - `TrashStore.swift` — `<project>/.trash/` entries, `TrashSubject`, `sweep()`, `permanentlyDelete`.
 - `LetGoRecord.swift` — per-device ids of pieces let go from Trash. Tripwires 17, 24.
 - `SentCopyStore.swift` — a Word export's sent copies; `drafts(book:)` derives the drafts from the folder's listing alone. Tripwires 17, 24.
-- `RemovedElsewhere.swift` — the derivation of pieces that left the structure without going to Trash.
+- `RemovedElsewhere.swift` — pieces that left the structure without going to Trash.
 - `RenamePlan.swift` — a validated batch of path renames for `relocate(plan:)`.
-- `DesignProposalStore.swift` — staged design proposals under `.maugham/design/`.
+- `DesignProposalStore.swift` — staged design proposals (`.maugham/design/`).
 - `StatementProposalStore.swift` — staged brief and visual-language proposals.
-- `TranslationRoundStore.swift` — translation rounds: the ring, and each piece's latest.
+- `TranslationRoundStore.swift` — translation rounds: the ring, each piece's latest.
 - `ProjectFactory.swift` — new projects on disk (Novel/Screenplay/Short Story seeds, and a Report in either prose shape, writing only `profile`; a profile on any other kind throws `profileNotOffered` before anything is written). Tripwire 52 (starter).
 - `SampleProjectBuilder.swift` — materializes a bundled sample project.
 - `ProjectSearchEngine.swift` — the walk behind project search.

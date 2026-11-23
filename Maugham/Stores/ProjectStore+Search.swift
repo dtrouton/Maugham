@@ -550,7 +550,8 @@ extension ProjectStore {
         let pieces = readThroughPieceIds()
         guard !pieces.isEmpty else { return .writing }
         return ReadThroughGate(pieces: pieces, structure: manifest.structure,
-                               research: manifest.research, figures: manifest.figures ?? [],
+                               research: manifest.research, projectType: manifest.type,
+                               figures: manifest.figures ?? [],
                                figureLines: [])
     }
 

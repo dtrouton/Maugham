@@ -41,6 +41,14 @@ struct ResearchTreeActions {
     var moveTargets: (_ forIds: [String]) -> [ResearchMoveMenuTarget]
     var move: (_ ids: [String], _ target: ResearchMoveTarget) -> Void
     var deleteMany: (_ ids: [String]) -> Void
+    /// **A drag of a row began** (shell p5 Task 4a): the row's id and the
+    /// fold it is drawn in (nil: the Research section) — what lets a drop
+    /// unlink a note from the one chapter it was dragged out of.
+    var dragStarted: (_ id: String, _ fold: String?) -> Void
+    /// The row's link verbs (`ResearchHomeMenu`), or nil where it offers none.
+    var homeMenu: (_ item: ResearchItem, _ fold: String?) -> ResearchHomeMenu?
+    /// Performs one of them.
+    var performHome: (_ verb: ResearchHomeMenu.Verb) -> Void
     /// **The row's verb toward Figures** (report plan 8b Task 4) — *Use in
     /// Document*, or *Bring Back to Figures* for a parked figure's working
     /// copy — nil where none is offered (`FigureActions.researchVerb`).
@@ -60,85 +68,56 @@ struct ResearchTreeNode: View {
     @Binding var renamingItemId: String?
     let findParentId: (String) -> String?
     let actions: ResearchTreeActions
-    /// The value each row tags itself with, for the enclosing `List`'s
-    /// selection. `ResearchView`/`CollectionResearchPane` tag bare `item.id`
-    /// (their `List` selects over `Set<String>`, unchanged); the binder tree
-    /// (Task 4) tags `.research(item.id)` — a `BinderSubject` — instead.
-    /// Its scroll identity is this subject; its `List` tag is the same
-    /// subject as a `TreeRowTag` (shell p4 Task 10).
+    /// The subject each row is, for the enclosing `List`'s selection: the
+    /// binder tree tags `.research(item.id)`. Its `List` tag is this subject as
+    /// a `TreeRowTag` — `.subject` in the Research section, `.inFold` in a
+    /// piece's fold (`inFold`).
     let tagFor: (ResearchItem) -> BinderSubject
-    /// Whether a group row carries its own disclosure triangle. True
-    /// everywhere the node renders a *tree* — both research panes, and the
-    /// binder tree's Research section and its `.contained` piece folds, where a
-    /// group's children belong to the same piece its group does.
-    ///
-    /// **False for a novel chapter's `.linked` fold** (stage-2a Task 6). That
-    /// fold's rows are the chapter's `linkedResearchIds`, resolved — and a
-    /// group's children are not links, they are the group's. Expanding one
-    /// under the chapter would show the writer items as that chapter's research
-    /// on the strength of a link nothing recorded. Flat, the fold says exactly
-    /// what the manifest says.
-    var expandsGroups: Bool = true
-    /// Whether this row can go into inline rename.
-    ///
-    /// **False for a novel chapter's `.linked` fold** (final-review finding I2),
-    /// and it is not a policy about linked notes — it is about there being TWO
-    /// rows. A linked note is a SHARED research item, so in a novel it is drawn
-    /// once in the tree's Research section and again in every fold that links
-    /// it, in one `List`, off one `renamingItemId`. Both rows matched the id and
-    /// both mounted a `TextField`, each running `claimFocus()`'s 30ms deferral
-    /// against the other — tripwire 16's exact race, with a second field in the
-    /// same list eating the writer's typing.
-    ///
-    /// **The fix is a read-only fold, not a filtered section.** Hiding linked
-    /// notes from the shared section would misplace notes nested inside groups
-    /// (they are not roots) and would take them out of the section where they
-    /// actually live. So the fold — which is a VIEW of the chapter's links —
-    /// stops offering the verb, and the shared row keeps it. Selection, opening
-    /// and dragging out to unlink are untouched.
-    ///
-    /// A `.contained` fold keeps rename: those items live in the piece's own
-    /// folder and are drawn exactly once.
-    var offersRename: Bool = true
+    /// **The piece whose fold draws this row, or nil for the Research
+    /// section** (shell p5 Task 4a). A note two chapters link is a row under
+    /// each, and each row's tag names its fold (`TreeRowTag.inFold`), so the
+    /// `List` selects one and not both; a drag records it as its source.
+    let inFold: String?
+    /// **Whether a row can go into inline rename** — asked per item, because
+    /// it is about there being TWO rows: a note two chapters link is drawn in
+    /// both folds, in one `List`, off one `renamingItemId`, and two matching
+    /// rows would mount two `TextField`s, each running `claimFocus()`'s 30ms
+    /// deferral against the other — tripwire 16's exact race (final-review
+    /// finding I2). A row that is its item's only row renames.
+    let offersRename: (String) -> Bool
+    /// **Where this row sits in the research tree, said beside its title** —
+    /// a fold's root row whose group is elsewhere (`ResearchHomes.place`): a
+    /// linked note inside a whole-book group is drawn flat under the chapter,
+    /// and this names the group it lives in. The root's own; its children are
+    /// drawn inside it and say nothing.
+    let caption: String?
     /// **Where a group row's open/closed flag lives** — the ids that are OPEN,
     /// held by whoever mounts the tree (stage-3a Task 4).
     ///
-    /// `nil` keeps SwiftUI's own private flag, and it is what the research
-    /// PANES pass — surfaces nothing reveals into. The binder tree's Research
-    /// section passes `BinderTreeSectionsState.expandedResearchGroups`, because
-    /// `reveal` has to be able to open the groups between a revealed item and
-    /// the root — **and since stage-3b Task 7 so does every per-piece fold**:
-    /// this comment used to say a fold passes `nil` because nothing outside it
-    /// opens one of its groups, which stopped being true the moment `reveal`
-    /// learned that a collection piece's note lives in that piece's fold and can
-    /// be nested in a group inside it.
+    /// `nil` keeps SwiftUI's own private flag. The binder tree's Research
+    /// section and every per-piece fold pass
+    /// `BinderTreeSectionsState.expandedResearchGroups`, because `reveal` has
+    /// to be able to open the groups between a revealed item and the root.
     var expandedGroups: Binding<Set<String>>? = nil
-    /// **Whether this row carries `.id(tagFor(item))`, for a scroll-to-row
-    /// request** (stage-3b Task 8) — `false` (the default) everywhere except
-    /// the shared Research section's own call.
-    ///
-    /// **Not the fold's.** A novel chapter's LINKED fold draws the SAME tag a
-    /// second time in one `List` — the row and its twin in the shared section
-    /// — and `ScrollViewProxy.scrollTo` over two identical ids is ambiguous;
-    /// `BinderTreeSectionsState.reveal` already resolves the question by
-    /// returning the SHARED row for a linked note, never the fold's copy of it,
-    /// so the shared section's `.id` is the only one that should exist. A
-    /// Collection's CONTAINED fold never duplicates a row at all, but it needs
-    /// no `.id` either way: `reveal` answers a piece-scoped note with the
-    /// PIECE's own row (a closed fold has no note row yet at reveal time), so
-    /// nothing ever asks to scroll to a fold row by its own tag.
-    ///
-    /// Propagated to every descendant in `childNodes` — a nested item three
-    /// groups down is exactly as reachable as a root one.
+    /// **Whether this row carries a scroll identity** (stage-3b Task 8):
+    /// `.id(tagFor(item))` in the Research section, `.id` of its fold tag in a
+    /// fold (`TreeScrollTarget.foldRow`) — one per row since either/or (shell
+    /// p5 Task 4a), when no row is ever drawn twice under one id. Propagated
+    /// to every descendant in `childNodes` — a nested item three groups down
+    /// is exactly as reachable as a root one.
     var appliesScrollIdentity: Bool = false
-    /// The row is a piece's LINK to shared research, drawn as one
-    /// (`ResearchRow.linkedFromResearch`, shell p3 Task 7). A root's answer;
-    /// a linked fold renders flat, so it has no children to propagate to.
-    var linkedFromResearch: Bool = false
+
+    /// The row's `List` tag (`inFold`).
+    private var rowTag: TreeRowTag {
+        let row = tagFor(item)
+        return inFold.map { .inFold(row, piece: $0) } ?? .subject(row)
+    }
 
     @ViewBuilder
     var body: some View {
-        if appliesScrollIdentity {
+        if appliesScrollIdentity, inFold != nil {
+            coreBody.id(rowTag)
+        } else if appliesScrollIdentity {
             coreBody.id(tagFor(item))
         } else {
             coreBody
@@ -147,7 +126,7 @@ struct ResearchTreeNode: View {
 
     @ViewBuilder
     private var coreBody: some View {
-        if item.type == .group, expandsGroups {
+        if item.type == .group {
             // Two spellings of one row, because the two initialisers are
             // genuinely different views: a `.constant` binding would make a
             // fold's groups permanently closed, and there is no binding that
@@ -190,15 +169,15 @@ struct ResearchTreeNode: View {
                 findParentId: findParentId,
                 actions: actions,
                 tagFor: tagFor,
+                inFold: inFold,
                 offersRename: offersRename,
+                caption: nil,
                 // A nested group is reached by opening its parent, so the whole
                 // subtree reads the same set — a reveal names every ancestor and
                 // one of them may be three levels down.
                 expandedGroups: expandedGroups,
-                // Propagated, not re-decided: a nested item in the shared
-                // section is exactly as scroll-reachable as a root one, and a
-                // nested item in a fold carries the same "no id" answer its
-                // root does.
+                // Propagated, not re-decided: a nested item is exactly as
+                // scroll-reachable as a root one.
                 appliesScrollIdentity: appliesScrollIdentity))
         }
     }
@@ -209,7 +188,7 @@ struct ResearchTreeNode: View {
     /// other path that sets this id: `pendingRenameId`, committed for every
     /// newly created note (`BinderTreeVerbs.create`).
     private var renameBinding: Binding<String?> {
-        offersRename ? $renamingItemId : .constant(nil)
+        offersRename(item.id) ? $renamingItemId : .constant(nil)
     }
 
     private var row: some View {
@@ -224,8 +203,9 @@ struct ResearchTreeNode: View {
                 actions.externalDrop(providers, position, item)
             },  // both pass the bundle's accept/refuse straight back to the row
             dropAnswers: { actions.dropAnswers(item) },
-            linkedFromResearch: linkedFromResearch)
-            .tag(TreeRowTag.subject(tagFor(item)))
+            caption: caption,
+            onDragStart: { [actions, item, inFold] in actions.dragStarted(item.id, inFold) })
+            .tag(rowTag)
             .contextMenu {
                 Button("New Note") {
                     actions.newNote(item.type == .group ? item.id : findParentId(item.id))
@@ -242,6 +222,11 @@ struct ResearchTreeNode: View {
                     Divider()
                 }
                 let acting = actions.selectionForRow(item.id)
+                // Where it belongs, in words (shell p5 Task 4a): one row's.
+                if acting.count == 1, let home = actions.homeMenu(item, inFold) {
+                    homeMenuItems(home)
+                    Divider()
+                }
                 let targets = actions.moveTargets(acting)
                 if !targets.isEmpty {
                     Menu("Move to") {
@@ -264,15 +249,38 @@ struct ResearchTreeNode: View {
                         Divider()
                     }
                     Button("Duplicate") { actions.duplicate(item.id) }
-                    // Absent on a `.linked` fold row: renaming there opens a
-                    // second field over the row's shared-section twin. The
-                    // writer renames it where it lives — see `offersRename`.
-                    if offersRename {
+                    // Absent on a row drawn twice (two chapters' folds):
+                    // renaming there opens a second field — see `offersRename`.
+                    if offersRename(item.id) {
                         Button("Rename") { renamingItemId = item.id }
                     }
                     Button("Delete", role: .destructive) { actions.delete(item.id) }
                 }
             }
+    }
+}
+
+extension ResearchTreeNode {
+    /// `ResearchHomeMenu`'s items: Move to ▸, Remove from, Make Whole-Book,
+    /// and the line naming the other chapters.
+    @ViewBuilder
+    fileprivate func homeMenuItems(_ home: ResearchHomeMenu) -> some View {
+        if !home.moveTargets.isEmpty {
+            Menu(home.moveTitle) {
+                ForEach(home.moveTargets) { target in
+                    Button(target.title) { actions.performHome(target.verb) }
+                }
+            }
+        }
+        if let remove = home.removeFromThis {
+            Button(remove.title) { actions.performHome(remove.verb) }
+        }
+        if let whole = home.makeWholeBook {
+            Button(whole.title) { actions.performHome(whole.verb) }
+        }
+        if let alsoIn = home.alsoIn {
+            Text(alsoIn)
+        }
     }
 }
 

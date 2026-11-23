@@ -266,7 +266,9 @@ final class PieceFoldIndexTests: XCTestCase {
             forDocId: item.id, links: item.linkedResearchIds, derived: [],
             scene: scene, scraps: scraps, items: CanvasItemIndex.over(research: research))
         let fold = TreeSectionDerivation.pieceFold(
-            for: item, structure: structure, research: research, projectType: .novel)
+            for: item, projectType: .novel,
+            homes: ResearchHomes.derive(structure: structure, research: research,
+                                        projectType: .novel))
         return PieceFoldIndex.entries(docId: item.id, shelf: shelf, fold: fold, figures: [],
                                       links: [], structure: structure, research: research)
     }

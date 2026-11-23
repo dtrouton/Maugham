@@ -1248,7 +1248,8 @@ struct ProjectWindow: View {
                         navigate(target)
                     }
                     treeState.scrollRequest = ProjectWindow.findMatchScrollTarget(
-                        for: target, store: store, treeState: treeState)
+                        for: target, store: store, treeState: treeState,
+                        openPiece: subject.openPieceId)
                 }
                 .onProjectEvent(.maughamMCPNoteAdded, url: url, window: window) { note in
                     guard let info = note.userInfo,
@@ -1915,14 +1916,14 @@ struct ProjectWindow: View {
     /// `reveal` only opens research furniture — so it scrolls to its own tag.
     static func findMatchScrollTarget(
         for subject: BinderSubject, store: ProjectStore,
-        treeState: BinderTreeSectionsState
+        treeState: BinderTreeSectionsState, openPiece: String?
     ) -> TreeScrollTarget? {
         switch subject {
         case .research(let id):
             return treeState.reveal(id, structure: store.manifest.structure,
                                     research: store.manifest.research,
-                                    projectType: store.manifest.type)
-                .map(TreeScrollTarget.row)
+                                    projectType: store.manifest.type,
+                                    openPiece: openPiece)
         case .item, .project, .inbox, .canvas, .palette, .edition:
             return .row(subject)
         case .figure:
@@ -2383,10 +2384,11 @@ struct ProjectWindow: View {
         if let store,
            let revealed = treeState.reveal(itemId, structure: store.manifest.structure,
                                             research: store.manifest.research,
-                                            projectType: store.manifest.type) {
+                                            projectType: store.manifest.type,
+                                            openPiece: subject.openPieceId) {
             // Arrival is visible, not just true: opening the section/fold makes the
             // row EXIST; scrolling to what `reveal` returned puts it on screen.
-            treeState.scrollRequest = .row(revealed)
+            treeState.scrollRequest = revealed
         }
         Self.revealPulledUp(subject: subject,
                             showInspector: &showInspector,
@@ -3083,9 +3085,10 @@ struct ProjectWindow: View {
         if let store,
            let revealed = treeState.reveal(id, structure: store.manifest.structure,
                                             research: store.manifest.research,
-                                            projectType: store.manifest.type) {
+                                            projectType: store.manifest.type,
+                                            openPiece: subject.openPieceId) {
             // And it scrolls onto screen, `openResearchItem`'s twin write.
-            treeState.scrollRequest = .row(revealed)
+            treeState.scrollRequest = revealed
         }
         Self.revealPulledUp(subject: subject,
                             showInspector: &showInspector,

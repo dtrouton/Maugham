@@ -94,11 +94,15 @@ enum TreeDropIntent {
         /// needs a `linkedResearchIds` reorder the store does not have; that
         /// API is stage 2b's, and until it exists a bounce is what is honest.
         case linkedFoldHasNoOrder
-        /// A novel note linked to more than one chapter, dragged to the shared
-        /// section. The payload is a bare id and says nothing about which fold
-        /// it came from, so unlinking one (or all) would delete a link the
-        /// writer never pointed at.
+        /// A note linked to more than one chapter, dragged to the Research
+        /// section from somewhere that is not one of their folds (another
+        /// window, a stale drag): the payload is a bare id, and with no fold
+        /// recorded as the drag's source (`sourcePiece`), unlinking one (or
+        /// all) would delete a link the writer never pointed at.
         case ambiguousSource
+        /// A link the posture does not let this Mac change: the chapter's
+        /// research links are its structure (`TreeStructureVerbs.linkResearch`).
+        case linksNotPermitted
         /// Dropped on Figures, but nothing a figure can be made from: a note,
         /// a link, a group, a manuscript row — or a book that holds none.
         case notAFigureKind
@@ -117,6 +121,7 @@ enum TreeDropIntent {
             case .notAResearchTarget: return "not a research scope target"
             case .alreadyThere: return "already there — the drop changes nothing"
             case .ambiguousSource: return "linked to more than one document"
+            case .linksNotPermitted: return "this Mac may not change that piece's research links"
             case .linkedFoldHasNoOrder:
                 return "a linked chapter's research has no order of its own to set"
             case .notAFigureKind: return "only a table, picture or PDF from Research becomes a figure"
@@ -135,6 +140,10 @@ enum TreeDropIntent {
         case rescope(ids: [String], to: ResearchMoveTarget)
         case link(researchId: String, toDocumentId: String)
         case unlink(researchId: String, fromDocumentId: String)
+        /// A note dragged out of one chapter's fold onto another chapter: the
+        /// first link goes, the second comes — a move, as the drag reads
+        /// (shell p5 Task 4a).
+        case moveLink(researchId: String, fromDocumentId: String, toDocumentId: String)
         /// Same scope: the ordinary research reorder every research surface has
         /// always had. The performer computes the insertion index; this case
         /// carries none, because the index needs the drop's vertical position
@@ -156,9 +165,15 @@ enum TreeDropIntent {
 
     /// `figures` is the registry (`manifest.figures`): a payload found there
     /// is a figure row's drag (report plan 8b Task 5).
+    ///
+    /// `sourcePiece`: the piece whose fold the drag started in (the window
+    /// records it as the drag begins, `BinderTreeSectionsState.researchDragSource`),
+    /// nil for a Research-section row or a drag from anywhere else. It is what
+    /// lets a note linked to two chapters leave the one it was dragged from.
     static func classify(
         payloadId: String,
         target: Target,
+        sourcePiece: String?,
         structure: [StructureItem],
         research: [ResearchItem],
         figures: [FigureRecord],
@@ -172,8 +187,10 @@ enum TreeDropIntent {
                 return .useInDocument(researchId: dragged.id)
             }
             return classifyResearch(
-                dragged: dragged, target: target, structure: structure,
-                research: research, projectType: projectType)
+                dragged: dragged, target: target, sourcePiece: sourcePiece,
+                structure: structure, research: research, projectType: projectType,
+                homes: ResearchHomes.derive(structure: structure, research: research,
+                                            projectType: projectType))
         }
         if figures.contains(where: { $0.id == payloadId }) {
             return classifyFigure(payloadId, target: target, structure: structure,
@@ -285,15 +302,17 @@ enum TreeDropIntent {
     private static func classifyResearch(
         dragged: ResearchItem,
         target: Target,
+        sourcePiece: String?,
         structure: [StructureItem],
         research: [ResearchItem],
-        projectType: ProjectType
+        projectType: ProjectType,
+        homes: ResearchHomes
     ) -> Intent {
         switch target {
         case .pieceRow(let documentId):
-            return into(documentId: documentId, dragged: dragged,
+            return into(documentId: documentId, dragged: dragged, sourcePiece: sourcePiece,
                         structure: structure, research: research,
-                        projectType: projectType,
+                        projectType: projectType, homes: homes,
                         whenAlreadyLinked: .refuse(.alreadyThere),
                         whenAlreadyContained: .refuse(.alreadyThere))
 
@@ -308,9 +327,9 @@ enum TreeDropIntent {
             // ordinary reorder sets it. A LINKED fold (a novel chapter) draws
             // `linkedResearchIds`, whose order nothing here can change — see
             // `Reason.linkedFoldHasNoOrder`.
-            return into(documentId: documentId, dragged: dragged,
+            return into(documentId: documentId, dragged: dragged, sourcePiece: sourcePiece,
                         structure: structure, research: research,
-                        projectType: projectType,
+                        projectType: projectType, homes: homes,
                         whenAlreadyLinked: .refuse(.linkedFoldHasNoOrder),
                         whenAlreadyContained: .researchReorder)
 
@@ -318,6 +337,14 @@ enum TreeDropIntent {
             guard targetId != dragged.id else { return .refuse(.sameRow) }
             guard TreeWalk.find(id: targetId, in: research) != nil else {
                 return .refuse(.unknownId)
+            }
+            // **A Research-section row is the book's** (shell p5 Task 4a):
+            // a note a chapter links, dropped on any of the section's rows,
+            // leaves the chapter it was dragged from, as a drop on the header
+            // does. It lands where it lives in the research tree.
+            if homes.owner(of: dragged.id) == nil,
+               let unlinking = leaving(dragged, sourcePiece: sourcePiece, homes: homes) {
+                return unlinking
             }
             let from = owningPieceId(of: dragged.id, structure: structure,
                                      research: research)
@@ -348,8 +375,8 @@ enum TreeDropIntent {
                                           research: research))
 
         case .sharedSection:
-            return outOfScope(dragged: dragged, structure: structure,
-                              research: research, projectType: projectType)
+            return outOfScope(dragged: dragged, sourcePiece: sourcePiece, structure: structure,
+                              research: research, homes: homes)
 
         case .figuresSection, .figureRow:
             // `classify` answers Figures before it asks here.
@@ -373,9 +400,11 @@ enum TreeDropIntent {
     private static func into(
         documentId: String,
         dragged: ResearchItem,
+        sourcePiece: String?,
         structure: [StructureItem],
         research: [ResearchItem],
         projectType: ProjectType,
+        homes: ResearchHomes,
         whenAlreadyLinked: Intent,
         whenAlreadyContained: Intent
     ) -> Intent {
@@ -390,11 +419,18 @@ enum TreeDropIntent {
         case .sharedOnly:
             return .refuse(.sharedOnly)
         case .sharedPlusLink(let docId):
-            guard !(document.linkedResearchIds ?? []).contains(dragged.id) else {
+            // Already this chapter's — linked, or inside a group it links.
+            guard !homes.homes(of: dragged.id).contains(docId) else {
                 return whenAlreadyLinked
             }
             // The note does not move: a novel chapter's research is a LINK, so
-            // the item stays exactly where it lives in shared research.
+            // the item stays exactly where it lives in shared research. Dragged
+            // out of another chapter's fold, it leaves that chapter.
+            if let sourcePiece, sourcePiece != docId,
+               homes.links(of: dragged.id).contains(sourcePiece) {
+                return .moveLink(researchId: dragged.id, fromDocumentId: sourcePiece,
+                                 toDocumentId: docId)
+            }
             return .link(researchId: dragged.id, toDocumentId: docId)
         case .pieceFolder(let pieceId):
             guard owningPieceId(of: dragged.id, structure: structure,
@@ -409,32 +445,23 @@ enum TreeDropIntent {
     /// A research item dropped on the shared Research section — the reverse of
     /// `into`, and the one place a link is REMOVED by a drag.
     ///
-    /// **Links are answered first.** In a novel every research item lives in
-    /// shared research whether or not a chapter links it, so "is it linked" is
-    /// the only question the drop can be about; a linked note dragged out of a
-    /// fold is asking to leave that chapter, and answering "move it to the
-    /// shared root" instead would leave it sitting in the fold it was dragged
-    /// out of.
+    /// **A piece's own folder is answered first** (a Collection's research is
+    /// its file's place): the drop lifts the file out to shared research, and
+    /// a link any piece holds stays as it was (the dormant-link semantics).
+    /// **Then links** (shell p5 Task 4a): a note a piece links is that piece's,
+    /// drawn only in its fold, so the drop is asking to leave it
+    /// (`leaving`). Anything else is already the book's, and the drop lifts it
+    /// out of the group it is in — or, at the root, changes nothing.
     private static func outOfScope(
         dragged: ResearchItem,
+        sourcePiece: String?,
         structure: [StructureItem],
         research: [ResearchItem],
-        projectType: ProjectType
+        homes: ResearchHomes
     ) -> Intent {
-        // Only documents whose routing actually USES links count — a stray
-        // `linkedResearchIds` on a Collection piece (legacy data; the
-        // Collection's own scope is its folder) must not turn a scope move
-        // into an unlink.
-        let linking = TreeWalk.collect(in: structure) {
-            ($0.linkedResearchIds ?? []).contains(dragged.id)
-        }.filter {
-            if case .sharedPlusLink = try? ProjectStore.researchRouting(
-                for: $0, projectType: projectType) { return true }
-            return false
-        }
-        if linking.count > 1 { return .refuse(.ambiguousSource) }
-        if let only = linking.first {
-            return .unlink(researchId: dragged.id, fromDocumentId: only.id)
+        if homes.owner(of: dragged.id) == nil,
+           let unlinking = leaving(dragged, sourcePiece: sourcePiece, homes: homes) {
+            return unlinking
         }
         // Unlinked: the section IS the shared root, so the drop lifts the item
         // out of a piece's folder or out of whatever group it was in.
@@ -443,6 +470,21 @@ enum TreeDropIntent {
             && research.contains { $0.id == dragged.id }
         guard !isSharedRoot else { return .refuse(.alreadyThere) }
         return .rescope(ids: [dragged.id], to: .sharedRoot)
+    }
+
+    /// **A linked note leaving a piece for the book**: unlinked from the
+    /// fold it was dragged out of; from its one piece when the drag says
+    /// nothing; refused when it is linked to several and the drag does not
+    /// say which (`Reason.ambiguousSource`). Nil for a note no piece links.
+    private static func leaving(_ dragged: ResearchItem, sourcePiece: String?,
+                                homes: ResearchHomes) -> Intent? {
+        let links = homes.links(of: dragged.id)
+        guard !links.isEmpty else { return nil }
+        if let sourcePiece, links.contains(sourcePiece) {
+            return .unlink(researchId: dragged.id, fromDocumentId: sourcePiece)
+        }
+        guard links.count == 1 else { return .refuse(.ambiguousSource) }
+        return .unlink(researchId: dragged.id, fromDocumentId: links[0])
     }
 
     // MARK: - Where things live
@@ -646,7 +688,11 @@ enum TreeDropFeedback: Equatable {
         switch intent {
         case .refuse:
             return .none
-        case .link, .unlink, .useInDocument:
+        case .link, .moveLink, .useInDocument:
+            return .into
+        case .unlink:
+            // Into the section; beside a section row, where it lands in place.
+            if case .researchRow = target { return .beside }
             return .into
         case .researchReorder, .structureReorder:
             return .beside

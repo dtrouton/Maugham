@@ -498,14 +498,15 @@ final class ResearchRevealProbe {
     /// census that pins it (`WiringCensusTests`' entries for
     /// `openResearchItem` and `handleShowLatestMCPNote`).
     @discardableResult
-    func show(_ itemId: String, in store: ProjectStore) -> BinderSubject? {
+    func show(_ itemId: String, in store: ProjectStore) -> TreeScrollTarget? {
         subject = ClickRule.navigate(to: .research(itemId), current: subject ?? .book,
                                           structure: store.manifest.structure,
                                           projectType: store.manifest.type)
         let revealed = treeState.reveal(itemId, structure: store.manifest.structure,
                                         research: store.manifest.research,
-                                        projectType: store.manifest.type)
-        if let revealed { treeState.scrollRequest = .row(revealed) }
+                                        projectType: store.manifest.type,
+                                        openPiece: subject?.openPieceId)
+        if let revealed { treeState.scrollRequest = revealed }
         return revealed
     }
 

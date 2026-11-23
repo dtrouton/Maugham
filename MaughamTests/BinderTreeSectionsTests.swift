@@ -747,9 +747,9 @@ final class BinderTreeSectionsTests: XCTestCase {
 
         let shown = state.reveal(note.id, structure: store.manifest.structure,
                                  research: store.manifest.research,
-                                 projectType: store.manifest.type)
+                                 projectType: store.manifest.type, openPiece: nil)
 
-        XCTAssertEqual(shown, .research(note.id),
+        XCTAssertEqual(shown, .row(.research(note.id)),
                        "and it answers with the row the tree can now show — "
                        + "the scroll target its caller needs")
         XCTAssertTrue(state.researchSectionExpanded,
@@ -773,9 +773,9 @@ final class BinderTreeSectionsTests: XCTestCase {
 
         let shown = state.reveal(card.id, structure: store.manifest.structure,
                                  research: store.manifest.research,
-                                 projectType: store.manifest.type)
+                                 projectType: store.manifest.type, openPiece: nil)
 
-        XCTAssertEqual(shown, .research(card.id),
+        XCTAssertEqual(shown, .row(.research(card.id)),
                        "a card's row is its own subject, section or no section")
         XCTAssertTrue(state.paletteSectionExpanded, "the card's own section")
         XCTAssertFalse(state.researchSectionExpanded,
@@ -799,7 +799,7 @@ final class BinderTreeSectionsTests: XCTestCase {
 
         let shown = state.reveal("no-such-item", structure: store.manifest.structure,
                                  research: store.manifest.research,
-                                 projectType: store.manifest.type)
+                                 projectType: store.manifest.type, openPiece: nil)
 
         XCTAssertNil(shown, "an id in no tree names no row to scroll to")
         XCTAssertFalse(state.researchSectionExpanded)
@@ -825,7 +825,7 @@ final class BinderTreeSectionsTests: XCTestCase {
 
         state.reveal(note.id, structure: store.manifest.structure,
                      research: store.manifest.research,
-                     projectType: store.manifest.type)
+                     projectType: store.manifest.type, openPiece: nil)
 
         XCTAssertEqual(state.expandedResearchGroups, [first.id, second.id],
                        "the group the writer had open is still open")
@@ -853,17 +853,17 @@ final class BinderTreeSectionsTests: XCTestCase {
 
         let shown = state.reveal(owned.id, structure: store.manifest.structure,
                                  research: store.manifest.research,
-                                 projectType: store.manifest.type)
+                                 projectType: store.manifest.type, openPiece: nil)
 
         XCTAssertEqual(state.expandedPieceFolds, [piece.id],
                        "the fold that actually holds the row opens")
         XCTAssertFalse(state.researchSectionExpanded,
                        "and the shared section does not — it does not hold this "
                        + "row, and opening it moves the writer's tree for nothing")
-        XCTAssertEqual(shown, .item(piece.id),
-                       "the row the tree can now show is the PIECE: a closed "
-                       + "fold has no row of its own to scroll to, and its "
-                       + "chevron is on the piece's row")
+        XCTAssertEqual(shown, .foldRow(researchId: owned.id, piece: piece.id),
+                       "the row the tree can now show is the note's own row in "
+                       + "the fold (shell p5 Task 4a: a fold row's scroll identity "
+                       + "is its fold tag)")
     }
 
     /// A group between the piece's root and the note opens too — the fold is a
@@ -881,20 +881,18 @@ final class BinderTreeSectionsTests: XCTestCase {
         let state = BinderTreeSectionsState()
         let shown = state.reveal(child.id, structure: store.manifest.structure,
                                  research: store.manifest.research,
-                                 projectType: store.manifest.type)
+                                 projectType: store.manifest.type, openPiece: nil)
 
         XCTAssertEqual(state.expandedPieceFolds, [piece.id])
         XCTAssertTrue(state.expandedResearchGroups.contains(group.id),
                       "the group inside the fold is an ancestor like any other")
-        XCTAssertEqual(shown, .item(piece.id))
+        XCTAssertEqual(shown, .foldRow(researchId: child.id, piece: piece.id))
     }
 
-    /// **A novel chapter's fold is a view of SHARED items**, so a linked note is
-    /// revealed through the shared section it actually lives in — the fold's
-    /// duplicate row is a second drawing of that same item and needs no opening
-    /// of its own. (Opening the chapter's fold instead would scroll the writer
-    /// to a chapter for a note that is the project's.)
-    func test_revealingALinkedNoteOpensTheSharedSectionAndNotTheChaptersFold() async throws {
+    /// **A linked note is the chapter's** (shell p5 Task 4a, either/or): it is
+    /// drawn only in the chapter's fold, so a reveal opens that fold, the Parts
+    /// above the chapter, and leaves the Research section as it was.
+    func test_revealingALinkedNoteOpensTheChaptersFoldAndNotTheSection() async throws {
         let store = try await novel(notes: ["Tides"], cards: [])
         let chapter = try XCTUnwrap(store.manifest.structure.first)
         let note = try XCTUnwrap(researchNote(named: "Tides", in: store))
@@ -905,24 +903,53 @@ final class BinderTreeSectionsTests: XCTestCase {
 
         let shown = state.reveal(note.id, structure: store.manifest.structure,
                                  research: store.manifest.research,
-                                 projectType: store.manifest.type)
+                                 projectType: store.manifest.type, openPiece: nil)
 
-        XCTAssertTrue(state.researchSectionExpanded)
-        XCTAssertTrue(state.expandedPieceFolds.isEmpty,
-                      "the chapter's fold holds a DUPLICATE of a shared row; "
-                      + "the shared section is where the item lives")
-        XCTAssertEqual(shown, .research(note.id))
+        XCTAssertFalse(state.researchSectionExpanded,
+                       "the Research section does not hold a chapter's note")
+        XCTAssertEqual(state.expandedPieceFolds, [chapter.id])
+        XCTAssertEqual(state.researchRowFolds[note.id], chapter.id,
+                       "and the row selected is the one in that fold")
+        XCTAssertEqual(shown, .foldRow(researchId: note.id, piece: chapter.id))
     }
 
-    /// The narrowed guard is about OWNERSHIP, not about the id being unknown: a
-    /// piece-scoped id in a project whose piece the manifest no longer holds is
-    /// the same nothing. Control for the pair above — with the piece present the
-    /// very same call opens a fold.
-    func test_revealingAPieceScopedNoteOfADeletedPieceMovesNothing() async throws {
+    /// **Two chapters link it: the open one's fold, else the first** (shell p5
+    /// Task 4a, F). One fold opens, never both.
+    func test_revealingANoteTwoChaptersLinkPrefersTheOpenChapter() async throws {
+        let store = try await novel(notes: ["Tides"], cards: [])
+        let first = try XCTUnwrap(store.manifest.structure.first)
+        let second = try await store.addStructureItem(parentId: nil, title: "Two",
+                                                      kind: .document(.markdown))
+        let note = try XCTUnwrap(researchNote(named: "Tides", in: store))
+        try await store.linkResearch(researchId: note.id, toDocumentId: first.id)
+        try await store.linkResearch(researchId: note.id, toDocumentId: second.id)
+
+        let open = BinderTreeSectionsState()
+        XCTAssertEqual(open.reveal(note.id, structure: store.manifest.structure,
+                                   research: store.manifest.research,
+                                   projectType: store.manifest.type, openPiece: second.id),
+                       .foldRow(researchId: note.id, piece: second.id))
+        XCTAssertEqual(open.expandedPieceFolds, [second.id])
+
+        let none = BinderTreeSectionsState()
+        XCTAssertEqual(none.reveal(note.id, structure: store.manifest.structure,
+                                   research: store.manifest.research,
+                                   projectType: store.manifest.type, openPiece: nil),
+                       .foldRow(researchId: note.id, piece: first.id),
+                       "no open chapter holds it: the first in tree order")
+        XCTAssertEqual(none.expandedPieceFolds, [first.id])
+    }
+
+    /// **Nothing is invisible** (shell p5 Task 4a, B): a piece-scoped note whose
+    /// piece the manifest no longer holds (a half-swept manifest) belongs to
+    /// no live piece, so it is the book's — drawn in the Research section, and
+    /// revealed there.
+    func test_revealingAPieceScopedNoteOfADeletedPieceRevealsItInTheSection() async throws {
         let store = try await collection(pieces: ["Alpha"], notes: [], cards: [])
         let piece = try XCTUnwrap(store.manifest.structure.first)
         let owned = try await store.addPieceResearchNote(
             pieceId: piece.id, title: "Alpha's Note")
+        _ = piece
 
         let state = BinderTreeSectionsState()
         state.researchSectionExpanded = false
@@ -932,10 +959,10 @@ final class BinderTreeSectionsTests: XCTestCase {
 
         let shown = state.reveal(owned.id, structure: orphanedStructure,
                                  research: store.manifest.research,
-                                 projectType: store.manifest.type)
+                                 projectType: store.manifest.type, openPiece: nil)
 
-        XCTAssertNil(shown)
-        XCTAssertFalse(state.researchSectionExpanded)
+        XCTAssertEqual(shown, .row(.research(owned.id)))
+        XCTAssertTrue(state.researchSectionExpanded)
         XCTAssertTrue(state.expandedPieceFolds.isEmpty)
     }
 

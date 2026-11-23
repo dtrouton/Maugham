@@ -56,7 +56,9 @@ final class PieceFoldContentsTests: XCTestCase {
             forDocId: docId, links: item.linkedResearchIds, derived: derived,
             scene: scene, scraps: scraps, items: CanvasItemIndex.over(research: research))
         let fold = TreeSectionDerivation.pieceFold(
-            for: item, structure: structure, research: research, projectType: projectType)
+            for: item, projectType: projectType,
+            homes: ResearchHomes.derive(structure: structure, research: research,
+                                        projectType: projectType))
         return PieceFoldIndex.entries(docId: docId, shelf: shelf, fold: fold,
                                       figures: figures, links: item.links ?? [],
                                       structure: structure, research: research)

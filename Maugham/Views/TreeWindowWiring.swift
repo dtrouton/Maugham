@@ -65,6 +65,23 @@ struct TreeWindowWiring: ViewModifier {
                              foldRow: state.selectedFoldRow)
                 subject = next
             }
+            // **A landing on a piece opens its fold** (`TreeFoldAutoOpen`): at
+            // once from the pointer, after the settle delay from the keys —
+            // cancelled by the next landing.
+            .task(id: state.pendingFoldOpen) {
+                guard let pending = state.pendingFoldOpen else { return }
+                if pending.settles {
+                    try? await Task.sleep(for: TreeRowSettle.delay)
+                    guard !Task.isCancelled, state.pendingFoldOpen == pending else { return }
+                }
+                state.pendingFoldOpen = nil
+                if TreeFoldAutoOpen.opens(
+                    pending, now: ProcessInfo.processInfo.systemUptime, subject: subject,
+                    foldHoldsAnything: state.foldIndex.layout(of: pending.piece) != nil,
+                    foldIsOpen: state.expandedPieceFolds.contains(pending.piece)) {
+                    state.expandedPieceFolds.insert(pending.piece)
+                }
+            }
             // Return / Space shows what it pulled up (`ProjectWindow.revealPulledUp`).
             .onChange(of: state.pulledUpRevealRequests) { _, _ in
                 ProjectWindow.revealPulledUp(subject: subject,

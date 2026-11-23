@@ -177,7 +177,7 @@ final class FigureGridUndoTests: FigureGridMountedTestCase {
         XCTAssertEqual(host.state.table[a1]?.content, number(3), "premise: the visit wrote the cell")
         XCTAssertEqual(undo.undoActionName, FigureVisitUndo.actionName)
 
-        let other = ReadThroughGate(pieces: ["other"], structure: [], research: [], figures: [],
+        let other = ReadThroughGate(pieces: ["other"], structure: [], research: [], projectType: .novel, figures: [],
                                     figureLines: [ReadThroughGateFixture.line(c.figureId, in: "other")])
         windows.setReadThrough(other, from: UUID())
         let said = await notices {

@@ -181,7 +181,7 @@ final class FigureGridOneGridPerHostTests: FigureGridMountedTestCase {
             // The figure's piece, by the one rule: its record's.
             let record = FigureRecord(id: figureId, name: "T", kind: .table, piece: "piece-a", path: "")
             return ReadThroughGate(pieces: on ? ["piece-a"] : [], structure: [], research: [],
-                                   figures: [record], figureLines: [])
+                                   projectType: .novel, figures: [record], figureLines: [])
         }
         windows.setReadThrough(gate(true), from: key)
         m.coordinator.setReadThrough(true)

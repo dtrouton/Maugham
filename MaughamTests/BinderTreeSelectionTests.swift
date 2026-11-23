@@ -32,8 +32,10 @@ final class BinderTreeSelectionTests: XCTestCase {
         -> BinderTreeSelection.TagWrite {
         BinderTreeSelection.resolvedTags(
             written: written, stored: stored, storedFoldRow: row(storedPullUp, storedFold),
+            storedRowFolds: [:],
             shown: BinderTreeSelection.shownTags(stored, foldRow: row(storedPullUp, storedFold),
-                                                  subject: subject, clickedAt: clickedAt),
+                                                  subject: subject, clickedAt: clickedAt,
+                                                  rowFold: { _ in nil }),
             subject: subject, structure: structure, research: research, figures: [],
             projectType: .novel, gesture: gesture, recentPress: recentPress)
     }
@@ -81,7 +83,7 @@ final class BinderTreeSelectionTests: XCTestCase {
             XCTAssertEqual(keys.settle, pulled, "it waits to settle")
             XCTAssertEqual(BinderTreeSelection.shownTags(keys.selection, foldRow: keys.foldRow,
                                                           subject: keys.subject,
-                                                          clickedAt: keys.subject),
+                                                          clickedAt: keys.subject, rowFold: { _ in nil }),
                            [tag(pulled)])
             let pointer = write([tag(pulled)], from: chapter, gesture: .pointer)
             XCTAssertEqual(pointer.subject, chapter)
@@ -232,7 +234,8 @@ final class BinderTreeSelectionTests: XCTestCase {
         var moved = chapter
         moved.faces = .item("ch-2")
         XCTAssertEqual(BinderTreeSelection.shownTags([], foldRow: row(.canvasScrap(nodeId: "s1")),
-                                                     subject: moved, clickedAt: chapter),
+                                                     subject: moved, clickedAt: chapter,
+                                                     rowFold: { _ in nil }),
                        [.subject(.item("ch-2"))])
     }
 
@@ -288,7 +291,8 @@ final class BinderTreeSelectionTests: XCTestCase {
         XCTAssertFalse(away.reveals)
         XCTAssertEqual(away.subject.open, chapter.open)
         XCTAssertEqual(BinderTreeSelection.shownTags([], foldRow: row(region),
-                                                     subject: away.subject, clickedAt: away.subject),
+                                                     subject: away.subject, clickedAt: away.subject,
+                                                     rowFold: { _ in nil }),
                        [tag(region)], "the row stays the one selected")
     }
 
@@ -329,7 +333,7 @@ final class BinderTreeSelectionTests: XCTestCase {
         XCTAssertEqual(landed.foldRow, row(.research("pal-1"), "ch-2"))
         XCTAssertEqual(landed.settle, .research("pal-1"))
         let drawn = BinderTreeSelection.shownTags(landed.selection, foldRow: landed.foldRow,
-                                                  subject: landed.subject, clickedAt: landed.subject)
+                                                  subject: landed.subject, clickedAt: landed.subject, rowFold: { _ in nil })
         XCTAssertEqual(drawn, [two], "only the row landed on is drawn selected")
         XCTAssertEqual(TreeRowKeys.act(.returnOrSpace, drawn: drawn),
                        .click(.research("pal-1"), row: row(.research("pal-1"), "ch-2")))

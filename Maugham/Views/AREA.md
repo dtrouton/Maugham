@@ -60,7 +60,7 @@ Every file in `Maugham/Views/` appears once, plus the `Maugham/Models/` files CL
 - `TreeEditionRows.swift` — the Editions rows, the source language first.
 - `BinderTreeSections.swift` — the Figures, Research, Palette (the wall's door) and Editions sections; `TreeSectionColumn.swift`, the titles' column; `BinderTreeSectionsState`, `BinderTreeSelection`, `BinderTreeVerbs`, `TreeScrollTarget`, `TreeAlert` (one alert; an error waits for a send question), `.binderTreeSections(…)`, `consumingTreeScrollRequests`; `TreeWindowWiring.swift`, its window-mounted half.
 - `BinderPieceFold.swift` — a piece's fold; `PieceFoldContents.swift`, its whole contents (`PieceFoldIndex`).
-- `TreeSectionDerivation.swift` — pure: `sharedResearchRoots`, `pieceFold`.
+- `TreeSectionDerivation.swift` — pure: `sharedResearchRoots`, `pieceFold`; `ResearchHomeMenu.swift`, row menus.
 - `TreeDropIntent.swift` — what a drag onto the tree means (`classify`, `classifyExternal`).
 - `BinderTreeDrops.swift` — performs what `TreeDropIntent` decided (the `route…Drop` family).
 - `DropIntent.swift` — top/middle/bottom drop position → structural action.
@@ -287,10 +287,9 @@ Every file in `Maugham/Views/` appears once, plus the `Maugham/Models/` files CL
 - **Every tree sheet mounts from `BinderTreeSectionsPresentations` or `TreeWindowWiring`, never from a row**; a row only sets state.
 - **Every row acts through the one `BinderTreeVerbs` value**; `perform` surfaces a store failure, never `try?`.
 - **`create` selects what it makes and defers the rename until the manifest shows the new row** (`pendingRenameId`).
-- **`reveal` only ever OPENS, and asks OWNERSHIP of `TreeSectionDerivation`, never existence or a path prefix**.
+- **`reveal` only ever OPENS, and asks `ResearchHomes`, never existence or a path prefix**.
 - **Arrival is visible** (`consumingTreeScrollRequests`, both triggers): `TripwireGrepTests.test_everyBinderTreeHostConsumesTheScrollRequest`.
-- **A piece fold's rows carry no `.id`**.
-- **A `.linked` fold offers no rename and refuses a reorder drop** (`ResearchTreeNode.offersRename`; `TreeDropIntent.Reason.linkedFoldHasNoOrder`).
+- **Research is the book's or a piece's: every tree surface and the gate ask `ResearchHomes`**; a fold row tags `TreeRowTag.inFold`.
 - **New Group at a piece's root has no store API** (`ResearchScope` routes notes, tables, assets, links; *New Table* is `ResearchTree`'s, not offered on a view-only share).
 - **A drop is classified by LOOKUP, never by an id's shape**, at every target (`TreeDropIntentTests.test_theGridCanTellALookupApartFromAGuessAtTheIdsShape`, `TripwireGrepTests.test_everyDropTargetInTheTreeReachesTheClassifier`).
 - **External drops route through `TreeDropIntent.classifyExternal`** to the same creation verbs as Add File and paste.

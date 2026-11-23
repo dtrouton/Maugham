@@ -899,7 +899,7 @@ final class ReadThroughResearchSurfaceTests: XCTestCase {
 
     private func gateInputs(_ store: ProjectStore, pieces: Set<String>) -> ReadThroughModifier.GateInputs {
         .init(pieces: pieces, structure: store.manifest.structure, research: store.manifest.research,
-              figures: store.manifest.figures ?? [], figureRows: [])
+              projectType: store.manifest.type, figures: store.manifest.figures ?? [], figureRows: [])
     }
 
     /// A Collection with one loose piece, a note in its own folder and a

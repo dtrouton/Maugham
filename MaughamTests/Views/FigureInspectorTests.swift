@@ -81,7 +81,7 @@ final class FigureInspectorTests: FigureGridMountedTestCase {
 
     /// A gate with `figureId`'s line in a piece that is in read-through.
     private func reading(_ figureId: String) -> ReadThroughGate {
-        ReadThroughGate(pieces: ["reading"], structure: [], research: [], figures: [],
+        ReadThroughGate(pieces: ["reading"], structure: [], research: [], projectType: .novel, figures: [],
                         figureLines: [ReadThroughGateFixture.line(figureId, in: "reading")])
     }
 

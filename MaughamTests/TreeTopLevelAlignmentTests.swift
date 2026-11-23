@@ -222,7 +222,8 @@ final class TreeTopLevelAlignmentTests: XCTestCase {
     }
 
     /// A novel whose first chapter has a linked note (so it carries a
-    /// triangle), that note in Research, a card and a source edition.
+    /// triangle), a whole-book note in Research (a linked one is drawn only in
+    /// its chapter's fold), a card and a source edition.
     private func mountNovel() async throws -> NovelTree {
         let url = try await ProjectFactory.createNovelProject(
             named: "Novel-\(UUID().uuidString.prefix(6))", in: temp.url)
@@ -230,6 +231,7 @@ final class TreeTopLevelAlignmentTests: XCTestCase {
         let chapter = try XCTUnwrap(store.manifest.structure.first)
         let note = try await store.addResearchTextNote(parentId: nil, title: "Tides")
         try await store.linkResearch(researchId: note.id, toDocumentId: chapter.id)
+        let book = try await store.addResearchTextNote(parentId: nil, title: "Charts")
         let card = try await store.addPaletteCard(title: "A place", kind: .location)
         let state = BinderTreeSectionsState()
         let window = try await mount(AnyView(AlignmentBinderProbe(store: store, treeState: state)))
@@ -241,7 +243,7 @@ final class TreeTopLevelAlignmentTests: XCTestCase {
             (0..<outline.numberOfRows).first { outline.frameOfOutlineCell(atRow: $0).width > 0 },
             "the linked chapter carries no triangle")
         return NovelTree(window: window, state: state, chapterRow: chapterRow,
-                         note: note.id, card: card.id)
+                         note: book.id, card: card.id)
     }
 
     private func collection() async throws -> ProjectStore {

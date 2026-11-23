@@ -40,32 +40,18 @@ struct ResearchRow: View {
     /// (`DropIntent.Position.of`), never an assumed 22 pt.
     @State private var rowHeight: CGFloat = 22
 
-    /// **Drawn as a link to shared research, not as research this piece
-    /// owns** (shell p3 Task 7): a novel chapter's fold lists the chapter's
-    /// links into the shared Research section, a Collection piece's fold the
-    /// research in its own folder, and the two must not look alike — a quieter
-    /// title, a trailing link glyph and the help say "this lives elsewhere".
-    var linkedFromResearch: Bool = false
+    /// **Where the row sits, beside its title** (shell p5 Task 4a): a fold's
+    /// root whose group lives elsewhere names it ("World / Maps"), quiet and
+    /// trailing; nil draws nothing.
+    let caption: String?
+    /// **The drag began** — called as the payload is asked for, which is when
+    /// a drag starts (`.draggable`'s payload is an autoclosure): the tree
+    /// records which fold the drag came out of (`researchDragSource`).
+    let onDragStart: () -> Void
 
     @Environment(\.rowThumbnailRoot) private var thumbnailRoot
     @State private var draftTitle: String = ""
     @FocusState private var isRenameFieldFocused: Bool
-
-    /// How a row is drawn as owned or linked. Pure, so a test reads it.
-    struct Look: Equatable {
-        let trailingGlyph: String?
-        let help: String?
-        let quietTitle: Bool
-
-        static let linkedGlyph = "link"
-        static let linkedHelp = "Linked from Research"
-
-        static func of(linkedFromResearch: Bool) -> Look {
-            linkedFromResearch
-                ? Look(trailingGlyph: linkedGlyph, help: linkedHelp, quietTitle: true)
-                : Look(trailingGlyph: nil, help: nil, quietTitle: false)
-        }
-    }
 
     var body: some View {
         // .draggable on the container intercepts pointer/keyboard input on
@@ -99,28 +85,27 @@ struct ResearchRow: View {
             }
             .contentShape(Rectangle())
         } else {
-            let look = Look.of(linkedFromResearch: linkedFromResearch)
             HStack(spacing: 6) {
                 icon
                 Text(item.title)
                     .lineLimit(1)
                     .truncationMode(.middle)
-                    .foregroundStyle(look.quietTitle ? .secondary : .primary)
                     // The LABEL LEAF only (tripwire 9), and a mark rather than
                     // a gesture — see BinderRow's twin and TreeTravel.swift.
                     .treeTravelOnDoubleClick(.research(item.id))
-                Spacer()
-                if let glyph = look.trailingGlyph {
-                    Image(systemName: glyph)
-                        .imageScale(.small)
-                        .foregroundStyle(.tertiary)
-                        .accessibilityLabel(look.help ?? "")
+                Spacer(minLength: 4)
+                if let caption {
+                    Text(caption)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                        .accessibilityLabel(Self.captionAccessibilityLabel(caption))
                 }
             }
             .contentShape(Rectangle())
-            .help(look.help ?? "")
             .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { rowHeight = $0 }
-            .draggable(item.id) {
+            .draggable(dragPayload()) {
                 Text(item.title)
                     .padding(6)
                     .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 4))
@@ -142,6 +127,15 @@ struct ResearchRow: View {
                            externalTargeted: externalDropTargeted, answers: dropAnswers)
         }
     }
+
+    /// The drag's payload, the item's id — and the moment the drag began.
+    private func dragPayload() -> String {
+        onDragStart()
+        return item.id
+    }
+
+    /// What VoiceOver reads for the row's place ("in World / Maps"). Pure.
+    static func captionAccessibilityLabel(_ caption: String) -> String { "in \(caption)" }
 
     /// The kind's glyph, or an image's thumbnail in its place — in the same
     /// fixed box for every row, so titles align and a picture arriving moves
