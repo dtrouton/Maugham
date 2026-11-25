@@ -68,11 +68,10 @@ extension BinderTreeVerbs {
         } ?? .researchRow(target.id)
         let intent = classify(draggedId, on: treeTarget)
         if case .researchReorder = intent {
-            return reorder(
-                draggedId: draggedId,
-                movingIds: batchIds(for: intent, draggedId: draggedId,
-                                    on: treeTarget),
-                position: position, target: target)
+            let moving = batchIds(for: intent, draggedId: draggedId, on: treeTarget)
+            state.researchDragSource = nil
+            return reorder(draggedId: draggedId, movingIds: moving,
+                           position: position, target: target)
         }
         // A cross-scope drop still lands WHERE it was aimed: the index is
         // computed against the destination the classifier chose, so an item
@@ -128,12 +127,7 @@ extension BinderTreeVerbs {
         providers: [NSItemProvider], position: DropIntent.Position,
         target: TreeDropIntent.Target
     ) -> Bool {
-        let intent = TreeDropIntent.classifyExternal(
-            target: target, position: position,
-            structure: store.manifest.structure,
-            research: store.manifest.research,
-            projectType: store.manifest.type)
-        switch intent {
+        switch externalIntent(on: target, position: position) {
         case .refuse(let reason):
             return refuseDrop(site(of: target), payload: nil, reason: reason)
         case .importFiles(let destination):
@@ -172,10 +166,7 @@ extension BinderTreeVerbs {
             // writer did not aim at, with the chapter's fold unchanged.
             let imported = try await store.importResearchFiles(
                 urls, toParentId: nil)
-            for item in imported {
-                try await store.linkResearch(
-                    researchId: item.id, toDocumentId: documentId)
-            }
+            try await relink(imported.map(\.id), from: [], to: documentId)
         }
     }
 
@@ -270,11 +261,26 @@ extension BinderTreeVerbs {
     /// classification.
     func externalFeedback(on target: TreeDropIntent.Target,
                           position: DropIntent.Position) -> TreeDropFeedback {
-        TreeDropFeedback.of(TreeDropIntent.classifyExternal(
+        TreeDropFeedback.of(externalIntent(on: target, position: position), on: target)
+    }
+
+    /// **A Finder drop's meaning, its piece's posture asked** (fix round 1,
+    /// I4): a file a chapter links, or a Collection piece files in its own
+    /// research, adds to that piece's research — refused, and named, where
+    /// this Mac may not change it (`mayEditResearchLinks`, tripwire 51).
+    func externalIntent(on target: TreeDropIntent.Target,
+                        position: DropIntent.Position) -> TreeDropIntent.ExternalIntent {
+        let intent = TreeDropIntent.classifyExternal(
             target: target, position: position,
             structure: store.manifest.structure,
             research: store.manifest.research,
-            projectType: store.manifest.type), on: target)
+            projectType: store.manifest.type)
+        switch intent {
+        case .importFiles(.sharedAndLink(let piece)), .importFiles(.piece(let piece)):
+            return mayEditResearchLinks(of: piece) ? intent : .refuse(.linksNotPermitted)
+        default:
+            return intent
+        }
     }
 
     /// **Where a research reorder lands at `position`** — the rule `reorder`
@@ -353,7 +359,10 @@ extension BinderTreeVerbs {
             structure: store.manifest.structure,
             research: store.manifest.research,
             figures: store.manifest.figures ?? [],
-            projectType: store.manifest.type))
+            projectType: store.manifest.type,
+            // The window's homes, derived once per manifest — never once per
+            // row of a batch, nor per hover (M3).
+            homes: state.researchHomes(in: store.manifest)))
     }
 
     /// **A link edit asks what linking asks** (shell p5 Task 4a): the piece's
@@ -372,6 +381,12 @@ extension BinderTreeVerbs {
         }
     }
 
+    /// Where a link drop's rows land, in sight (`showLanding`).
+    private func land(_ ids: [String], inFoldOf piece: String?) {
+        state.showLanding(of: ids, inFoldOf: piece, structure: store.manifest.structure,
+                          research: store.manifest.research)
+    }
+
     /// Performs `intent` for every row the drag carries (stage-2b Task 3). The
     /// batch is `batchIds`', and for a one-row drag it is the row itself, so
     /// every arm below reads the same whether the writer dragged one note or
@@ -383,6 +398,8 @@ extension BinderTreeVerbs {
         _ intent: TreeDropIntent.Intent, movingIds batch: [String],
         payload: String, site: String, atIndex: Int? = nil
     ) -> Bool {
+        // The drag is over: its record goes (M9).
+        state.researchDragSource = nil
         switch intent {
         case .rescope(let ids, let target):
             perform { try await store.moveResearchItems(
@@ -390,33 +407,18 @@ extension BinderTreeVerbs {
             return true
         case .link(let researchId, let documentId):
             let batch = batch.isEmpty ? [researchId] : batch
-            state.showLanding(of: batch, inFoldOf: documentId)
-            perform {
-                for id in batch {
-                    try await store.linkResearch(
-                        researchId: id, toDocumentId: documentId)
-                }
-            }
+            land(batch, inFoldOf: documentId)
+            perform { try await relink(batch, from: [], to: documentId) }
             return true
         case .unlink(let researchId, let documentId):
             let batch = batch.isEmpty ? [researchId] : batch
-            state.showLanding(of: batch, inFoldOf: nil)
-            perform {
-                for id in batch {
-                    try await store.unlinkResearch(
-                        researchId: id, fromDocumentId: documentId)
-                }
-            }
+            land(batch, inFoldOf: nil)
+            perform { try await relink(batch, from: [documentId], to: nil) }
             return true
         case .moveLink(let researchId, let from, let to):
             let batch = batch.isEmpty ? [researchId] : batch
-            state.showLanding(of: batch, inFoldOf: to)
-            perform {
-                for id in batch {
-                    try await store.unlinkResearch(researchId: id, fromDocumentId: from)
-                    try await store.linkResearch(researchId: id, toDocumentId: to)
-                }
-            }
+            land(batch, inFoldOf: to)
+            perform { try await relink(batch, from: [from], to: to) }
             return true
         case .useInDocument(let researchId):
             return FigureSectionVerbs(store: store, state: state).dropToUse(researchId: researchId) != nil

@@ -27,6 +27,47 @@ struct ResearchHomeMenu: Equatable {
         var id: String { title }
     }
 
+    /// **Move to Chapter ▸, in the tree's own shape** (fix round 1, M10): a
+    /// submenu per Part, its chapters and its Parts inside, so a book of two
+    /// hundred chapters is chosen from as it is read; a book without Parts is
+    /// a flat list.
+    indirect enum MoveNode: Equatable, Identifiable {
+        case target(Item)
+        case part(id: String, title: String, children: [MoveNode])
+        var id: String {
+            switch self {
+            case .target(let item): return "target:" + item.id
+            case .part(let id, _, _): return "part:" + id
+            }
+        }
+    }
+
+    /// The targets nested under their Parts, in tree order. Pure.
+    static func tree(_ items: [Item], parts: (String) -> [StructureItem]) -> [MoveNode] {
+        func insert(_ item: Item, along path: ArraySlice<StructureItem>, into nodes: inout [MoveNode]) {
+            guard let part = path.first else { nodes.append(.target(item)); return }
+            if case .part(let id, let title, var children)? = nodes.last, id == part.id {
+                insert(item, along: path.dropFirst(), into: &children)
+                nodes[nodes.count - 1] = .part(id: id, title: title, children: children)
+            } else {
+                var children: [MoveNode] = []
+                insert(item, along: path.dropFirst(), into: &children)
+                nodes.append(.part(id: part.id, title: part.title, children: children))
+            }
+        }
+        var nodes: [MoveNode] = []
+        for item in items {
+            let piece: String
+            switch item.verb {
+            case .link(_, let to), .move(_, _, let to): piece = to
+            case .unlink: continue
+            }
+            insert(item, along: parts(piece)[...], into: &nodes)
+        }
+        return nodes
+    }
+
+
     /// "Move to Chapter" — the submenu's title, in the project's own noun.
     let moveTitle: String
     /// One item per chapter the note may move to, in tree order.
@@ -37,6 +78,8 @@ struct ResearchHomeMenu: Equatable {
     let makeWholeBook: Item?
     /// "Also in “Five”" — the other chapters holding it, named.
     let alsoIn: String?
+    /// `moveTargets`, nested by Part.
+    let moveTree: [MoveNode]
 
     static let makeWholeBookTitle = "Make Whole-Book"
 
@@ -62,7 +105,8 @@ struct ResearchHomeMenu: Equatable {
             }
             guard !targets.isEmpty else { return nil }
             return ResearchHomeMenu(moveTitle: moveTitle(noun: noun), moveTargets: targets,
-                                    removeFromThis: nil, makeWholeBook: nil, alsoIn: nil)
+                                    removeFromThis: nil, makeWholeBook: nil, alsoIn: nil,
+                                    moveTree: tree(targets, parts: homes.parts(of:)))
         }
         // Only a row this fold LINKS: an item filed in a Collection piece's
         // folder, or inside a group the chapter links, moves with its file or
@@ -84,7 +128,8 @@ struct ResearchHomeMenu: Equatable {
             removeFromThis: others.isEmpty
                 ? nil : Item(title: removeTitle(title(fold)), verb: .unlink(researchId: itemId, from: [fold])),
             makeWholeBook: whole,
-            alsoIn: others.isEmpty ? nil : alsoInLine(others.map(title)))
+            alsoIn: others.isEmpty ? nil : alsoInLine(others.map(title)),
+            moveTree: tree(targets, parts: homes.parts(of:)))
     }
 }
 

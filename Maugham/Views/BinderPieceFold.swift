@@ -325,6 +325,8 @@ struct BinderPieceFold: View {
             structure: store.manifest.structure, projectType: store.manifest.type)
         state.lastFoldPress = outcome.lastFoldPress
         state.lastRowPress = outcome.rowPress
+        // A press in a fold a click opened makes it the writer's.
+        state.actedInFold(documentId)
         // The press is the click's act: a selection waiting to settle on this
         // row (the keys', or a misread pointer's) waits no more.
         state.pendingSettle = nil
@@ -670,33 +672,70 @@ struct BinderPieceFold: View {
         // there and linked to this chapter, as its neighbour is; in a
         // Collection, in the piece's own folder.
         let homes = state.researchHomes(in: store.manifest)
-        actions.newNote = { [verbs, documentId, store] parentId in
-            switch Self.creation(under: parentId, inFoldOf: documentId, homes: homes) {
+        // **A creation that links asks the posture first** (fix round 1,
+        // I4): refused, it says so and makes nothing.
+        let refusal = Self.creationRefusal(inFoldOf: documentId, homes: homes,
+                                           mayLink: verbs.mayEditResearchLinks(of: documentId),
+                                           pieceTitle: TreeWalk.find(id: documentId,
+                                                                     in: store.manifest.structure)?.title)
+        actions.newNote = { [verbs, documentId, store, state] parentId in
+            state.actedInFold(documentId)
+            let creation = Self.creation(under: parentId, inFoldOf: documentId, homes: homes)
+            if creation != .asAsked, let refusal { state.pendingError = refusal; return }
+            switch creation {
             case .asAsked: base.newNote(parentId)
             case .piecesScope:
                 verbs.create { try await store.createResearchNote(scope: .document(documentId)) }
             case .inGroupLinked(let group):
                 verbs.create {
                     let note = try await store.addResearchTextNote(parentId: group, title: "Untitled Note")
-                    try await store.linkResearch(researchId: note.id, toDocumentId: documentId)
+                    try await verbs.relink([note.id], from: [], to: documentId)
                     return note
                 }
             }
         }
         // New Table, for New Note's reason (D8b-2) — offered where the bundle offers it.
         actions.newTable = base.newTable.map { baseNewTable in
-            { [verbs, documentId, store] parentId in
-                switch Self.creation(under: parentId, inFoldOf: documentId, homes: homes) {
+            { [verbs, documentId, store, state] parentId in
+                state.actedInFold(documentId)
+                let creation = Self.creation(under: parentId, inFoldOf: documentId, homes: homes)
+                if creation != .asAsked, let refusal {
+                    state.pendingError = refusal
+                    return Task {}
+                }
+                switch creation {
                 case .asAsked: return baseNewTable(parentId)
                 case .piecesScope:
                     return verbs.create { try await store.createResearchTable(scope: .document(documentId)) }
                 case .inGroupLinked(let group):
                     return verbs.create {
                         let table = try await store.addResearchTable(parentId: group)
-                        try await store.linkResearch(researchId: table.id, toDocumentId: documentId)
+                        try await verbs.relink([table.id], from: [], to: documentId)
                         return table
                     }
                 }
+            }
+        }
+        // **Duplicate lands in this fold** (fix round 1, M4): the copy of a
+        // note this chapter links is linked to it too; one inside a group the
+        // chapter holds, or in a Collection piece's folder, lands there beside
+        // its original and is the piece's already.
+        actions.duplicate = { [verbs, documentId, store, state] id in
+            state.actedInFold(documentId)
+            let links = homes.takesLinks(documentId) && homes.links(of: id).contains(documentId)
+            if links, let refusal { state.pendingError = refusal; return }
+            verbs.create {
+                let copy = try await store.duplicateResearchItem(id: id)
+                if links { try await verbs.relink([copy.id], from: [], to: documentId) }
+                return copy
+            }
+        }
+        // Making something in this fold is an act in it (`TreeFoldAutoOpen`).
+        for verb in [\ResearchTreeActions.newGroup, \.addFile, \.addLink] {
+            let made = base[keyPath: verb]
+            actions[keyPath: verb] = { [state, documentId] parentId in
+                state.actedInFold(documentId)
+                made(parentId)
             }
         }
         // **The second re-routed verb, and the same reason** (Task 7): a drop
@@ -741,6 +780,16 @@ struct BinderPieceFold: View {
         case piecesScope
         /// Into a group this chapter does not hold, then linked to it.
         case inGroupLinked(String)
+    }
+
+    /// **Why a creation here that links is refused**, or nil: a piece whose
+    /// research is linked (a novel's chapter) on a Mac whose posture may not
+    /// change its links (`TreeStructureVerbs.linkResearch`). Pure.
+    static func creationRefusal(inFoldOf piece: String, homes: ResearchHomes, mayLink: Bool,
+                                pieceTitle: String?) -> String? {
+        guard homes.takesLinks(piece), !mayLink else { return nil }
+        return "Couldn’t add to “\(pieceTitle ?? piece)”: "
+            + TreeDropIntent.Reason.linksNotPermitted.explanation + "."
     }
 
     /// **Where a creation from this fold lands** (shell p5 Task 4a, G): at the

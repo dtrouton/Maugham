@@ -336,6 +336,37 @@ final class ResearchTableToolsTests: XCTestCase {
                        [["Item", "Amount"], ["Rent", "12"]], "the assistant's write lands, versioned")
     }
 
+    /// **The same for a table a novel's chapter LINKS** (shell p5 Task 4a fix
+    /// round 1, the review's point (b)): a chapter's linked research reads
+    /// through with the chapter for the writer, and the assistant's write
+    /// still lands — ADR 0039's known limit, pinned for the linked owner.
+    func test_aReadThroughChaptersLinkedTableStillTakesTheAssistantsCells() async throws {
+        let url = try await ProjectFactory.createNovelProject(named: "Linked", in: projectURL)
+        let store = try await ProjectStore.load(from: url)
+        let chapter = try XCTUnwrap(store.manifest.structure.first)
+        let ds = try await DocumentStore.open(url: url)
+        stores.append(ds)
+        store.documentStore = ds
+        ds.projectStore = store
+        store.readThroughPieceIds = { [chapter.id] }
+        let registry = ProjectRegistry()
+        registry.register(url: url, store: store)
+        let book = Book(ds: ds, store: store, registry: registry, id: ProjectIdentifier.id(for: url))
+        let csv = TestTemp.root.appendingPathComponent("linked-\(UUID().uuidString).csv")
+        try Data("Item,Amount\nRent,10\n".utf8).write(to: csv)
+        let item = try await store.createResearchAsset(scope: .document(chapter.id), fromURL: csv)
+        XCTAssertEqual(store.linkedResearchIds(forDocumentId: chapter.id), [item.id],
+                       "premise: shared research the chapter links")
+        let path = try XCTUnwrap(item.path)
+        XCTAssertNotNil(store.researchReadThroughRefusal(atPath: path, gate: store.readThroughGate()),
+                        "premise: the writer's own edits are refused")
+
+        try await write(book, item, #""cells":[{"a1":"B2","value":"12"}]"#)
+        XCTAssertEqual(TableCSV.rows(String(decoding: try Data(contentsOf: url.appendingPathComponent(path)),
+                                            as: UTF8.self)).rows,
+                       [["Item", "Amount"], ["Rent", "12"]], "the assistant's write lands")
+    }
+
     // MARK: - create_research_table / read_research_table
 
     private func create(_ book: Book, _ rest: String) async throws -> CreateResearchTableTool.Result {

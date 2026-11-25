@@ -932,7 +932,7 @@ final class RightColumnMountingTests: XCTestCase {
         let after = String(flat[receiver.upperBound...].prefix(520))
         for token in ["guard !treeFindActive", "Self.foldPiece(subject: subject",
                       "columnVisibility = Self.revealingTheTree(columnVisibility)",
-                      "treeState.expandedPieceFolds.insert(id)", "treeState.scrollRequest = .row(.item(id))"] {
+                      "treeState.setFold(id, open: true)", "treeState.scrollRequest = .row(.item(id))"] {
             XCTAssertTrue(after.contains(token), "⌘⌥E's receiver lost \(token): \(after)")
         }
     }

@@ -222,6 +222,9 @@ extension ProjectStoreError: LocalizedError {
 public final class ProjectStore {
     public let url: URL
     public internal(set) var manifest: ProjectManifest
+    /// How many times this store has written its manifest — the pin that a
+    /// verb is one save (`relinkResearch`). Never drawn.
+    @ObservationIgnored var manifestSaveCount = 0
     /// One line for the window when `load` put a missing manifest back from
     /// its shadow (#92); nil otherwise. The banner's dismiss clears it, so it
     /// is said once per open.

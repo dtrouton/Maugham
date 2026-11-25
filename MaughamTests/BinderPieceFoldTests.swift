@@ -992,10 +992,12 @@ final class BinderPieceFoldDecisionTests: XCTestCase {
         XCTAssertNil(index.layout(of: "ch-1"), "no entries, no layout: the host draws no chevron")
         XCTAssertNil(index.layout(of: "ch-9"), "a piece the index does not hold has no fold")
         XCTAssertNotNil(index.layout(of: "ch-2"), "control: one entry folds")
-        // The hosts ask the index, never the research fold's own answer.
+        // The hosts ask the index, its research rows read from the homes the
+        // section reads (shell p5 Task 4a fix round 1, I6) — never the research
+        // fold's own answer.
         for host in ["Maugham/Views/BinderView.swift", "Maugham/Views/CollectionPiecesPane.swift"] {
             let text = try? SourceTree.read(host)
-            XCTAssertTrue(text?.contains("if let layout = treeState.foldIndex.layout(of:") == true, host)
+            XCTAssertTrue(text?.contains("if let layout = treeState.foldLayout(of:") == true, host)
             XCTAssertFalse(text?.contains("showsDisclosure") == true, host)
         }
     }

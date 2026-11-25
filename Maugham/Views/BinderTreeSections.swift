@@ -725,7 +725,11 @@ struct BinderTreeVerbs {
             },
             move: { ids, target in requestMove(ids, to: target) },
             deleteMany: { ids in requestDelete(ids) },
-            dragStarted: { [state] id, fold in state.researchDragSource = (id, fold) },
+            // A drag out of a fold is an act in it (`TreeFoldAutoOpen`).
+            dragStarted: { [state] id, fold in
+                state.researchDragSource = (id, fold)
+                if let fold { state.actedInFold(fold) }
+            },
             homeMenu: { item, fold in homeMenu(for: item, inFold: fold) },
             performHome: { verb in performHome(verb) },
             // Use in Document / Bring Back to Figures (report plan 8b Task 4):
@@ -798,6 +802,32 @@ struct BinderTreeVerbs {
 
     // MARK: - Where research belongs (shell p5 Task 4a)
 
+    /// **Every link edit the tree makes, through one door** (fix round 1,
+    /// I4 + M7): each piece it touches asks the posture
+    /// (`mayEditResearchLinks`, tripwire 51), and the edit is one manifest
+    /// save (`ProjectStore.relinkResearch`) — a move between chapters is never
+    /// half done. A refusal or a failure throws, saying what it was doing.
+    func relink(_ ids: [String], from: [String], to: String?) async throws {
+        let title = { (piece: String) in
+            TreeWalk.find(id: piece, in: store.manifest.structure)?.title ?? piece
+        }
+        let what: String
+        switch (from.isEmpty, to) {
+        case (true, let to?): what = "add to “\(title(to))”"
+        case (false, let to?): what = "move to “\(title(to))”"
+        default: what = "remove from “\(from.map(title).joined(separator: "”, “"))”"
+        }
+        for piece in from + (to.map { [$0] } ?? []) where !mayEditResearchLinks(of: piece) {
+            throw TreeLinkError(message: "Couldn’t \(what): "
+                                + TreeDropIntent.Reason.linksNotPermitted.explanation + ".")
+        }
+        do {
+            try await store.relinkResearch(ids: ids, from: from, to: to)
+        } catch {
+            throw TreeLinkError(message: "Couldn’t \(what): \(error.localizedDescription)")
+        }
+    }
+
     /// **Whether this Mac may change `pieceId`'s research links** — what
     /// "Link Research…" asks (`TreeStructureVerbs.linkResearch`, the posture's
     /// one door). A piece the structure does not hold: no.
@@ -819,24 +849,19 @@ struct BinderTreeVerbs {
     /// — the Research section.
     func performHome(_ verb: ResearchHomeMenu.Verb) {
         let homes = state.researchHomes(in: store.manifest)
+        let (structure, research) = (store.manifest.structure, store.manifest.research)
         switch verb {
         case .link(let id, let piece):
-            state.showLanding(of: [id], inFoldOf: piece)
-            perform { try await store.linkResearch(researchId: id, toDocumentId: piece) }
+            state.showLanding(of: [id], inFoldOf: piece, structure: structure, research: research)
+            perform { try await relink([id], from: [], to: piece) }
         case .move(let id, let from, let to):
-            state.showLanding(of: [id], inFoldOf: to)
-            perform {
-                try await store.unlinkResearch(researchId: id, fromDocumentId: from)
-                try await store.linkResearch(researchId: id, toDocumentId: to)
-            }
+            state.showLanding(of: [id], inFoldOf: to, structure: structure, research: research)
+            perform { try await relink([id], from: [from], to: to) }
         case .unlink(let id, let pieces):
             let remaining = homes.homes(of: id).filter { !pieces.contains($0) }
-            state.showLanding(of: [id], inFoldOf: remaining.first)
-            perform {
-                for piece in pieces {
-                    try await store.unlinkResearch(researchId: id, fromDocumentId: piece)
-                }
-            }
+            state.showLanding(of: [id], inFoldOf: remaining.first, structure: structure,
+                              research: research)
+            perform { try await relink([id], from: pieces, to: nil) }
         }
     }
 
@@ -1056,11 +1081,27 @@ final class BinderTreeSectionsState {
     /// drop's classifier as `sourcePiece`. Never drawn.
     @ObservationIgnored var researchDragSource: (id: String, piece: String?)?
 
+    /// **A press anywhere in the app ends the last drag's record** (fix
+    /// round 1, M9): a drag begins with a press, and records itself after it
+    /// (`ResearchRow`'s payload), so a drag cancelled here, or one begun in
+    /// another window, never lends this window an old source. Called from
+    /// `TreeWindowWiring`'s press monitor; a drop clears it too.
+    func pointerWentDown() {
+        if researchDragSource != nil { researchDragSource = nil }
+    }
+    /// The app's press monitor that calls `pointerWentDown`, held while the
+    /// window's wiring is mounted.
+    @ObservationIgnored var pressMonitor: Any?
+
     /// The fold a drag of `id` started in, or nil (a Research-section row, or
-    /// a drag this window did not start).
+    /// a drag this window did not start). **Every row of the drag** (fix
+    /// round 1, I1): the row the drag began on recorded its fold; the others
+    /// carried along with it are drawn selected in the fold each was chosen
+    /// in (`researchRowFolds`).
     func dragSource(of id: String) -> String? {
-        guard let source = researchDragSource, source.id == id else { return nil }
-        return source.piece
+        guard let source = researchDragSource else { return nil }
+        if source.id == id { return source.piece }
+        return researchRowFolds[id]
     }
 
     /// **The window's `ResearchHomes`** for `manifest`, derived once per
@@ -1085,14 +1126,23 @@ final class BinderTreeSectionsState {
     /// or a menu gave a chapter shows in that chapter's fold, one made the
     /// book's in the Research section — never in a closed row, as if gone.
     /// Its row there is the one a selection draws. Only ever opens.
-    func showLanding(of ids: [String], inFoldOf piece: String?) {
+    ///
+    /// **In sight, not merely open** (fix round 1, I5): what `reveal` opens
+    /// for a row — the Parts above the chapter, the groups above the note —
+    /// and a scroll to the first row landed.
+    func showLanding(of ids: [String], inFoldOf piece: String?,
+                     structure: [StructureItem], research: [ResearchItem]) {
+        for id in ids { openAncestorGroups(of: id, in: research) }
         if let piece {
+            openStructureAncestors(of: piece, in: structure)
             expandedPieceFolds.insert(piece)
             expandedFoldGroups.insert(PieceFoldGroupKey(docId: piece, group: .research))
             for id in ids { researchRowFolds[id] = piece }
+            if let first = ids.first { scrollRequest = .foldRow(researchId: first, piece: piece) }
         } else {
             researchSectionExpanded = true
             for id in ids { researchRowFolds[id] = nil }
+            if let first = ids.first { scrollRequest = .row(.research(first)) }
         }
     }
     /// **Something the tree's Canvas row was handed waits on the canvas**
@@ -1353,10 +1403,32 @@ final class BinderTreeSectionsState {
     /// settles by `TreeWindowWiring` (`TreeRowSettle`), cleared by the next
     /// landing elsewhere and by a press on a row. Observed: it keys the wait.
     var pendingSettle: PulledUp?
-    /// **A piece the tree landed on, whose fold opens once the landing
-    /// settles** (shell p5 Task 4a, `TreeFoldAutoOpen`): set by the `List`'s
-    /// setter, performed by `TreeWindowWiring`. Observed: it keys the wait.
-    var pendingFoldOpen: TreeFoldAutoOpen.Pending?
+    /// **The fold a click opened by itself** (`TreeFoldAutoOpen`): drawn
+    /// open beside `expandedPieceFolds`, never written into it.
+    var autoOpenedFold: String?
+    /// **The folds the writer closed** (`TreeFoldAutoOpen`): no click
+    /// reopens one until the writer does.
+    var writerClosedFolds: Set<String> = []
+    /// The folds' whole state, as `TreeFoldAutoOpen` reads and writes it;
+    /// each part is written only when it changed.
+    var folds: TreeFoldAutoOpen.Folds {
+        get { TreeFoldAutoOpen.Folds(open: expandedPieceFolds, autoOpened: autoOpenedFold,
+                                     writerClosed: writerClosedFolds) }
+        set {
+            if newValue.open != expandedPieceFolds { expandedPieceFolds = newValue.open }
+            if newValue.autoOpened != autoOpenedFold { autoOpenedFold = newValue.autoOpened }
+            if newValue.writerClosed != writerClosedFolds { writerClosedFolds = newValue.writerClosed }
+        }
+    }
+    /// The writer opened or closed `piece`'s fold (its chevron, ⌘⌥E).
+    func setFold(_ piece: String, open: Bool) {
+        folds = TreeFoldAutoOpen.next(folds, on: .set(piece: piece, open: open))
+    }
+    /// The writer acted inside `piece`'s fold: one a click opened is theirs now.
+    func actedInFold(_ piece: String) {
+        guard autoOpenedFold == piece else { return }
+        folds = TreeFoldAutoOpen.next(folds, on: .actedIn(piece: piece))
+    }
     /// Whether the window's right column is showing the pulled-up position —
     /// mirrored by `TreeWindowWiring`, read by a settle and by Return.
     var columnShowsPulledUp = false
@@ -1419,12 +1491,8 @@ final class BinderTreeSectionsState {
     /// or not.
     func foldExpansion(of documentId: String) -> Binding<Bool> {
         Binding(
-            get: { [weak self] in self?.expandedPieceFolds.contains(documentId) ?? false },
-            set: { [weak self] open in
-                guard let self else { return }
-                if open { self.expandedPieceFolds.insert(documentId) }
-                else { self.expandedPieceFolds.remove(documentId) }
-            })
+            get: { [weak self] in self?.folds.isOpen(documentId) ?? false },
+            set: { [weak self] open in self?.setFold(documentId, open: open) })
     }
 
     /// One structure group's flag, projected out of the set of open ids
@@ -1661,17 +1729,10 @@ private struct BinderTreeSectionsPresentations: ViewModifier {
                 state.publishingIsSetUp = PublishStarter.isInitialized(in: store.url)
                 state.projectHasInbox = InboxStore.projectHasInbox(projectURL: store.url)
             }
-            .onProjectEvent(.maughamTranslationDidUpdate, url: store.url, window: nil) { _ in
-                state.translationRevision += 1
-            }
-            // Publishing initialised: the source edition's row appears.
-            .onProjectEvent(.maughamPublishInitialized, url: store.url, window: nil) { _ in
-                state.translationRevision += 1
-            }
-            // A proposed edition brief lists the Source (fix round I1).
-            .onProjectEvent(.maughamStatementProposalsChanged, url: store.url, window: nil) { _ in
-                state.translationRevision += 1
-            }
+            // The Editions rows' three arrivals (a translation written,
+            // publishing set up, a proposed brief) are heard by the window's
+            // wiring on its own window (`TreeWindowWiring`): a receiver here
+            // had no window and heard nothing (`MaughamEvent.isLive(nil)`).
             // The deferred rename, committed when the row it names exists. Both
             // triggers are needed and either alone is incomplete: the manifest
             // may arrive after the request, or the request after the manifest.
@@ -2063,12 +2124,12 @@ enum BinderTreeSelection {
             state.record(selection: next.selection, subject: next.subject, foldRow: next.foldRow)
         }
         if state.researchRowFolds != next.rowFolds { state.researchRowFolds = next.rowFolds }
-        // A landing on another piece opens its fold once it settles, outside
-        // this setter (`TreeFoldAutoOpen`, opened by `TreeWindowWiring`).
-        if let landing = TreeFoldAutoOpen.landing(from: current, to: next.subject,
-                                                  gesture: gesture, at: now) {
-            state.pendingFoldOpen = landing
-        }
+        // A click on a chapter opens its fold, the next closes it again
+        // (`TreeFoldAutoOpen`): pure, a lookup per landing, no timer.
+        let folds = TreeFoldAutoOpen.afterWrite(
+            state.folds, written: written, from: current, to: next.subject, gesture: gesture,
+            holdsAnything: { state.foldLayout(of: $0, in: store.manifest) != nil })
+        if folds != state.folds { state.folds = folds }
         if state.pendingSettle != next.settle { state.pendingSettle = next.settle }
         subject.wrappedValue = next.subject
     }
@@ -2269,46 +2330,92 @@ enum TreeRowSettle {
     }
 }
 
-/// **Selecting a piece opens its fold** (shell p5 Task 4a, the owner's
-/// ruling): its research, cards and figures come into sight — when the fold
-/// holds anything. Once per landing: a landing is a write that makes a piece
-/// open which was not, so a fold the writer closes stays closed while the
-/// piece stays selected, and one they opened is never closed (this only
-/// opens). **The arrows' settle rule** (`TreeRowSettle`): a pointer's
-/// landing opens at once; a key's only once no other landing followed within
-/// the settle delay, so holding ↓ through the chapters never pops a fold open
-/// under the writer's hands. Pure, the time injected (tripwire 33).
+/// **A click on a chapter opens its fold — for a while** (shell p5 Task 4a;
+/// the owner's ruling of 2026-11-25, fix round 1). One pure rule over the
+/// folds' state, no timer:
+/// - A **pointer** click that lands the tree on a piece opens its fold when
+///   the fold holds anything. The arrows never do: ⌘⌥E opens one from the
+///   keyboard.
+/// - A fold opened that way is **transient**: the next chapter the selection
+///   lands on (pointer or keys) closes it — unless the writer opened it by
+///   hand or acted inside it (selected a row, pulled one up, dragged one,
+///   made one there), which makes it theirs.
+/// - A fold the writer **closed** stays closed for that piece, return after
+///   return, until they open it.
+/// - The open itself writes nothing of the writer's own fold state (`open`);
+///   a restore, a Find or navigation lands no fold (only the tree's `List`
+///   setter asks, `afterWrite`).
 enum TreeFoldAutoOpen {
-    struct Pending: Equatable {
-        let piece: String
-        /// A key's landing waits to settle; a pointer's does not.
-        let settles: Bool
-        /// System uptime at the landing.
-        let landedAt: TimeInterval
+    /// Which folds are open: the writer's own, the one a click opened by
+    /// itself, and the ones the writer closed.
+    struct Folds: Equatable {
+        /// Opened by the writer (the chevron, ⌘⌥E) or by an act that puts
+        /// something in sight (a reveal, a drop's landing).
+        var open: Set<String> = []
+        /// Opened by a click, and the writer has neither opened it nor acted
+        /// in it: the next landing elsewhere closes it.
+        var autoOpened: String?
+        /// Closed by the writer: no click reopens it.
+        var writerClosed: Set<String> = []
+
+        func isOpen(_ piece: String) -> Bool { open.contains(piece) || autoOpened == piece }
     }
 
-    /// The settle delay, in seconds (`TreeRowSettle.delay`).
-    static var settleSeconds: TimeInterval {
-        let parts = TreeRowSettle.delay.components
-        return TimeInterval(parts.seconds) + TimeInterval(parts.attoseconds) / 1e18
+    enum Event: Equatable {
+        /// The selection landed on `piece`, a piece it was not already on.
+        case landed(piece: String, gesture: TreeSelectionGesture, holdsAnything: Bool)
+        /// The writer opened or closed `piece`'s fold.
+        case set(piece: String, open: Bool)
+        /// The writer acted inside `piece`'s fold.
+        case actedIn(piece: String)
     }
 
-    /// The landing a write from `current` to `next` is, or nil where it opens
-    /// no piece it was not already on.
-    static func landing(from current: WindowSubject, to next: WindowSubject,
-                        gesture: TreeSelectionGesture, at now: TimeInterval) -> Pending? {
-        guard case .item(let piece) = next.open, next.open != current.open else { return nil }
-        return Pending(piece: piece, settles: gesture == .keys, landedAt: now)
+    /// The rule. Pure.
+    static func next(_ folds: Folds, on event: Event) -> Folds {
+        var out = folds
+        switch event {
+        case .landed(let piece, let gesture, let holdsAnything):
+            if out.autoOpened != piece { out.autoOpened = nil }
+            if gesture == .pointer, holdsAnything, !out.open.contains(piece),
+               !out.writerClosed.contains(piece) {
+                out.autoOpened = piece
+            }
+        case .set(let piece, let open):
+            if open {
+                out.open.insert(piece)
+                out.writerClosed.remove(piece)
+            } else {
+                out.open.remove(piece)
+                out.writerClosed.insert(piece)
+            }
+            if out.autoOpened == piece { out.autoOpened = nil }
+        case .actedIn(let piece):
+            if out.autoOpened == piece {
+                out.open.insert(piece)
+                out.autoOpened = nil
+            }
+        }
+        return out
     }
 
-    /// Whether `pending` opens its fold at `now`: the piece is still the one
-    /// open, its fold holds something and is closed, and the landing has
-    /// settled.
-    static func opens(_ pending: Pending, now: TimeInterval, subject: WindowSubject,
-                      foldHoldsAnything: Bool, foldIsOpen: Bool) -> Bool {
-        guard case .item(let piece) = subject.open, piece == pending.piece,
-              foldHoldsAnything, !foldIsOpen else { return false }
-        return !pending.settles || now - pending.landedAt >= settleSeconds
+    /// **What one `List` write does to the folds**: a row chosen inside a
+    /// fold acts in it; then a landing on a piece the write moved to.
+    static func afterWrite(_ folds: Folds, written: Set<TreeRowTag>, from current: WindowSubject,
+                           to next: WindowSubject, gesture: TreeSelectionGesture,
+                           holdsAnything: (String) -> Bool) -> Folds {
+        var out = folds
+        for tag in written {
+            switch tag {
+            case .inFold(_, let piece): out = self.next(out, on: .actedIn(piece: piece))
+            case .pullUp(let row): out = self.next(out, on: .actedIn(piece: row.piece))
+            case .subject: break
+            }
+        }
+        if case .item(let piece) = next.open, next.open != current.open {
+            out = self.next(out, on: .landed(piece: piece, gesture: gesture,
+                                             holdsAnything: holdsAnything(piece)))
+        }
+        return out
     }
 }
 
@@ -2426,4 +2533,11 @@ private struct TreeDropPlaceholder: View {
             .treeDropHover(internalTargeted: internalTargeted,
                            externalTargeted: externalTargeted, answers: answers)
     }
+}
+
+/// A link edit the tree refused or could not finish, in the writer's words
+/// (`BinderTreeVerbs.relink`).
+struct TreeLinkError: LocalizedError, Equatable {
+    let message: String
+    var errorDescription: String? { message }
 }

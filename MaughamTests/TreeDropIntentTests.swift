@@ -242,8 +242,8 @@ final class TreeDropIntentTests: XCTestCase {
         XCTAssertEqual(classify("linked", on: .researchRow("note"), in: Novel.self),
                        .unlink(researchId: "linked", fromDocumentId: "ch1"))
         XCTAssertEqual(TreeDropFeedback.of(.unlink(researchId: "linked", fromDocumentId: "ch1"),
-                                           on: .researchRow("note")), .beside,
-                       "it lands where it lives, so no insertion line is promised")
+                                           on: .researchRow("note")), .into,
+                       "it lands where it lives: the section's look, never an insertion line (M5)")
         XCTAssertEqual(TreeDropFeedback.of(.unlink(researchId: "linked", fromDocumentId: "ch1"),
                                            on: .sharedSection), .into)
     }
@@ -284,6 +284,66 @@ final class TreeDropIntentTests: XCTestCase {
                 structure: structure, research: Collection.research, figures: [],
                 projectType: .collection),
             .unlink(researchId: "note", fromDocumentId: "pB"))
+    }
+
+    // MARK: - Inside a group a chapter links (fix round 1, I8 + M8)
+
+    /// "World" (Maps, Coast) linked to chapter two: its contents are drawn
+    /// in two's fold alone.
+    private var linkedWorld: (structure: [StructureItem], research: [ResearchItem]) {
+        var structure = Novel.structure
+        structure[1].linkedResearchIds = ["group"]
+        var research = Novel.research
+        research[2].children?.append(ResearchItem(id: "coast", title: "Coast", type: .asset,
+                                                  kind: .document, path: "research/world/coast.md"))
+        return (structure, research)
+    }
+
+    private func classifyInWorld(_ payload: String, on target: TreeDropIntent.Target,
+                                 from source: String?) -> TreeDropIntent.Intent {
+        let (structure, research) = linkedWorld
+        return TreeDropIntent.classify(payloadId: payload, target: target, sourcePiece: source,
+                                       structure: structure, research: research, figures: [],
+                                       projectType: .novel)
+    }
+
+    /// **A linked group's notes reorder in the fold** (I8): the fold is the
+    /// only place that draws them now, and the order written is the research
+    /// tree's own (the store's reorder inside the group).
+    func test_aLinkedGroupsNotesReorderInTheFold() {
+        XCTAssertEqual(classifyInWorld("coast", on: .foldRow(rowId: "nested", documentId: "ch2"),
+                                       from: "ch2"),
+                       .researchReorder)
+        XCTAssertEqual(classifyInWorld("linked", on: .foldRow(rowId: "nested", documentId: "ch1"),
+                                       from: "ch1"),
+                       .refuse(.linkedFoldHasNoOrder),
+                       "control: chapter one's own roots keep the link order")
+    }
+
+    /// **A note inside a linked group moves with its group** (M8): dragged to
+    /// the section, to a section row, or to another chapter, it is refused and
+    /// named — what its row menu says (it offers no link verb). It is never a
+    /// file move out of the group, and never a copy into another chapter.
+    func test_aNoteInsideALinkedGroupMovesWithItsGroup() {
+        for target: TreeDropIntent.Target in [.sharedSection, .researchRow("note"),
+                                               .pieceRow("ch1"), .foldRow(rowId: "linked", documentId: "ch1")] {
+            XCTAssertEqual(classifyInWorld("coast", on: target, from: "ch2"), .refuse(.movesWithItsGroup),
+                           "\(target)")
+        }
+        XCTAssertEqual(TreeDropIntent.Reason.movesWithItsGroup.explanation,
+                       "it is in a group a chapter holds, and moves with its group")
+        XCTAssertEqual(classifyInWorld("group", on: .sharedSection, from: "ch2"),
+                       .unlink(researchId: "group", fromDocumentId: "ch2"),
+                       "control: the group itself leaves its chapter")
+    }
+
+    /// **An unlinking drop on a section row shows the section's look** (M5):
+    /// it keeps no position, so the hover promises none.
+    func test_anUnlinkingDropOnASectionRowShowsTheSectionsLook() {
+        XCTAssertEqual(TreeDropFeedback.of(.unlink(researchId: "linked", fromDocumentId: "ch1"),
+                                           on: .researchRow("note")), .into)
+        XCTAssertEqual(TreeDropFeedback.of(.unlink(researchId: "linked", fromDocumentId: "ch1"),
+                                           on: .sharedSection), .into)
     }
 
     // MARK: - Onto another research row

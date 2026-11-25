@@ -227,6 +227,73 @@ final class PieceFoldIndexTests: XCTestCase {
         XCTAssertEqual(state.scriptRevision, revision, "nor every script, through the key")
     }
 
+    /// **The Editions rows hear their three arrivals** (shell p5 Task 4a fix
+    /// round 1): a translation written, publishing set up and a proposed
+    /// brief, each posted as production posts it, move the rows' key on the
+    /// window's own wiring — synchronously, as the post is heard.
+    func test_theEditionsRowsHearTheirArrivalsOnTheWindow() async throws {
+        let temp = TempDirectory()
+        defer { temp.cleanup() }
+        let url = try await ProjectFactory.createNovelProject(
+            named: "Novel-\(UUID().uuidString.prefix(6))", in: temp.url)
+        let store = try await ProjectStore.load(from: url)
+        let state = BinderTreeSectionsState()
+        let window = TestWindow.make(contentRect: CGRect(x: 0, y: 0, width: 10, height: 10))
+        window.contentView = NSHostingView(rootView: Color.clear.modifier(TreeWindowWiring(
+            store: store, url: store.url, window: window, state: state,
+            subject: .constant(WindowSubject(open: .project, faces: .project)),
+            showInspector: .constant(false), position: .constant(.brief))))
+        defer { window.contentView = NSView(frame: .zero) }
+        pump(0.1)
+        XCTAssertTrue(MaughamEvent.isLive(window), "premise: the receiver's window is live")
+
+        var revision = state.translationRevision
+        MaughamEvent.post(.maughamTranslationDidUpdate, to: .project(for: store.url))
+        XCTAssertEqual(state.translationRevision, revision + 1, "a translation written")
+        revision = state.translationRevision
+        MaughamEvent.post(.maughamPublishInitialized, to: .project(for: store.url))
+        XCTAssertEqual(state.translationRevision, revision + 1, "publishing set up")
+        revision = state.translationRevision
+        MaughamEvent.postStatementProposalsChanged(projectURL: store.url)
+        XCTAssertEqual(state.translationRevision, revision + 1, "a proposed brief")
+    }
+
+    /// **No receiver without a window, anywhere in the app**: one declared
+    /// with `window: nil` is never live (`MaughamEvent.isLive(nil)` is false)
+    /// and hears nothing, silently. Four did, for months.
+    func test_noEventReceiverIsDeclaredWithoutAWindow() throws {
+        var found: [String] = []
+        for file in try SourceTree.swiftFiles(under: "Maugham") {
+            found += Self.windowlessReceivers(in: try SourceTree.read(file)).map { "\(file): \($0)" }
+        }
+        XCTAssertEqual(found, [])
+    }
+
+    func test_theWindowlessReceiverCensusSeesAPlantedOffender() {
+        XCTAssertEqual(Self.windowlessReceivers(in: """
+            .onProjectEvent(.maughamPublishInitialized, url: store.url, window: nil) { _ in }
+            .onKeyWindowCommand(.maughamShowPieceFold,
+                                window: nil) { _ in }
+            """).count, 2)
+        // Control: a receiver on its window, and a comment naming the shape.
+        XCTAssertEqual(Self.windowlessReceivers(in: """
+            .onProjectEvent(.maughamPublishInitialized, url: url, window: window) { _ in }
+            // a receiver with `window: nil` hears nothing
+            """), [])
+    }
+
+    /// The receivers in `text` whose window is `nil`, a call spanning lines
+    /// included.
+    static func windowlessReceivers(in text: String) -> [String] {
+        let code = SourceScan.codeLines(of: text).joined(separator: "\n")
+        let pattern = #"\.on(ProjectEvent|KeyWindowCommand)\([^{}]*?window:\s*nil"#
+        guard let regex = try? NSRegularExpression(pattern: pattern) else { return ["bad pattern"] }
+        let range = NSRange(code.startIndex..., in: code)
+        return regex.matches(in: code, range: range).compactMap {
+            Range($0.range, in: code).map { String(code[$0]) }
+        }
+    }
+
     /// An arrival's re-read replaces its own script's Scenes and no other's.
     func test_anArrivalReplacesOnlyItsScriptsScenes() {
         let walk: [PieceFoldEntry] = [.scene(docId: "pc-1", paragraphId: "p1", heading: "INT. A")]

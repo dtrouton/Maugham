@@ -267,9 +267,7 @@ extension ResearchTreeNode {
     fileprivate func homeMenuItems(_ home: ResearchHomeMenu) -> some View {
         if !home.moveTargets.isEmpty {
             Menu(home.moveTitle) {
-                ForEach(home.moveTargets) { target in
-                    Button(target.title) { actions.performHome(target.verb) }
-                }
+                ResearchHomeMoveItems(nodes: home.moveTree, perform: actions.performHome)
             }
         }
         if let remove = home.removeFromThis {
@@ -280,6 +278,24 @@ extension ResearchTreeNode {
         }
         if let alsoIn = home.alsoIn {
             Text(alsoIn)
+        }
+    }
+}
+
+/// Move to Chapter ▸'s items: a chapter's button, a Part's submenu
+/// (`ResearchHomeMenu.MoveNode`).
+private struct ResearchHomeMoveItems: View {
+    let nodes: [ResearchHomeMenu.MoveNode]
+    let perform: (ResearchHomeMenu.Verb) -> Void
+
+    var body: some View {
+        ForEach(nodes) { node in
+            switch node {
+            case .target(let target):
+                Button(target.title) { perform(target.verb) }
+            case .part(_, let title, let children):
+                Menu(title) { ResearchHomeMoveItems(nodes: children, perform: perform) }
+            }
         }
     }
 }

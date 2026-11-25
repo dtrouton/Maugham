@@ -435,6 +435,202 @@ final class BinderTreeDropRoutingTests: XCTestCase {
             .heldAct(.delete, ids: [world.id]))
     }
 
+    // MARK: - Drags and menus out of a fold (fix round 1: I1, I4, I5, M4, M7, M9)
+
+    /// **A drag of three notes out of chapter one's fold moves all three**
+    /// (I1): the rows the drag did not start on take their source from the
+    /// fold each was selected in.
+    func test_aThreeRowDragOutOfAFoldMovesEveryRow() async throws {
+        let store = try await novel(notes: ["Ships", "Tides", "Maps"])
+        let notes = ["Ships", "Tides", "Maps"].compactMap { research(named: $0, in: store) }
+        let one = try XCTUnwrap(store.manifest.structure.first)
+        let two = try await store.addStructureItem(parentId: nil, title: "Two", kind: .document(.markdown))
+        for note in notes { try await store.linkResearch(researchId: note.id, toDocumentId: one.id) }
+        let state = state(for: store)
+        // Three rows chosen in chapter one's fold, the last one pulled up.
+        var chosen = WindowSubject.book
+        chosen.beside = .research(notes[2].id)
+        state.record(selection: Set(notes.map { .research($0.id) }), subject: chosen)
+        for note in notes { state.researchRowFolds[note.id] = one.id }
+
+        let verbs = BinderTreeVerbs(store: store, state: state, subject: .constant(chosen))
+        XCTAssertEqual(Set(verbs.actingIds(forRow: notes[1].id)), Set(notes.map(\.id)), "premise: a batch")
+        verbs.bundle.dragStarted(notes[1].id, one.id)
+        XCTAssertTrue(verbs.routePieceRowDrop(draggedId: notes[1].id, documentId: two.id,
+                                              structureReorder: {}))
+        await settle(store) { store.linkedResearchIds(forDocumentId: one.id).isEmpty }
+        XCTAssertEqual(Set(store.linkedResearchIds(forDocumentId: two.id)), Set(notes.map(\.id)),
+                       "every dragged row moved")
+        XCTAssertNil(state.researchDragSource, "the drop clears the drag's record (M9)")
+    }
+
+    /// **A drag's record goes at the next press** (M9): a drag cancelled in
+    /// this window, then one begun anywhere else, never lends the old source.
+    func test_aPressClearsTheLastDragsSource() {
+        let state = BinderTreeSectionsState()
+        state.researchDragSource = ("n", "ch1")
+        state.pointerWentDown()
+        XCTAssertNil(state.researchDragSource)
+    }
+
+    /// **A move between chapters is one save** (M7): unlinked from one and
+    /// linked to the other together, or neither.
+    func test_aMoveBetweenChaptersIsOneSave() async throws {
+        let store = try await novel(notes: ["Ships"])
+        let note = try XCTUnwrap(research(named: "Ships", in: store))
+        let one = try XCTUnwrap(store.manifest.structure.first)
+        let two = try await store.addStructureItem(parentId: nil, title: "Two", kind: .document(.markdown))
+        try await store.linkResearch(researchId: note.id, toDocumentId: one.id)
+        let saves = store.manifestSaveCount
+        try await verbs(store).relink([note.id], from: [one.id], to: two.id)
+        XCTAssertEqual(store.manifestSaveCount, saves + 1)
+        XCTAssertEqual(store.linkedResearchIds(forDocumentId: one.id), [])
+        XCTAssertEqual(store.linkedResearchIds(forDocumentId: two.id), [note.id])
+    }
+
+    /// **Every link edit asks the posture** (I4): a Finder file dropped on a
+    /// chapter this Mac may not change is refused, its hover shows nothing,
+    /// and nothing is imported.
+    func test_aFinderDropOnAChapterThePostureRefusesIsRefused() async throws {
+        let store = try await novel(notes: [])
+        let chapter = try XCTUnwrap(store.manifest.structure.first)
+        let file = try makeFile(named: "Notes.txt", contents: "x")
+        let before = store.manifest.research.count
+        store.documentStore = nil
+        let verbs = verbs(store)
+        XCTAssertFalse(verbs.routeExternalDrop(providers: [provider(for: file)], position: .middle,
+                                               target: .pieceRow(chapter.id)))
+        XCTAssertEqual(verbs.externalFeedback(on: .pieceRow(chapter.id), position: .middle), .none)
+        XCTAssertEqual(store.manifest.research.count, before, "nothing imported")
+    }
+
+    /// **A fold's New Note links, so it asks too** (I4) — and the answer to
+    /// "is it offered on a view-only share": the row menu offers New Note
+    /// everywhere (only New Table is withheld, `offersNewTable`); in a
+    /// chapter's fold on a Mac that may not change the chapter's links it is
+    /// refused, named, and makes nothing.
+    func test_aFoldsNewNoteIsRefusedWhereThePostureRefusesTheLink() async throws {
+        let store = try await novel(notes: [])
+        let chapter = try XCTUnwrap(store.manifest.structure.first)
+        let state = state(for: store)
+        store.documentStore = nil
+        let fold = TreeHostFixture.foldView(store: store, state: state, subject: .constant(.book),
+                                            documentId: chapter.id, layout: .rows([]))
+        fold.actions.newNote(nil)
+        _ = await pumpUntil(deadline: 5) { state.pendingError != nil }
+        XCTAssertEqual(state.pendingError,
+                       "Couldn’t add to “\(chapter.title)”: this Mac may not change that piece's research links.")
+        XCTAssertTrue(store.manifest.research.filter { $0.role == nil }.isEmpty, "nothing was made")
+        let node = SourceScan.codeLines(of: try SourceTree.read("Maugham/Views/ResearchTree.swift"))
+            .joined(separator: "\n")
+        XCTAssertTrue(node.contains("Button(\"New Note\") {"), "offered on every row")
+    }
+
+    /// **Duplicate from a fold lands in that fold** (M4): the copy of a note
+    /// the chapter links is linked to the chapter too.
+    func test_duplicateFromAFoldLandsInThatFold() async throws {
+        let store = try await novel(notes: ["Ships"])
+        let note = try XCTUnwrap(research(named: "Ships", in: store))
+        let chapter = try XCTUnwrap(store.manifest.structure.first)
+        try await store.linkResearch(researchId: note.id, toDocumentId: chapter.id)
+        let fold = TreeHostFixture.foldView(store: store, state: state(for: store), subject: .constant(.book),
+                                            documentId: chapter.id, layout: .rows([]))
+        fold.actions.duplicate(note.id)
+        await settle(store) { store.linkedResearchIds(forDocumentId: chapter.id).count == 2 }
+        let copy = try XCTUnwrap(research(named: "Copy of Ships", in: store))
+        XCTAssertEqual(store.linkedResearchIds(forDocumentId: chapter.id), [note.id, copy.id])
+        XCTAssertFalse(state(for: store).researchHomes(in: store.manifest).isWholeBook(copy.id),
+                       "not in the Research section")
+    }
+
+    /// **A landing is always in sight** (I5): Move to Chapter into a chapter
+    /// inside a closed Part opens the Part and scrolls to the row; Make
+    /// Whole-Book into a closed group opens the group and scrolls there.
+    func test_aMenuLandingOpensWhatIsAboveItAndScrollsToIt() async throws {
+        let store = try await novel(notes: [])
+        let world = try await store.addResearchItem(parentId: nil, title: "World", kind: nil)
+        let maps = try await store.addResearchTextNote(parentId: world.id, title: "Maps")
+        let part = try await store.addStructureItem(parentId: nil, title: "Part", kind: .group)
+        let deep = try await store.addStructureItem(parentId: part.id, title: "Deep",
+                                                    kind: .document(.markdown))
+        let state = state(for: store)
+        let verbs = verbs(store)
+
+        verbs.performHome(.link(researchId: maps.id, to: deep.id))
+        XCTAssertTrue(state.expandedStructureGroups.contains(part.id), "the Part above opens")
+        XCTAssertTrue(state.folds.isOpen(deep.id))
+        XCTAssertEqual(state.scrollRequest, .foldRow(researchId: maps.id, piece: deep.id))
+        await settle(store) { !store.linkedResearchIds(forDocumentId: deep.id).isEmpty }
+
+        state.scrollRequest = nil
+        verbs.performHome(.unlink(researchId: maps.id, from: [deep.id]))
+        XCTAssertTrue(state.expandedResearchGroups.contains(world.id), "its own group opens")
+        XCTAssertTrue(state.researchSectionExpanded)
+        XCTAssertEqual(state.scrollRequest, .row(.research(maps.id)))
+        await settle(store) { store.linkedResearchIds(forDocumentId: deep.id).isEmpty }
+    }
+
+    /// **A row's drag payload is built when a drag begins, never when the row
+    /// is drawn** (the review's unverifiable point (a)). `ResearchRow` hands
+    /// `.draggable` an autoclosure that records the drag's fold; were SwiftUI
+    /// to evaluate it in the body, every drawn row would record itself and the
+    /// last one drawn would be every drag's "source". Mounted here, both a
+    /// section row and a fold row drawn: nothing is recorded. What remains
+    /// unprovable headless — that a real drag evaluates it once, at its start
+    /// — the design no longer depends on alone: a press clears the record
+    /// (`pointerWentDown`), a drop clears it, the other rows of a drag read the
+    /// fold they were chosen in, and with no record a note in two chapters is
+    /// refused (`ambiguousSource`), never unlinked from the wrong one.
+    func test_aRowsDragPayloadIsNotBuiltWhenTheRowIsDrawn() async throws {
+        let store = try await novel(notes: ["Ships"])
+        let chapter = try XCTUnwrap(store.manifest.structure.first)
+        let tides = try await store.addResearchTextNote(parentId: nil, title: "Tides")
+        try await store.linkResearch(researchId: tides.id, toDocumentId: chapter.id)
+        let state = state(for: store)
+        state.researchSectionExpanded = true
+        state.setFold(chapter.id, open: true)
+        let window = TestWindow.mount(AnyView(DragPayloadProbe(store: store, state: state)),
+                                      size: CGSize(width: 320, height: 800), as: SilentTestWindow.self)
+        windows.append(window)
+        pump(0.4)
+        let outline = try XCTUnwrap(Self.outline(in: window.contentView))
+        XCTAssertGreaterThanOrEqual(outline.numberOfRows, 4,
+                                    "premise: the chapter, its fold's note, the section and its note are drawn")
+        XCTAssertNil(state.researchDragSource, "drawing a row records no drag")
+    }
+
+    private static func outline(in view: NSView?) -> NSOutlineView? {
+        guard let view else { return nil }
+        if let outline = view as? NSOutlineView { return outline }
+        for sub in view.subviews { if let found = outline(in: sub) { return found } }
+        return nil
+    }
+
+    /// **Every link the tree writes goes through one door** (I4): counted per
+    /// file, so a new caller that skips the posture fails here.
+    func test_theStoresLinkVerbsHaveCountedCallers() throws {
+        let verbs = [".linkResearch(", ".unlinkResearch(", ".relinkResearch(", " linkResearch(researchId"]
+        var found: [String: Int] = [:]
+        for file in try SourceTree.swiftFiles(under: "Maugham") {
+            let count = SourceScan.codeLines(of: try SourceTree.read(file)).filter { line in
+                !line.contains("func ") && verbs.contains { line.contains($0) }
+            }.count
+            if count > 0 { found[file] = count }
+        }
+        XCTAssertEqual(found, [
+            // The tree's door: asks the posture, one save.
+            "Maugham/Views/BinderTreeSections.swift": 1,
+            // "Link Research…", opened only where the posture allows.
+            "Maugham/Views/ResearchLinkPickerSheet.swift": 2,
+            // A new note in a document's scope (`createResearchAsset`).
+            "Maugham/Stores/ResearchScope.swift": 1,
+            // The assistant's link tools (its own permission).
+            "Maugham/MCP/Tools/ResearchLinkTools.swift": 2,
+            // A canvas promotion's link.
+            "Maugham/Canvas/PromotionPerformer.swift": 1,
+        ])
+    }
+
     // MARK: - A collection: the piece row moves the file
 
     func test_aNoteDroppedOnALoosePieceMovesIntoThatPiecesFolder() async throws {
@@ -1092,5 +1288,17 @@ private struct DropRoutingProbeView: View {
                 store: store, documentStore: nil,
                 subject: .bridging(Binding(get: { probe.subject },
                                            set: { probe.subject = $0 }))))
+    }
+}
+
+/// The binder as the window mounts it, over a given tree state.
+@MainActor
+private struct DragPayloadProbe: View {
+    let store: ProjectStore
+    let state: BinderTreeSectionsState
+    @State private var subject = WindowSubject.book
+
+    var body: some View {
+        TreeHostFixture.binder(store: store, subject: $subject, treeState: state)
     }
 }

@@ -100,6 +100,10 @@ enum TreeDropIntent {
         /// recorded as the drag's source (`sourcePiece`), unlinking one (or
         /// all) would delete a link the writer never pointed at.
         case ambiguousSource
+        /// A note inside a group a chapter holds: the group is the
+        /// chapter's, and the note moves with it (fix round 1, M8) — what its
+        /// row menu says by offering no link verb.
+        case movesWithItsGroup
         /// A link the posture does not let this Mac change: the chapter's
         /// research links are its structure (`TreeStructureVerbs.linkResearch`).
         case linksNotPermitted
@@ -121,6 +125,7 @@ enum TreeDropIntent {
             case .notAResearchTarget: return "not a research scope target"
             case .alreadyThere: return "already there — the drop changes nothing"
             case .ambiguousSource: return "linked to more than one document"
+            case .movesWithItsGroup: return "it is in a group a chapter holds, and moves with its group"
             case .linksNotPermitted: return "this Mac may not change that piece's research links"
             case .linkedFoldHasNoOrder:
                 return "a linked chapter's research has no order of its own to set"
@@ -179,6 +184,25 @@ enum TreeDropIntent {
         figures: [FigureRecord],
         projectType: ProjectType
     ) -> Intent {
+        classify(payloadId: payloadId, target: target, sourcePiece: sourcePiece,
+                 structure: structure, research: research, figures: figures,
+                 projectType: projectType,
+                 homes: ResearchHomes.derive(structure: structure, research: research,
+                                             projectType: projectType))
+    }
+
+    /// The same, over the window's own `homes` for these values — what the
+    /// tree's drops pass, so a batch or a hover derives nothing (M3).
+    static func classify(
+        payloadId: String,
+        target: Target,
+        sourcePiece: String?,
+        structure: [StructureItem],
+        research: [ResearchItem],
+        figures: [FigureRecord],
+        projectType: ProjectType,
+        homes: ResearchHomes
+    ) -> Intent {
         if let dragged = TreeWalk.find(id: payloadId, in: research) {
             if isFigures(target) {
                 guard projectType.holdsFigures, FigureActions.makesAFigure(dragged) else {
@@ -186,11 +210,27 @@ enum TreeDropIntent {
                 }
                 return .useInDocument(researchId: dragged.id)
             }
+            // **A note inside a group a chapter holds moves with its group**
+            // (fix round 1, M8): it is no row of its own to give or take —
+            // not to the section, a section row or another chapter — as its
+            // menu says by offering no link verb. Only a reorder inside the
+            // group, in the fold that draws it, is its own (I8).
+            if heldByItsGroup(dragged.id, homes: homes) {
+                if case .pieceRow(let documentId) = target,
+                   homes.homes(of: dragged.id).contains(documentId) {
+                    return .refuse(.alreadyThere)
+                }
+                if case .foldRow(let rowId, let documentId) = target,
+                   homes.homes(of: dragged.id).contains(documentId) {
+                    return sharesItsGroup(dragged.id, with: rowId, in: research)
+                        ? .researchReorder : .refuse(.movesWithItsGroup)
+                }
+                return .refuse(.movesWithItsGroup)
+            }
             return classifyResearch(
                 dragged: dragged, target: target, sourcePiece: sourcePiece,
                 structure: structure, research: research, projectType: projectType,
-                homes: ResearchHomes.derive(structure: structure, research: research,
-                                            projectType: projectType))
+                homes: homes)
         }
         if figures.contains(where: { $0.id == payloadId }) {
             return classifyFigure(payloadId, target: target, structure: structure,
@@ -211,6 +251,23 @@ enum TreeDropIntent {
             }
         }
         return .refuse(.unknownId)
+    }
+
+    /// A piece's only through the group above it: no link of its own and no
+    /// folder of a Collection piece.
+    private static func heldByItsGroup(_ id: String, homes: ResearchHomes) -> Bool {
+        !homes.homes(of: id).isEmpty && homes.links(of: id).isEmpty && homes.owner(of: id) == nil
+    }
+
+    /// Whether `id` and the row `rowId` sit in the same research group.
+    private static func sharesItsGroup(_ id: String, with rowId: String,
+                                       in research: [ResearchItem]) -> Bool {
+        guard rowId != id else { return false }
+        let parent = { (child: String) in
+            TreeWalk.first(in: research, where: { ($0.children ?? []).contains { $0.id == child } })?.id
+        }
+        guard let mine = parent(id) else { return false }
+        return parent(rowId) == mine
     }
 
     private static func isFigures(_ target: Target) -> Bool {
@@ -691,8 +748,7 @@ enum TreeDropFeedback: Equatable {
         case .link, .moveLink, .useInDocument:
             return .into
         case .unlink:
-            // Into the section; beside a section row, where it lands in place.
-            if case .researchRow = target { return .beside }
+            // Into the section, wherever on it: it keeps no position (M5).
             return .into
         case .researchReorder, .structureReorder:
             return .beside

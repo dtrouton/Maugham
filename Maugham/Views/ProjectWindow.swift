@@ -530,7 +530,7 @@ struct ProjectWindow: View {
             // The Parts above it, opened: a chapter inside a closed Part has
             // no row to scroll to.
             treeState.openStructureAncestors(of: id, in: store?.manifest.structure ?? [])
-            treeState.expandedPieceFolds.insert(id)
+            treeState.setFold(id, open: true)
             treeState.scrollRequest = .row(.item(id))
         }
         // App quit closes the stores in one place, before `willTerminate`:

@@ -262,6 +262,7 @@ extension ProjectStore {
     }
 
     func saveManifest() async throws {
+        manifestSaveCount += 1
         // A save is a structural verb of its own: a manifest arriving across
         // its `await` is held and settled after the write, never adopted over
         // the copy being written (F7 fix round, I1).
@@ -1119,6 +1120,40 @@ extension ProjectStore {
             manifest.modified = Date()
             try await saveManifest()
         }
+    }
+
+    /// **Several research items' links, edited in one manifest save** (shell
+    /// p5 Task 4a fix round 1, M7): each of `ids` is unlinked from every
+    /// piece in `from`, then linked to `to` — a move between chapters is one
+    /// write, never an unlink that saved and a link that did not. Idempotent.
+    public func relinkResearch(ids: [String], from: [String], to: String?) async throws {
+        var structure = manifest.structure
+        var changed = false
+        for documentId in from {
+            Self.applyLinkMutation(documentId: documentId, in: &structure) { item in
+                guard var links = item.linkedResearchIds else { return }
+                let before = links.count
+                links.removeAll { ids.contains($0) }
+                if links.count != before {
+                    item.linkedResearchIds = links.isEmpty ? nil : links
+                    changed = true
+                }
+            }
+        }
+        if let to {
+            Self.applyLinkMutation(documentId: to, in: &structure) { item in
+                var links = item.linkedResearchIds ?? []
+                for id in ids where !links.contains(id) {
+                    links.append(id)
+                    changed = true
+                }
+                item.linkedResearchIds = links.isEmpty ? nil : links
+            }
+        }
+        guard changed else { return }
+        manifest.structure = structure
+        manifest.modified = Date()
+        try await saveManifest()
     }
 
     /// Remove a research link. Idempotent.

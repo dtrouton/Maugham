@@ -37,6 +37,19 @@ struct TreeWindowWiring: ViewModifier {
             .onProjectEvent(.maughamCanvasNodesAdded, url: url, window: window) { _ in
                 state.closedCanvasWrites += 1
             }
+            // **The Editions rows' arrivals** (shell p5 Task 4a fix round 1):
+            // a translation written, publishing set up, a proposed edition
+            // brief each move the rows' key. They lived on the sections with
+            // no window, and so never fired (`MaughamEvent.isLive(nil)`).
+            .onProjectEvent(.maughamTranslationDidUpdate, url: url, window: window) { _ in
+                state.translationRevision += 1
+            }
+            .onProjectEvent(.maughamPublishInitialized, url: url, window: window) { _ in
+                state.translationRevision += 1
+            }
+            .onProjectEvent(.maughamStatementProposalsChanged, url: url, window: window) { _ in
+                state.translationRevision += 1
+            }
             // **A Collection script's Scenes** (`PieceFoldIndexing`): the
             // editor's re-parse moves their key; a peer's sync into a closed
             // script re-reads that script (shell p5 Task 4). Here, on the
@@ -80,22 +93,20 @@ struct TreeWindowWiring: ViewModifier {
                              foldRow: state.selectedFoldRow)
                 subject = next
             }
-            // **A landing on a piece opens its fold** (`TreeFoldAutoOpen`): at
-            // once from the pointer, after the settle delay from the keys —
-            // cancelled by the next landing.
-            .task(id: state.pendingFoldOpen) {
-                guard let pending = state.pendingFoldOpen else { return }
-                if pending.settles {
-                    try? await Task.sleep(for: TreeRowSettle.delay)
-                    guard !Task.isCancelled, state.pendingFoldOpen == pending else { return }
+            // **A press ends the last drag's record** (M9): a drag begins with
+            // a press and records its fold after it, so a cancelled drag, or
+            // one from another window, never lends this window its source.
+            .onAppear {
+                guard state.pressMonitor == nil else { return }
+                state.pressMonitor = NSEvent.addLocalMonitorForEvents(matching: .leftMouseDown) {
+                    [weak state] event in
+                    state?.pointerWentDown()
+                    return event
                 }
-                state.pendingFoldOpen = nil
-                if TreeFoldAutoOpen.opens(
-                    pending, now: ProcessInfo.processInfo.systemUptime, subject: subject,
-                    foldHoldsAnything: state.foldIndex.layout(of: pending.piece) != nil,
-                    foldIsOpen: state.expandedPieceFolds.contains(pending.piece)) {
-                    state.expandedPieceFolds.insert(pending.piece)
-                }
+            }
+            .onDisappear {
+                if let monitor = state.pressMonitor { NSEvent.removeMonitor(monitor) }
+                state.pressMonitor = nil
             }
             // Return / Space shows what it pulled up (`ProjectWindow.revealPulledUp`).
             .onChange(of: state.pulledUpRevealRequests) { _, _ in

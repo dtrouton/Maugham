@@ -670,6 +670,30 @@ final class ReadThroughResearchSurfaceTests: XCTestCase {
         XCTAssertEqual(writingEditor.coordinator?.lockEditing, false, "control: Resume, and it edits")
     }
 
+    /// **A note a novel's chapter LINKS reads with the chapter; a whole-book
+    /// note edits** (shell p5 Task 4a, owner confirmed 2026-11-25; M6): the
+    /// linked owner the Annotations claims name beside a piece's folder.
+    func test_aChaptersLinkedNoteReadsInTheCentre_aWholeBookNoteEdits() async throws {
+        let store = try await open(try await ProjectFactory.createNovelProject(named: "Linked", in: folder))
+        let chapter = try XCTUnwrap(store.manifest.structure.first)
+        let linked = try await store.addResearchTextNote(parentId: nil, title: "Tide")
+        try await store.linkResearch(researchId: linked.id, toDocumentId: chapter.id)
+        let whole = try await store.addResearchTextNote(parentId: nil, title: "Ships")
+        for note in [linked, whole] {
+            try Data(Self.noteText.utf8).write(to: store.url.appendingPathComponent(try XCTUnwrap(note.path)))
+        }
+        let suite = "read-through-research-\(UUID().uuidString)"
+        defaultsSuites.append(suite)
+        let f = Fixture(store: store, documentStore: try XCTUnwrap(store.documentStore), piece: chapter,
+                        pieceNote: linked, sharedNote: whole,
+                        gate: ReadThroughModifier.gate(gateInputs(store, pieces: [chapter.id])),
+                        preferences: UserPreferences(defaults: UserDefaults(suiteName: suite)!))
+        let reading = try await editor(showing: Self.noteText, in: mountCentre(f, itemID: linked.id, gate: f.gate))
+        XCTAssertEqual(reading.coordinator?.lockEditing, true, "the chapter's linked note reads")
+        let editing = try await editor(showing: Self.noteText, in: mountCentre(f, itemID: whole.id, gate: f.gate))
+        XCTAssertEqual(editing.coordinator?.lockEditing, false, "a whole-book note edits")
+    }
+
     /// **The line over a read-through piece's note takes its own height
     /// only** (I1): the note's editor starts right under it and gives up
     /// exactly that height, measured mounted against the same note writing.
