@@ -398,6 +398,8 @@ never by read-through; pinned through the real menu builder, with the menu table
 
 ## The menus, on paper (for Denver to approve before Task 7)
 
+**APPROVED by Denver, 2026-11-25** ("happy with your recommendations and rest as proposed is good"): all four ★ rows yes; every other row as proposed. Rows 24, 25 and 28 are built (read-through, ADR 0039; the margin, Task 2). Added since: Edit ▸ Comment… (Task 7), and the research rows' "Move to Chapter ▸" / "Make Whole-Book" / "Remove from …" (Task 4a).
+
 ★ = a product choice for Denver; every other row is the agent's call, his to overrule. "Keep" rows were reviewed and change nothing. A slot is another plan's.
 
 | # | Menu | Item | Today | Proposed | Why |
