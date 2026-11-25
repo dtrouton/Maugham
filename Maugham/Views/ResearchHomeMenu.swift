@@ -87,3 +87,92 @@ struct ResearchHomeMenu: Equatable {
             alsoIn: others.isEmpty ? nil : alsoInLine(others.map(title)))
     }
 }
+
+/// **A Research-section group's Delete or Move, when a piece holds something
+/// beneath it** (fix round 1, the owner's ruling on I2): the verb acts only
+/// on what the section draws under the row, and the question says plainly
+/// what goes and what stays before anything does.
+///
+/// - **Delete** trashes the whole-book subtrees (`ResearchHomes.Take.taken`);
+///   what a piece holds is not touched, and the group stays on as their
+///   group — drawn nowhere once it holds only theirs (`isContainer`), its
+///   name still in their place ("World / Maps"). No file of theirs moves.
+/// - **Move** lifts what pieces hold out of the group first, to where the
+///   group stands, then moves the group: it arrives with its whole-book
+///   research, and they stay with their pieces.
+///
+/// Nil where nothing beneath the rows is a piece's: the verb is the plain
+/// one. Pure.
+struct HeldResearchAct: Equatable {
+    enum Verb: Equatable {
+        case delete
+        case move(ResearchMoveTarget)
+    }
+
+    /// The held items under one row, lifted to where that row stands.
+    struct Lift: Equatable {
+        let ids: [String]
+        let to: ResearchMoveTarget
+    }
+
+    let verb: Verb
+    /// The rows the writer acted on.
+    let ids: [String]
+    let take: ResearchHomes.Take
+    let lifts: [Lift]
+    let title: String
+    let message: String
+    let confirmTitle: String
+
+    /// `noun`: the project's word for a piece ("chapter").
+    static func of(_ verb: Verb, ids: [String], homes: ResearchHomes,
+                   research: [ResearchItem], structure: [StructureItem],
+                   noun: String) -> HeldResearchAct? {
+        let take = homes.take(ids, in: research)
+        guard !take.held.isEmpty else { return nil }
+        func title(_ id: String) -> String { TreeWalk.find(id: id, in: research)?.title ?? id }
+        func parent(of id: String) -> String? {
+            TreeWalk.first(in: research, where: { ($0.children ?? []).contains { $0.id == id } })?.id
+        }
+        var lifts: [Lift] = []
+        if case .move = verb {
+            for id in ids where take.staying.contains(id) {
+                guard let row = TreeWalk.find(id: id, in: research) else { continue }
+                let under = take.held.filter { TreeWalk.contains(id: $0, in: row.children ?? []) }
+                guard !under.isEmpty else { continue }
+                lifts.append(Lift(ids: under, to: parent(of: id).map { .group($0) } ?? .sharedRoot))
+            }
+        }
+        let named = ids.count == 1 ? "“\(title(ids[0]))”" : "\(ids.count) items"
+        let kept = take.held.map { id -> String in
+            let pieces = homes.homes(of: id).map { homes.pieceTitles[$0] ?? $0 }
+            return "“\(title(id))” (\(pieces.joined(separator: ", ")))"
+        }
+        let keptLine = kept.count == 1
+            ? "\(kept[0]) is a \(noun)’s and stays with it"
+            : "\(kept.dropLast().joined(separator: ", ")) and \(kept.last!) are \(noun)s’ and stay with them"
+        switch verb {
+        case .delete:
+            let goes = take.taken.isEmpty
+                ? "Nothing of the book’s is under it to delete."
+                : "Its whole-book research goes to the Trash."
+            return HeldResearchAct(
+                verb: verb, ids: ids, take: take, lifts: lifts,
+                title: "Delete \(named)?",
+                message: "\(goes) \(keptLine); \(ids.count == 1 ? "the group stays as their group" : "their groups stay"), out of the Research section.",
+                confirmTitle: "Delete")
+        case .move(let target):
+            let to: String
+            switch target {
+            case .sharedRoot: to = "Research"
+            case .group(let id): to = "“\(title(id))”"
+            case .piece(let id): to = "“\(TreeWalk.find(id: id, in: structure)?.title ?? id)”"
+            }
+            return HeldResearchAct(
+                verb: verb, ids: ids, take: take, lifts: lifts,
+                title: "Move \(named) to \(to)?",
+                message: "It goes with its whole-book research. \(keptLine): lifted out first, \(kept.count == 1 ? "it stays" : "they stay") where \(named) was.",
+                confirmTitle: "Move")
+        }
+    }
+}

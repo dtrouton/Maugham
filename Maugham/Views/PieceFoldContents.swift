@@ -287,6 +287,49 @@ struct PieceFoldIndex: Equatable {
     /// The layout of `docId`'s fold; nil for an empty fold (no chevron).
     func layout(of docId: String) -> PieceFoldLayout? { layouts[docId] }
 
+    /// **The layout a host draws: this index, its research rows read from
+    /// `homes`** (fix round 1 of shell p5 Task 4a, I6) — the homes the
+    /// Research section draws from, in the same pass. The index is built in a
+    /// task, on the manifest's stamp; the section reads the live manifest. A
+    /// link edit therefore left a note in neither place until the task ran,
+    /// and for good where the homes moved under an unchanged stamp (a synced
+    /// manifest). Asked here, a note leaves the section in the very pass it
+    /// arrives in its fold. What a card claims stays the card's row.
+    ///
+    /// A lookup and a compare of this fold's own research ids; only a fold
+    /// whose research changed since the index was built lays out again. A
+    /// piece that keeps no fold of its own (a single document's) keeps the
+    /// index's rows.
+    func layout(of docId: String, homes: ResearchHomes) -> PieceFoldLayout? {
+        guard homes.isAHome(docId) else { return layouts[docId] }
+        let rows = entries[docId] ?? []
+        var claimed = Set<String>()
+        var built: [String] = []
+        for row in rows {
+            switch row {
+            case .research(let id, _, _): built.append(id)
+            case .card(let ref): claimed.insert(ref.id)
+            case .region(_, _, let cards): for card in cards { claimed.insert(card.id) }
+            case .palette(let id, _): claimed.insert(id)
+            case .figure, .link, .scene: break
+            }
+        }
+        let live = homes.foldRoots(of: docId).filter { !claimed.contains($0.id) }
+        guard live.map(\.id) != built else { return layouts[docId] }
+        let scenes = rows.filter { if case .scene = $0 { return true }; return false }
+        let rest = rows.filter {
+            switch $0 {
+            case .research, .scene: return false
+            default: return true
+            }
+        }
+        let research = live.map {
+            PieceFoldEntry.research(id: $0.id, title: $0.title, owned: homes.owner(of: $0.id) == docId)
+        }
+        let merged = scenes + research + rest
+        return merged.isEmpty ? nil : PieceFoldLayout.of(merged, alwaysGroups: alwaysGrouped.contains(docId))
+    }
+
     static let empty = PieceFoldIndex(entries: [:])
 
     /// **This index with each script's Scenes in place** (shell p4 Task 10):

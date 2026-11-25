@@ -256,7 +256,7 @@ struct CollectionPiecesPane: View {
     private func pieceEntry(for piece: StructureItem) -> some View {
         // Looked up in the window's fold index (shell p3 Task 7), never
         // computed per row (tripwire 4).
-        if let layout = treeState.foldIndex.layout(of: piece.id) {
+        if let layout = treeState.foldLayout(of: piece.id, in: store.manifest) {
             // Bound for `BinderView.documentEntry`'s reason exactly (stage-3b
             // Task 7): the window's reveal opens a piece's fold, and it can
             // only open a flag it can reach.

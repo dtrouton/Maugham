@@ -325,6 +325,116 @@ final class BinderTreeDropRoutingTests: XCTestCase {
             "…and the reorder happened: Ships moved above Tides")
     }
 
+    // MARK: - A whole-book group over a chapter's notes (fix round 1, I2)
+
+    /// "World" holds Maps (Chapter One's), Tides (Five's) and Coast (the
+    /// book's). The section draws World with Coast alone.
+    private func worldOverTwoChapters() async throws
+        -> (ProjectStore, world: ResearchItem, maps: ResearchItem, tides: ResearchItem,
+            coast: ResearchItem, one: StructureItem, five: StructureItem) {
+        let store = try await novel(notes: [])
+        let world = try await store.addResearchItem(parentId: nil, title: "World", kind: nil)
+        let maps = try await store.addResearchTextNote(parentId: world.id, title: "Maps")
+        let tides = try await store.addResearchTextNote(parentId: world.id, title: "Tides")
+        let coast = try await store.addResearchTextNote(parentId: world.id, title: "Coast")
+        let one = try XCTUnwrap(store.manifest.structure.first)
+        let five = try await store.addStructureItem(parentId: nil, title: "Five",
+                                                    kind: .document(.markdown))
+        try await store.linkResearch(researchId: maps.id, toDocumentId: one.id)
+        try await store.linkResearch(researchId: tides.id, toDocumentId: five.id)
+        return (store, world, maps, tides, coast, one, five)
+    }
+
+    private func onDisk(_ item: ResearchItem, _ store: ProjectStore) -> Bool {
+        guard let live = TreeWalk.find(id: item.id, in: store.manifest.research),
+              let path = live.path else { return false }
+        return FileManager.default.fileExists(atPath: store.url.appendingPathComponent(path).path)
+    }
+
+    /// **Delete on a group the section draws with one note trashes that one
+    /// note**: the two chapters' notes stay in their folds, on disk and in the
+    /// manifest, and the question named them before anything went.
+    func test_aWholeBookGroupsDeleteTrashesOnlyWhatTheSectionShows() async throws {
+        let (store, world, maps, tides, coast, one, five) = try await worldOverTwoChapters()
+        let state = state(for: store)
+        XCTAssertEqual(state.researchHomes(in: store.manifest).wholeBook
+            .first { $0.id == world.id }?.children?.map(\.id), [coast.id],
+                       "premise: the section shows World with Coast alone")
+
+        verbs(store).bundle.delete(world.id)
+
+        guard case .confirmHeld(let act)? = state.pendingAlert else {
+            return XCTFail("a group over chapters' notes asks first; nothing was deleted yet")
+        }
+        XCTAssertTrue(onDisk(coast, store), "nothing goes before the answer")
+        XCTAssertEqual(act.take.taken, [coast.id])
+        XCTAssertEqual(act.take.held, [maps.id, tides.id])
+        XCTAssertEqual(act.confirmTitle, "Delete")
+        XCTAssertTrue(act.message.contains("“Maps” (\(one.title))"), act.message)
+        XCTAssertTrue(act.message.contains("“Tides” (Five)"), act.message)
+        XCTAssertTrue(act.message.contains("Trash"), act.message)
+
+        try await BinderTreeVerbs.performHeld(act, store: store)
+
+        XCTAssertNil(TreeWalk.find(id: coast.id, in: store.manifest.research), "Coast went")
+        for kept in [maps, tides] {
+            XCTAssertNotNil(TreeWalk.find(id: kept.id, in: store.manifest.research), kept.title)
+            XCTAssertTrue(onDisk(kept, store), "\(kept.title) is still on disk")
+        }
+        XCTAssertNotNil(TreeWalk.find(id: world.id, in: store.manifest.research),
+                        "World stays on as their group")
+        let homes = state.researchHomes(in: store.manifest)
+        XCTAssertTrue(homes.isContainer(world.id), "…drawn nowhere: it holds only theirs")
+        XCTAssertFalse(homes.wholeBook.contains { $0.id == world.id },
+                       "no empty-looking group carries notes in the section")
+        XCTAssertEqual(homes.place(of: maps.id), "World", "their place still names it")
+        for (note, chapter) in [(maps, one), (tides, five)] {
+            guard case .rows(let rows)? = state.foldLayout(of: chapter.id, in: store.manifest) else {
+                return XCTFail("\(chapter.title) draws a fold")
+            }
+            XCTAssertTrue(rows.contains(.research(id: note.id, title: note.title, owned: false)),
+                          "\(note.title) is in \(chapter.title)'s fold")
+        }
+    }
+
+    /// **Move takes the group and its whole-book research; the chapters'
+    /// notes are lifted out first** and stay with their chapters, where the
+    /// group stood.
+    func test_aWholeBookGroupsMoveLeavesTheChaptersNotes() async throws {
+        let (store, world, maps, tides, coast, one, five) = try await worldOverTwoChapters()
+        let places = try await store.addResearchItem(parentId: nil, title: "Places", kind: nil)
+        let state = state(for: store)
+
+        verbs(store).bundle.move([world.id], .group(places.id))
+
+        guard case .confirmHeld(let act)? = state.pendingAlert else {
+            return XCTFail("a group over chapters' notes asks first")
+        }
+        XCTAssertEqual(act.title, "Move “World” to “Places”?")
+        XCTAssertEqual(act.lifts, [HeldResearchAct.Lift(ids: [maps.id, tides.id], to: .sharedRoot)])
+        try await BinderTreeVerbs.performHeld(act, store: store)
+
+        let movedWorld = try XCTUnwrap(TreeWalk.find(id: places.id, in: store.manifest.research)?
+            .children?.first { $0.id == world.id }, "World is in Places")
+        XCTAssertEqual(movedWorld.children?.map(\.id), [coast.id], "with Coast, and only Coast")
+        XCTAssertEqual(Set(store.manifest.research.map(\.id)).intersection([maps.id, tides.id]),
+                       [maps.id, tides.id], "the chapters' notes stand where World stood")
+        XCTAssertEqual(store.linkedResearchIds(forDocumentId: one.id), [maps.id])
+        XCTAssertEqual(store.linkedResearchIds(forDocumentId: five.id), [tides.id])
+        for note in [maps, tides, coast] { XCTAssertTrue(onDisk(note, store), note.title) }
+    }
+
+    /// The control: a group with nothing of a chapter's under it deletes as
+    /// it always did, asking nothing.
+    func test_control_aPlainGroupDeletesWithoutAsking() async throws {
+        let store = try await novel(notes: [])
+        let world = try await store.addResearchItem(parentId: nil, title: "World", kind: nil)
+        _ = try await store.addResearchTextNote(parentId: world.id, title: "Coast")
+        let state = state(for: store)
+        XCTAssertNil(BinderTreeVerbs(store: store, state: state, subject: .constant(.book))
+            .heldAct(.delete, ids: [world.id]))
+    }
+
     // MARK: - A collection: the piece row moves the file
 
     func test_aNoteDroppedOnALoosePieceMovesIntoThatPiecesFolder() async throws {

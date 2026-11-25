@@ -28,7 +28,9 @@ import MaughamCore
 /// `foldRoots` — each item homed there whose group is not — and their groups
 /// whole beneath them. So every item has a row: a whole-book item in the
 /// section (its groups are whole-book too, since a group's homes are its
-/// items'), a homed one under each home (`ResearchHomesTests`' property test).
+/// items'), a homed one under each home (`ResearchHomesTests`' property test)
+/// — save a whole-book group holding only pieces' items, which is their
+/// group on disk and drawn nowhere (`isContainer`).
 ///
 /// Pure, over manifest values: one walk of the structure and one of the
 /// research tree (`visited`), cached by the window per manifest
@@ -52,17 +54,28 @@ struct ResearchHomes {
     private let wholeBookIds: Set<String>
     private let pieceRank: [String: Int]
     private let linkingPieces: Set<String>
+    /// Whole-book groups drawn nowhere: each holds only what pieces hold.
+    private let containerIds: Set<String>
+    /// Whole-book items with something a piece holds somewhere beneath them.
+    private let holdingIds: Set<String>
+    /// Each piece's Parts, outermost first (`parts(of:)`).
+    private let partsByPiece: [String: [StructureItem]]
 
     static let empty = ResearchHomes(
         wholeBook: [], pieceOrder: [], pieceTitles: [:], visited: 0, homesById: [:],
         linksById: [:], ownerById: [:], rootsByPiece: [:], placeById: [:],
-        wholeBookIds: [], pieceRank: [:], linkingPieces: [])
+        wholeBookIds: [], pieceRank: [:], linkingPieces: [], containerIds: [], holdingIds: [],
+        partsByPiece: [:])
 
     private init(wholeBook: [ResearchItem], pieceOrder: [String], pieceTitles: [String: String],
                  visited: Int, homesById: [String: [String]], linksById: [String: [String]],
                  ownerById: [String: String], rootsByPiece: [String: [ResearchItem]],
                  placeById: [String: String], wholeBookIds: Set<String>, pieceRank: [String: Int],
-                 linkingPieces: Set<String>) {
+                 linkingPieces: Set<String>, containerIds: Set<String>, holdingIds: Set<String>,
+                 partsByPiece: [String: [StructureItem]]) {
+        self.containerIds = containerIds
+        self.holdingIds = holdingIds
+        self.partsByPiece = partsByPiece
         self.wholeBook = wholeBook
         self.pieceOrder = pieceOrder
         self.pieceTitles = pieceTitles
@@ -117,6 +130,59 @@ struct ResearchHomes {
     /// (a novel's chapter, `.sharedPlusLink`): what a link verb may target.
     func takesLinks(_ piece: String) -> Bool { linkingPieces.contains(piece) }
 
+    /// **A whole-book group that holds only what pieces hold** (fix round 1,
+    /// the owner's ruling on I2): it stays on disk as their group — their
+    /// place reads "World / Maps" — and is drawn nowhere, so no group in the
+    /// Research section looks empty while carrying notes. A genuinely empty
+    /// group is not one: it holds nothing at all, and is drawn.
+    func isContainer(_ id: String) -> Bool { containerIds.contains(id) }
+
+    /// The Parts above `piece`, outermost first (`ResearchHomeMenu`'s nesting).
+    func parts(of piece: String) -> [StructureItem] { partsByPiece[piece] ?? [] }
+
+    /// **What a verb on rows aimed at `ids` acts on** (fix round 1, I2): a
+    /// Research-section row acts only on what the section draws under it. A
+    /// piece's item beneath it is `held` — it stays, whole, with its piece —
+    /// and a group with such an item beneath it `stays` as their group; every
+    /// other subtree is `taken` whole. A row drawn in a fold (not the book's)
+    /// is that fold's: it is taken as itself. Pure; ids in visit order, each
+    /// once.
+    struct Take: Equatable {
+        var taken: [String] = []
+        var held: [String] = []
+        var staying: [String] = []
+    }
+
+    func take(_ ids: [String], in research: [ResearchItem]) -> Take {
+        var out = Take()
+        var seen = Set<String>()
+        let found = ids.compactMap { TreeWalk.find(id: $0, in: research) }
+        // A fold's row first: chosen there, it is taken as itself.
+        for item in found where !wholeBookIds.contains(item.id) && !containerIds.contains(item.id)
+            && seen.insert(item.id).inserted {
+            out.taken.append(item.id)
+        }
+        func visit(_ item: ResearchItem) {
+            guard seen.insert(item.id).inserted else { return }
+            if homesById[item.id] != nil { out.held.append(item.id); return }
+            guard holdingIds.contains(item.id) else { out.taken.append(item.id); return }
+            out.staying.append(item.id)
+            for child in item.children ?? [] { visit(child) }
+        }
+        for item in found where wholeBookIds.contains(item.id) || containerIds.contains(item.id) {
+            visit(item)
+        }
+        // A row inside a subtree already taken goes with it.
+        var under = Set<String>()
+        for item in out.taken.compactMap({ TreeWalk.find(id: $0, in: research) }) {
+            for inner in TreeWalk.collect(in: item.children ?? [], where: { _ in true }) {
+                under.insert(inner.id)
+            }
+        }
+        out.taken = out.taken.filter { !under.contains($0) }
+        return out
+    }
+
     // MARK: - The derivation
 
     /// One walk of each tree. `projectType` decides which documents keep a fold
@@ -131,7 +197,8 @@ struct ResearchHomes {
         /// Each piece's links, by the order it made them.
         var linkOrder: [String: [String: Int]] = [:]
         var linkingPieces = Set<String>()
-        func walkStructure(_ items: [StructureItem]) {
+        var partsByPiece: [String: [StructureItem]] = [:]
+        func walkStructure(_ items: [StructureItem], parts: [StructureItem] = []) {
             for item in items {
                 visited += 1
                 if item.type == .document, let routing = try? ProjectStore.researchRouting(
@@ -142,6 +209,7 @@ struct ResearchHomes {
                         pieceRank[item.id] = pieceOrder.count
                         pieceOrder.append(item.id)
                         pieceTitles[item.id] = item.title
+                        if !parts.isEmpty { partsByPiece[item.id] = parts }
                         for (index, rid) in (item.linkedResearchIds ?? []).enumerated()
                         where linkers[rid]?.contains(item.id) != true {
                             linkers[rid, default: []].append(item.id)
@@ -151,7 +219,8 @@ struct ResearchHomes {
                         break
                     }
                 }
-                walkStructure(item.children ?? [])
+                walkStructure(item.children ?? [],
+                              parts: item.type == .group ? parts + [item] : parts)
             }
         }
         walkStructure(structure)
@@ -165,6 +234,8 @@ struct ResearchHomes {
         var rootsByPiece: [String: [ResearchItem]] = [:]
         var placeById: [String: String] = [:]
         var wholeBookIds = Set<String>()
+        var containerIds = Set<String>()
+        var holdingIds = Set<String>()
 
         func ranked(_ pieces: Set<String>) -> [String] {
             pieces.sorted { (pieceRank[$0] ?? .max) < (pieceRank[$1] ?? .max) }
@@ -191,6 +262,14 @@ struct ResearchHomes {
                 if !groups.isEmpty, ordered.contains(where: { !inherited.contains($0) }) {
                     placeById[item.id] = groups.joined(separator: " / ")
                 }
+                return nil
+            }
+            let children = item.children ?? []
+            if kept.count < children.count { holdingIds.insert(item.id) }
+            // Every child is a piece's (or such a group): a container, drawn
+            // nowhere (`isContainer`).
+            if !children.isEmpty, kept.isEmpty {
+                containerIds.insert(item.id)
                 return nil
             }
             wholeBookIds.insert(item.id)
@@ -220,7 +299,8 @@ struct ResearchHomes {
             wholeBook: wholeBook, pieceOrder: pieceOrder, pieceTitles: pieceTitles,
             visited: visited, homesById: homesById, linksById: linksById,
             ownerById: ownerById, rootsByPiece: rootsByPiece, placeById: placeById,
-            wholeBookIds: wholeBookIds, pieceRank: pieceRank, linkingPieces: linkingPieces)
+            wholeBookIds: wholeBookIds, pieceRank: pieceRank, linkingPieces: linkingPieces,
+            containerIds: containerIds, holdingIds: holdingIds, partsByPiece: partsByPiece)
     }
 }
 
@@ -235,16 +315,36 @@ final class ResearchHomesCache {
     private var value = ResearchHomes.empty
     /// How many times this cache derived — the cost pin's count.
     private(set) var derivations = 0
+    /// How many times a lookup had to compare contents, its arrays not the
+    /// ones the key holds — an equal manifest in new buffers (an adopted
+    /// one). The key then takes the new buffers, so it happens once (M3).
+    private(set) var contentCompares = 0
 
     func homes(structure: [StructureItem], research: [ResearchItem],
                projectType: ProjectType) -> ResearchHomes {
-        if let key, key.type == projectType, key.structure == structure, key.research == research {
-            return value
+        if let key, key.type == projectType {
+            if Self.sameBuffer(key.structure, structure), Self.sameBuffer(key.research, research) {
+                return value
+            }
+            contentCompares += 1
+            if key.structure == structure, key.research == research {
+                self.key = (structure, research, projectType)
+                return value
+            }
         }
         value = ResearchHomes.derive(structure: structure, research: research,
                                      projectType: projectType)
         key = (structure, research, projectType)
         derivations += 1
         return value
+    }
+
+    /// Whether two arrays share one buffer — the comparison that costs nothing.
+    private static func sameBuffer<T>(_ a: [T], _ b: [T]) -> Bool {
+        guard a.count == b.count else { return false }
+        if a.isEmpty { return true }
+        return a.withUnsafeBufferPointer { pa in
+            b.withUnsafeBufferPointer { pb in pa.baseAddress == pb.baseAddress }
+        }
     }
 }

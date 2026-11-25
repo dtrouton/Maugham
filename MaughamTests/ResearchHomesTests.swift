@@ -146,62 +146,169 @@ final class ResearchHomesTests: XCTestCase {
 
     /// **Every research item has a row, always** — over generated books:
     /// nested groups, items linked to no chapter, one, two, a missing piece,
-    /// linked groups, in a novel and a Collection. A row is counted where the
-    /// tree draws it: the Research section's tree (`wholeBook`), and each
-    /// piece's fold as `PieceFoldIndex.entries` lists it (the drawn layer, each
-    /// root with its subtree). Either/or: an item drawn in the section is in
-    /// no fold, and one in a fold is not in the section; no fold draws an item
-    /// twice; and the read-through gate's owners are its homes.
+    /// linked groups, Parts nested deep, a card claiming a note, in a novel,
+    /// a Collection (a reference piece's links included), a short story and a
+    /// screenplay. A row is counted where the tree draws it: the Research
+    /// section's tree (`wholeBook`), and each piece's fold as the host draws
+    /// it — the index a task built from a STALE manifest (the links before
+    /// the last edit), read through the current homes
+    /// (`PieceFoldIndex.layout(of:homes:)`), each research root with its
+    /// subtree and a card's note as its card.
+    ///
+    /// Either/or: an item drawn in the section is in no fold and one in a
+    /// fold is not in the section; no fold draws an item twice; a group that
+    /// holds only pieces' items is drawn nowhere and holds nothing else
+    /// (`isContainer`). A single-document project draws the book's research
+    /// in the section and, as its one piece's, in that piece's fold too (R6).
     func test_everyItemHasARowInEveryGeneratedBook() {
-        for seed in UInt64(1)...60 {
+        for seed in UInt64(1)...90 {
             var rng = SplitMix(seed: seed)
-            let collection = seed % 3 == 0
-            let (structure, research) = collection
+            let type: ProjectType = [.novel, .novel, .collection, .shortStory, .screenplay][Int(seed % 5)]
+            let (structure, research) = type.holdsPieces
                 ? generatedCollection(&rng) : generatedNovel(&rng)
-            let type: ProjectType = collection ? .collection : .novel
+            let stale = relinked(structure, research: research, &rng)
             let homes = homes(structure, research, type)
             var sectionRows = Set<String>()
             func walk(_ items: [ResearchItem]) {
                 for item in items { sectionRows.insert(item.id); walk(item.children ?? []) }
             }
             walk(homes.wholeBook)
+            var built = builtIndex(stale, research, type)
+            // A card claims a leaf the stale fold drew as research: its row
+            // is the card's from then on (the shelf's first claim).
+            var claimed = Set<String>()
+            for (piece, rows) in built.entries {
+                guard let index = rows.firstIndex(where: {
+                    if case .research(let id, _, _) = $0 {
+                        return TreeWalk.find(id: id, in: research)?.type == .asset
+                    }
+                    return false
+                }), rng.next(2) == 0, case .research(let id, let title, _) = rows[index] else { continue }
+                var next = rows
+                next[index] = .card(PinnedReference(id: id, kind: .research(itemId: id), title: title))
+                var entries = built.entries
+                entries[piece] = next
+                built = PieceFoldIndex(entries: entries)
+                claimed.insert(id)
+            }
             var foldRows: [String: Int] = [:]
+            var cardRows = Set<String>()
             for piece in TreeWalk.collect(in: structure, where: { $0.type == .document }) {
-                let fold = TreeSectionDerivation.pieceFold(for: piece, projectType: type, homes: homes)
-                let shelf = PinnedReferences.pinned(
-                    forDocId: piece.id, links: piece.linkedResearchIds, derived: [],
-                    scene: nil, scraps: [:], items: CanvasItemIndex.over(research: research))
-                let entries = PieceFoldIndex.entries(
-                    docId: piece.id, shelf: shelf, fold: fold, figures: [], links: [],
-                    structure: structure, research: research)
-                var inThisFold: [String] = []
-                for case .research(let id, _, _) in entries {
-                    guard let item = TreeWalk.find(id: id, in: research) else { continue }
-                    inThisFold.append(id)
-                    inThisFold += TreeWalk.collect(in: item.children ?? [], where: { _ in true }).map(\.id)
+                let layout = built.layout(of: piece.id, homes: homes)
+                let entries: [PieceFoldEntry]
+                switch layout {
+                case .rows(let rows)?: entries = rows
+                case .groups(let runs)?: entries = runs.flatMap(\.entries)
+                case nil: entries = []
                 }
-                XCTAssertEqual(inThisFold.count, Set(inThisFold).count,
-                               "seed \(seed): \(piece.id)'s fold draws an item twice")
+                var inThisFold: [String] = []
+                for entry in entries {
+                    switch entry {
+                    case .research(let id, _, _):
+                        guard let item = TreeWalk.find(id: id, in: research) else { continue }
+                        inThisFold.append(id)
+                        inThisFold += TreeWalk.collect(in: item.children ?? [], where: { _ in true }).map(\.id)
+                    case .card(let ref):
+                        // A card is the canvas's row, not the research's.
+                        if case .research(let id) = ref.kind { cardRows.insert(id) }
+                    default: break
+                    }
+                }
+                // A single document's fold lists the book's assets as built
+                // (R6), its own shape; either/or is a book of pieces'.
+                if !homes.pieceOrder.isEmpty {
+                    XCTAssertEqual(inThisFold.count, Set(inThisFold).count,
+                                   "seed \(seed): \(piece.id)'s fold draws an item twice")
+                }
                 for id in inThisFold { foldRows[id, default: 0] += 1 }
             }
             let paletteIds = Set(TreeWalk.collect(
                 in: PaletteLookup.paletteGroup(in: research).map { [$0] } ?? [], where: { _ in true })
                 .map(\.id))
-            let gate = ReadThroughGate(pieces: Set(homes.pieceOrder), structure: structure,
-                                       research: research, projectType: type,
-                                       figures: [], figureLines: [])
+            let singleDocument = homes.pieceOrder.isEmpty
             for item in TreeWalk.collect(in: research, where: { _ in true })
             where !paletteIds.contains(item.id) {
                 let inSection = sectionRows.contains(item.id)
                 let folds = foldRows[item.id] ?? 0
-                XCTAssertTrue(inSection || folds > 0, "seed \(seed): \(item.id) has no row")
+                if homes.isContainer(item.id) {
+                    XCTAssertFalse(inSection || folds > 0, "seed \(seed): container \(item.id) is drawn")
+                    XCTAssertTrue((item.children ?? []).allSatisfy {
+                        !homes.homes(of: $0.id).isEmpty || homes.isContainer($0.id)
+                    }, "seed \(seed): container \(item.id) holds something of the book's")
+                    continue
+                }
+                XCTAssertTrue(inSection || folds > 0 || cardRows.contains(item.id),
+                              "seed \(seed): \(item.id) has no row")
+                if singleDocument {
+                    XCTAssertTrue(inSection, "seed \(seed) \(type): the book draws \(item.id)")
+                    continue
+                }
                 XCTAssertFalse(inSection && folds > 0, "seed \(seed): \(item.id) is drawn in both")
-                XCTAssertEqual(folds, homes.homes(of: item.id).count,
-                               "seed \(seed): \(item.id) has a row under each home")
-                XCTAssertEqual(gate.owners(of: .research(item.id)), Set(homes.homes(of: item.id)),
-                               "seed \(seed): the gate and the tree agree on whose \(item.id) is")
+                // A card's note inside a group is its group's row in the fold.
+                if !claimed.contains(item.id) {
+                    XCTAssertEqual(folds, homes.homes(of: item.id).count,
+                                   "seed \(seed): \(item.id) has a row under each home")
+                }
             }
         }
+    }
+
+    /// **The read-through gate against an oracle written here, not asked of
+    /// `ResearchHomes`** (M1): a research item is frozen by a piece in
+    /// read-through exactly when that piece links it or a group above it, or
+    /// (a Collection) files it in its own folder — and a piece counts only
+    /// while it is in the book and keeps research of its own. Every piece of
+    /// every generated book is put in read-through alone, and the gate's
+    /// answer compared item by item.
+    func test_theReadThroughGateAgreesWithAnOracle() {
+        for seed in UInt64(1)...40 {
+            var rng = SplitMix(seed: seed)
+            let type: ProjectType = [.novel, .collection, .shortStory][Int(seed % 3)]
+            let (structure, research) = type.holdsPieces
+                ? generatedCollection(&rng) : generatedNovel(&rng)
+            let pieces = TreeWalk.collect(in: structure, where: { $0.type == .document })
+            for piece in pieces {
+                let gate = ReadThroughGate(pieces: [piece.id], structure: structure,
+                                           research: research, projectType: type,
+                                           figures: [], figureLines: [])
+                for item in TreeWalk.collect(in: research, where: { _ in true }) {
+                    XCTAssertEqual(gate.owners(of: .research(item.id)).contains(piece.id),
+                                   Self.oracleFreezes(item.id, by: piece, structure: structure,
+                                                      research: research, type: type),
+                                   "seed \(seed) \(type): \(item.id) under \(piece.id)")
+                }
+            }
+        }
+    }
+
+    /// The oracle: plain rules over the manifest, in their own words.
+    private static func oracleFreezes(_ id: String, by piece: StructureItem,
+                                      structure: [StructureItem], research: [ResearchItem],
+                                      type: ProjectType) -> Bool {
+        guard let routing = try? ProjectStore.researchRouting(for: piece, projectType: type) else {
+            return false
+        }
+        if case .sharedOnly = routing { return false }
+        if let palette = PaletteLookup.paletteGroup(in: research),
+           palette.id == id || TreeWalk.contains(id: id, in: palette.children ?? []) { return false }
+        // The item and every group above it.
+        var chain: [ResearchItem] = []
+        func path(_ items: [ResearchItem], _ above: [ResearchItem]) -> Bool {
+            for item in items {
+                if item.id == id { chain = above + [item]; return true }
+                if path(item.children ?? [], above + [item]) { return true }
+            }
+            return false
+        }
+        guard path(research, []) else { return false }
+        let links = Set(piece.linkedResearchIds ?? [])
+        if chain.contains(where: { links.contains($0.id) }) { return true }
+        // A Collection piece's own folder: `pieces/<its folder>/research/…`.
+        if type.holdsPieces, let piecePath = piece.path, let rootPath = chain.first?.path {
+            let folder = (piecePath as NSString).deletingLastPathComponent
+            return rootPath.hasPrefix(folder + "/research/")
+        }
+        return false
     }
 
     private func generatedNovel(_ rng: inout SplitMix) -> ([StructureItem], [ResearchItem]) {
@@ -219,7 +326,23 @@ final class ResearchHomesTests: XCTestCase {
         }
         for _ in 0..<(3 + rng.next(8)) { research.append(make(0, "r")) }
         research.append(palette)
-        let chapters = (0..<(1 + rng.next(5))).map { "ch\($0)" }
+        let chapters = (0..<(1 + rng.next(6))).map { "ch\($0)" }
+        let links = randomLinks(ids, chapters: chapters, &rng)
+        var structure = chapters.map { chapter($0, links: links[$0]) }
+        // Parts, nested up to three deep.
+        var depth = 0
+        while structure.count > 2, depth < 3, rng.next(3) != 0 {
+            let inside = Array(structure.suffix(2))
+            structure = Array(structure.dropLast(2))
+                + [StructureItem(id: "part\(depth)", title: "Part \(depth)", type: .group,
+                                 children: inside)]
+            depth += 1
+        }
+        return (structure, research)
+    }
+
+    private func randomLinks(_ ids: [String], chapters: [String],
+                             _ rng: inout SplitMix) -> [String: [String]] {
         var links: [String: [String]] = [:]
         for id in ids {
             switch rng.next(5) {
@@ -230,14 +353,27 @@ final class ResearchHomesTests: XCTestCase {
             default: break
             }
         }
-        var structure = chapters.map { chapter($0, links: links[$0]) }
-        if structure.count > 2 {
-            // Some chapters inside a Part.
-            let inside = Array(structure.suffix(2))
-            structure = Array(structure.dropLast(2))
-                + [StructureItem(id: "part", title: "Part", type: .group, children: inside)]
+        return links
+    }
+
+    /// The same book with its chapters' links drawn again — what a fold
+    /// index built before the last link edits holds.
+    private func relinked(_ structure: [StructureItem], research: [ResearchItem],
+                          _ rng: inout SplitMix) -> [StructureItem] {
+        let ids = TreeWalk.collect(in: research, where: { $0.role == nil }).map(\.id)
+        let pieces = TreeWalk.collect(in: structure, where: { $0.type == .document }).map(\.id)
+        let links = randomLinks(ids, chapters: pieces, &rng)
+        func redo(_ items: [StructureItem]) -> [StructureItem] {
+            items.map { item in
+                var item = item
+                if item.type == .document, item.pieceKind != .reference {
+                    item.linkedResearchIds = links[item.id]
+                }
+                item.children = item.children.map(redo)
+                return item
+            }
         }
-        return (structure, research)
+        return redo(structure)
     }
 
     private func generatedCollection(_ rng: inout SplitMix) -> ([StructureItem], [ResearchItem]) {
@@ -265,7 +401,78 @@ final class ResearchHomesTests: XCTestCase {
             let index = rng.next(linked.count)
             linked[index].linkedResearchIds = (linked[index].linkedResearchIds ?? []) + [id]
         }
+        // A reference piece (another project's): its links place nothing here.
+        if rng.next(2) == 0 {
+            linked.append(StructureItem(id: "ref", title: "Ref", type: .document,
+                                        path: "../Elsewhere/elsewhere.md", pieceKind: .reference,
+                                        linkedResearchIds: shared.isEmpty ? nil : [shared[0]]))
+        }
         return (linked, research)
+    }
+
+    // MARK: - One manifest state for the section and the folds (fix round 1, I6)
+
+    /// The fold index as its task last built it, for `structure`.
+    private func builtIndex(_ structure: [StructureItem], _ research: [ResearchItem],
+                            _ type: ProjectType = .novel) -> PieceFoldIndex {
+        let homes = homes(structure, research, type)
+        var entries: [String: [PieceFoldEntry]] = [:]
+        for piece in TreeWalk.collect(in: structure, where: { $0.type == .document }) {
+            let rows = PieceFoldIndex.entries(
+                docId: piece.id,
+                shelf: PinnedReferences.pinned(
+                    forDocId: piece.id, links: piece.linkedResearchIds, derived: [], scene: nil,
+                    scraps: [:], items: CanvasItemIndex.over(research: research)),
+                fold: TreeSectionDerivation.pieceFold(for: piece, projectType: type, homes: homes),
+                figures: [], links: [], structure: structure, research: research)
+            if !rows.isEmpty { entries[piece.id] = rows }
+        }
+        return PieceFoldIndex(entries: entries)
+    }
+
+    /// **A link that arrives under an unchanged stamp** (a synced manifest
+    /// whose `modified` decodes equal) moves the note out of the section and
+    /// into its fold in the same pass: the drawn fold reads the homes the
+    /// section reads, whatever the index's key says. Before, the index kept
+    /// the old fold until an unrelated change, and the note was in neither.
+    func test_aLinkThatArrivesUnderAnUnchangedStampIsDrawnInItsFold() {
+        let research = [note("tides"), note("book")]
+        let before = [chapter("ch1")]
+        let after = [chapter("ch1", links: ["tides"])]
+        let stamp = Date(timeIntervalSince1970: 1_000_000)
+        let built = builtIndex(before, research)
+        XCTAssertNil(built.layout(of: "ch1"), "premise: the built index has no fold for ch1")
+
+        let state = BinderTreeSectionsState()
+        state.foldIndex = built
+        let manifest = ProjectManifest(type: .novel, title: "N", author: "A", created: stamp,
+                                       modified: stamp, structure: after, research: research)
+        XCTAssertFalse(state.researchHomes(in: manifest).wholeBook.contains { $0.id == "tides" },
+                       "the section no longer draws it")
+        guard case .rows(let rows)? = state.foldLayout(of: "ch1", in: manifest) else {
+            return XCTFail("the fold draws it in the same pass")
+        }
+        XCTAssertEqual(rows, [.research(id: "tides", title: "Tides", owned: false)])
+
+        // And back: unlinked under the same stamp, the fold lets it go as the
+        // section takes it.
+        state.foldIndex = builtIndex(after, research)
+        let unlinked = ProjectManifest(type: .novel, title: "N", author: "A", created: stamp,
+                                       modified: stamp, structure: before, research: research)
+        XCTAssertTrue(state.researchHomes(in: unlinked).wholeBook.contains { $0.id == "tides" })
+        XCTAssertNil(state.foldLayout(of: "ch1", in: unlinked), "no twin left in the fold")
+    }
+
+    /// A card that claims a note keeps it: the drawn fold reads the homes for
+    /// research rows and never draws a card's note twice.
+    func test_aCardsClaimSurvivesTheLiveResearchRows() {
+        let ref = PinnedReference(id: "tides", kind: .research(itemId: "tides"), title: "Tides")
+        let index = PieceFoldIndex(entries: ["ch1": [.card(ref)]])
+        let homes = homes([chapter("ch1", links: ["tides"])], [note("tides")])
+        guard case .rows(let rows)? = index.layout(of: "ch1", homes: homes) else {
+            return XCTFail("the fold is drawn")
+        }
+        XCTAssertEqual(rows, [.card(ref)])
     }
 
     // MARK: - Cost (I)
@@ -295,6 +502,18 @@ final class ResearchHomesTests: XCTestCase {
         manifest.research.append(note("new"))
         for _ in 0..<100 { _ = state.researchHomes(in: manifest) }
         XCTAssertEqual(state.researchHomesCache.derivations, 2, "a change derives once more")
+
+        // **An equal manifest in new buffers** (an adopted, unchanged one —
+        // M3): compared once, and the key takes its buffers, so every later
+        // lookup is the free comparison again.
+        let compares = state.researchHomesCache.contentCompares
+        var adopted = manifest
+        adopted.structure = manifest.structure.map { $0 }
+        adopted.research = manifest.research.map { $0 }
+        for _ in 0..<100 { _ = state.researchHomes(in: adopted) }
+        XCTAssertEqual(state.researchHomesCache.derivations, 2, "equal content derives nothing")
+        XCTAssertEqual(state.researchHomesCache.contentCompares, compares + 1,
+                       "one deep compare, then the key holds the new buffers")
     }
 
     /// The body paths ask the window's cache; the derivation runs only where

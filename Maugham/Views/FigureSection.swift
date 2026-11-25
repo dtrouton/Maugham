@@ -573,11 +573,23 @@ struct PendingFigureSend: Equatable {
 enum TreeAlert: Equatable {
     case error(String)
     case confirmSend(PendingFigureSend)
+    /// A Research group's Delete or Move over what a piece holds beneath it
+    /// (`HeldResearchAct`, fix round 1 of shell p5 Task 4a).
+    case confirmHeld(HeldResearchAct)
 
     var title: String {
         switch self {
         case .error(let message): return message
         case .confirmSend(let pending): return pending.title
+        case .confirmHeld(let act): return act.title
+        }
+    }
+
+    /// A question waits for its answer; an error arriving meanwhile waits too.
+    var isQuestion: Bool {
+        switch self {
+        case .error: return false
+        case .confirmSend, .confirmHeld: return true
         }
     }
 }
@@ -605,9 +617,18 @@ struct TreeAlertPresentation: ViewModifier {
             case .confirmSend(let pending):
                 Button("Send to Research", role: .destructive) { verbs.confirmFigureSend(pending) }
                 Button("Cancel", role: .cancel) { verbs.cancelFigureSend() }
+            case .confirmHeld(let act):
+                Button(act.confirmTitle, role: .destructive) {
+                    BinderTreeVerbs.confirmHeld(act, store: store, state: state)
+                }
+                Button("Cancel", role: .cancel) { state.dismissAlert(alert) }
             }
         } message: { alert in
-            if case .confirmSend(let pending) = alert { Text(pending.message) }
+            switch alert {
+            case .confirmSend(let pending): Text(pending.message)
+            case .confirmHeld(let act): Text(act.message)
+            case .error: EmptyView()
+            }
         }
     }
 }

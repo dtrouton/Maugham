@@ -254,7 +254,7 @@ struct BinderView: View {
     /// (`pieceFoldIndex(store:state:)` on the list) — shell p3 Task 7.
     @ViewBuilder
     private func documentEntry(for item: StructureItem, indent: CGFloat) -> some View {
-        if let layout = treeState.foldIndex.layout(of: item.id) {
+        if let layout = treeState.foldLayout(of: item.id, in: store.manifest) {
             // Bound rather than SwiftUI-private (stage-3b Task 7): a
             // piece-scoped research id is revealed by OPENING this fold, and a
             // flag the window cannot reach is a fold the reveal cannot open.

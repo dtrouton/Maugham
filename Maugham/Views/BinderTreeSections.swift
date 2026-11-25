@@ -711,9 +711,9 @@ struct BinderTreeVerbs {
             duplicate: { id in
                 create { try await store.duplicateResearchItem(id: id) }
             },
-            delete: { id in
-                perform { try await store.deleteResearchItem(id: id) }
-            },
+            // **A section row acts on what the section draws under it** (fix
+            // round 1, I2): over a piece's item beneath, the tree asks first.
+            delete: { id in requestDelete([id]) },
             // **The whole selection when the row is inside one** (stage-2b Task
             // 3). 2a's `{ [$0] }` was the tree's one concession to being
             // single-select, and the batch verbs the old panes carry — "Delete N
@@ -723,12 +723,8 @@ struct BinderTreeVerbs {
             moveTargets: { ids in
                 ResearchSelectionSync.moveTargets(forIds: ids, manifest: store.manifest)
             },
-            move: { ids, target in
-                perform { try await store.moveResearchItems(ids: ids, to: target) }
-            },
-            deleteMany: { ids in
-                perform { try await store.deleteResearchItems(ids: ids) }
-            },
+            move: { ids, target in requestMove(ids, to: target) },
+            deleteMany: { ids in requestDelete(ids) },
             dragStarted: { [state] id, fold in state.researchDragSource = (id, fold) },
             homeMenu: { item, fold in homeMenu(for: item, inFold: fold) },
             performHome: { verb in performHome(verb) },
@@ -744,6 +740,61 @@ struct BinderTreeVerbs {
 
     /// The Figures section's verbs, for a Research row's verb toward Figures.
     var figures: FigureSectionVerbs { FigureSectionVerbs(store: store, state: state) }
+
+    // MARK: - A section row's Delete and Move (fix round 1, I2)
+
+    /// The question a group's verb asks first, when a piece holds something
+    /// beneath it; nil where the verb is the plain one.
+    func heldAct(_ verb: HeldResearchAct.Verb, ids: [String]) -> HeldResearchAct? {
+        HeldResearchAct.of(verb, ids: ids, homes: state.researchHomes(in: store.manifest),
+                           research: store.manifest.research,
+                           structure: store.manifest.structure,
+                           noun: ResolveGrouping.pieceNoun(isScript: false,
+                                                           projectType: store.manifest.type))
+    }
+
+    func requestDelete(_ ids: [String]) {
+        if let act = heldAct(.delete, ids: ids) {
+            state.pendingAlert = .confirmHeld(act)
+            return
+        }
+        perform { try await store.deleteResearchItems(ids: ids) }
+    }
+
+    func requestMove(_ ids: [String], to target: ResearchMoveTarget) {
+        if let act = heldAct(.move(target), ids: ids) {
+            state.pendingAlert = .confirmHeld(act)
+            return
+        }
+        perform { try await store.moveResearchItems(ids: ids, to: target) }
+    }
+
+    /// **The question answered yes**: Delete trashes only what was taken;
+    /// Move lifts what pieces hold out, then moves the rows.
+    @MainActor
+    static func confirmHeld(_ act: HeldResearchAct, store: ProjectStore,
+                            state: BinderTreeSectionsState) {
+        state.dismissAlert(.confirmHeld(act))
+        Task { @MainActor in
+            do { try await performHeld(act, store: store) }
+            catch { state.pendingError = error.localizedDescription }
+        }
+    }
+
+    /// What `confirmHeld` performs, awaited (the store test's door).
+    @MainActor
+    static func performHeld(_ act: HeldResearchAct, store: ProjectStore) async throws {
+        switch act.verb {
+        case .delete:
+            guard !act.take.taken.isEmpty else { return }
+            try await store.deleteResearchItems(ids: act.take.taken)
+        case .move(let target):
+            for lift in act.lifts {
+                try await store.moveResearchItems(ids: lift.ids, to: lift.to)
+            }
+            try await store.moveResearchItems(ids: act.ids, to: target)
+        }
+    }
 
     // MARK: - Where research belongs (shell p5 Task 4a)
 
@@ -1022,6 +1073,14 @@ final class BinderTreeSectionsState {
                                  projectType: manifest.type)
     }
 
+    /// **The fold a host draws under `piece`** (fix round 1, I6): the built
+    /// index, its research rows read from the homes the Research section
+    /// draws from (`PieceFoldIndex.layout(of:homes:)`), so a note is never in
+    /// neither place. Nil: no fold, no chevron.
+    func foldLayout(of piece: String, in manifest: ProjectManifest) -> PieceFoldLayout? {
+        foldIndex.layout(of: piece, homes: researchHomes(in: manifest))
+    }
+
     /// **Where a link edit lands, opened** (shell p5 Task 4a): a note a drop
     /// or a menu gave a chapter shows in that chapter's fold, one made the
     /// book's in the Research section — never in a closed row, as if gone.
@@ -1157,7 +1216,7 @@ final class BinderTreeSectionsState {
         get { if case .error(let message)? = pendingAlert { return message } else { return nil } }
         set {
             if let newValue {
-                if case .confirmSend? = pendingAlert { queuedError = newValue }
+                if pendingAlert?.isQuestion == true { queuedError = newValue }
                 else { pendingAlert = .error(newValue) }
             } else if case .error? = pendingAlert { pendingAlert = nil }
         }
@@ -1175,7 +1234,7 @@ final class BinderTreeSectionsState {
     /// held — an error that arrived meanwhile stays to be shown.
     func dismissAlert(_ shown: TreeAlert?) {
         guard pendingAlert == shown else { return }
-        if case .confirmSend? = shown { questionAnswered() } else { pendingAlert = nil }
+        if shown?.isQuestion == true { questionAnswered() } else { pendingAlert = nil }
     }
     /// The question is gone: an error that waited on it is the alert now.
     private func questionAnswered() {
