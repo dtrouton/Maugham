@@ -5,8 +5,9 @@ import MaughamCore
 /// **The tree's window-level half** — what the tree's state needs served
 /// while the tree itself is not mounted (find replaces the column; the
 /// sidebar can be hidden): a piece row's sheets, which Brief's Details opens
-/// too, and the count of Claude's writes into a closed canvas, which the
-/// fold and the pulled-up views both key on (`CanvasCardsRevision`). Mounted
+/// too, the count of Claude's writes into a closed canvas, which the fold
+/// and the pulled-up views both key on (`CanvasCardsRevision`), and a
+/// Collection script's re-parses and arrivals (`PieceFoldIndexing`). Mounted
 /// once on `ProjectWindow.body`: one presenter, one counter.
 struct TreeWindowWiring: ViewModifier {
     let store: ProjectStore?
@@ -35,6 +36,20 @@ struct TreeWindowWiring: ViewModifier {
             }
             .onProjectEvent(.maughamCanvasNodesAdded, url: url, window: window) { _ in
                 state.closedCanvasWrites += 1
+            }
+            // **A Collection script's Scenes** (`PieceFoldIndexing`): the
+            // editor's re-parse moves their key; a peer's sync into a closed
+            // script re-reads that script (shell p5 Task 4). Here, on the
+            // window ProjectWindow resolved: a receiver with no live window
+            // hears nothing (`MaughamEvent.isLive`).
+            .onProjectEvent(.maughamScriptDidUpdate, url: url, window: window) { _ in
+                state.scriptRevision += 1
+            }
+            .onProjectEvent(.maughamAnnotationsChanged, url: url, window: window) { note in
+                guard let store else { return }
+                PieceFoldIndexing.arrived(
+                    docId: note.userInfo?[MaughamEvent.annotationDocIdKey] as? String,
+                    store: store, state: state)
             }
             // The Canvas row's dot goes when the canvas is opened: what the
             // row was handed is there, selected (`TreeCanvasRowDrop`).

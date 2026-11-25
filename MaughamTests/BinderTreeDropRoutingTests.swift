@@ -61,12 +61,21 @@ final class BinderTreeDropRoutingTests: XCTestCase {
         XCTAssertEqual(nodes.count, 5, "five cards")
         XCTAssertTrue(nodes.allSatisfy { model.scene.node($0) != nil })
         XCTAssertEqual(model.undoManager.undoActionName, "Add 5 Files")
+        // One landing for the batch: its first card, where the run begins.
+        let first = sent[0].node
+        XCTAssertEqual(model.selection, .node(first), "the batch's first card is selected")
+        XCTAssertEqual(model.pendingReveal, .node(first), "and revealed, once")
+        let leftmost = try XCTUnwrap(nodes.min { model.scene.node($0)!.origin.x < model.scene.node($1)!.origin.x })
+        XCTAssertEqual(first, leftmost, "the run goes rightwards from the card revealed")
+        let landedAt = Dictionary(uniqueKeysWithValues: nodes.map { ($0, model.scene.node($0)!.origin) })
 
         model.undo.undo()
         XCTAssertTrue(nodes.allSatisfy { model.scene.node($0) == nil }, "one ⌘Z takes all five")
         XCTAssertFalse(model.undoManager.canUndo, "and it was one step")
         model.undo.redo()
-        XCTAssertTrue(nodes.allSatisfy { model.scene.node($0) != nil }, "one ⇧⌘Z brings all five")
+        XCTAssertEqual(Dictionary(uniqueKeysWithValues: nodes.compactMap { id in
+            model.scene.node(id).map { (id, $0.origin) } }), landedAt,
+            "one ⇧⌘Z brings all five back where they landed")
         XCTAssertEqual(paths.filter { FileManager.default.fileExists(
             atPath: store.url.appendingPathComponent($0).path) }.count, 5,
             "the copies stay in the well, as any canvas undo leaves them")
@@ -135,7 +144,9 @@ final class BinderTreeDropRoutingTests: XCTestCase {
     func test_theCanvasRowsDropLandsThroughTheBatch() throws {
         let code = SourceScan.codeLines(of: try SourceTree.declaration(
             named: "enum TreeCanvasRowDrop", under: "Maugham")).joined(separator: "\n")
-        XCTAssertTrue(code.contains("for sent in try land(pictures: outcome.paths, aspects: outcome.aspects,"))
+        XCTAssertTrue(code.contains("let sent = try land(pictures: outcome.paths, aspects: outcome.aspects,"))
+        XCTAssertTrue(code.contains("if !sent.isEmpty { arrived() }"), "one landing for the batch")
+        XCTAssertTrue(code.contains("if let first = sent.first { CanvasCapture.show(first.node, in: store) }"))
         XCTAssertFalse(code.contains(".picture(path: path,"), "no per-file send")
     }
 

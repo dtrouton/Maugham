@@ -60,7 +60,7 @@ final class BinderTreeSelectionTests: XCTestCase {
     /// tree draws renames through `state.renamingItemId`, the flag the keys'
     /// guard reads.
     func test_aResearchRenameInTheTreeHoldsTheRowKeys() throws {
-        let guardLine = "guard !hostIsRenaming, state.renamingItemId == nil,"
+        let guardLine = "guard !hostIsRenaming, state.renamingItemId == nil else { return .ignored }"
         let keys = SourceScan.codeLines(of: try SourceTree.declaration(
             named: "struct TreeRowKeysModifier", under: "Maugham")).joined(separator: "\n")
         XCTAssertTrue(keys.contains(guardLine))
@@ -394,6 +394,11 @@ final class BinderTreeSelectionTests: XCTestCase {
                        "typeSelecting: typeSelecting"] {
             XCTAssertTrue(keys.contains(wiring), wiring)
         }
+        // A rename's keys start no search: the guard comes before the record.
+        let renameGuard = try XCTUnwrap(keys.range(of: "guard !hostIsRenaming, state.renamingItemId == nil"))
+        let record = try XCTUnwrap(keys.range(of: "state.lastTypeSelectKey = now"))
+        XCTAssertLessThan(renameGuard.lowerBound, record.lowerBound,
+                          "lastTypeSelectKey is recorded only after the rename guard")
     }
 
     // MARK: - Census
@@ -552,6 +557,74 @@ final class BinderTreeSelectionTests: XCTestCase {
                        "the row selected is chapter two's")
         XCTAssertEqual(outline.selectedRowIndexes, IndexSet(integer: first + 3),
                        "and the List draws that row alone, not its twin in chapter one's fold")
+    }
+
+    /// **Space during type-select, on the production tree** (shell p5 Task 4
+    /// fix round 1). The premises are read off the tree it got: this SwiftUI
+    /// `List` type-selects (a "t" moves the selection to the "Tide" row), and
+    /// the letter reaches `TreeRowKeysModifier` (`lastTypeSelectKey` set).
+    /// Then a Space straight after belongs to the search, so the fold row
+    /// the search landed on is not pulled up; the control, a Space once the
+    /// search has lapsed (the recorded key cleared, standing in for the
+    /// interval passing, with no wait), pulls it up. Measured on this List,
+    /// real time: a second letter 1.22 s after the first extends the search,
+    /// one at 1.25 s starts afresh; event timestamps play no part.
+    func test_aSpaceStraightAfterALetterIsTheRealTreesTypeSelect() async throws {
+        let temp = TempDirectory()
+        defer { temp.cleanup() }
+        let url = try await ProjectFactory.createNovelProject(
+            named: "Novel-\(UUID().uuidString.prefix(6))", in: temp.url)
+        let store = try await ProjectStore.load(from: url)
+        let ds = try await DocumentStore.open(url: store.url)
+        store.documentStore = ds
+        let one = try XCTUnwrap(store.manifest.structure.first?.id)
+        let card = try await store.addPaletteCard(title: "Tide", kind: .location)
+        try await store.linkResearch(researchId: card.id, toDocumentId: one)
+        let probe = FoldKeysSubjectProbe(WindowSubject(open: .item(one), faces: .item(one)))
+        let state = BinderTreeSectionsState()
+        let window = TestWindow.mount(AnyView(FoldKeysProbeBinder(store: store, probe: probe,
+                                                                  state: state)),
+                                      size: CGSize(width: 320, height: 800),
+                                      as: SilentTestWindow.self)
+        defer {
+            window.contentView = NSView(frame: .zero)
+            Task { await ds.close() }
+        }
+        _ = await pumpUntil(deadline: 5) { state.foldIndex.entries[one]?.isEmpty == false }
+        let outline = try XCTUnwrap(outline(in: window))
+        let first = TreeFurniture.firstManuscriptRow
+        let chapter = try XCTUnwrap(outline.item(atRow: first))
+        XCTAssertTrue(outline.isExpandable(chapter), "premise: the chapter has a fold")
+        outline.expandItem(chapter)
+        pump(0.2)
+        outline.selectRowIndexes(IndexSet(integer: first), byExtendingSelection: false)
+        pump(0.2)
+        XCTAssertTrue(window.makeFirstResponder(outline), "premise: the tree has the keys")
+        let tide = first + 1
+        XCTAssertNil(state.selectedFoldRow, "premise: the chapter row, not the fold row, is selected")
+
+        window.sendEvent(keyDown("t", keyCode: 17, window))
+        XCTAssertEqual(outline.selectedRow, tide, "this List type-selects: \"t\" lands on Tide's fold row")
+        XCTAssertNotNil(state.lastTypeSelectKey, "the letter reached the tree's key handler")
+        let landed = TreeRowTag.FoldRow(pulled: .research(card.id), piece: one)
+        XCTAssertEqual(state.selectedFoldRow, landed)
+
+        window.sendEvent(keyDown(" ", keyCode: 49, window))
+        XCTAssertNil(probe.subject.beside, "a Space inside the search does not pull the row up")
+        XCTAssertEqual(outline.selectedRow, tide)
+
+        // The control: the search lapsed, the same Space is the row's.
+        state.lastTypeSelectKey = nil
+        window.sendEvent(keyDown(" ", keyCode: 49, window))
+        XCTAssertEqual(probe.subject.beside, .research(card.id), "a lone Space pulls the row up")
+    }
+
+    private func keyDown(_ characters: String, keyCode: UInt16, _ window: NSWindow) -> NSEvent {
+        NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [],
+                         timestamp: ProcessInfo.processInfo.systemUptime,
+                         windowNumber: window.windowNumber, context: nil,
+                         characters: characters, charactersIgnoringModifiers: characters,
+                         isARepeat: false, keyCode: keyCode)!
     }
 
     private func outline(in window: NSWindow) -> NSOutlineView? {

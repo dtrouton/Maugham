@@ -369,8 +369,7 @@ struct PieceFoldIndex: Equatable {
     /// **Every Collection script's Scenes**, read without a load: an open
     /// script's live paragraphs, a closed one's derived from its op log
     /// (`currentParagraphState`, tripwire 20's one spelling). A script that
-    /// cannot be read lists no scenes. Call only from `PieceFoldScenes`'
-    /// `.task`.
+    /// cannot be read lists no scenes. Call only from `PieceFoldIndexing`.
     @MainActor
     static func scenes(store: ProjectStore) -> [String: [PieceFoldEntry]] {
         let manifest = store.manifest
@@ -379,12 +378,27 @@ struct PieceFoldIndex: Equatable {
         for item in TreeWalk.collect(in: manifest.structure, where: {
             isCollectionScript($0, projectType: manifest.type)
         }) {
-            guard let state = try? currentParagraphState(
-                documentId: item.id, store: store,
-                documentStore: store.documentStore, projectURL: store.url) else { continue }
-            out[item.id] = sceneEntries(docId: item.id, sequence: state.sequence,
-                                        paragraphs: state.paragraphs)
+            out[item.id] = scenes(ofScript: item.id, store: store)
         }
+        return out
+    }
+
+    /// **One script's Scenes** (`scenes(store:)`'s read), nil when it cannot
+    /// be read — what a closed script's arrival re-reads, alone.
+    @MainActor
+    static func scenes(ofScript docId: String, store: ProjectStore) -> [PieceFoldEntry]? {
+        guard let state = try? currentParagraphState(
+            documentId: docId, store: store,
+            documentStore: store.documentStore, projectURL: store.url) else { return nil }
+        return sceneEntries(docId: docId, sequence: state.sequence, paragraphs: state.paragraphs)
+    }
+
+    /// The window's Scenes with one script's re-read in its place (nil: it
+    /// lists none); every other script's stays as it was read. Pure.
+    static func merging(_ read: [PieceFoldEntry]?, for docId: String,
+                        into scenes: [String: [PieceFoldEntry]]) -> [String: [PieceFoldEntry]] {
+        var out = scenes
+        out[docId] = read
         return out
     }
 

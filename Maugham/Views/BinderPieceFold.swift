@@ -783,8 +783,9 @@ struct PieceFoldIndexing: ViewModifier {
             // **A Collection script's Scenes, on their own key** (shell p4
             // Task 10): the manifest's stamp and the window's count of script
             // re-parses (`.maughamScriptDidUpdate`, the editor's own debounced
-            // signal) and closed scripts' arrivals, so typing re-reads the
-            // sluglines and never the canvas.
+            // signal, counted by `TreeWindowWiring`), so typing re-reads the
+            // sluglines and never the canvas. A closed script's arrival is
+            // `arrived(docId:store:state:)`.
             .task(id: PieceFoldScenesKey(modified: store.manifest.modified,
                                          scriptRevision: state.scriptRevision)) {
                 let scenes = PieceFoldIndex.scenes(store: store)
@@ -792,19 +793,26 @@ struct PieceFoldIndexing: ViewModifier {
                 state.foldScenes = scenes
                 state.foldIndex = state.foldIndexBase.withScenes(scenes)
             }
-            .onProjectEvent(.maughamScriptDidUpdate, url: store.url, window: nil) { _ in
-                state.scriptRevision += 1
-            }
-            // A peer's sync into a closed script (`arrivalMovesScenes`).
-            .onProjectEvent(.maughamAnnotationsChanged, url: store.url, window: nil) { note in
-                let docId = note.userInfo?[MaughamEvent.annotationDocIdKey] as? String
-                if PieceFoldIndex.arrivalMovesScenes(
-                    docId: docId,
-                    isOpen: docId.flatMap { store.documentStore?.document(forDocId: $0) } != nil,
-                    structure: store.manifest.structure, projectType: store.manifest.type) {
-                    state.scriptRevision += 1
-                }
-            }
+    }
+
+    /// **A closed script's arrival** (shell p5 Task 4), heard by
+    /// `TreeWindowWiring` on the window's own scope: a peer's sync into a
+    /// CLOSED Collection script (`arrivalMovesScenes`) re-reads that script
+    /// alone and merges it in; an arrival naming no document re-reads them all.
+    @MainActor
+    static func arrived(docId: String?, store: ProjectStore, state: BinderTreeSectionsState) {
+        guard PieceFoldIndex.arrivalMovesScenes(
+            docId: docId,
+            isOpen: docId.flatMap { store.documentStore?.document(forDocId: $0) } != nil,
+            structure: store.manifest.structure, projectType: store.manifest.type)
+        else { return }
+        guard let docId else { state.scriptRevision += 1; return }
+        let scenes = PieceFoldIndex.merging(
+            PieceFoldIndex.scenes(ofScript: docId, store: store),
+            for: docId, into: state.foldScenes)
+        guard scenes != state.foldScenes else { return }
+        state.foldScenes = scenes
+        state.foldIndex = state.foldIndexBase.withScenes(scenes)
     }
 }
 

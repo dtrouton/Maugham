@@ -2075,9 +2075,11 @@ enum TreeRowKeys {
 /// printable key typed into the tree starts or extends AppKit's type-select
 /// search, and a Space within its interval of the last one is part of the
 /// search ("The C…"), not `TreeRowKeys`' Return-or-Space. AppKit publishes no
-/// interval and no API saying a search is live; `interval` is measured: on
-/// macOS 27 an `NSTableView`'s search keeps a key 1.2 s after the last and
-/// starts afresh by 1.25 s; an arrow ends it, and a lone Space starts none.
+/// interval and no API saying a search is live; `interval` is measured on
+/// the tree's own `List` (macOS 27, real time — event timestamps play no
+/// part): a letter 1.22 s after the last extends the search, one at 1.25 s
+/// starts afresh; an arrow ends it, and a lone Space starts none
+/// (`BinderTreeSelectionTests.test_aSpaceStraightAfterALetterIsTheRealTreesTypeSelect`).
 /// Pure, the time injected; no timer (tripwire 33).
 enum TreeTypeSelect {
     static let interval: TimeInterval = 1.2
@@ -2119,6 +2121,8 @@ struct TreeRowKeysModifier: ViewModifier {
         // Every key-down passes here so type-select's collecting is known
         // (`TreeTypeSelect`); only Return, Space and ⌘↓ are ever handled.
         content.onKeyPress(phases: .down) { press in
+            // A rename's keys are its own, and start no search.
+            guard !hostIsRenaming, state.renamingItemId == nil else { return .ignored }
             let now = ProcessInfo.processInfo.systemUptime
             let typeSelecting = TreeTypeSelect.isCollecting(
                 at: now, lastKey: state.lastTypeSelectKey, interval: TreeTypeSelect.interval)
@@ -2129,8 +2133,7 @@ struct TreeRowKeysModifier: ViewModifier {
                 // Any other key (an arrow, Return) ends AppKit's search.
                 state.lastTypeSelectKey = nil
             }
-            guard !hostIsRenaming, state.renamingItemId == nil,
-                  let key = TreeRowKeys.key(press.key, modifiers: press.modifiers,
+            guard let key = TreeRowKeys.key(press.key, modifiers: press.modifiers,
                                             typeSelecting: typeSelecting),
                   let act = TreeRowKeys.act(key, drawn: BinderTreeSelection.drawnTags(
                     state: state, subject: subject, store: store))

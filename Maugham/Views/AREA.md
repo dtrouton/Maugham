@@ -1,6 +1,6 @@
 # Views — area guide
 
-The SwiftUI views of every window. The one rule from CLAUDE.md: **ask `Posture` what to offer; never compare a permit rung (tripwires 47, 51).** The area carries tripwires 2–7, 9, 14–16, 21, 22, 33, 43, 47, 49–52 and 55.
+Every window's SwiftUI views. The one rule from CLAUDE.md: **ask `Posture` what to offer; never compare a permit rung (tripwires 47, 51).** The area carries tripwires 2–7, 9, 14–16, 21, 22, 33, 43, 47, 49–52 and 55.
 
 ## Map
 
@@ -264,7 +264,7 @@ Every file in `Maugham/Views/` appears once, plus the `Maugham/Models/` files CL
 - **A statement host asks `statementIsInTheCentre` before it mounts** (`Maugham/Stores/AREA.md`, the gate).
 - **`PulledUpView.centreShows` is the one rule against a second editor on what the centre shows.** Open in Centre MOVES every kind; a canvas card or region is read-only beside (`PulledUpViewTests`, `PulledUpTests`). Back's `PulledUpHistory` never answers `beside`.
 - **On the canvas, a selection made after the last pull-up covers it** (`RightColumnContent.canvasDetailsCover`, `PulledUpMemory.canvasSelectionIsNewer`); only `CanvasDetailsCover` and `PulledUpWatch` read `selection`; Show it clears it; Esc declines while covered. Other centres' details stand above, collapsed.
-- **A fold is `PieceFoldIndex`, built per `Key` in `.task`**; a region row holds its palette cards; a Collection script's Scenes lead. Pull-up rows tag `TreeRowTag.pullUp` (per piece): a key landing selects, then settles (`TreeRowSettle`); a click is the button's.
+- **A fold is `PieceFoldIndex`, built per `Key` in `.task`**; a region row holds its palette cards; a Collection script's Scenes lead (`PieceFoldIndexTests`). Pull-up rows tag `TreeRowTag.pullUp` per piece: a key landing selects, then settles (`TreeRowSettle`); a click is the button's (`BinderTreeSelectionTests`).
 - **The old Inspector's fields live in `PieceRowMenus` and the status line** (`PieceTargetMenu`, over the OPEN piece), each asking `TreeStructureVerbs`; Brief's foot shows the set ones, opening the row's sheets (`PieceRowMenusTests`, `PieceTargetMenuTests`, `BriefAppraisalTests`).
 - **The ⌘⌥ keys are declared in `MaughamApp` alone**, grouped by destination (`RightColumnAppraisalTests`); ⌘⌥L is To resolve on Questions, ⌘⌥K the reading edition's To resolve (`EditionWiring`); ⌘⌥I/⌘⌥N's field consumes `briefFocus`.
 - **To resolve and Brief lead with the faces' title** (`RightColumnSubjectLine`).

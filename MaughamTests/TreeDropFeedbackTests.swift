@@ -432,8 +432,9 @@ final class TreeDropFeedbackTests: XCTestCase {
     /// A Collection script's Scenes follow the editor's re-parse: the window
     /// counts `.maughamScriptDidUpdate` into the Scenes' key (Minor 11).
     func test_theScriptUpdateMovesTheScenesKey() throws {
+        let wiring = try CanvasSourceCensus.source(at: "Maugham/Views/TreeWindowWiring.swift")
+        XCTAssertTrue(wiring.contains(".onProjectEvent(.maughamScriptDidUpdate, url: url, window: window) { _ in\n                state.scriptRevision += 1"))
         let fold = try CanvasSourceCensus.source(at: "Maugham/Views/BinderPieceFold.swift")
-        XCTAssertTrue(fold.contains(".onProjectEvent(.maughamScriptDidUpdate, url: store.url, window: nil) { _ in\n                state.scriptRevision += 1"))
         XCTAssertTrue(fold.contains(".task(id: PieceFoldScenesKey(modified: store.manifest.modified,\n                                         scriptRevision: state.scriptRevision))"))
     }
 

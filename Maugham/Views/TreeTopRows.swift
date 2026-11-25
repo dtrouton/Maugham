@@ -351,9 +351,12 @@ enum TreeCanvasRowDrop {
         let store = host.store
         let state = host.state
         let open = host.open
+        func arrived() {
+            if marksArrival(open: open) { state.canvasHasArrivals = true }
+        }
         func landed(_ node: CanvasNodeID) {
             CanvasCapture.show(node, in: store)
-            if marksArrival(open: open) { state.canvasHasArrivals = true }
+            arrived()
         }
         switch verdict {
         case .refuse:
@@ -388,10 +391,10 @@ enum TreeCanvasRowDrop {
                         using: CanvasAssetIngest(
                             file: { try await store.ingestCanvasAsset(fileURL: $0) },
                             image: { try await store.ingestCanvasAsset(image: $0) }))
-                    for sent in try land(pictures: outcome.paths, aspects: outcome.aspects,
-                                         store: store) {
-                        landed(sent.node)
-                    }
+                    // One landing for the batch: `land` shows its first card.
+                    let sent = try land(pictures: outcome.paths, aspects: outcome.aspects,
+                                        store: store)
+                    if !sent.isEmpty { arrived() }
                     // What did not ingest is named; the step holds what landed.
                     if let message = outcome.message { report(message) }
                 } catch { report(error.localizedDescription) }
@@ -405,14 +408,20 @@ enum TreeCanvasRowDrop {
     /// photographs, ⌘Z once, all five go (the canvas's own step; the files
     /// stay in `canvas_assets/`, as any canvas undo leaves them). A path that
     /// failed to ingest is not here and not in the step. Called after the
-    /// ingest's await, so the step holds exactly this drop.
+    /// ingest's await, so the step holds exactly this drop. The batch lands
+    /// once: its FIRST card is selected and revealed, as the canvas's own
+    /// drop of several files selects its first — the canvas selects one thing
+    /// at a time, and loose cards run rightwards from the first, so the
+    /// reveal opens on the whole run, not its tail.
     @MainActor
     static func land(pictures paths: [String], aspects: [String: CGFloat],
                      store: ProjectStore) throws -> [CanvasCapture.Sent] {
-        try CanvasCapture.send(
+        let sent = try CanvasCapture.send(
             paths.map { .init(content: .picture(path: $0, aspect: aspects[$0]), captureID: $0) },
             .loose, undoStepName: undoStepName(count: paths.count),
             store: store, projectRoot: store.url, mintsNodeID: true)
+        if let first = sent.first { CanvasCapture.show(first.node, in: store) }
+        return sent
     }
 
     /// What ⌘Z reads after a Canvas-row drop: one picture keeps the send's

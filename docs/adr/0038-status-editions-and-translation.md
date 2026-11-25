@@ -153,7 +153,7 @@ Off the open piece (an edition faced, a chapter clicked) the rows read and do no
 
 **Why.** Arrowing through a fold must not churn the right column or fill Back; a click must never pull up and put away in one gesture.
 
-**Cost.** ⌘↓ has no menu item yet. Two open folds listing the same item give two rows one tag.
+**Cost.** ⌘↓ has no menu item yet.
 
 **Overrule** — answered: the owner hand-checked click, arrows and settle on 2026-11-22 and they "look good".
 
@@ -259,7 +259,7 @@ Not-done minors from every task, each with its reason.
 - **The desk's homes.** The Editions `+` is a one-item menu, the family's shape. ⌘⌥L where the scope has no questions shows To resolve with its filter unchanged.
 - **Reading in a language.** The reading position blinks; VoiceOver's reach of the overlay's elements is unverified; the margin dots have no accessibility element (pre-existing); the toolbar's leading reserve is estimated. A choice made with no `Document` registered sets the language without a place (unpinned).
 - **A piece in a language.** Questions off the open piece read without Reply (plan 2's rule; the head opens the chapter). A closed chapter's translation re-derives only on a translation event. A screenplay read in a language groups by paragraph, not scene. The Earlier letters choice resets when the faces change. The running state's width is unmeasured. The empty line and "N not translated yet" are not joined into one sentence (it would read the translation twice).
-- **The fold** (shell p5 Task 4). *Done:* a closed Collection script's Scenes follow a peer's sync (`PieceFoldIndex.arrivalMovesScenes`, on the arrival To resolve's presence hears); a Canvas-row drop of several pictures is one undo step (section 12); a fold row's tag names its piece (`TreeRowTag.FoldRow`), so a card in two open folds is two rows; a Space while type-select is collecting is the search's (`TreeTypeSelect`, its interval measured at 1.2 s — AppKit publishes none). *Dropped:* the Canvas row's dot stays per window and unpersisted — it marks a drop made in this window, and another window did not see it happen.
+- **The fold** (shell p5 Task 4). *Done:* a closed Collection script's Scenes follow a peer's sync (`PieceFoldIndex.arrivalMovesScenes`, on the arrival To resolve's presence hears); a Canvas-row drop of several pictures is one undo step (section 12), its first card selected and revealed as the canvas's own drop does; a fold row's tag names its piece (`TreeRowTag.FoldRow`), so a card in two open folds is two rows; a Space while type-select is collecting is the search's (`TreeTypeSelect`; its 1.2 s interval measured on the tree's own `List`, which type-selects its rows — AppKit publishes none). *Dropped:* the Canvas row's dot stays per window and unpersisted — it marks a drop made in this window, and another window did not see it happen.
 - **Promotion.** Two windows with the same piece open would hold two `Document`s on one path; unreachable today (`WindowGroup(for: URL)` opens one window per project). A load already reading when the staging moves run is closed, but may have rendered at the old path. `EditorHost`'s reload is pinned by a source census, not a mounted window (hand check 17).
 - **Tests.** The parity census's environment spans are hand-named anchors; a new `.environment(\.` in an unnamed span would not be seen. The figure-grid focus failure was never reproduced; its fix is premise assertions, not a found cause.
 

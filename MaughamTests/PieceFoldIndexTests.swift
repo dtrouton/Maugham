@@ -1,5 +1,6 @@
 import XCTest
 import MaughamCore
+import SwiftUI
 @testable import Maugham
 
 /// Shell p4 Task 10: **a Collection script's fold has its Scenes, and a
@@ -166,9 +167,12 @@ final class PieceFoldIndexTests: XCTestCase {
             docId: "pc-1", isOpen: false, structure: structure, projectType: .novel))
     }
 
-    /// **A peer's edit moves a closed script's Scenes**: the sync lands on
-    /// disk, the store's presenter announces it, the fold's rule hears a
-    /// re-read, and the re-read lists the peer's new slugline.
+    /// **A peer's edit moves a closed script's Scenes, through the window's
+    /// own listener**: the sync lands on disk, the store's presenter posts
+    /// the arrival, and the mounted `TreeWindowWiring` — on a real, live
+    /// window, handed in as `ProjectWindow` hands in its own — re-reads at
+    /// once: read synchronously, no wait. Only the arriving script is
+    /// re-read: the other script's entry, struck out before, stays out.
     func test_aPeersEditMovesAClosedScriptsScenes() async throws {
         let temp = TempDirectory()
         defer { temp.cleanup() }
@@ -178,49 +182,78 @@ final class PieceFoldIndexTests: XCTestCase {
         let ds = try await DocumentStore.open(url: store.url)
         store.documentStore = ds
         ds.projectStore = store
-        defer { Task { await ds.close() } }
         let script = try await store.addLoosePiece(title: "The Walk", format: .fountain)
+        let other = try await store.addLoosePiece(title: "The Run", format: .fountain)
         XCTAssertNil(ds.document(forDocId: script.id), "premise: the script is closed")
-        let before = PieceFoldIndex.scenes(store: store)[script.id] ?? []
-        XCTAssertFalse(before.contains { if case .scene(_, _, "INT. KITCHEN - DAY") = $0 { return true }; return false },
-                       "premise: no kitchen yet")
+        let state = BinderTreeSectionsState()
+        let window = TestWindow.make(contentRect: CGRect(x: 0, y: 0, width: 10, height: 10))
+        window.contentView = NSHostingView(rootView: Color.clear.modifier(TreeWindowWiring(
+            store: store, url: store.url, window: window, state: state,
+            subject: .constant(WindowSubject(open: .project, faces: .project)),
+            showInspector: .constant(false), position: .constant(.brief))))
+        defer {
+            window.contentView = NSView(frame: .zero)
+            Task { await ds.close() }
+        }
+        pump(0.1)
+        XCTAssertTrue(MaughamEvent.isLive(window), "premise: the receiver's window is live")
+        // The Scenes as the fold's `.task` read them, the other struck out.
+        state.foldScenes = PieceFoldIndex.scenes(store: store)
+        let kitchen: (PieceFoldEntry) -> Bool = {
+            if case .scene(_, _, "INT. KITCHEN - DAY") = $0 { return true }; return false
+        }
+        XCTAssertEqual(state.foldScenes[script.id]?.contains(where: kitchen), false,
+                       "premise: read, and no kitchen yet")
+        XCTAssertNotNil(state.foldScenes.removeValue(forKey: other.id), "premise: the other was read")
 
         // The peer's op: a new paragraph holding a slugline, at the end.
-        let state = try store.derivedCache.state(forDocId: script.id, in: store.url)
-        let added = ParagraphID.mintUnique(excluding: Set(state.sequence))
+        let read = try store.derivedCache.state(forDocId: script.id, in: store.url)
+        let added = ParagraphID.mintUnique(excluding: Set(read.sequence))
         let op = Op(opId: ULID.generate(), docId: script.id, at: Date(), device: "peer-mac",
                     session: "peer-session", kind: .typingBurst,
                     changes: [.init(paragraphId: added, prior: nil, next: "INT. KITCHEN - DAY")],
-                    sequence: state.sequence + [added], provenance: nil)
-        var heard: [String?] = []
-        let token = NotificationCenter.default.addObserver(  // adr-0021-ok: a test observing the post, not a production receiver
-            forName: .maughamAnnotationsChanged, object: nil, queue: nil) { note in
-            heard.append(note.userInfo?[MaughamEvent.annotationDocIdKey] as? String)
-        }
-        defer { NotificationCenter.default.removeObserver(token) }
+                    sequence: read.sequence + [added], provenance: nil)
         try await OpLogStore(projectURL: store.url).append(op)
         let log = try XCTUnwrap(OpLogStore.opLogFileURLs(forDocId: script.id, in: store.url).first)
+        let revision = state.scriptRevision
         ds.presenterDidChangeSubitem(at: log)
 
-        let docId = try XCTUnwrap(heard.first { $0 == script.id }, "the arrival is announced")
-        XCTAssertTrue(PieceFoldIndex.arrivalMovesScenes(
-            docId: docId, isOpen: ds.document(forDocId: script.id) != nil,
-            structure: store.manifest.structure, projectType: store.manifest.type),
-            "the fold re-reads its Scenes on it")
-        let after = PieceFoldIndex.scenes(store: store)[script.id] ?? []
-        XCTAssertTrue(after.contains { if case .scene(_, added, "INT. KITCHEN - DAY") = $0 { return true }; return false },
-                      "the re-read lists the peer's slugline")
+        XCTAssertTrue(state.foldScenes[script.id]?.contains {
+            if case .scene(_, added, "INT. KITCHEN - DAY") = $0 { return true }; return false
+        } == true, "the window's listener re-read the script and lists the peer's slugline")
+        XCTAssertTrue(state.foldIndex.entries[script.id]?.contains(where: kitchen) == true,
+                      "and the fold draws it")
+        XCTAssertNil(state.foldScenes[other.id], "the other script was not re-read")
+        XCTAssertEqual(state.scriptRevision, revision, "nor every script, through the key")
     }
 
-    /// The fold's modifier hears the arrival and asks the rule: deleting the
-    /// wiring turns this red.
+    /// An arrival's re-read replaces its own script's Scenes and no other's.
+    func test_anArrivalReplacesOnlyItsScriptsScenes() {
+        let walk: [PieceFoldEntry] = [.scene(docId: "pc-1", paragraphId: "p1", heading: "INT. A")]
+        let run: [PieceFoldEntry] = [.scene(docId: "pc-2", paragraphId: "p1", heading: "INT. B")]
+        let fresh: [PieceFoldEntry] = [.scene(docId: "pc-1", paragraphId: "p2", heading: "INT. C")]
+        let before = ["pc-1": walk, "pc-2": run]
+        XCTAssertEqual(PieceFoldIndex.merging(fresh, for: "pc-1", into: before),
+                       ["pc-1": fresh, "pc-2": run])
+        XCTAssertEqual(PieceFoldIndex.merging(nil, for: "pc-1", into: before), ["pc-2": run],
+                       "a script that cannot be read lists no scenes")
+    }
+
+    /// The window's wiring hears the arrival and the re-parse, and the
+    /// arrival asks the rule and re-reads one script: deleting the wiring
+    /// turns this red.
     func test_theFoldHearsClosedArrivals() throws {
-        let code = SourceScan.codeLines(of: try SourceTree.declaration(
+        let wiring = SourceScan.codeLines(of: try SourceTree.declaration(
+            named: "struct TreeWindowWiring", under: "Maugham")).joined(separator: "\n")
+        XCTAssertTrue(wiring.contains(".onProjectEvent(.maughamAnnotationsChanged, url: url, window: window)"))
+        XCTAssertTrue(wiring.contains("PieceFoldIndexing.arrived("))
+        XCTAssertTrue(wiring.contains(".onProjectEvent(.maughamScriptDidUpdate, url: url, window: window)"))
+        let fold = SourceScan.codeLines(of: try SourceTree.declaration(
             named: "struct PieceFoldIndexing", under: "Maugham")).joined(separator: "\n")
-        XCTAssertTrue(code.contains(".onProjectEvent(.maughamAnnotationsChanged, url: store.url, window: nil)"))
-        XCTAssertTrue(code.contains("PieceFoldIndex.arrivalMovesScenes("))
-        XCTAssertEqual(code.components(separatedBy: "state.scriptRevision += 1").count - 1, 2,
-                       "a re-parse and an arrival each move the Scenes' key")
+        XCTAssertTrue(fold.contains("PieceFoldIndex.arrivalMovesScenes("))
+        XCTAssertTrue(fold.contains("PieceFoldIndex.scenes(ofScript: docId, store: store)"),
+                      "a named arrival re-reads its own script")
+        XCTAssertFalse(fold.contains("window: nil"), "a receiver with no window hears nothing")
     }
 
     // MARK: - A palette card inside a region
