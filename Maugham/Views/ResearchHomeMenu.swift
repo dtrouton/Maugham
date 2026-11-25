@@ -24,7 +24,15 @@ struct ResearchHomeMenu: Equatable {
     struct Item: Equatable, Identifiable {
         let title: String
         let verb: Verb
-        var id: String { title }
+        /// Keyed on what the item does — its target piece — never its title:
+        /// two chapters may share one (fix round 2, OOS3).
+        var id: String {
+            switch verb {
+            case .link(_, let to): return "link:" + to
+            case .move(_, let from, let to): return "move:\(from)>\(to)"
+            case .unlink(_, let from): return "unlink:" + from.joined(separator: ",")
+            }
+        }
     }
 
     /// **Move to Chapter ▸, in the tree's own shape** (fix round 1, M10): a
@@ -151,7 +159,7 @@ struct ResearchHomeMenu: Equatable {
 struct HeldResearchAct: Equatable {
     enum Verb: Equatable {
         case delete
-        case move(ResearchMoveTarget)
+        case move(ResearchMoveTarget, atIndex: Int?)
     }
 
     /// The held items under one row, lifted to where that row stands.
@@ -168,6 +176,9 @@ struct HeldResearchAct: Equatable {
     let title: String
     let message: String
     let confirmTitle: String
+    /// What a Move that lifted, then failed to move the rows, has done —
+    /// the alert's first words (fix round 2, NB3).
+    let afterLift: String
 
     /// `noun`: the project's word for a piece ("chapter").
     static func of(_ verb: Verb, ids: [String], homes: ResearchHomes,
@@ -189,8 +200,12 @@ struct HeldResearchAct: Equatable {
             }
         }
         let named = ids.count == 1 ? "“\(title(ids[0]))”" : "\(ids.count) items"
+        // The pieces the rows are drawn under (a fold's row) are not the ones
+        // that keep what is held: name the others.
+        let own = Set(ids.flatMap { homes.homes(of: $0) })
         let kept = take.held.map { id -> String in
-            let pieces = homes.homes(of: id).map { homes.pieceTitles[$0] ?? $0 }
+            let pieces = homes.homes(of: id).filter { !own.contains($0) }
+                .map { homes.pieceTitles[$0] ?? $0 }
             return "“\(title(id))” (\(pieces.joined(separator: ", ")))"
         }
         let keptLine = kept.count == 1
@@ -199,14 +214,15 @@ struct HeldResearchAct: Equatable {
         switch verb {
         case .delete:
             let goes = take.taken.isEmpty
-                ? "Nothing of the book’s is under it to delete."
-                : "Its whole-book research goes to the Trash."
+                ? "Nothing else is under it to delete."
+                : own.isEmpty ? "Its whole-book research goes to the Trash."
+                : "The rest of it goes to the Trash."
             return HeldResearchAct(
                 verb: verb, ids: ids, take: take, lifts: lifts,
                 title: "Delete \(named)?",
-                message: "\(goes) \(keptLine); \(ids.count == 1 ? "the group stays as their group" : "their groups stay"), out of the Research section.",
-                confirmTitle: "Delete")
-        case .move(let target):
+                message: "\(goes) \(keptLine); \(named) stays as \(kept.count == 1 ? "its" : "their") group.",
+                confirmTitle: "Delete", afterLift: "")
+        case .move(let target, _):
             let to: String
             switch target {
             case .sharedRoot: to = "Research"
@@ -217,7 +233,8 @@ struct HeldResearchAct: Equatable {
                 verb: verb, ids: ids, take: take, lifts: lifts,
                 title: "Move \(named) to \(to)?",
                 message: "It goes with its whole-book research. \(keptLine): lifted out first, \(kept.count == 1 ? "it stays" : "they stay") where \(named) was.",
-                confirmTitle: "Move")
+                confirmTitle: "Move",
+                afterLift: "The \(noun)s’ notes were lifted out of \(named), but \(named) couldn’t be moved: ")
         }
     }
 }

@@ -244,7 +244,8 @@ final class PieceFoldIndexTests: XCTestCase {
             subject: .constant(WindowSubject(open: .project, faces: .project)),
             showInspector: .constant(false), position: .constant(.brief))))
         defer { window.contentView = NSView(frame: .zero) }
-        pump(0.1)
+        // Laid out now: the receivers are attached as the body is.
+        window.contentView?.layoutSubtreeIfNeeded()
         XCTAssertTrue(MaughamEvent.isLive(window), "premise: the receiver's window is live")
 
         var revision = state.translationRevision
@@ -274,7 +275,8 @@ final class PieceFoldIndexTests: XCTestCase {
             .onProjectEvent(.maughamPublishInitialized, url: store.url, window: nil) { _ in }
             .onKeyWindowCommand(.maughamShowPieceFold,
                                 window: nil) { _ in }
-            """).count, 2)
+            .onDocumentEvent(.maughamScriptDidUpdate, docId: id, window: nil) { _ in }
+            """).count, 3)
         // Control: a receiver on its window, and a comment naming the shape.
         XCTAssertEqual(Self.windowlessReceivers(in: """
             .onProjectEvent(.maughamPublishInitialized, url: url, window: window) { _ in }
@@ -286,7 +288,7 @@ final class PieceFoldIndexTests: XCTestCase {
     /// included.
     static func windowlessReceivers(in text: String) -> [String] {
         let code = SourceScan.codeLines(of: text).joined(separator: "\n")
-        let pattern = #"\.on(ProjectEvent|KeyWindowCommand)\([^{}]*?window:\s*nil"#
+        let pattern = #"\.on(ProjectEvent|KeyWindowCommand|DocumentEvent)\([^{}]*?window:\s*nil"#
         guard let regex = try? NSRegularExpression(pattern: pattern) else { return ["bad pattern"] }
         let range = NSRange(code.startIndex..., in: code)
         return regex.matches(in: code, range: range).compactMap {

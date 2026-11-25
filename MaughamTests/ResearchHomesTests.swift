@@ -173,6 +173,14 @@ final class ResearchHomesTests: XCTestCase {
                 for item in items { sectionRows.insert(item.id); walk(item.children ?? []) }
             }
             walk(homes.wholeBook)
+            // A fresh index needs no second layout: its research rows are
+            // the homes', in their order (OOS4, measured here).
+            let fresh = builtIndex(structure, research, type)
+            for piece in homes.pieceOrder {
+                XCTAssertEqual(fresh.builtResearchIds(of: piece),
+                               fresh.liveResearch(of: piece, homes: homes).map(\.id),
+                               "seed \(seed): \(piece)'s fresh fold lays out again")
+            }
             var built = builtIndex(stale, research, type)
             // A card claims a leaf the stale fold drew as research: its row
             // is the card's from then on (the shelf's first claim).
@@ -226,6 +234,34 @@ final class ResearchHomesTests: XCTestCase {
                 in: PaletteLookup.paletteGroup(in: research).map { [$0] } ?? [], where: { _ in true })
                 .map(\.id))
             let singleDocument = homes.pieceOrder.isEmpty
+            // **Every section verb leaves what pieces hold** (fix round 2,
+            // NB1): Delete or Move on any whole-book or container group, at
+            // any depth, holds each piece's item beneath it and takes none.
+            for group in TreeWalk.collect(in: research, where: { $0.type == .group })
+            where homes.isWholeBook(group.id) || homes.isContainer(group.id) {
+                let take = homes.take([group.id], in: research)
+                let homed = Set(TreeWalk.collect(in: group.children ?? [], where: { _ in true })
+                    .map(\.id).filter { !homes.homes(of: $0).isEmpty })
+                let takenBeneath = Set(take.taken.flatMap { id -> [String] in
+                    guard let item = TreeWalk.find(id: id, in: research) else { return [] }
+                    return [id] + TreeWalk.collect(in: item.children ?? [], where: { _ in true }).map(\.id)
+                })
+                XCTAssertTrue(takenBeneath.isDisjoint(with: homed),
+                              "seed \(seed): \(group.id)'s verb takes a piece's item")
+                for id in homed where !homes.homes(of: id).isEmpty {
+                    let underHeld = take.held.contains { held in
+                        held == id || (TreeWalk.find(id: held, in: research).map {
+                            TreeWalk.contains(id: id, in: $0.children ?? []) } ?? false)
+                    }
+                    XCTAssertTrue(underHeld, "seed \(seed): \(id) under \(group.id) is not held")
+                }
+                if let act = HeldResearchAct.of(.move(.sharedRoot, atIndex: nil), ids: [group.id],
+                                                homes: homes, research: research, structure: structure,
+                                                noun: "chapter") {
+                    XCTAssertEqual(Set(act.lifts.flatMap(\.ids)), Set(act.take.held),
+                                   "seed \(seed): Move lifts every held item under \(group.id)")
+                }
+            }
             for item in TreeWalk.collect(in: research, where: { _ in true })
             where !paletteIds.contains(item.id) {
                 let inSection = sectionRows.contains(item.id)
@@ -408,6 +444,27 @@ final class ResearchHomesTests: XCTestCase {
                                         linkedResearchIds: shared.isEmpty ? nil : [shared[0]]))
         }
         return (linked, research)
+    }
+
+    /// **Holding is recursive** (fix round 2, NB1): World ▸ Coast ▸
+    /// [Tides, Maps (ch1's)], and a level deeper — the take holds Maps,
+    /// takes Tides, and World and Coast stay.
+    func test_aChaptersNoteUnderNestedGroupsIsHeld() {
+        for depth in [2, 3] {
+            var inner = [note("tides"), note("maps")]
+            let path = ["coast", "bay"].prefix(depth - 1).reversed()
+            var groups: [String] = []
+            for name in path {
+                inner = [group(name, inner)]
+                groups.insert(name, at: 0)
+            }
+            let research = [group("world", inner)]
+            let homes = homes([chapter("ch1", links: ["maps"])], research)
+            let take = homes.take(["world"], in: research)
+            XCTAssertEqual(take.held, ["maps"], "depth \(depth)")
+            XCTAssertEqual(take.taken, ["tides"], "depth \(depth)")
+            XCTAssertEqual(take.staying, ["world"] + groups, "depth \(depth)")
+        }
     }
 
     // MARK: - One manifest state for the section and the folds (fix round 1, I6)

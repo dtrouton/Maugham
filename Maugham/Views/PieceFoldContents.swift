@@ -287,6 +287,26 @@ struct PieceFoldIndex: Equatable {
     /// The layout of `docId`'s fold; nil for an empty fold (no chevron).
     func layout(of docId: String) -> PieceFoldLayout? { layouts[docId] }
 
+    /// The research ids the index built for `docId`'s fold, in order.
+    func builtResearchIds(of docId: String) -> [String] {
+        (entries[docId] ?? []).compactMap { if case .research(let id, _, _) = $0 { return id }; return nil }
+    }
+
+    /// `docId`'s research rows as the homes have them now, less what a card
+    /// in the index claims.
+    func liveResearch(of docId: String, homes: ResearchHomes) -> [ResearchItem] {
+        var claimed = Set<String>()
+        for row in entries[docId] ?? [] {
+            switch row {
+            case .card(let ref): claimed.insert(ref.id)
+            case .region(_, _, let cards): for card in cards { claimed.insert(card.id) }
+            case .palette(let id, _): claimed.insert(id)
+            case .research, .figure, .link, .scene: break
+            }
+        }
+        return homes.foldRoots(of: docId).filter { !claimed.contains($0.id) }
+    }
+
     /// **The layout a host draws: this index, its research rows read from
     /// `homes`** (fix round 1 of shell p5 Task 4a, I6) — the homes the
     /// Research section draws from, in the same pass. The index is built in a
@@ -303,19 +323,8 @@ struct PieceFoldIndex: Equatable {
     func layout(of docId: String, homes: ResearchHomes) -> PieceFoldLayout? {
         guard homes.isAHome(docId) else { return layouts[docId] }
         let rows = entries[docId] ?? []
-        var claimed = Set<String>()
-        var built: [String] = []
-        for row in rows {
-            switch row {
-            case .research(let id, _, _): built.append(id)
-            case .card(let ref): claimed.insert(ref.id)
-            case .region(_, _, let cards): for card in cards { claimed.insert(card.id) }
-            case .palette(let id, _): claimed.insert(id)
-            case .figure, .link, .scene: break
-            }
-        }
-        let live = homes.foldRoots(of: docId).filter { !claimed.contains($0.id) }
-        guard live.map(\.id) != built else { return layouts[docId] }
+        let live = liveResearch(of: docId, homes: homes)
+        guard live.map(\.id) != builtResearchIds(of: docId) else { return layouts[docId] }
         let scenes = rows.filter { if case .scene = $0 { return true }; return false }
         let rest = rows.filter {
             switch $0 {

@@ -113,6 +113,18 @@ final class ResearchHomeTreeTests: XCTestCase {
         XCTAssertTrue(verbs.contains("mayLink: { mayEditResearchLinks(of: $0) })"))
     }
 
+    /// **Each chapter is its own menu item** (OOS3): two chapters titled
+    /// alike are two ids.
+    func test_twoChaptersTitledAlikeAreTwoItems() throws {
+        let structure = [StructureItem(id: "a", title: "Untitled", type: .document, path: "manuscript/a.md"),
+                         StructureItem(id: "b", title: "Untitled", type: .document, path: "manuscript/b.md")]
+        let homes = ResearchHomes.derive(structure: structure, research: [note("book")], projectType: .novel)
+        let menu = try XCTUnwrap(ResearchHomeMenu.of(itemId: "book", inFold: nil, homes: homes,
+                                                     noun: "chapter", mayLink: { _ in true }))
+        XCTAssertEqual(Set(menu.moveTargets.map(\.id)).count, 2)
+        XCTAssertEqual(Set(menu.moveTree.map(\.id)).count, 2)
+    }
+
     /// **Move to Chapter ▸ nests by Part** (M10): in a book with Parts the
     /// chooser is the tree's own shape, a submenu per Part; in a book without,
     /// a flat list.

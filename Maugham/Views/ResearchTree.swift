@@ -33,6 +33,12 @@ struct ResearchTreeActions {
     var addFile: (_ parentId: String?) -> Void
     var addLink: (_ parentId: String?) -> Void
     var duplicate: (String) -> Void
+    /// **Whether the row offers New Note and New Table** (fix round 2): not
+    /// where what they would make cannot be made — a chapter's fold on a Mac
+    /// that may not change its links (`BinderPieceFold.actions`).
+    var offersMaking: (ResearchItem) -> Bool = { _ in true }
+    /// Whether the row offers Duplicate, by the same rule.
+    var offersDuplicate: (ResearchItem) -> Bool = { _ in true }
     var delete: (String) -> Void
     /// Ordered ids the context menu should act on for `rowId`: the whole
     /// selection when `rowId` is inside a multi-selection, else just `rowId`.
@@ -207,12 +213,14 @@ struct ResearchTreeNode: View {
             onDragStart: { [actions, item, inFold] in actions.dragStarted(item.id, inFold) })
             .tag(rowTag)
             .contextMenu {
-                Button("New Note") {
-                    actions.newNote(item.type == .group ? item.id : findParentId(item.id))
-                }
-                if let newTable = actions.newTable {
-                    Button("New Table") {
-                        _ = newTable(item.type == .group ? item.id : findParentId(item.id))
+                if actions.offersMaking(item) {
+                    Button("New Note") {
+                        actions.newNote(item.type == .group ? item.id : findParentId(item.id))
+                    }
+                    if let newTable = actions.newTable {
+                        Button("New Table") {
+                            _ = newTable(item.type == .group ? item.id : findParentId(item.id))
+                        }
                     }
                 }
                 if item.type == .group {
@@ -248,7 +256,9 @@ struct ResearchTreeNode: View {
                         Text(refusal)
                         Divider()
                     }
-                    Button("Duplicate") { actions.duplicate(item.id) }
+                    if actions.offersDuplicate(item) {
+                        Button("Duplicate") { actions.duplicate(item.id) }
+                    }
                     // Absent on a row drawn twice (two chapters' folds):
                     // renaming there opens a second field — see `offersRename`.
                     if offersRename(item.id) {

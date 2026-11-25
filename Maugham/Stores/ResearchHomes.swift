@@ -50,31 +50,30 @@ struct ResearchHomes {
     private let linksById: [String: [String]]
     private let ownerById: [String: String]
     private let rootsByPiece: [String: [ResearchItem]]
+    private let rootIdsByPiece: [String: Set<String>]
     private let placeById: [String: String]
     private let wholeBookIds: Set<String>
     private let pieceRank: [String: Int]
     private let linkingPieces: Set<String>
     /// Whole-book groups drawn nowhere: each holds only what pieces hold.
     private let containerIds: Set<String>
-    /// Whole-book items with something a piece holds somewhere beneath them.
-    private let holdingIds: Set<String>
     /// Each piece's Parts, outermost first (`parts(of:)`).
     private let partsByPiece: [String: [StructureItem]]
 
     static let empty = ResearchHomes(
         wholeBook: [], pieceOrder: [], pieceTitles: [:], visited: 0, homesById: [:],
         linksById: [:], ownerById: [:], rootsByPiece: [:], placeById: [:],
-        wholeBookIds: [], pieceRank: [:], linkingPieces: [], containerIds: [], holdingIds: [],
+        wholeBookIds: [], pieceRank: [:], linkingPieces: [], containerIds: [],
         partsByPiece: [:])
 
     private init(wholeBook: [ResearchItem], pieceOrder: [String], pieceTitles: [String: String],
                  visited: Int, homesById: [String: [String]], linksById: [String: [String]],
                  ownerById: [String: String], rootsByPiece: [String: [ResearchItem]],
                  placeById: [String: String], wholeBookIds: Set<String>, pieceRank: [String: Int],
-                 linkingPieces: Set<String>, containerIds: Set<String>, holdingIds: Set<String>,
+                 linkingPieces: Set<String>, containerIds: Set<String>,
                  partsByPiece: [String: [StructureItem]]) {
         self.containerIds = containerIds
-        self.holdingIds = holdingIds
+        self.rootIdsByPiece = rootsByPiece.mapValues { Set($0.map(\.id)) }
         self.partsByPiece = partsByPiece
         self.wholeBook = wholeBook
         self.pieceOrder = pieceOrder
@@ -109,6 +108,11 @@ struct ResearchHomes {
     /// group is not, in research-tree order.
     func foldRoots(of piece: String) -> [ResearchItem] { rootsByPiece[piece] ?? [] }
 
+    /// Whether `id` is a root row of `piece`'s fold — a lookup, for a row.
+    func isFoldRoot(_ id: String, of piece: String) -> Bool {
+        rootIdsByPiece[piece]?.contains(id) ?? false
+    }
+
     /// Where a fold's root row sits in the research tree — its groups, outer
     /// first ("World / Maps") — or nil at the top. A linked note inside a
     /// whole-book group is drawn flat under the chapter, and this names the
@@ -140,12 +144,14 @@ struct ResearchHomes {
     /// The Parts above `piece`, outermost first (`ResearchHomeMenu`'s nesting).
     func parts(of piece: String) -> [StructureItem] { partsByPiece[piece] ?? [] }
 
-    /// **What a verb on rows aimed at `ids` acts on** (fix round 1, I2): a
-    /// Research-section row acts only on what the section draws under it. A
-    /// piece's item beneath it is `held` — it stays, whole, with its piece —
-    /// and a group with such an item beneath it `stays` as their group; every
-    /// other subtree is `taken` whole. A row drawn in a fold (not the book's)
-    /// is that fold's: it is taken as itself. Pure; ids in visit order, each
+    /// **What a verb on rows aimed at `ids` acts on** (fix round 1, I2; round
+    /// 2): a row acts only on what is drawn under it. An item beneath it that
+    /// a piece holds beyond the row's own pieces is `held` — it stays, whole,
+    /// with that piece — and every group with such an item anywhere beneath
+    /// it, however deep, `stays` as their group; every other subtree is
+    /// `taken` whole. A Research-section row has no pieces of its own, so
+    /// any piece's item beneath it is held; a fold row's linked group holds
+    /// a note another chapter links directly. Pure; ids in visit order, each
     /// once.
     struct Take: Equatable {
         var taken: [String] = []
@@ -156,22 +162,23 @@ struct ResearchHomes {
     func take(_ ids: [String], in research: [ResearchItem]) -> Take {
         var out = Take()
         var seen = Set<String>()
-        let found = ids.compactMap { TreeWalk.find(id: $0, in: research) }
-        // A fold's row first: chosen there, it is taken as itself.
-        for item in found where !wholeBookIds.contains(item.id) && !containerIds.contains(item.id)
-            && seen.insert(item.id).inserted {
-            out.taken.append(item.id)
+        func isHeld(_ item: ResearchItem, beyond own: Set<String>) -> Bool {
+            !Set(homes(of: item.id)).isSubset(of: own)
         }
-        func visit(_ item: ResearchItem) {
+        func holds(_ item: ResearchItem, beyond own: Set<String>) -> Bool {
+            (item.children ?? []).contains { isHeld($0, beyond: own) || holds($0, beyond: own) }
+        }
+        func visit(_ item: ResearchItem, own: Set<String>) {
             guard seen.insert(item.id).inserted else { return }
-            if homesById[item.id] != nil { out.held.append(item.id); return }
-            guard holdingIds.contains(item.id) else { out.taken.append(item.id); return }
+            if isHeld(item, beyond: own) { out.held.append(item.id); return }
+            guard holds(item, beyond: own) else { out.taken.append(item.id); return }
             out.staying.append(item.id)
-            for child in item.children ?? [] { visit(child) }
+            for child in item.children ?? [] { visit(child, own: own) }
         }
-        for item in found where wholeBookIds.contains(item.id) || containerIds.contains(item.id) {
-            visit(item)
-        }
+        // A fold's row first: chosen there, it is acted on as its fold's.
+        let found = ids.compactMap { TreeWalk.find(id: $0, in: research) }
+        let ordered = found.filter { !homes(of: $0.id).isEmpty } + found.filter { homes(of: $0.id).isEmpty }
+        for item in ordered { visit(item, own: Set(homes(of: item.id))) }
         // A row inside a subtree already taken goes with it.
         var under = Set<String>()
         for item in out.taken.compactMap({ TreeWalk.find(id: $0, in: research) }) {
@@ -235,7 +242,6 @@ struct ResearchHomes {
         var placeById: [String: String] = [:]
         var wholeBookIds = Set<String>()
         var containerIds = Set<String>()
-        var holdingIds = Set<String>()
 
         func ranked(_ pieces: Set<String>) -> [String] {
             pieces.sorted { (pieceRank[$0] ?? .max) < (pieceRank[$1] ?? .max) }
@@ -265,7 +271,6 @@ struct ResearchHomes {
                 return nil
             }
             let children = item.children ?? []
-            if kept.count < children.count { holdingIds.insert(item.id) }
             // Every child is a piece's (or such a group): a container, drawn
             // nowhere (`isContainer`).
             if !children.isEmpty, kept.isEmpty {
@@ -300,7 +305,7 @@ struct ResearchHomes {
             visited: visited, homesById: homesById, linksById: linksById,
             ownerById: ownerById, rootsByPiece: rootsByPiece, placeById: placeById,
             wholeBookIds: wholeBookIds, pieceRank: pieceRank, linkingPieces: linkingPieces,
-            containerIds: containerIds, holdingIds: holdingIds, partsByPiece: partsByPiece)
+            containerIds: containerIds, partsByPiece: partsByPiece)
     }
 }
 

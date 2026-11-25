@@ -265,9 +265,11 @@ extension BinderTreeVerbs {
     }
 
     /// **A Finder drop's meaning, its piece's posture asked** (fix round 1,
-    /// I4): a file a chapter links, or a Collection piece files in its own
-    /// research, adds to that piece's research — refused, and named, where
-    /// this Mac may not change it (`mayEditResearchLinks`, tripwire 51).
+    /// I4): a file a chapter would LINK is a link edit — refused, and named,
+    /// where this Mac may not change that chapter's links
+    /// (`mayEditResearchLinks`, tripwire 51). A file filed into a Collection
+    /// piece's own folder is creation, asked exactly what that fold's New
+    /// Note asks — nothing of the link door (fix round 2, NB5).
     func externalIntent(on target: TreeDropIntent.Target,
                         position: DropIntent.Position) -> TreeDropIntent.ExternalIntent {
         let intent = TreeDropIntent.classifyExternal(
@@ -276,7 +278,7 @@ extension BinderTreeVerbs {
             research: store.manifest.research,
             projectType: store.manifest.type)
         switch intent {
-        case .importFiles(.sharedAndLink(let piece)), .importFiles(.piece(let piece)):
+        case .importFiles(.sharedAndLink(let piece)):
             return mayEditResearchLinks(of: piece) ? intent : .refuse(.linksNotPermitted)
         default:
             return intent
@@ -402,8 +404,7 @@ extension BinderTreeVerbs {
         state.researchDragSource = nil
         switch intent {
         case .rescope(let ids, let target):
-            perform { try await store.moveResearchItems(
-                ids: batch.isEmpty ? ids : batch, to: target, atIndex: atIndex) }
+            requestMove(batch.isEmpty ? ids : batch, to: target, atIndex: atIndex)
             return true
         case .link(let researchId, let documentId):
             let batch = batch.isEmpty ? [researchId] : batch
@@ -439,25 +440,20 @@ extension BinderTreeVerbs {
     }
 
     /// The ordinary same-scope reorder. Not reinvented: the index is
-    /// `ResearchSelectionSync`'s and the move is `ProjectStore.moveResearchItem`,
-    /// which reparents within a scope and never moves a file between scopes —
-    /// the batch mover would, and a piece-root item whose parent id is `nil`
-    /// would read as "shared root" to it.
+    /// `ResearchSelectionSync`'s, and the move is the tree's one research-move
+    /// door (`requestMove`, fix round 2), one row or a batch alike.
     ///
-    /// **A batch reorders through the plural mover, and its destination is
-    /// named rather than implied** (stage-2b Task 3). `moveResearchItem` takes a
-    /// parent id, where `nil` means the shared root — which is why the single
-    /// case above uses it and the batch cannot: a piece-root item's parent id is
-    /// also `nil`, and handing that to the batch mover as `.sharedRoot` would
-    /// turn a reorder inside a Collection piece into a move of the writer's
-    /// files out of it. `TreeDropIntent.container(ofRow:)` is the rule that
-    /// already answers *"what does beside this row mean"* — `.group`, `.piece`
-    /// or `.sharedRoot` — and it is called here rather than restated.
+    /// **Its destination is named rather than implied** (stage-2b Task 3): a
+    /// piece-root item's parent id is `nil`, and handing that to the mover as
+    /// `.sharedRoot` would turn a reorder inside a Collection piece into a
+    /// move of the writer's files out of it. `TreeDropIntent.container(ofRow:)`
+    /// is the rule that already answers *"what does beside this row mean"* —
+    /// `.group`, `.piece` or `.sharedRoot` — and it is called here rather than
+    /// restated.
     private func reorder(
         draggedId: String, movingIds: [String],
         position: DropIntent.Position, target: ResearchItem
     ) -> Bool {
-        let batched = movingIds.count > 1
         let toParentId: String?
         let destIndex: Int
         // The hover's answer at this position, asked here too, so the two
@@ -484,19 +480,18 @@ extension BinderTreeVerbs {
             }
             destIndex = index
         }
-        guard batched else {
-            perform { try await store.moveResearchItem(
-                id: draggedId, toParentId: toParentId, atIndex: destIndex) }
-            return true
-        }
+        // One door for every research move (fix round 2, NB2): a group
+        // dragged over a piece's note asks as the menu's Move does. The
+        // destination is named, never implied: `container(ofRow:)` is the
+        // rule for what beside this row means, so a piece-root row's nil
+        // parent never reads as the shared root.
         let destination: ResearchMoveTarget = position == .middle
             && target.type == .group
             ? .group(target.id)
             : TreeDropIntent.container(ofRow: target.id,
                                        structure: store.manifest.structure,
                                        research: store.manifest.research)
-        perform { try await store.moveResearchItems(
-            ids: movingIds, to: destination, atIndex: destIndex) }
+        requestMove(movingIds, to: destination, atIndex: destIndex)
         return true
     }
 

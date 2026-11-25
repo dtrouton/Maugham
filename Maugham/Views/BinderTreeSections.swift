@@ -723,7 +723,7 @@ struct BinderTreeVerbs {
             moveTargets: { ids in
                 ResearchSelectionSync.moveTargets(forIds: ids, manifest: store.manifest)
             },
-            move: { ids, target in requestMove(ids, to: target) },
+            move: { ids, target in requestMove(ids, to: target, atIndex: nil) },
             deleteMany: { ids in requestDelete(ids) },
             // A drag out of a fold is an act in it (`TreeFoldAutoOpen`).
             dragStarted: { [state] id, fold in
@@ -765,12 +765,18 @@ struct BinderTreeVerbs {
         perform { try await store.deleteResearchItems(ids: ids) }
     }
 
-    func requestMove(_ ids: [String], to target: ResearchMoveTarget) {
-        if let act = heldAct(.move(target), ids: ids) {
+    /// **The one door a tree research move goes through** (fix round 2,
+    /// NB2): the row menu's Move to ▸, a drag's reorder, a drag into a group
+    /// or across a scope — whatever the delivery, a group over a piece's note
+    /// asks first and lifts it (`HeldResearchAct`), the same question and
+    /// the same result. Counted: no other tree site calls the store's mover
+    /// (`test_everyTreeResearchMoveGoesThroughTheHeldDoor`).
+    func requestMove(_ ids: [String], to target: ResearchMoveTarget, atIndex: Int?) {
+        if let act = heldAct(.move(target, atIndex: atIndex), ids: ids) {
             state.pendingAlert = .confirmHeld(act)
             return
         }
-        perform { try await store.moveResearchItems(ids: ids, to: target) }
+        perform { try await store.moveResearchItems(ids: ids, to: target, atIndex: atIndex) }
     }
 
     /// **The question answered yes**: Delete trashes only what was taken;
@@ -792,11 +798,16 @@ struct BinderTreeVerbs {
         case .delete:
             guard !act.take.taken.isEmpty else { return }
             try await store.deleteResearchItems(ids: act.take.taken)
-        case .move(let target):
+        case .move(let target, let index):
             for lift in act.lifts {
                 try await store.moveResearchItems(ids: lift.ids, to: lift.to)
             }
-            try await store.moveResearchItems(ids: act.ids, to: target)
+            do {
+                try await store.moveResearchItems(ids: act.ids, to: target, atIndex: index)
+            } catch where !act.lifts.isEmpty {
+                // The lift stands: say so, then why the rest did not happen.
+                throw TreeLinkError(message: act.afterLift + error.localizedDescription)
+            }
         }
     }
 

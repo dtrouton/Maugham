@@ -678,6 +678,19 @@ struct BinderPieceFold: View {
                                            mayLink: verbs.mayEditResearchLinks(of: documentId),
                                            pieceTitle: TreeWalk.find(id: documentId,
                                                                      in: store.manifest.structure)?.title)
+        // **Where this Mac may not change the chapter's links, what would
+        // link is not offered** (fix round 2, ruling 10): New Note, New Table
+        // beside a root row (it would land beside it and be linked), and
+        // Duplicate of a root (the copy would be linked). Inside a group the
+        // chapter holds they land unlinked and stay offered. A lookup per
+        // row (`isFoldRoot`), never a walk (tripwire 4). The refusal below
+        // stays as the belt behind it.
+        actions.offersMaking = { [documentId] item in
+            refusal == nil || item.type == .group || !homes.isFoldRoot(item.id, of: documentId)
+        }
+        actions.offersDuplicate = { [documentId] item in
+            refusal == nil || !homes.isFoldRoot(item.id, of: documentId)
+        }
         actions.newNote = { [verbs, documentId, store, state] parentId in
             state.actedInFold(documentId)
             let creation = Self.creation(under: parentId, inFoldOf: documentId, homes: homes)
