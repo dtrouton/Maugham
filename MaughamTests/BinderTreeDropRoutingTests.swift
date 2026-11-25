@@ -507,13 +507,14 @@ final class BinderTreeDropRoutingTests: XCTestCase {
             .children?.first { $0.id == world.id })
         XCTAssertEqual(moved.children?.map(\.id), [coast.id], "the same result as the menu's")
 
-        // A reorder beside a row asks too.
+        // Into a group in another Research group asks too: a different parent.
         let (store2, world2, _, _, _, _, _) = try await worldOverTwoChapters()
-        let anchor = try await store2.addResearchTextNote(parentId: nil, title: "Anchor")
+        let shelf = try await store2.addResearchItem(parentId: nil, title: "Shelf", kind: nil)
+        let anchor = try await store2.addResearchTextNote(parentId: shelf.id, title: "Anchor")
         XCTAssertTrue(self.verbs(store2).routeResearchRowDrop(draggedId: world2.id, position: .bottom,
                                                          target: anchor, inFoldOf: nil))
         guard case .confirmHeld? = self.state(for: store2).pendingAlert else {
-            return XCTFail("a reorder of the group asks too")
+            return XCTFail("a move to another parent asks")
         }
     }
 
@@ -523,7 +524,7 @@ final class BinderTreeDropRoutingTests: XCTestCase {
         let (store, world, maps, _, coast, _, _) = try await worldOverTwoChapters()
         let inside = try await store.addResearchItem(parentId: world.id, title: "Inside", kind: nil)
         _ = coast
-        let act = try XCTUnwrap(verbs(store).heldAct(.move(.group(inside.id), atIndex: nil),
+        let act = try XCTUnwrap(verbs(store).heldAct(.move(.group(inside.id), landing: .end),
                                                      ids: [world.id]))
         do {
             try await BinderTreeVerbs.performHeld(act, store: store)
@@ -563,6 +564,137 @@ final class BinderTreeDropRoutingTests: XCTestCase {
         XCTAssertNil(TreeWalk.find(id: own.id, in: store.manifest.research))
     }
 
+    /// **A fold row's Move is the plain move** (fix round 3, a): Ships,
+    /// Chapter One's linked group holding Hull (which Chapter Two links too),
+    /// moves whole into Places from Chapter One's fold — nothing asked,
+    /// nothing lifted, and Hull is still in both folds. A link is held by id;
+    /// a move never changes a chapter's membership.
+    func test_aFoldRowsMoveIsThePlainMove() async throws {
+        let store = try await novel(notes: [])
+        let ships = try await store.addResearchItem(parentId: nil, title: "Ships", kind: nil)
+        let hull = try await store.addResearchTextNote(parentId: ships.id, title: "Hull")
+        _ = try await store.addResearchTextNote(parentId: ships.id, title: "Mast")
+        let places = try await store.addResearchItem(parentId: nil, title: "Places", kind: nil)
+        let one = try XCTUnwrap(store.manifest.structure.first)
+        let two = try await store.addStructureItem(parentId: nil, title: "Two", kind: .document(.markdown))
+        try await store.linkResearch(researchId: ships.id, toDocumentId: one.id)
+        try await store.linkResearch(researchId: hull.id, toDocumentId: two.id)
+        let state = state(for: store)
+        XCTAssertNil(verbs(store).heldAct(.move(.group(places.id), landing: .end), ids: [ships.id]),
+                     "no question from a fold row")
+        let fold = TreeHostFixture.foldView(store: store, state: state, subject: .constant(.book),
+                                            documentId: one.id, layout: .rows([]))
+        fold.actions.move([ships.id], .group(places.id))
+        XCTAssertNil(state.pendingAlert, "nothing asked")
+        await settle(store) {
+            TreeWalk.find(id: places.id, in: store.manifest.research)?.children?.contains { $0.id == ships.id } == true
+        }
+        let moved = try XCTUnwrap(TreeWalk.find(id: ships.id, in: store.manifest.research))
+        XCTAssertTrue(TreeWalk.contains(id: hull.id, in: moved.children ?? []), "Ships moved whole")
+        XCTAssertEqual(state.researchHomes(in: store.manifest).homes(of: hull.id), [one.id, two.id],
+                       "Hull is in both folds still")
+    }
+
+    /// **A move never takes a note from a chapter** (round 3): Ships is
+    /// Chapter One's; Hull, inside it, Chapter Two links too. Moving Hull out
+    /// of Ships would take it from Chapter One: refused at the door, named,
+    /// and not offered in Move to ▸. Within Ships it may go anywhere.
+    func test_aNoteHeldThroughItsGroupDoesNotMoveOutOfIt() async throws {
+        let store = try await novel(notes: [])
+        let ships = try await store.addResearchItem(parentId: nil, title: "Ships", kind: nil)
+        let hull = try await store.addResearchTextNote(parentId: ships.id, title: "Hull")
+        let deck = try await store.addResearchItem(parentId: ships.id, title: "Deck", kind: nil)
+        let places = try await store.addResearchItem(parentId: nil, title: "Places", kind: nil)
+        let one = try XCTUnwrap(store.manifest.structure.first)
+        let two = try await store.addStructureItem(parentId: nil, title: "Two", kind: .document(.markdown))
+        try await store.linkResearch(researchId: ships.id, toDocumentId: one.id)
+        try await store.linkResearch(researchId: hull.id, toDocumentId: two.id)
+        let state = state(for: store)
+        let verbs = verbs(store)
+        XCTAssertFalse(verbs.requestMove([hull.id], to: .group(places.id), landing: .end))
+        XCTAssertEqual(state.pendingError,
+                       "Couldn’t move “Hull”: it is in a group a chapter holds, and moves with its group.")
+        let targets = verbs.bundle.moveTargets([hull.id]).map(\.target)
+        XCTAssertFalse(targets.contains(.group(places.id)), "not offered")
+        XCTAssertTrue(targets.contains(.group(deck.id)), "inside its group it may go")
+    }
+
+    /// **A move into its own descendant is refused before anything is asked
+    /// or lifted** (fix round 3, b): World dragged onto Coast inside it.
+    func test_aMoveIntoItsOwnGroupIsRefusedBeforeAsking() async throws {
+        let (store, world, maps, _, coast, _, _) = try await worldOverTwoChapters()
+        let inner = try await store.addResearchItem(parentId: world.id, title: "Inner", kind: nil)
+        _ = coast
+        let state = state(for: store)
+        XCTAssertFalse(verbs(store).routeResearchRowDrop(draggedId: world.id, position: .middle,
+                                                         target: inner, inFoldOf: nil))
+        XCTAssertEqual(state.pendingError, "Couldn’t move “World” into “Inner”: a group can’t go inside itself.")
+        let after = try XCTUnwrap(TreeWalk.find(id: world.id, in: store.manifest.research))
+        XCTAssertTrue(TreeWalk.contains(id: maps.id, in: after.children ?? []), "nothing lifted")
+    }
+
+    /// **The answer acts on the manifest as it is then** (fix round 3, c): a
+    /// note linked while the question was up is not trashed — the question
+    /// is asked again, naming it.
+    func test_theAnswerActsOnTheLiveManifest() async throws {
+        let (store, world, maps, tides, coast, one, _) = try await worldOverTwoChapters()
+        let state = state(for: store)
+        verbs(store).bundle.delete(world.id)
+        guard case .confirmHeld(let asked)? = state.pendingAlert else { return XCTFail("asks") }
+        XCTAssertEqual(asked.take.held, [maps.id, tides.id])
+        try await store.linkResearch(researchId: coast.id, toDocumentId: one.id)
+
+        BinderTreeVerbs.confirmHeld(asked, store: store, state: state)
+        guard case .confirmHeld(let again)? = state.pendingAlert else {
+            return XCTFail("what is held changed: it asks again")
+        }
+        XCTAssertEqual(Set(again.take.held), [maps.id, tides.id, coast.id])
+        XCTAssertTrue(again.message.contains("“Coast”"), again.message)
+        XCTAssertTrue(onDisk(coast, store), "Coast, now a chapter's, was not trashed")
+    }
+
+    /// **A same-parent reorder of a Research group asks nothing** (fix round
+    /// 3, e): nothing about the chapters' notes changes.
+    func test_aSameParentReorderOfAGroupAsksNothing() async throws {
+        let (store, world, maps, _, _, _, _) = try await worldOverTwoChapters()
+        let anchor = try await store.addResearchTextNote(parentId: nil, title: "Anchor")
+        let state = state(for: store)
+        XCTAssertTrue(verbs(store).routeResearchRowDrop(draggedId: world.id, position: .bottom,
+                                                        target: anchor, inFoldOf: nil))
+        XCTAssertNil(state.pendingAlert, "a reorder asks nothing")
+        await settle(store) { store.manifest.research.last?.id == world.id }
+        let after = try XCTUnwrap(TreeWalk.find(id: world.id, in: store.manifest.research))
+        XCTAssertTrue(TreeWalk.contains(id: maps.id, in: after.children ?? []), "nothing lifted")
+    }
+
+    /// **Every tree research delete goes through the one door** (fix round
+    /// 3, d): `requestDelete` and the answered question, counted per file.
+    func test_everyTreeResearchDeleteGoesThroughTheHeldDoor() throws {
+        var found: [String: Int] = [:]
+        for file in try SourceTree.swiftFiles(under: "Maugham/Views") {
+            let count = Self.storeDeletes(in: try SourceTree.read(file))
+            if count > 0 { found[file] = count }
+        }
+        XCTAssertEqual(found, ["Maugham/Views/BinderTreeSections.swift": 1], "`performDelete`")
+    }
+
+    func test_theDeleteDoorCensusSeesAPlantedOffender() {
+        XCTAssertEqual(Self.storeDeletes(in: """
+            perform { try await store.deleteResearchItems(ids: ids) }
+            perform { try await store.deleteResearchItem(id: id) }
+            """), 2)
+        XCTAssertEqual(Self.storeDeletes(in: """
+            requestDelete([id])
+            // store.deleteResearchItems( in a comment
+            """), 0)
+    }
+
+    static func storeDeletes(in text: String) -> Int {
+        SourceScan.codeLines(of: text).filter {
+            !$0.contains("func ") && ($0.contains(".deleteResearchItems(") || $0.contains(".deleteResearchItem("))
+        }.count
+    }
+
     /// **No group move reaches the store but through the one door** (NB2):
     /// the tree's research moves are counted per file, so a drop or a menu
     /// that calls the mover itself fails here.
@@ -573,8 +705,8 @@ final class BinderTreeDropRoutingTests: XCTestCase {
             if count > 0 { found[file] = count }
         }
         XCTAssertEqual(found, [
-            // `requestMove` (the door) and `performHeld`'s lift and move.
-            "Maugham/Views/BinderTreeSections.swift": 3,
+            // `performMove`, the door's one call: its lift and its move.
+            "Maugham/Views/BinderTreeSections.swift": 2,
             // A figure's copy into a group it was sent to: one new note.
             "Maugham/Views/FigureActions.swift": 1,
         ])
@@ -586,7 +718,7 @@ final class BinderTreeDropRoutingTests: XCTestCase {
             perform { try await store.moveResearchItem(id: id, toParentId: nil, atIndex: 0) }
             """), 2)
         XCTAssertEqual(Self.storeMoves(in: """
-            requestMove(ids, to: target, atIndex: nil)
+            requestMove(ids, to: target, landing: .end)
             // store.moveResearchItems( in a comment
             """), 0)
     }

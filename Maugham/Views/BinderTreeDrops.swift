@@ -79,8 +79,9 @@ extension BinderTreeVerbs {
         let moving = batchIds(for: intent, draggedId: draggedId, on: treeTarget)
         return apply(intent, movingIds: moving, payload: draggedId,
                      site: "research row \(target.id)",
-                     atIndex: insertionIndex(movingIds: moving, position: position,
-                                             target: target))
+                     landing: insertionIndex(movingIds: moving, position: position,
+                                             target: target) == nil
+                        ? .end : .beside(rowId: target.id, position: position))
     }
 
     /// A drop on the shared Research section — its header, or the placeholder
@@ -398,14 +399,13 @@ extension BinderTreeVerbs {
     /// task, and a throw stops it and surfaces in the tree's alert.
     private func apply(
         _ intent: TreeDropIntent.Intent, movingIds batch: [String],
-        payload: String, site: String, atIndex: Int? = nil
+        payload: String, site: String, landing: HeldResearchAct.Landing = .end
     ) -> Bool {
         // The drag is over: its record goes (M9).
         state.researchDragSource = nil
         switch intent {
         case .rescope(let ids, let target):
-            requestMove(batch.isEmpty ? ids : batch, to: target, atIndex: atIndex)
-            return true
+            return requestMove(batch.isEmpty ? ids : batch, to: target, landing: landing)
         case .link(let researchId, let documentId):
             let batch = batch.isEmpty ? [researchId] : batch
             land(batch, inFoldOf: documentId)
@@ -454,31 +454,28 @@ extension BinderTreeVerbs {
         draggedId: String, movingIds: [String],
         position: DropIntent.Position, target: ResearchItem
     ) -> Bool {
-        let toParentId: String?
-        let destIndex: Int
         // The hover's answer at this position, asked here too, so the two
         // cannot disagree about a refusal (review Minor 3).
         guard reorderLanding(position: position, target: target,
                              movingIds: movingIds).accepts else {
             return refuseDrop("research row \(target.id)", payload: draggedId, reason: .sameRow)
         }
+        let landing: HeldResearchAct.Landing
         if position == .middle, target.type == .group {
-            // Into the group, at its head — the target is the new parent here,
-            // not a sibling, so there is no insertion index to compute.
-            toParentId = target.id
-            destIndex = 0
+            // Into the group, at its head — the target is the new parent here.
+            landing = .head
         } else {
-            toParentId = findParentId(of: target.id)
-            guard let index = ResearchSelectionSync.postRemovalInsertionIndex(
+            guard ResearchSelectionSync.postRemovalInsertionIndex(
                 targetId: target.id, position: position, movingIds: movingIds,
-                siblings: siblings(of: toParentId)) else {
+                siblings: siblings(of: findParentId(of: target.id))) != nil else {
                 // The target is inside the batch (which includes the dragged row
                 // itself) or is not among the siblings it should be — nothing to
                 // anchor to.
                 return refuseDrop("research row \(target.id)",
                                   payload: draggedId, reason: .sameRow)
             }
-            destIndex = index
+            // Found again where the move is made, after any lift (round 3, c).
+            landing = .beside(rowId: target.id, position: position)
         }
         // One door for every research move (fix round 2, NB2): a group
         // dragged over a piece's note asks as the menu's Move does. The
@@ -491,8 +488,7 @@ extension BinderTreeVerbs {
             : TreeDropIntent.container(ofRow: target.id,
                                        structure: store.manifest.structure,
                                        research: store.manifest.research)
-        requestMove(movingIds, to: destination, atIndex: destIndex)
-        return true
+        return requestMove(movingIds, to: destination, landing: landing)
     }
 
     /// Where a cross-scope drop lands within its new container: beside the row

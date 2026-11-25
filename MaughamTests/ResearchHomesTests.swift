@@ -255,7 +255,7 @@ final class ResearchHomesTests: XCTestCase {
                     }
                     XCTAssertTrue(underHeld, "seed \(seed): \(id) under \(group.id) is not held")
                 }
-                if let act = HeldResearchAct.of(.move(.sharedRoot, atIndex: nil), ids: [group.id],
+                if let act = HeldResearchAct.of(.move(.group("elsewhere"), landing: .end), ids: [group.id],
                                                 homes: homes, research: research, structure: structure,
                                                 noun: "chapter") {
                     XCTAssertEqual(Set(act.lifts.flatMap(\.ids)), Set(act.take.held),
@@ -287,6 +287,76 @@ final class ResearchHomesTests: XCTestCase {
                 }
             }
         }
+    }
+
+    /// **No Move, from any row, changes any piece's fold membership** (fix
+    /// round 3, a): over generated novels, every group moved — from the
+    /// section with its question's lifts, from a fold as the plain move —
+    /// into a new top-level group leaves every item's homes as they were.
+    func test_noMoveChangesWhoseAnItemIs() {
+        for seed in UInt64(1)...40 {
+            var rng = SplitMix(seed: seed)
+            let (structure, research) = generatedNovel(&rng)
+            let before = homes(structure, research)
+            let all = TreeWalk.collect(in: research, where: { _ in true })
+            let target = ResearchItem(id: "dest", title: "Dest", type: .group, path: "research/dest",
+                                      children: [])
+            for group in all where group.type == .group && group.role == nil {
+                // A move that would take it from a chapter is refused at the
+                // door (`chaptersLost`, pinned on its own); every other one is
+                // made here.
+                guard before.chaptersLost(moving: group.id, to: .group("dest"), in: research).isEmpty
+                else { continue }
+                var moved = research + [target]
+                let act = HeldResearchAct.of(.move(.group("dest"), landing: .end), ids: [group.id],
+                                             homes: before, research: moved, structure: structure,
+                                             noun: "chapter")
+                for lift in act?.lifts ?? [] {
+                    switch lift.to {
+                    case .group(let parent): moved = Self.moving(lift.ids, into: parent, in: moved)
+                    case .sharedRoot, .piece: moved = Self.moving(lift.ids, toTopIn: moved)
+                    }
+                }
+                moved = Self.moving([group.id], into: "dest", in: moved)
+                let after = homes(structure, moved)
+                for item in all {
+                    XCTAssertEqual(Set(after.homes(of: item.id)), Set(before.homes(of: item.id)),
+                                   "seed \(seed): moving \(group.id) changed \(item.id)'s pieces")
+                }
+            }
+        }
+    }
+
+    private static func removing(_ ids: [String], from items: [ResearchItem])
+        -> (kept: [ResearchItem], taken: [ResearchItem]) {
+        var taken: [ResearchItem] = []
+        func strip(_ items: [ResearchItem]) -> [ResearchItem] {
+            items.compactMap { item in
+                if ids.contains(item.id) { taken.append(item); return nil }
+                var item = item
+                item.children = item.children.map(strip)
+                return item
+            }
+        }
+        return (strip(items), taken)
+    }
+
+    private static func moving(_ ids: [String], toTopIn items: [ResearchItem]) -> [ResearchItem] {
+        let (kept, taken) = removing(ids, from: items)
+        return kept + taken
+    }
+
+    private static func moving(_ ids: [String], into parent: String, in items: [ResearchItem]) -> [ResearchItem] {
+        let (kept, taken) = removing(ids, from: items)
+        func put(_ items: [ResearchItem]) -> [ResearchItem] {
+            items.map { item in
+                var item = item
+                if item.id == parent { item.children = (item.children ?? []) + taken }
+                else { item.children = item.children.map(put) }
+                return item
+            }
+        }
+        return put(kept)
     }
 
     /// **The read-through gate against an oracle written here, not asked of

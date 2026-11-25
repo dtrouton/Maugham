@@ -108,6 +108,25 @@ struct ResearchHomes {
     /// group is not, in research-tree order.
     func foldRoots(of piece: String) -> [ResearchItem] { rootsByPiece[piece] ?? [] }
 
+    /// **The chapters a move of `id` to `target` would take it away from**
+    /// (fix round 3): a chapter that holds it through a group above it, which
+    /// the destination is not inside. A link is held by id, so a note's own
+    /// links never go; only what it inherits from where it stands can. A
+    /// Collection piece's own folder is its file's place, moved on purpose
+    /// (a rescope), so only linking pieces count. Empty: the move changes no
+    /// chapter's hold. Pure.
+    func chaptersLost(moving id: String, to target: ResearchMoveTarget,
+                      in research: [ResearchItem]) -> [String] {
+        guard let parent = TreeWalk.first(in: research, where: {
+            ($0.children ?? []).contains { $0.id == id } }) else { return [] }
+        let keeps: Set<String>
+        switch target {
+        case .group(let group): keeps = Set(homes(of: group))
+        case .sharedRoot, .piece: keeps = []
+        }
+        return homes(of: parent.id).filter { takesLinks($0) && !keeps.contains($0) }
+    }
+
     /// Whether `id` is a root row of `piece`'s fold — a lookup, for a row.
     func isFoldRoot(_ id: String, of piece: String) -> Bool {
         rootIdsByPiece[piece]?.contains(id) ?? false

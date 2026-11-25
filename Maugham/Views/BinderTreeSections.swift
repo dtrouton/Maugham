@@ -720,10 +720,19 @@ struct BinderTreeVerbs {
             // Items", a multi "Move to ▸", a batch drag — are all built on this
             // one closure, so widening it is what carries them across.
             selectionForRow: { rowId in actingIds(forRow: rowId) },
+            // Only where the move keeps every chapter's hold (round 3): a
+            // note a chapter holds through its group moves with the group.
             moveTargets: { ids in
-                ResearchSelectionSync.moveTargets(forIds: ids, manifest: store.manifest)
+                let homes = state.researchHomes(in: store.manifest)
+                return ResearchSelectionSync.moveTargets(forIds: ids, manifest: store.manifest)
+                    .filter { target in
+                        ids.allSatisfy {
+                            homes.chaptersLost(moving: $0, to: target.target,
+                                               in: store.manifest.research).isEmpty
+                        }
+                    }
             },
-            move: { ids, target in requestMove(ids, to: target, atIndex: nil) },
+            move: { ids, target in requestMove(ids, to: target, landing: .end) },
             deleteMany: { ids in requestDelete(ids) },
             // A drag out of a fold is an act in it (`TreeFoldAutoOpen`).
             dragStarted: { [state] id, fold in
@@ -750,6 +759,12 @@ struct BinderTreeVerbs {
     /// The question a group's verb asks first, when a piece holds something
     /// beneath it; nil where the verb is the plain one.
     func heldAct(_ verb: HeldResearchAct.Verb, ids: [String]) -> HeldResearchAct? {
+        Self.heldAct(verb, ids: ids, store: store, state: state)
+    }
+
+    @MainActor
+    static func heldAct(_ verb: HeldResearchAct.Verb, ids: [String], store: ProjectStore,
+                        state: BinderTreeSectionsState) -> HeldResearchAct? {
         HeldResearchAct.of(verb, ids: ids, homes: state.researchHomes(in: store.manifest),
                            research: store.manifest.research,
                            structure: store.manifest.structure,
@@ -757,57 +772,123 @@ struct BinderTreeVerbs {
                                                            projectType: store.manifest.type))
     }
 
+    /// **The one door a tree research delete goes through** (counted:
+    /// `test_everyTreeResearchDeleteGoesThroughTheHeldDoor`).
     func requestDelete(_ ids: [String]) {
         if let act = heldAct(.delete, ids: ids) {
             state.pendingAlert = .confirmHeld(act)
             return
         }
-        perform { try await store.deleteResearchItems(ids: ids) }
+        perform { try await Self.performDelete(ids, store: store) }
     }
 
-    /// **The one door a tree research move goes through** (fix round 2,
-    /// NB2): the row menu's Move to ▸, a drag's reorder, a drag into a group
-    /// or across a scope — whatever the delivery, a group over a piece's note
-    /// asks first and lifts it (`HeldResearchAct`), the same question and
-    /// the same result. Counted: no other tree site calls the store's mover
+    /// **The one door a tree research move goes through** (fix rounds 2–3):
+    /// the row menu's Move to ▸, a drag's reorder, a drag into a group or
+    /// across a scope. A move into the moving rows' own group is refused
+    /// first, named, with nothing done (round 3, b). A Research-section group
+    /// moving to another parent over a piece's note asks first and lifts it
+    /// (`HeldResearchAct`); a fold row's move and a same-parent reorder are the
+    /// plain move. Counted: no other tree site calls the store's mover
     /// (`test_everyTreeResearchMoveGoesThroughTheHeldDoor`).
-    func requestMove(_ ids: [String], to target: ResearchMoveTarget, atIndex: Int?) {
-        if let act = heldAct(.move(target, atIndex: atIndex), ids: ids) {
-            state.pendingAlert = .confirmHeld(act)
-            return
+    @discardableResult
+    func requestMove(_ ids: [String], to target: ResearchMoveTarget,
+                     landing: HeldResearchAct.Landing) -> Bool {
+        if case .group(let groupId) = target, let mover = ids.compactMap({
+            TreeWalk.find(id: $0, in: store.manifest.research)
+        }).first(where: { $0.id == groupId || TreeWalk.contains(id: groupId, in: $0.children ?? []) }) {
+            let into = TreeWalk.find(id: groupId, in: store.manifest.research)?.title ?? groupId
+            state.pendingError = "Couldn’t move “\(mover.title)” into “\(into)”: a group can’t go inside itself."
+            return false
         }
-        perform { try await store.moveResearchItems(ids: ids, to: target, atIndex: atIndex) }
+        // **A move never takes a note from a chapter** (round 3): one a
+        // chapter holds through the group it stands in moves with that group.
+        let homes = state.researchHomes(in: store.manifest)
+        if let held = ids.first(where: {
+            !homes.chaptersLost(moving: $0, to: target, in: store.manifest.research).isEmpty
+        }) {
+            let title = TreeWalk.find(id: held, in: store.manifest.research)?.title ?? held
+            state.pendingError = "Couldn’t move “\(title)”: "
+                + TreeDropIntent.Reason.movesWithItsGroup.explanation + "."
+            return false
+        }
+        if let act = heldAct(.move(target, landing: landing), ids: ids) {
+            state.pendingAlert = .confirmHeld(act)
+            return true
+        }
+        perform {
+            try await Self.performMove(ids, to: target, landing: landing, lifts: [], afterLift: "",
+                                       store: store)
+        }
+        return true
     }
 
-    /// **The question answered yes**: Delete trashes only what was taken;
-    /// Move lifts what pieces hold out, then moves the rows.
+    /// **The question answered yes — over the manifest as it is now** (fix
+    /// round 3, c): the act is worked out again; where what is held has
+    /// changed since the question, it is asked again with the new names;
+    /// where nothing is held any more, the verb is the plain one. Delete
+    /// trashes only what is taken; Move lifts what pieces hold out, then
+    /// moves the rows, its landing found again after the lift.
     @MainActor
     static func confirmHeld(_ act: HeldResearchAct, store: ProjectStore,
                             state: BinderTreeSectionsState) {
         state.dismissAlert(.confirmHeld(act))
+        let ids = act.ids.filter { TreeWalk.contains(id: $0, in: store.manifest.research) }
+        guard !ids.isEmpty else { return }
+        let live = heldAct(act.verb, ids: ids, store: store, state: state)
+        if let live, live.take.held != act.take.held {
+            state.pendingAlert = .confirmHeld(live)
+            return
+        }
         Task { @MainActor in
-            do { try await performHeld(act, store: store) }
-            catch { state.pendingError = error.localizedDescription }
+            do {
+                if let live {
+                    try await performHeld(live, store: store)
+                } else {
+                    switch act.verb {
+                    case .delete: try await performDelete(ids, store: store)
+                    case .move(let target, let landing):
+                        try await performMove(ids, to: target, landing: landing, lifts: [],
+                                              afterLift: "", store: store)
+                    }
+                }
+            } catch { state.pendingError = error.localizedDescription }
         }
     }
 
-    /// What `confirmHeld` performs, awaited (the store test's door).
+    /// What `confirmHeld` performs, awaited (the store tests' door).
     @MainActor
     static func performHeld(_ act: HeldResearchAct, store: ProjectStore) async throws {
         switch act.verb {
         case .delete:
             guard !act.take.taken.isEmpty else { return }
-            try await store.deleteResearchItems(ids: act.take.taken)
-        case .move(let target, let index):
-            for lift in act.lifts {
-                try await store.moveResearchItems(ids: lift.ids, to: lift.to)
-            }
-            do {
-                try await store.moveResearchItems(ids: act.ids, to: target, atIndex: index)
-            } catch where !act.lifts.isEmpty {
-                // The lift stands: say so, then why the rest did not happen.
-                throw TreeLinkError(message: act.afterLift + error.localizedDescription)
-            }
+            try await performDelete(act.take.taken, store: store)
+        case .move(let target, let landing):
+            try await performMove(act.ids, to: target, landing: landing, lifts: act.lifts,
+                                  afterLift: act.afterLift, store: store)
+        }
+    }
+
+    /// The tree's one call of the store's research delete.
+    @MainActor
+    private static func performDelete(_ ids: [String], store: ProjectStore) async throws {
+        try await store.deleteResearchItems(ids: ids)
+    }
+
+    /// The tree's one call of the store's research mover: the lifts first,
+    /// then the rows, at the landing as the tree stands after the lifts.
+    @MainActor
+    private static func performMove(_ ids: [String], to target: ResearchMoveTarget,
+                                    landing: HeldResearchAct.Landing, lifts: [HeldResearchAct.Lift],
+                                    afterLift: String, store: ProjectStore) async throws {
+        for lift in lifts {
+            try await store.moveResearchItems(ids: lift.ids, to: lift.to, atIndex: nil)
+        }
+        let index = landing.index(movingIds: ids, in: store.manifest.research)
+        do {
+            try await store.moveResearchItems(ids: ids, to: target, atIndex: index)
+        } catch where !lifts.isEmpty {
+            // The lift stands: say so, then why the rest did not happen.
+            throw TreeLinkError(message: afterLift + error.localizedDescription)
         }
     }
 

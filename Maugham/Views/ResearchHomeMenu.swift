@@ -159,7 +159,33 @@ struct ResearchHomeMenu: Equatable {
 struct HeldResearchAct: Equatable {
     enum Verb: Equatable {
         case delete
-        case move(ResearchMoveTarget, atIndex: Int?)
+        case move(ResearchMoveTarget, landing: Landing)
+    }
+
+    /// **Where moved rows land among their new siblings** — named, not an
+    /// index, so it is found again on the tree as it stands when the move is
+    /// made, after any lift (fix round 3, c).
+    enum Landing: Equatable {
+        /// After the last sibling (the mover's `nil` index).
+        case end
+        /// Before the first (a drop into a group's middle).
+        case head
+        /// Above or below the row the drop was aimed beside.
+        case beside(rowId: String, position: DropIntent.Position)
+
+        /// The mover's index for `movingIds` in `research` now; nil appends.
+        func index(movingIds: [String], in research: [ResearchItem]) -> Int? {
+            switch self {
+            case .end: return nil
+            case .head: return 0
+            case .beside(let rowId, let position):
+                let parent = TreeWalk.first(in: research, where: {
+                    ($0.children ?? []).contains { $0.id == rowId } })
+                return ResearchSelectionSync.postRemovalInsertionIndex(
+                    targetId: rowId, position: position, movingIds: movingIds,
+                    siblings: parent?.children ?? research)
+            }
+        }
     }
 
     /// The held items under one row, lifted to where that row stands.
@@ -184,15 +210,36 @@ struct HeldResearchAct: Equatable {
     static func of(_ verb: Verb, ids: [String], homes: ResearchHomes,
                    research: [ResearchItem], structure: [StructureItem],
                    noun: String) -> HeldResearchAct? {
-        let take = homes.take(ids, in: research)
-        guard !take.held.isEmpty else { return nil }
-        func title(_ id: String) -> String { TreeWalk.find(id: id, in: research)?.title ?? id }
         func parent(of id: String) -> String? {
             TreeWalk.first(in: research, where: { ($0.children ?? []).contains { $0.id == id } })?.id
         }
+        // **A move asks only for Research-section rows, and only when they
+        // change parent** (fix round 3, a + e). A fold row's move is the
+        // plain move: a link is held by id, so moving a chapter's group never
+        // changes which chapters hold what is in it. A same-parent reorder of
+        // a section group changes nothing about the chapters' notes either.
+        // Delete keeps the "beyond the row's own pieces" rule for every row.
+        let acted: [String]
+        switch verb {
+        case .delete:
+            acted = ids
+        case .move(let target, _):
+            acted = ids.filter { homes.homes(of: $0).isEmpty }
+            let stays = acted.allSatisfy { id in
+                switch target {
+                case .group(let group): return parent(of: id) == group
+                case .sharedRoot: return parent(of: id) == nil
+                case .piece: return false
+                }
+            }
+            if stays { return nil }
+        }
+        let take = homes.take(acted, in: research)
+        guard !take.held.isEmpty else { return nil }
+        func title(_ id: String) -> String { TreeWalk.find(id: id, in: research)?.title ?? id }
         var lifts: [Lift] = []
         if case .move = verb {
-            for id in ids where take.staying.contains(id) {
+            for id in acted where take.staying.contains(id) {
                 guard let row = TreeWalk.find(id: id, in: research) else { continue }
                 let under = take.held.filter { TreeWalk.contains(id: $0, in: row.children ?? []) }
                 guard !under.isEmpty else { continue }
