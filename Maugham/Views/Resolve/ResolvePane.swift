@@ -1137,16 +1137,7 @@ struct ResolvePane: View {
         for figure in store.manifest.figures ?? [] where names[figure.id] == nil {
             names[figure.id] = figure.name
         }
-        var index: [String: Int]?
-        var titles: [String] = []
-        if case .piece(let docId, _) = scope, let script {
-            let starts = ParagraphOffsets.starts(sequence: held.sequences[docId] ?? [],
-                                                 paragraphs: held.paragraphText)
-            let summaries = script.sceneSummaries()
-            index = ParagraphOffsets.sceneIndex(
-                starts: starts, sceneStarts: summaries.map(\.line.range.location))
-            titles = summaries.map(\.line.content)
-        }
+        let (index, titles) = Self.scenes(held, scope: scope, script: script)
         figureNames = names
         sceneIndex = index
         groups = ResolveGrouping.groups(held, scope: scope, structure: structure,

@@ -905,7 +905,7 @@ struct ProjectWindow: View {
     /// item for an empty one: an empty `ToolbarItem` keeps the taller unified
     /// titlebar, the exact chrome `⌘\` exists to remove.
     /// `ProjectWindow.windowToolbarIsVisible` is the single predicate.
-    private struct TopChromeModifier: ViewModifier {
+    struct TopChromeModifier: ViewModifier {
         let projectURL: URL
         let store: ProjectStore?
         let isNoChromeOn: Bool

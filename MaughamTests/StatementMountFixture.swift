@@ -184,6 +184,15 @@ final class StatementMountFixture: RunLoopPumping {
         }
     }
 
+    /// The accessibility values of the elements identified `identifier`, in
+    /// tree order — what VoiceOver reads after the label.
+    func axValues(identifiedBy identifier: String, in window: NSWindow) throws -> [String] {
+        try axTree(in: window).compactMap { element in
+            guard axAttribute(element, "accessibilityIdentifier") as? String == identifier else { return nil }
+            return axAttribute(element, "accessibilityValue") as? String ?? ""
+        }
+    }
+
     /// `staticTexts` as a predicate, for polling. Swallows the unavailable-tree
     /// skip on purpose — a `pumpUntil` condition cannot throw, and the
     /// assertion after the wait is what reports the skip.

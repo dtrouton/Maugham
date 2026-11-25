@@ -93,7 +93,7 @@ final class BookEditionsTests: XCTestCase {
     /// edition refuses, naming Add Language**; the source is never refused.
     func test_mcpRefusesARemovedEditionAndNamesTheWayBack() async throws {
         XCTAssertThrowsError(try BookEditions.refuseIfRemoved(["sr", "ES"], removed: removed)) { error in
-            XCTAssertEqual(error as? MCPError, .invalidArgument(BookEditions.removedLine(language: "ES")))
+            XCTAssertEqual(error as? MCPError, .invalidArgument(BookEditions.removedLineForClaude(language: "ES")))
         }
         XCTAssertNoThrow(try BookEditions.refuseIfRemoved([nil, "source", "sr"], removed: removed))
         XCTAssertTrue(BookEditions.removedLine(language: "es").contains("Add Language"))
@@ -109,7 +109,7 @@ final class BookEditionsTests: XCTestCase {
         let registry = ProjectRegistry()
         registry.register(url: url, store: store)
         let id = ProjectIdentifier.id(for: url)
-        let expected = MCPError.invalidArgument(BookEditions.removedLine(language: "es"))
+        let expected = MCPError.invalidArgument(BookEditions.removedLineForClaude(language: "es"))
         func refuses(_ call: () async throws -> Data, _ tool: String) async {
             do {
                 _ = try await call()

@@ -262,13 +262,42 @@ extension ResolvePane {
     /// Book, or the one document of a one-script project. Otherwise no scenes.
     static func script(for scope: ResolveScope, structure: [StructureItem], openDocId: String?,
                        script: FountainScript?) -> FountainScript? {
-        guard let script, case .piece(let docId, let isBook) = scope,
+        // A piece read in a language keeps its source's script (a
+        // translated surface posts none), so it groups by scene as its
+        // source does (shell p5 Task 5).
+        let docId: String, isBook: Bool
+        switch scope {
+        case .piece(let id, let book): (docId, isBook) = (id, book)
+        case .pieceInLanguage(let id, _): (docId, isBook) = (id, false)
+        case .pieces, .figure, .edition, .elsewhere, .outside: return nil
+        }
+        guard let script,
               let item = TreeWalk.find(id: docId, in: structure),
               DocumentFormat.ofManuscript(path: item.path).isScreenplay
         else { return nil }
         let isTheOnlyDocument = TreeWalk.collect(in: structure) { $0.type == .document }.count == 1
         guard isBook || docId == openDocId || isTheOnlyDocument else { return nil }
         return script
+    }
+
+    /// **A screenplay's scenes in To resolve**: each paragraph's scene and
+    /// the sluglines, where `script` (from `script(for:)`) is about the
+    /// scope's one piece; no scenes otherwise. The one rule `regroup` and
+    /// `ResolvePresence.sceneIndex` both read.
+    nonisolated static func scenes(_ snapshot: ResolveSnapshot, scope: ResolveScope,
+                       script: FountainScript?) -> (index: [String: Int]?, titles: [String]) {
+        let docId: String
+        switch scope {
+        case .piece(let id, _), .pieceInLanguage(let id, _): docId = id
+        case .pieces, .figure, .edition, .elsewhere, .outside: return (nil, [])
+        }
+        guard let script else { return (nil, []) }
+        let starts = ParagraphOffsets.starts(sequence: snapshot.sequences[docId] ?? [],
+                                             paragraphs: snapshot.paragraphText)
+        let summaries = script.sceneSummaries()
+        return (ParagraphOffsets.sceneIndex(starts: starts,
+                                            sceneStarts: summaries.map(\.line.range.location)),
+                summaries.map(\.line.content))
     }
 
     /// **To-dos reorder** only under Mine alone, when every visible item is a

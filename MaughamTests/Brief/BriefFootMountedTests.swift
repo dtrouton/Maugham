@@ -66,11 +66,17 @@ final class BriefFootMountedTests: XCTestCase {
         XCTAssertLessThanOrEqual(foot.height, Self.oneLine, "the foot is one line: \(foot)")
         let texts = try f.allStaticTexts(in: window)
         XCTAssertTrue(texts.contains { $0.contains(GoingForView.heading) }, "premise: Brief has read: \(texts)")
-        // A pop-up's accessibility value is its (empty) selection, so the
-        // Details menu is found by its identifier, not its words.
+        // The Details menu is found by its identifier, not its words.
         XCTAssertEqual(try f.axFrames(identifiedBy: "brief.details", in: window).count, 1,
                        "nothing set: the Details menu")
         XCTAssertTrue(texts.contains(BriefFoot.historyTitle), "History is findable: \(texts)")
+        // VoiceOver reads the menu's offers as its value, never an empty one
+        // (shell p5 Task 5).
+        let spoken = try XCTUnwrap(try f.axValues(identifiedBy: "brief.details", in: window).first)
+        let offers = spoken.components(separatedBy: ", ")
+        let names = PieceRowMenus.Item.allCases.map { BriefFoot.spokenName($0) }
+        XCTAssertFalse(spoken.isEmpty, "the Details menu reads its offers")
+        XCTAssertTrue(offers.allSatisfy(names.contains), "every offer is a row-menu sheet: \(spoken)")
         for gone in ["What you answer in To resolve", "Nothing is attached", "Set a target", "Add tags",
                      "Publishing settings", BriefDecidedSection.heading] {
             XCTAssertFalse(texts.contains { $0.contains(gone) }, "a fresh chapter's Brief says \(gone): \(texts)")

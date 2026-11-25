@@ -39,11 +39,18 @@ enum BookEditions {
             figureCells: walk.figureCells)
     }
 
-    /// What a door into a removed edition says, in the app and over MCP.
+    /// What a door into a removed edition says in the app.
     nonisolated static func removedLine(language: String) -> String {
         let name = LanguageName.title(language)
         return "The \(name) edition was removed. Add \(name) again (Add Language\u{2026}) to bring it back "
             + "with its translations."
+    }
+
+    /// What MCP tells Claude of a removed edition: the writer's act, and
+    /// the writer's way back (shell p5 Task 5) — Claude has no Add Language.
+    nonisolated static func removedLineForClaude(language: String) -> String {
+        let name = LanguageName.title(language)
+        return "The writer removed the \(name) edition; it comes back when they add \(name) again."
     }
 
     /// **MCP's refusal**: a tool asked to write, compile, preview or propose
@@ -52,7 +59,7 @@ enum BookEditions {
     nonisolated static func refuseIfRemoved(_ languages: [String?], removed: [String]?) throws {
         for language in languages.compactMap({ $0 }) where language != "source" {
             if !lists(language, removed: removed) {
-                throw MCPError.invalidArgument(removedLine(language: language))
+                throw MCPError.invalidArgument(removedLineForClaude(language: language))
             }
         }
     }

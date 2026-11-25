@@ -151,6 +151,39 @@ final class ResolvePieceInLanguageTests: XCTestCase {
         XCTAssertEqual(spliced.paragraphText, ["aa11": "Live."])
     }
 
+    /// **A screenplay read in a language groups by scene, as its source
+    /// does** (shell p5 Task 5): the window's script is the source's (a
+    /// translated surface posts none), and its scenes place the language's
+    /// items over the source sequence — the slugline titles the group.
+    func test_aScreenplayReadInALanguageGroupsBySceneAsItsSourceDoes() {
+        let scripts = [StructureItem(id: "doc-s", title: "Script", type: .document, path: "script.fountain")]
+        let script = FountainTokenizer().parse("A cold open.\n\nINT. KITCHEN - DAY\n\nShe pours.")
+        let read = ResolveScope.pieceInLanguage(docId: "doc-s", language: "sr")
+        let source = ResolveScope.piece(docId: "doc-s", includesBookLevel: false)
+        let held = ResolvePane.script(for: read, structure: scripts, openDocId: "doc-s", script: script)
+        XCTAssertNotNil(held, "the open script read in Serbian keeps the window's (source) script")
+        XCTAssertNotNil(ResolvePane.script(for: source, structure: scripts, openDocId: "doc-s", script: script),
+                        "control: its source scope keeps it")
+        XCTAssertNil(ResolvePane.script(for: .pieceInLanguage(docId: "doc-a", language: "sr"),
+                                        structure: structure, openDocId: "doc-a", script: script),
+                     "a chapter read in a language has no scenes")
+
+        let snapshot = ResolveSnapshot(
+            items: [.note(note("q-sr", on: "doc-s", language: "sr", paragraphId: "cc33"))],
+            sequences: ["doc-s": ["aa11", "bb22", "cc33"]],
+            paragraphText: ["aa11": "A cold open.", "bb22": "INT. KITCHEN - DAY", "cc33": "She pours."],
+            unreadableDocIds: [])
+        let scenes = ResolvePane.scenes(snapshot, scope: read, script: held)
+        XCTAssertEqual(scenes.index, ["bb22": 0, "cc33": 0])
+        XCTAssertEqual(scenes.index, ResolvePane.scenes(snapshot, scope: source, script: script).index,
+                       "the same scenes as its source")
+        let groups = ResolveGrouping.groups(snapshot, scope: read, structure: scripts,
+                                            sceneIndex: scenes.index, sceneTitles: scenes.titles,
+                                            figureNames: [:], projectType: .screenplay)
+        XCTAssertEqual(groups.map(\.key), [.scene(docId: "doc-s", headingParagraphId: "bb22")])
+        XCTAssertEqual(groups.map(\.title), ["INT. KITCHEN - DAY"])
+    }
+
     /// **An edition open with a chapter faced is that chapter in that
     /// language** — the design's "the faces follow the piece".
     func test_anEditionWithAChapterFacedIsThatChapterInThatLanguage() {

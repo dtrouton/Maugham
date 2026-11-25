@@ -62,6 +62,7 @@ enum RunningRound {
     /// title's least room. An estimate — the toolbar's real layout is
     /// AppKit's — held on the generous side, so a tight window draws the
     /// short form early rather than letting the language switch overflow.
+    /// `ToolbarWidthTests` measures it holding at the window's floor.
     static let leadingReserve: CGFloat = 560
     /// The right column's toggle and the gaps between the trailing items.
     static let trailingFixed: CGFloat = 72

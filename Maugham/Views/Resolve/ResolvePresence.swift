@@ -238,15 +238,11 @@ enum ResolvePresence {
     }
 
     /// The screenplay's paragraph → scene map, To resolve's own rule
-    /// (`ResolvePane.regroup`): only where the Book's scope is the one script
-    /// and a parse is in hand.
+    /// (`ResolvePane.scenes`): only where the scope is the one script and a
+    /// parse is in hand.
     static func sceneIndex(_ snapshot: ResolveSnapshot, scope: ResolveScope,
                            script: FountainScript?) -> [String: Int]? {
-        guard case .piece(let docId, _) = scope, let script else { return nil }
-        let starts = ParagraphOffsets.starts(sequence: snapshot.sequences[docId] ?? [],
-                                             paragraphs: snapshot.paragraphText)
-        return ParagraphOffsets.sceneIndex(
-            starts: starts, sceneStarts: script.sceneSummaries().map(\.line.range.location))
+        ResolvePane.scenes(snapshot, scope: scope, script: script).index
     }
 }
 

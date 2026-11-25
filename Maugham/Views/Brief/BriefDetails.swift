@@ -24,6 +24,17 @@ enum BriefFoot {
     static let historyTitle = "History"
     static let separator = "\u{00B7}"
 
+    /// A sheet's name as VoiceOver says it: its title without the ellipsis.
+    static func spokenName(_ item: PieceRowMenus.Item) -> String {
+        item.title.replacingOccurrences(of: "\u{2026}", with: "")
+    }
+
+    /// **What VoiceOver reads as the Details menu's value** (shell p5 Task
+    /// 5): its offers, never a pop-up's empty selection.
+    static func detailsValue(_ offers: [PieceRowMenus.Item]) -> String {
+        offers.map(spokenName).joined(separator: ", ")
+    }
+
     /// The values the line can show. Tags alone give way: they truncate in
     /// the middle, then collapse to their count.
     enum Value: Equatable { case target, tags, links }
@@ -201,8 +212,9 @@ struct BriefFootView: View {
             .fixedSize()
             .help("Target, tags, links and publishing")
             .accessibilityLabel(BriefFoot.detailsTitle)
-            .accessibilityHint("A menu: " + offers.map { $0.title.replacingOccurrences(of: "\u{2026}", with: "") }
-                .joined(separator: ", "))
+            // A pop-up's value is its selection, empty here: say the offers.
+            .accessibilityValue(BriefFoot.detailsValue(offers))
+            .accessibilityHint("A menu")
             .accessibilityIdentifier("brief.details")
         case .history(let item):
             Button { onPullUp(item) } label: { Text(BriefFoot.historyTitle) }
