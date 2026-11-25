@@ -88,11 +88,6 @@ extension EditorCoordinator {
             installTranslationBadgeOverlayIfNeeded(in: textView)
         }
         translationBadgeOverlay?.isHidden = !isReadingTranslation
-        // A text view lists no subview as an accessibility child, so the
-        // dots' elements are handed to it while a translation is read —
-        // VoiceOver reaches them only that way (shell p5 Task 5).
-        textView.setAccessibilityChildren(
-            isReadingTranslation ? translationBadgeOverlay.map { [$0] } : nil)
         layoutTranslationBadgeOverlay(in: textView)
         translationBadgeOverlay?.needsDisplay = true
     }

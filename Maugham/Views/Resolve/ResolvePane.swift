@@ -567,7 +567,7 @@ struct ResolvePane: View {
             editionRead = read
             editionReadScope = key.scope
             held = ResolveEditionItems.replacing(held, with: editionItems)
-            regroup(scope: scope, script: lastKey?.regroup.script)
+            regroup(scope: scope)
         }
         .onProjectEvent(.maughamDesignProposalsChanged, url: store.url, window: window) { _ in
             editionHeard &+= 1
@@ -1105,7 +1105,7 @@ struct ResolvePane: View {
             ledgerText = LessonLedgerVerbs.ledgerText(store: store)
         }
         lastKey = key
-        regroup(scope: readScope, script: key.regroup.script)
+        regroup(scope: readScope)
         applyPendingRequest()
     }
 
@@ -1128,16 +1128,18 @@ struct ResolvePane: View {
             },
             sequences: held.sequences, paragraphText: held.paragraphText,
             unreadableDocIds: held.unreadableDocIds)
-        regroup(scope: scope, script: lastKey?.regroup.script)
+        regroup(scope: scope)
     }
 
-    private func regroup(scope: ResolveScope, script: FountainScript?) {
+    private func regroup(scope: ResolveScope) {
         let structure = store.manifest.structure
         var names: [String: String] = [:]
         for figure in store.manifest.figures ?? [] where names[figure.id] == nil {
             names[figure.id] = figure.name
         }
-        let (index, titles) = Self.scenes(held, scope: scope, script: script)
+        let (index, titles) = Self.scenes(
+            held, scope: scope,
+            groupsByScene: Self.groupsByScene(scope, structure: structure, openDocId: openDocId))
         figureNames = names
         sceneIndex = index
         groups = ResolveGrouping.groups(held, scope: scope, structure: structure,
@@ -1373,7 +1375,7 @@ struct ResolvePane: View {
     private func roundChanged(_ updated: TranslationRound) {
         editionRead = ResolveEditionItems.patching(editionRead, with: updated)
         held = ResolveEditionItems.replacing(held, with: editionItems)
-        regroup(scope: scope, script: lastKey?.regroup.script)
+        regroup(scope: scope)
         publishCentre?.adoptVerbAnswer(updated)
     }
 

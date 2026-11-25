@@ -90,7 +90,9 @@ final class BookEditionsTests: XCTestCase {
     // MARK: - MCP
 
     /// **A tool asked to write, compile, preview or propose into a removed
-    /// edition refuses, naming Add Language**; the source is never refused.
+    /// edition refuses** in Claude's terms — the writer removed it, and it
+    /// comes back when they add the language again; the app's own line names
+    /// Add Language. The source is never refused.
     func test_mcpRefusesARemovedEditionAndNamesTheWayBack() async throws {
         XCTAssertThrowsError(try BookEditions.refuseIfRemoved(["sr", "ES"], removed: removed)) { error in
             XCTAssertEqual(error as? MCPError, .invalidArgument(BookEditions.removedLineForClaude(language: "ES")))

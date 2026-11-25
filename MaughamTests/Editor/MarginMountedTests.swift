@@ -286,6 +286,81 @@ final class MarginMountedTests: XCTestCase {
         XCTAssertEqual(elements.map { $0.accessibilityLabel() }, ["Notes"])
     }
 
+    // MARK: - VoiceOver's reach, from the text view (shell p5 Task 5 fix round 1, I2)
+
+    /// The labels VoiceOver reaches walking down from the TEXT VIEW: its
+    /// unignored children, recursively.
+    private func spokenFromTheTextView(_ tv: NSTextView) -> [String] {
+        var labels: [String] = []
+        var queue: [Any] = NSAccessibility.unignoredChildren(from: tv.accessibilityChildren() ?? [])
+        while !queue.isEmpty, labels.count < 500 {
+            guard let object = queue.removeFirst() as? NSObject else { continue }
+            func read(_ key: String) -> Any? {
+                object.responds(to: NSSelectorFromString(key)) ? object.value(forKey: key) : nil
+            }
+            if let label = read("accessibilityLabel") as? String, !label.isEmpty { labels.append(label) }
+            queue += NSAccessibility.unignoredChildren(from: read("accessibilityChildren") as? [Any] ?? [])
+        }
+        return labels
+    }
+
+    /// **The text view hands VoiceOver every visible overlay's elements**
+    /// beside its own: the margin's marks when the margin is shown, the
+    /// translation's badges while a translation is read, both when both
+    /// show, neither when neither does — and what the text view itself
+    /// lists is kept.
+    func test_theTextViewHandsVoiceOverEveryVisibleOverlaysElements() throws {
+        let s = surface()
+        let own = NSAccessibilityElement.element(withRole: .staticText, frame: .zero,
+                                                 label: "The text view's own", parent: s.textView)
+        s.textView.setAccessibilityChildren([own as Any])
+        let marginLabels = ["Flagged paragraph", "Note by Denver"]
+        func isBadge(_ label: String) -> Bool { label.hasPrefix("Out of date") || label.hasPrefix("Not translated yet") }
+
+        // Neither shown.
+        XCTAssertEqual(spokenFromTheTextView(s.textView), ["The text view's own"], "nothing but its own")
+
+        // The margin shown.
+        apply(MarginMarks(dots: [.init(paragraphId: "cc33", span: nil, annotationId: "n1", name: "Denver")],
+                          ticks: ["bb22"]), to: s)
+        try XCTUnwrap(s.coordinator.marginOverlay).display()
+        let places = s.coordinator.marginPlaces
+        var spoken = spokenFromTheTextView(s.textView)
+        XCTAssertEqual(spoken.filter(marginLabels.contains), marginLabels, "the margin's marks: \(spoken)")
+        XCTAssertTrue(spoken.contains("The text view's own"), "kept: \(spoken)")
+        XCTAssertFalse(spoken.contains(where: isBadge), "\(spoken)")
+
+        // A translation read: its badges, and (the buffer holds the
+        // translation) no margin.
+        let entries = [
+            TranslationBadgeLayout.Entry(paragraphId: "aa11", text: "Prvi.", status: .stale),
+            TranslationBadgeLayout.Entry(paragraphId: "bb22", text: "Drugi.", status: .fresh),
+            TranslationBadgeLayout.Entry(paragraphId: "cc33", text: Self.paragraphs[2], status: .missing),
+        ]
+        EditorSurface.reconcileTextBuffer(textView: s.textView, coordinator: s.coordinator,
+                                          translationLanguage: "sr",
+                                          text: TranslationBadgeLayout.surface(entries: entries),
+                                          undoCoherentApply: false)
+        s.coordinator.setTranslationBadges(.init(entries: entries))
+        s.coordinator.recomputeMarginPlaces()
+        spoken = spokenFromTheTextView(s.textView)
+        XCTAssertEqual(spoken.filter(isBadge).count, 2, "the badges: \(spoken)")
+        XCTAssertTrue(spoken.contains("The text view's own"), "kept: \(spoken)")
+        XCTAssertTrue(spoken.filter(marginLabels.contains).isEmpty, "no margin over a translation: \(spoken)")
+
+        // Both at once (forced — production empties the margin while a
+        // translation holds the buffer): the rule unions, never replaces.
+        // Placed inside the shorter translated text, so they lie on screen.
+        s.coordinator.marginPlaces = places.enumerated().map { index, place in
+            MarginPlace(mark: place.mark, paragraphId: place.paragraphId, anchor: index * 7, tint: nil)
+        }
+        s.coordinator.syncMarginOverlay()
+        spoken = spokenFromTheTextView(s.textView)
+        XCTAssertEqual(spoken.filter(isBadge).count, 2, "both: \(spoken)")
+        XCTAssertFalse(spoken.filter(marginLabels.contains).isEmpty, "both: \(spoken)")
+        XCTAssertTrue(spoken.contains("The text view's own"), "kept: \(spoken)")
+    }
+
     // MARK: - Fix round 2: a delete across paragraphs
 
     /// A delete from mid ¶1 to mid ¶3 takes ¶2 — and its tick — away: the

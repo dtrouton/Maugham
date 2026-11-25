@@ -161,27 +161,61 @@ final class ResolvePieceInLanguageTests: XCTestCase {
         let read = ResolveScope.pieceInLanguage(docId: "doc-s", language: "sr")
         let source = ResolveScope.piece(docId: "doc-s", includesBookLevel: false)
         let held = ResolvePane.script(for: read, structure: scripts, openDocId: "doc-s", script: script)
-        XCTAssertNotNil(held, "the open script read in Serbian keeps the window's (source) script")
-        XCTAssertNotNil(ResolvePane.script(for: source, structure: scripts, openDocId: "doc-s", script: script),
-                        "control: its source scope keeps it")
-        XCTAssertNil(ResolvePane.script(for: .pieceInLanguage(docId: "doc-a", language: "sr"),
-                                        structure: structure, openDocId: "doc-a", script: script),
-                     "a chapter read in a language has no scenes")
+        XCTAssertNotNil(held, "the open script read in Serbian groups by scene")
+        XCTAssertTrue(ResolvePane.groupsByScene(source, structure: scripts, openDocId: "doc-s"),
+                      "control: its source scope does")
+        XCTAssertFalse(ResolvePane.groupsByScene(.pieceInLanguage(docId: "doc-a", language: "sr"),
+                                                 structure: structure, openDocId: "doc-a"),
+                       "a chapter read in a language has no scenes")
 
         let snapshot = ResolveSnapshot(
             items: [.note(note("q-sr", on: "doc-s", language: "sr", paragraphId: "cc33"))],
             sequences: ["doc-s": ["aa11", "bb22", "cc33"]],
             paragraphText: ["aa11": "A cold open.", "bb22": "INT. KITCHEN - DAY", "cc33": "She pours."],
             unreadableDocIds: [])
-        let scenes = ResolvePane.scenes(snapshot, scope: read, script: held)
+        let scenes = ResolvePane.scenes(snapshot, scope: read, groupsByScene: held != nil)
         XCTAssertEqual(scenes.index, ["bb22": 0, "cc33": 0])
-        XCTAssertEqual(scenes.index, ResolvePane.scenes(snapshot, scope: source, script: script).index,
+        XCTAssertEqual(scenes.index, ResolvePane.scenes(snapshot, scope: source, groupsByScene: true).index,
                        "the same scenes as its source")
         let groups = ResolveGrouping.groups(snapshot, scope: read, structure: scripts,
                                             sceneIndex: scenes.index, sceneTitles: scenes.titles,
                                             figureNames: [:], projectType: .screenplay)
         XCTAssertEqual(groups.map(\.key), [.scene(docId: "doc-s", headingParagraphId: "bb22")])
         XCTAssertEqual(groups.map(\.title), ["INT. KITCHEN - DAY"])
+    }
+
+    /// **A piece is grouped by its own scenes, never the window's last
+    /// parse** (shell p5 Task 5 fix round 1, I1): a Collection's script A
+    /// was open in Source and posted its parse; script B opened straight into
+    /// Serbian posts none, so the window still holds A's. B's notes go under
+    /// B's sluglines — read in Serbian and in Source alike.
+    func test_aPieceIsGroupedByItsOwnScenesNotTheWindowsLastParse() {
+        let windowHoldsA = FountainTokenizer().parse(
+            "EXT. HARBOUR - NIGHT\n\nRain.\n\nINT. LIGHTHOUSE - NIGHT\n\nA lamp.\n\nINT. CELLAR - DAY\n\nDust.")
+        let scriptsAB = [StructureItem(id: "doc-a", title: "A", type: .document, path: "a.fountain"),
+                         StructureItem(id: "doc-b", title: "B", type: .document, path: "b.fountain")]
+        let snapshot = ResolveSnapshot(
+            items: [.note(note("q-b", on: "doc-b", language: "sr", paragraphId: "dd44"))],
+            sequences: ["doc-b": ["aa11", "bb22", "cc33", "dd44"]],
+            paragraphText: ["aa11": "INT. KITCHEN - DAY", "bb22": "She pours.",
+                            "cc33": "EXT. GARDEN - DUSK", "dd44": "He waits."],
+            unreadableDocIds: [])
+        for scope in [ResolveScope.pieceInLanguage(docId: "doc-b", language: "sr"),
+                      .piece(docId: "doc-b", includesBookLevel: false)] {
+            // The window holds A's parse; it is a refresh trigger, never grouped by.
+            XCTAssertTrue(ResolvePane.script(for: scope, structure: scriptsAB, openDocId: "doc-b",
+                                             script: windowHoldsA) != nil, "premise: \(scope)")
+            let scenes = ResolvePane.scenes(
+                snapshot, scope: scope,
+                groupsByScene: ResolvePane.groupsByScene(scope, structure: scriptsAB, openDocId: "doc-b"))
+            XCTAssertEqual(scenes.titles, ["INT. KITCHEN - DAY", "EXT. GARDEN - DUSK"], "\(scope)")
+            XCTAssertEqual(scenes.index, ["aa11": 0, "bb22": 0, "cc33": 1, "dd44": 1], "\(scope)")
+            let groups = ResolveGrouping.groups(snapshot, scope: scope, structure: scriptsAB,
+                                                sceneIndex: scenes.index, sceneTitles: scenes.titles,
+                                                figureNames: [:], projectType: .collection)
+            XCTAssertEqual(groups.map(\.key), [.scene(docId: "doc-b", headingParagraphId: "cc33")], "\(scope)")
+            XCTAssertEqual(groups.map(\.title), ["EXT. GARDEN - DUSK"], "\(scope)")
+        }
     }
 
     /// **An edition open with a chapter faced is that chapter in that

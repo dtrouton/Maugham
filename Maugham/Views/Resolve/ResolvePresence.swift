@@ -52,7 +52,7 @@ enum ResolvePresence {
     /// - Parameters:
     ///   - figureOwners: `ProjectStore.figureNoteOwners(manifest.figures)`.
     ///   - sceneIndex: `ParagraphOffsets.sceneIndex` of the screenplay's one
-    ///     script (`sceneIndex(_:scope:script:)`), nil elsewhere.
+    ///     script (`sceneIndex(_:scope:structure:)`), nil elsewhere.
     @MainActor
     static func marks(_ snapshot: ResolveSnapshot, structure: [StructureItem],
                       figureOwners: [String: String?], sceneIndex: [String: Int]?) -> Marks {
@@ -238,11 +238,14 @@ enum ResolvePresence {
     }
 
     /// The screenplay's paragraph → scene map, To resolve's own rule
-    /// (`ResolvePane.scenes`): only where the scope is the one script and a
-    /// parse is in hand.
+    /// (`ResolvePane.scenes`, over the script's own text): only where the
+    /// scope is the one script.
+    @MainActor
     static func sceneIndex(_ snapshot: ResolveSnapshot, scope: ResolveScope,
-                           script: FountainScript?) -> [String: Int]? {
-        ResolvePane.scenes(snapshot, scope: scope, script: script).index
+                           structure: [StructureItem]) -> [String: Int]? {
+        ResolvePane.scenes(snapshot, scope: scope,
+                           groupsByScene: ResolvePane.groupsByScene(scope, structure: structure,
+                                                                    openDocId: nil)).index
     }
 }
 
@@ -754,7 +757,7 @@ final class ResolvePresenceReader {
         guard let key = last else { return false }
         let marks = ResolvePresence.marks(
             snapshot, structure: key.structure, figureOwners: key.figureOwners,
-            sceneIndex: ResolvePresence.sceneIndex(snapshot, scope: key.read.scope, script: key.script))
+            sceneIndex: ResolvePresence.sceneIndex(snapshot, scope: key.read.scope, structure: key.structure))
         let toDos = ResolvePresence.openToDos(snapshot.items, figureOwners: key.figureOwners)
         let changed = marks != self.marks || toDos != openToDos
         self.marks = marks

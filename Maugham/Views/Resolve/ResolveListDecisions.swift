@@ -257,44 +257,56 @@ extension ResolvePane {
                                unreadableDocIds: held.unreadableDocIds.filter { live[$0] == nil })
     }
 
-    /// The window's script, where it is about the scope's piece: a
-    /// screenplay piece (by its format) that is the open one, a screenplay's
-    /// Book, or the one document of a one-script project. Otherwise no scenes.
-    static func script(for scope: ResolveScope, structure: [StructureItem], openDocId: String?,
-                       script: FountainScript?) -> FountainScript? {
-        // A piece read in a language keeps its source's script (a
-        // translated surface posts none), so it groups by scene as its
-        // source does (shell p5 Task 5).
+    /// **Whether the scope's list groups by scene**: a screenplay piece (by
+    /// its format) that is the open one, a screenplay's Book, or the one
+    /// document of a one-script project — in Source or read in a language
+    /// (shell p5 Task 5). Otherwise by paragraph.
+    static func groupsByScene(_ scope: ResolveScope, structure: [StructureItem],
+                              openDocId: String?) -> Bool {
         let docId: String, isBook: Bool
         switch scope {
         case .piece(let id, let book): (docId, isBook) = (id, book)
         case .pieceInLanguage(let id, _): (docId, isBook) = (id, false)
-        case .pieces, .figure, .edition, .elsewhere, .outside: return nil
+        case .pieces, .figure, .edition, .elsewhere, .outside: return false
         }
-        guard let script,
-              let item = TreeWalk.find(id: docId, in: structure),
-              DocumentFormat.ofManuscript(path: item.path).isScreenplay
-        else { return nil }
+        guard let item = TreeWalk.find(id: docId, in: structure),
+              DocumentFormat.ofManuscript(path: item.path).isScreenplay else { return false }
         let isTheOnlyDocument = TreeWalk.collect(in: structure) { $0.type == .document }.count == 1
-        guard isBook || docId == openDocId || isTheOnlyDocument else { return nil }
-        return script
+        return isBook || docId == openDocId || isTheOnlyDocument
+    }
+
+    /// The window's script where the scope groups by scene — a refresh
+    /// trigger only (an open script's parse arriving re-reads the list).
+    /// Its CONTENT is never grouped by: it is whatever the window parsed
+    /// last, which can be another script's (`scenes`).
+    static func script(for scope: ResolveScope, structure: [StructureItem], openDocId: String?,
+                       script: FountainScript?) -> FountainScript? {
+        groupsByScene(scope, structure: structure, openDocId: openDocId) ? script : nil
     }
 
     /// **A screenplay's scenes in To resolve**: each paragraph's scene and
-    /// the sluglines, where `script` (from `script(for:)`) is about the
-    /// scope's one piece; no scenes otherwise. The one rule `regroup` and
+    /// the sluglines, parsed from the scope's OWN piece as the snapshot holds
+    /// it — its source sequence and text, live for the open piece, from the
+    /// op log for a closed one — never from the window's last parse, which a
+    /// piece opened straight into a language never replaces (shell p5 Task 5
+    /// fix round 1). The same display text `ParagraphOffsets.starts` counts
+    /// in, so both sides share one coordinate system. One parse per regroup,
+    /// never per row (tripwire 4). The one rule `regroup` and
     /// `ResolvePresence.sceneIndex` both read.
     nonisolated static func scenes(_ snapshot: ResolveSnapshot, scope: ResolveScope,
-                       script: FountainScript?) -> (index: [String: Int]?, titles: [String]) {
+                                   groupsByScene: Bool) -> (index: [String: Int]?, titles: [String]) {
+        guard groupsByScene else { return (nil, []) }
         let docId: String
         switch scope {
         case .piece(let id, _), .pieceInLanguage(let id, _): docId = id
         case .pieces, .figure, .edition, .elsewhere, .outside: return (nil, [])
         }
-        guard let script else { return (nil, []) }
-        let starts = ParagraphOffsets.starts(sequence: snapshot.sequences[docId] ?? [],
-                                             paragraphs: snapshot.paragraphText)
-        let summaries = script.sceneSummaries()
+        let sequence = snapshot.sequences[docId] ?? []
+        let starts = ParagraphOffsets.starts(sequence: sequence, paragraphs: snapshot.paragraphText)
+        let text = sequence.compactMap { snapshot.paragraphText[$0] }
+            .map(RenderFilter.stripTaskAnchorsInline)
+            .joined(separator: "\n\n")
+        let summaries = FountainTokenizer().parse(text).sceneSummaries()
         return (ParagraphOffsets.sceneIndex(starts: starts,
                                             sceneStarts: summaries.map(\.line.range.location)),
                 summaries.map(\.line.content))

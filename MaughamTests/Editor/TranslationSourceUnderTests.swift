@@ -267,58 +267,6 @@ final class TranslationSourceUnderTests: XCTestCase {
         XCTAssertNil(TranslationBadgeLayout.accessibilityNote(.fresh))
     }
 
-    /// **VoiceOver reaches the dots** (shell p5 Task 5): walked down from
-    /// the window's content view as VoiceOver walks it, the real overlay's
-    /// elements say "Out of date" and "Not translated yet" — and leaving the
-    /// language takes them away.
-    @MainActor
-    func test_theBadgeDotsAreElementsVoiceOverReaches() {
-        let harness = EditorIntegrationHarness(initialText: "One\n\nTwo\n\nThree")
-        let coordinator = harness.coordinator
-        let entries = EditorHost.reviewBadgeEntries(from: derived(stale: true), showsSourceUnder: true)
-        let surface = TranslationBadgeLayout.surface(entries: entries)
-        EditorSurface.reconcileTextBuffer(textView: harness.textView, coordinator: coordinator,
-                                          translationLanguage: "sr", text: surface,
-                                          undoCoherentApply: false)
-        coordinator.setTranslationBadges(.init(entries: entries))
-        XCTAssertEqual(coordinator.bufferBadges.filter { $0.status != .fresh }.count, 2,
-                       "premise: the buffer holds the surface and its two badges")
-
-        let spoken = Self.axLabels(under: harness.window.contentView)
-        XCTAssertEqual(spoken.filter { $0.hasPrefix("Out of date") }.count, 1, "\(spoken)")
-        XCTAssertEqual(spoken.filter { $0.hasPrefix("Not translated yet") }.count, 1, "\(spoken)")
-        XCTAssertTrue(spoken.contains { $0.hasPrefix("Out of date") && $0.contains("Dva") }, "\(spoken)")
-
-        EditorSurface.reconcileTextBuffer(textView: harness.textView, coordinator: coordinator,
-                                          translationLanguage: nil, text: "One\n\nTwo\n\nThree",
-                                          undoCoherentApply: false)
-        coordinator.setTranslationBadges(.empty)
-        XCTAssertFalse(Self.axLabels(under: harness.window.contentView)
-                        .contains { $0.hasPrefix("Out of date") || $0.hasPrefix("Not translated yet") },
-                       "control: the source says neither")
-    }
-
-    /// Every label in the accessibility tree under `root`, through the
-    /// unignored children VoiceOver walks (an ignored view's children are
-    /// promoted, as AppKit promotes them).
-    @MainActor
-    static func axLabels(under root: Any?) -> [String] {
-        var labels: [String] = []
-        var queue: [Any] = root.map { [$0] } ?? []
-        var seen = 0
-        while !queue.isEmpty, seen < 5_000 {
-            let node = queue.removeFirst()
-            seen += 1
-            guard let object = node as? NSObject else { continue }
-            func read(_ key: String) -> Any? {
-                object.responds(to: NSSelectorFromString(key)) ? object.value(forKey: key) : nil
-            }
-            if let label = read("accessibilityLabel") as? String, !label.isEmpty { labels.append(label) }
-            queue += NSAccessibility.unignoredChildren(from: read("accessibilityChildren") as? [Any] ?? [])
-        }
-        return labels
-    }
-
     // MARK: - The reader's place (fix round (c))
 
     @MainActor

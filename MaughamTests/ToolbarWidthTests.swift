@@ -135,10 +135,11 @@ final class ToolbarWidthTests: XCTestCase {
         let width = measured.window.frame.width
         try XCTSkipIf(width > ProjectWindow.windowFloor + 1,
                       "the window opened at \(width)pt, not the \(ProjectWindow.windowFloor)pt floor")
+        XCTAssertEqual(measured.items.count, 6, "premise: the toolbar laid out its six items: \(measured.items)")
         let lost = measured.items.filter { !$0.visible || $0.frame.maxX > width + 0.5 }
         let frames = measured.items.map(\.frame).sorted { $0.minX < $1.minX }
         let overlaps = zip(frames, frames.dropFirst()).filter { $0.maxX > $1.minX + 0.5 }
-        XCTAssertFalse(lost.isEmpty && overlaps.isEmpty && measured.items.count == 6,
+        XCTAssertFalse(lost.isEmpty && overlaps.isEmpty,
                        "the full sentence fit at the floor, so the short-form test proves nothing: \(measured.items)")
     }
 }

@@ -197,12 +197,11 @@ final class ResolvePresenceTests: XCTestCase {
         let snapshot = ResolveSnapshot(items: [], sequences: ["doc-s": ["aa11", "bb22"]],
                                        paragraphText: ["aa11": "A cold open.", "bb22": "INT. KITCHEN - DAY"],
                                        unreadableDocIds: [])
-        let text = "A cold open.\n\nINT. KITCHEN - DAY"
-        let script = FountainTokenizer().parse(text)
+        let scripts = [StructureItem(id: "doc-s", title: "Scene 1", type: .document, path: "script.fountain")]
         let index = ResolvePresence.sceneIndex(snapshot, scope: .piece(docId: "doc-s", includesBookLevel: true),
-                                               script: script)
+                                               structure: scripts)
         XCTAssertEqual(index, ["bb22": 0])
-        XCTAssertNil(ResolvePresence.sceneIndex(snapshot, scope: book, script: script),
+        XCTAssertNil(ResolvePresence.sceneIndex(snapshot, scope: book, structure: structure),
                      "a Book of chapters has no scenes")
     }
 

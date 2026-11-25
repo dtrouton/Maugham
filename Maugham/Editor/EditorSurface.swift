@@ -687,6 +687,20 @@ final class MaughamTextView: NSTextView {
 
     var gutterView: ElementGutterView?
 
+    /// **What VoiceOver reaches inside the editor** (shell p5 Task 5 fix
+    /// round 1): a text view lists no subview as a child, so its own
+    /// children, then each SHOWN overlay that publishes elements — the
+    /// translation's badges while a translation is read, the margin's marks
+    /// while the margin shows. One rule for both, read off the view tree, so
+    /// neither overlay can replace the other's.
+    override func accessibilityChildren() -> [Any]? {
+        let overlays = subviews.filter {
+            !$0.isHidden && ($0 is TranslationBadgeOverlayView || $0 is MarginOverlayView)
+        }
+        guard !overlays.isEmpty else { return super.accessibilityChildren() }
+        return (super.accessibilityChildren() ?? []) + NSAccessibility.unignoredChildren(from: overlays)
+    }
+
     /// Take this view's undo actions off the window's shared `UndoManager` and
     /// onto one of its own. Set once, in `EditorSurface.makeNSView`, before any
     /// edit can register — see
