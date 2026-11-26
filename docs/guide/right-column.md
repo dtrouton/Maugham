@@ -40,7 +40,7 @@ For a chapter: **Whole chapter** first, for items about the chapter as a whole, 
 
 ### Acting on an item
 
-A row on the chapter open in the centre offers its verbs: on a suggestion, **Accept** and **Reject…**; on a craft note, **Accept**; on a comment, **Got it**; on a question, **Reply…**; on all of them, **Stet** and **Archive**; on a finding, **Answer**, **Make a To-Do** and **Not this**; on a to-do, its checkbox. What each does is in [Notes & Suggestions](annotations-and-suggestions.md), [Checking Your Writing](compiler.md#what-you-can-do-with-a-finding-or-a-note) and [To-Dos](tasks.md).
+A row on the chapter open in the centre offers its verbs: on a suggestion or a craft note, **Accept** and **Reject…**; on a comment, **Got it**; on a question, **Reply…**; on all of them, **Stet** and **Archive**; on a finding, **Answer**, **Make a To-Do** and **Not this**; on a to-do, its checkbox. What each does is in [Notes & Suggestions](annotations-and-suggestions.md), [Checking Your Writing](compiler.md#what-you-can-do-with-a-finding-or-a-note) and [To-Dos](tasks.md).
 
 **You act on a chapter you are looking at.** In a Part's or the Book's list, a chapter that isn't open reads but offers no verbs, and its group says *Open this chapter to answer its notes*. Click a row and that chapter opens on the paragraph, with the list staying where it was.
 

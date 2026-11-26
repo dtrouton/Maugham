@@ -113,7 +113,18 @@ These only warn, and the book is made: a table line into a Research folder (writ
 
 The image must be in the project's `figures/` folder or a research folder of the project — the project's `research/` folder, or a Collection piece's own `research/`, where figure lines written before `figures/` existed point — and the path is written from the piece's own file, as a Markdown previewer would read it (a chapter in `manuscript/` reaches `figures/` with `../figures/`). A path that leaves the project or points outside those folders is refused, and so is a file the output can't show: the PDF takes PNG, JPEG and PDF images; the EPUB takes PNG, JPEG, GIF and SVG; Word takes PNG, JPEG, GIF, PDF and SVG. Figures are numbered "Figure 1", "Figure 2" across the book.
 
-You don't have to write the line yourself: **Insert ▸ Figure…** (⌘⇧I), dragging an image or PDF file onto the page, or pasting a picture makes it an image figure: the file is copied into the project's `figures/` folder, the figure belongs to the piece you're writing in, and the figure line is written as a paragraph of its own, with "Caption" selected for you to type over. PNG, JPEG, GIF, PDF and SVG files are copied as they are; any other picture (HEIC, TIFF, WebP, BMP…) is saved as a PNG under its own name, so every output can show it. The figure's name, its file's name and its label come from the file's name (`Site Map.png` → `figures/site-map.png` and `{#fig:site-map}`, accents dropped), with `_2`, `_3` added when the book or the `figures/` folder already uses it. Pasting text copied from Word, Pages or Excel pastes the text, never a picture of it. If the copy fails nothing is written and a notice says so; if you type while a large image copies, the figure goes above the paragraph you dropped it in, and your cursor stays where you are typing. A figure that lands after you've moved on never takes the cursor or the focus; only if you're still where you dropped it is "Caption" selected. While you're composing with an input method (Japanese, Chinese, accents held down) the figure waits for you to finish. ⌘Z takes the figure line back in one step, but the figure and its file stay in `figures/` — and so do they if you switch to another document before the figure lands, in which case nothing is written.
+You don't have to write the line yourself. **Insert ▸ Figure…** (⌘⇧I), dragging an image or PDF file onto the page, or pasting a picture makes an image figure:
+
+- The file is copied into the project's `figures/` folder, and the figure belongs to the piece you're writing in.
+- The figure line is written as a paragraph of its own, with "Caption" selected for you to type over.
+- PNG, JPEG, GIF, PDF and SVG files are copied as they are. Any other picture (HEIC, TIFF, WebP, BMP…) is saved as a PNG under its own name, so every output can show it.
+- The figure's name, its file's name and its label come from the file's name, accents dropped: `Site Map.png` → `figures/site-map.png` and `{#fig:site-map}`. `_2`, `_3` are added when the book or the `figures/` folder already uses it.
+
+Pasting text copied from Word, Pages or Excel pastes the text, never a picture of it.
+
+**While a large image copies, keep typing.** The figure goes above the paragraph you dropped it in, and your cursor stays where you are typing. A figure that lands after you've moved on never takes the cursor or the focus; "Caption" is selected only if you're still where you dropped it. While you're composing with an input method (Japanese, Chinese, accents held down), the figure waits for you to finish. If the copy fails, nothing is written and a notice says so.
+
+**⌘Z** takes the figure line back in one step, but the figure and its file stay in `figures/`. They stay there too if you switch to another document before the figure lands, in which case nothing is written.
 
 **A footnote** is a marker in the text and a definition anywhere in the same piece:
 
@@ -139,9 +150,9 @@ Notes are numbered continuously through the whole book, whatever you call them �
 
 Each translation of the book is an **edition** of a version you have already compiled in your own language. So compile the book in its own language first; a translated edition then takes that version's number (a Spanish 1.0 beside the English 1.0) and never uses up a new one. Its text is your book as it stands now, translated.
 
-An edition with paragraphs that aren't translated yet, or whose source changed since they were, is refused, and the refusal names them. Turn on **Allow stale translations** in Compile… to make a preview anyway: the gaps print in your own language and are listed as warnings. Its file is named with its language, `My Novel-v1.0-es.pdf`.
+An edition with paragraphs that aren't translated yet, or whose source changed since they were, is refused, and the refusal names them. To compile it anyway, turn on **Allow stale translations** ([Compiling an edition](#compiling-an-edition)). Its file is named with its language, `My Novel-v1.0-es.pdf`.
 
-To make an earlier edition again exactly as it was, ask Claude to **republish** it. A republish writes a new file beside the old one and never overwrites it.
+To compile again with the design an earlier edition had — its template and settings as they were then — ask Claude to **republish** it. The text is your book as it stands now, not as it was. A republish writes a new file beside the old one and never overwrites it. A Word draft isn't republished: export again. If you want the book with its old words, the file you compiled then is still in Exports.
 
 ### Imprints
 

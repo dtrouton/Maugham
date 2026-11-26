@@ -95,28 +95,19 @@ not a workflow the app enforces.
 
 ## Rounds and Fresh Eyes
 
-Run a round — **Run** at the head of To resolve, or **⌃⌘R**, which the File
-menu titles with the editor's name, *Run Gould's Round* — on a chapter with
-an active pass, and the run is a numbered **round** in that pass's own count.
-A round needs a pass: on a chapter with none set, it says so and starts
-nothing. **⌘R** is the other loop — a *check*, filed in no lane and given no
-round number — so nothing it does moves a pass's count. The report leads with
-the distance travelled: *"Since round 4: 2 resolved · 1 persisting · 1 new"*
-— counted from To resolve: notes from an earlier round of this pass
-that you've settled since the last one, notes from an earlier round still
-open in front of you, and notes this round raised. A finding this round
-raised that you're holding in another pass's lane is counted separately, and
-named — *"1 still open in Structural"*, or *"2 still open in Structural and
-Line"* — since the three counts read only the pass the round was run in. A
-note from one of your checks, which are filed in no lane, is named
-*"your checks"*. Like the three counts it's live: settle that note in
-Structural and the clause goes. (A round
-filed before this version says *"1 was already open in another lane"*.) Round numbers are per pass, but the memory is the document's, not
-any one pass's: Maugham remembers a document's last six finished rounds,
-across every pass it's been worked through. Run enough rounds in other
-passes and a pass you haven't touched in a while ages out of that memory —
-the next round in it starts back at round 1, with nothing to compare against.
-A check never ages a round out of that memory.
+**Running a round.** Press **Run** at the head of To resolve, or **⌃⌘R** (the File menu names the editor: *Run Gould's Round*). On a chapter with an active pass, the run is a numbered **round** in that pass's own count. A round needs a pass: on a chapter with none set, it says so and starts nothing.
+
+**⌘R is the other loop**: a *check*, filed in no lane and given no round number, so nothing it does moves a pass's count.
+
+**The report leads with the distance travelled**: *"Since round 4: 2 resolved · 1 persisting · 1 new"*. The counts come from To resolve:
+
+- **resolved**: notes from an earlier round of this pass that you've settled since the last one;
+- **persisting**: notes from an earlier round still open in front of you;
+- **new**: notes this round raised.
+
+The three counts read only the pass the round was run in. So a finding this round raised that you're holding in another pass's lane is counted separately, and named: *"1 still open in Structural"*, or *"2 still open in Structural and Line"*. A note from one of your checks, which are filed in no lane, is named *"your checks"*. Like the counts, it's live: settle that note in Structural and the clause goes. (An older round's report says *"1 was already open in another lane"*.)
+
+**Round numbers are per pass; the memory is the document's.** Maugham remembers a document's last six finished rounds, across every pass it's been worked through. Run enough rounds in other passes and a pass you haven't touched in a while ages out of that memory: its next round starts back at round 1, with nothing to compare against. A check never ages a round out.
 
 **⌃⇧⌘R** — *Run Gould's Round with Fresh Eyes*, or **Fresh Eyes** in the head — is a different kind of round: it ends the warm
 session and reads the whole piece cold, as if for the first time. It's still
@@ -141,19 +132,23 @@ question gets answered.
 ## What Claude sees, and what it can never set
 
 Claude's read tools carry the same facts Status and To resolve draw from:
-`get_outline` reports each piece's derived status and its per-pass states —
-a pass with no entry there is untouched, the same reading the ladder gives
-an unruled rung, and an entry under an id the ladder no longer
-lists is a pass you deleted, kept so the states come back if you add it
-again — plus the project's own pass ladder in order, each pass carrying its
-**brief** (`null` for a custom pass with none of its own — see above), the
-same doctrine a round is signed against;
-`list_annotations` and `get_annotation` report a note's triage mark, which
-pass it's stamped with, and — for a question a check raised under a habit your
-ledger already names — that heading, so Claude can see which standing lesson a
-note came out of. The coach is not in that ladder and never appears in
-it — she isn't a pass — so her brief isn't reported there either: hers is the
-preset's, fixed, and unlike a pass's it isn't something you can edit.
+
+- `get_outline` reports each piece's derived status and its per-pass states.
+  A pass with no entry there is untouched, the same reading the ladder gives
+  an unruled rung; an entry under an id the ladder no longer lists is a pass
+  you deleted, kept so the states come back if you add it again. It also
+  lists the project's own pass ladder in order, each pass carrying its
+  **brief** (`null` for a custom pass with none of its own — see above), the
+  same doctrine a round is signed against.
+- `list_annotations` and `get_annotation` report a note's triage mark, which
+  pass it's stamped with, and — for a question a check raised under a habit
+  your ledger already names — that heading, so Claude can see which standing
+  lesson a note came out of.
+
+The coach is not in that ladder and never appears in it — she isn't a pass —
+so her brief isn't reported there either: hers is the preset's, fixed, and
+unlike a pass's it isn't something you can edit.
+
 None of it is something Claude can write. Triage,
 Stet, a piece's pass states, and your lessons ledger — which `read_lessons`
 gives Claude in full — are yours alone: the same membrane that keeps Claude out

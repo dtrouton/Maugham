@@ -25,7 +25,7 @@ final class HelpWordsCensusTests: XCTestCase {
     static let retired: [(name: String, pattern: String)] = [
         ("persona", #"[Pp]ersona(?!l|t)"#),
         ("mode by persona name", #"\b(Plan|Author|Review|Publish) ([Pp]ersona|[Mm]ode)\b"#),
-        ("in a persona", #"\bin (Plan|Author|Review|Publish)\b"#),
+        ("in a persona", #"\bin (Plan|Author|Review|Publish)\b(?! [Pp]asses)"#),
         ("Inspector", #"[Ii]nspector"#),
         ("Department", #"\bDepartment\b"#),
         ("desk", #"\b[Dd]esks?\b"#),
@@ -38,6 +38,9 @@ final class HelpWordsCensusTests: XCTestCase {
         ("Pull Up Previous", #"Pull Up Previous"#),
         ("Lock Research", #"Lock Research"#),
         ("Toggle Review Mode", #"Toggle Review Mode|\b[Rr]eview [Mm]ode\b"#),
+        // The owner's own name never ships in help (the lead's ruling, shell p5
+        // Task 8 fix round 2): examples use Alex, Alex Moreno and Sam.
+        ("the owner's name", #"(?i)\b(denver|trouton)\b"#),
     ]
 
     /// The key that allows a whole file.
@@ -152,6 +155,7 @@ final class HelpWordsCensusTests: XCTestCase {
             "Choose View ▸ Pull Up Previous.",
             "Choose Lock Research and Figures.",
             "Choose Toggle Review Mode.",
+            "This Mac is on DENVER's chain; recognised as Denver Trouton.",
             "A desk lamp.",
         ]
         XCTAssertEqual(planted.count, Self.retired.count + 1,
@@ -162,6 +166,7 @@ final class HelpWordsCensusTests: XCTestCase {
         A translated edition is read in Serbian; reviewing a draft is a pass.
         The desktop app, a deskilled reader and a segmentation fault are not the words.
         Planning comes first, then you author a chapter, review it and publish the book.
+        The ladder is explained in Review Passes; Alex Moreno and Sam share the book.
         """
         let base = try SourceTree.plantedTree([
             "docs/guide/rogue.md": planted.joined(separator: "\n"),

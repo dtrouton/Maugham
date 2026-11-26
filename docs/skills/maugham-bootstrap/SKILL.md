@@ -124,6 +124,10 @@ template controls the seam between them by defining its own `MaughamBody`
 environment (`EMISSION.md`'s "Multi-language bodies" section) — the default
 just starts each half on a fresh page.
 
+For the publish config, the compile tools' parameters, language editions,
+imprints, bilingual bodies and their refusals, load `publishing-setup`
+(get_help topic `"publishing-setup"`).
+
 Every paragraph the emitter renders carries an anchor, `p-<tag>-<¶id>` —
 `\hypertarget{p-en-k3wq}{}` in LaTeX, `id="p-en-k3wq"` in XHTML — and it is
 the first artifact-side id a template can rely on: before it, nothing in a
