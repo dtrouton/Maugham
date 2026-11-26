@@ -68,7 +68,7 @@ final class ResolveFigureSourceTests: XCTestCase {
         XCTAssertEqual(piece.items, [.figureSourceChanged(figureId: Self.cash, docId: "doc-a", paragraphId: "bb22")])
         let groups = ResolveGrouping.groups(piece, scope: .piece(docId: "doc-a", includesBookLevel: false),
                                             structure: [], sceneIndex: nil, sceneTitles: [],
-                                            figureNames: [:], projectType: .novel)
+                                            figureNames: [:], book: PieceNoun.Book(type: .novel))
         XCTAssertEqual(groups.map(\.key), [.paragraph(docId: "doc-a", paragraphId: "bb22")])
         XCTAssertEqual(groups.first?.title, "![Cash](../figures/cash.csv)")
         XCTAssertEqual(change.sentence, "Table 2\u{2019}s source data changed")
@@ -106,7 +106,7 @@ final class ResolveFigureSourceTests: XCTestCase {
         XCTAssertEqual(book.items.first?.docId, ProjectStore.projectTasksDocId)
         let groups = ResolveGrouping.groups(book, scope: .pieces(docIds: ["doc-a"], includesBookLevel: true),
                                             structure: [], sceneIndex: nil, sceneTitles: [],
-                                            figureNames: [:], projectType: .novel)
+                                            figureNames: [:], book: PieceNoun.Book(type: .novel))
         XCTAssertEqual(groups.map(\.key), [.bookLevel])
         XCTAssertEqual(gather(.pieces(docIds: ["doc-a"], includesBookLevel: false), [change]).items, [])
         XCTAssertEqual(gather(.piece(docId: "doc-a", includesBookLevel: false), [change]).items, [])

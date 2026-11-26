@@ -474,6 +474,7 @@ struct CentreColumn: View {
         ReviewBoardPane(
             structure: structure,
             passes: store.manifest.effectiveReviewPasses,
+            noun: PieceNoun.of(nil, in: store.manifest),
             // Values again: a walk over every document, computed in
             // `refreshOpenNotes` and merely READ here.
             openNotes: openNotesCounts,

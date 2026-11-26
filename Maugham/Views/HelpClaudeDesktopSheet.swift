@@ -196,7 +196,7 @@ struct HelpClaudeDesktopSheet: View {
             Text("Claude will be able to:")
                 .foregroundStyle(.secondary)
             VStack(alignment: .leading, spacing: 4) {
-                Label("Read your open projects, outlines, and chapters", systemImage: "book.closed")
+                Label("Read your open projects, their outlines and their text", systemImage: "book.closed")
                 Label("Search across your manuscript and research", systemImage: "magnifyingglass")
                 Label("Create new research notes for you", systemImage: "doc.badge.plus")
             }
@@ -231,7 +231,7 @@ struct HelpClaudeDesktopSheet: View {
             Label("Maugham is connected to Claude Desktop.", systemImage: "checkmark.circle.fill")
                 .font(.title3).fontWeight(.semibold)
                 .foregroundStyle(.green)
-            Text("Try asking Claude: \"What chapters are in my novel?\"")
+            Text("Try asking Claude: \"What\u{2019}s in my novel\u{2019}s outline?\"")
                 .foregroundStyle(.secondary)
             Text(path).font(.caption).foregroundStyle(.tertiary)
             HStack {

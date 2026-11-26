@@ -114,7 +114,7 @@ final class RewindFromAPulledUpHistoryTests: XCTestCase {
         XCTAssertTrue(pane.contains("var rewindIsOffered: Bool { rewindSlot == .rewind }"))
         let pulledUp = SourceScan.codeLines(of: try SourceTree.read("Maugham/Views/PulledUpView.swift"))
             .map { $0.trimmingCharacters(in: .whitespaces) }.joined(separator: " ")
-        XCTAssertTrue(pulledUp.contains("pieceNoun: HistoryPane.pieceNoun(docId: docId, store: store))"))
+        XCTAssertTrue(pulledUp.contains("pieceNoun: HistoryPane.rewindablePiece(docId: docId, store: store))"))
         // The ordinary place keeps what is pulled up beside.
         let beside = WindowSubject(open: .item("doc-b"), faces: .item("doc-b"), beside: .history(docId: "doc-a"))
         XCTAssertEqual(ManuscriptNavigation.destination(toDocument: "doc-a", current: beside).beside,

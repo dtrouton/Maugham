@@ -729,8 +729,9 @@ private struct FigureTableMenuButtons: View {
 /// Cross-Reference…
 /// (plan 3a R-3a-1, R-3a-2; plan 3b). Each posts a key-window command the
 /// manuscript editor answers through Route A, one undo step each. Disabled where the focused window
-/// says no (`InsertMenuGate`) — a read-only posture, review mode, translation
-/// review, no manuscript in the editor — and with no project window in front.
+/// says no (`InsertMenuGate`) — a read-only posture, review mode, a piece
+/// read in another language, no manuscript in the editor — and with no
+/// project window in front.
 /// The editor's membrane refuses on its own as well.
 private struct InsertMenuButtons: View {
     @FocusedValue(\.mayInsertReportElement) private var mayInsert

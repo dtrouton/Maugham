@@ -298,7 +298,7 @@ public enum GetOutlineTool: MCPTool {
     public static let method = "get_outline"
     public static let description =
         "Return the hierarchical manuscript structure with review status, " +
-        "synopsis, and word counts. `synopsis` is the item's one-line Brief: " +
+        "one-line Brief (`synopsis`), and word counts. `synopsis` is the item's one-line Brief: " +
         "the writer's stored line, else the opening of its intent (a piece's " +
         "own intent, never the book's), else null. `review_status` (draft/revising/final) is " +
         "the derived truth for a piece; `pass_states` says where it stands on " +

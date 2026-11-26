@@ -116,7 +116,9 @@ final class TranslationRunTests: XCTestCase {
     func test_theRefusalSaysWhatToDoAboutIt() {
         let words = TranslationRunTarget.openAChapter.lowercased()
         XCTAssertTrue(words.contains("open"), TranslationRunTarget.openAChapter)
-        XCTAssertTrue(words.contains("chapter"), TranslationRunTarget.openAChapter)
+        XCTAssertTrue(words.contains("translate"), TranslationRunTarget.openAChapter)
+        XCTAssertFalse(words.contains("chapter"),
+                       "the project's word for a piece is not fixed here: \(TranslationRunTarget.openAChapter)")
     }
 
     // MARK: - The run state, scoped to one edition of one chapter

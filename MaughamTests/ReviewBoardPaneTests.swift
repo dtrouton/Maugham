@@ -1257,7 +1257,7 @@ final class ReviewBoardPaneTests: XCTestCase {
                        width: CGFloat = 700) -> NSWindow {
         let calls = self.calls
         let window = TestWindow.mount(AnyView(
-            ReviewBoardPane(structure: structure, passes: passes,
+            ReviewBoardPane(structure: structure, passes: passes, noun: .chapter,
                             openNotes: openNotes,
                             unreadableDocIds: unreadable,
                             openToDos: openToDos,

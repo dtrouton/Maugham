@@ -7,7 +7,7 @@ public enum LinkResearchTool: MCPTool {
     public static let method = "link_research"
     public static let description =
         "Link a research item to a manuscript document so it shows up in that " +
-        "document's fold in the tree. Idempotent. Use get_outline + list_research to find ids."
+        "document's fold in the binder. Idempotent. Use get_outline + list_research to find ids."
     public static let inputSchemaJSON =
         #"{"type":"object","properties":{"project_id":{"type":"string"},"research_id":{"type":"string"},"document_id":{"type":"string"}},"required":["project_id","research_id","document_id"]}"#
 

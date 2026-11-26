@@ -563,10 +563,13 @@ final class ResolveEditionVerbTests: XCTestCase {
         let gone = ResolveEditionItems.runScope(docIds: ["a", "b"], persisted: "Gone", config: config)
         XCTAssertEqual(gone.docIds, ["a", "b"])
         XCTAssertNil(gone.imprint)
-        XCTAssertEqual(ResolveEditionItems.runScopeLine(count: 1, imprint: "Volume One"),
-                       "Runs the 1 chapter of \u{201C}Volume One\u{201D}, the imprint chosen above the book.")
-        XCTAssertEqual(ResolveEditionItems.runScopeLine(count: 3, imprint: nil),
-                       "Runs every chapter of the book: 3 chapters.")
+        XCTAssertEqual(ResolveEditionItems.runScopeLine(count: 1, noun: .chapter, imprint: "Volume One"),
+                       "Translates \u{201C}Volume One\u{201D}, the imprint chosen above: 1 chapter.")
+        XCTAssertEqual(ResolveEditionItems.runScopeLine(count: 3, noun: .chapter, imprint: nil),
+                       "Translates every chapter of the book: 3 chapters.")
+        XCTAssertEqual(ResolveEditionItems.runScopeLine(count: 1, noun: .section, imprint: "Board copy"),
+                       "Translates \u{201C}Board copy\u{201D}, the imprint chosen above: 1 section.",
+                       "a Report's sections, and the sentence still reads with one")
     }
 
     // MARK: - Fix round 2

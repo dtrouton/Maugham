@@ -362,14 +362,14 @@ struct CollectionPiecesPane: View {
         .padding(8)
     }
 
-    /// New Prose Story / New Screenplay / Link Existing Project — each adds a
+    /// New Prose Piece / New Script / Link Existing Project — each adds a
     /// piece, so the menu is the book author's (ruling R3), hidden otherwise.
     private var addMenu: some View {
         Menu {
-            Button("New Prose Story") {
+            Button("New Prose \(PieceNoun.piece.capitalised)") {
                 MaughamEvent.post(.maughamAddLoosePiece, to: .keyWindow)
             }
-            Button("New Screenplay") {
+            Button("New \(PieceNoun.script.capitalised)") {
                 MaughamEvent.post(.maughamAddScreenplayPiece, to: .keyWindow)
             }
             Button("Link Existing Project…") {

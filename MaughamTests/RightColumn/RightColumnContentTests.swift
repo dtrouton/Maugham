@@ -276,6 +276,6 @@ final class RightColumnContentTests: XCTestCase {
         XCTAssertEqual(RightColumnPosition.allCases.map(\.systemImageName),
                        ["tray", "target", "pin"])
         XCTAssertEqual(RightColumnPosition.pulledUp.helpText,
-                       "Pulled up — the one thing you pulled up from the tree (⌘3)")
+                       "Pulled up — the one thing you pulled up from the binder (⌘3)")
     }
 }

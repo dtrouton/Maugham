@@ -422,16 +422,18 @@ enum ResolveEditionItems {
         return (PublishImprint.scopedDocumentIds(docIds, imprint: imprint, in: config), imprint)
     }
 
-    /// The line under Run Whole Book: how many chapters it runs, and of
-    /// which imprint when one is chosen.
-    static func runScopeLine(count: Int, imprint: String?,
+    /// The line under Translate Whole Book: how many pieces it translates,
+    /// in the project's word (`PieceNoun`), and which imprint when one is
+    /// chosen.
+    static func runScopeLine(count: Int, noun: PieceNoun, imprint: String?,
                              preflight: TranslationPreflight.Budgets.Answer? = nil) -> String {
-        let chapters = count == 1 ? "1 chapter" : "\(count) chapters"
         // What it will cost, before the press (fix round I2): the figure, or
         // the refusal that stands in its place.
         let cost = TranslationRunState.preflightLine(preflight).map { " \u{00b7} \($0)" } ?? ""
-        guard let imprint else { return "Runs every chapter of the book: \(chapters)\(cost)." }
-        return "Runs the \(chapters) of \u{201C}\(imprint)\u{201D}, the imprint chosen above the book\(cost)."
+        guard let imprint else {
+            return "Translates every \(noun.singular) of the book: \(noun.counted(count))\(cost)."
+        }
+        return "Translates \u{201C}\(imprint)\u{201D}, the imprint chosen above: \(noun.counted(count))\(cost)."
     }
 
     /// **What the head says about the edition's newest round** (fix round
@@ -1199,6 +1201,7 @@ struct EditionHeadView: View {
                     .accessibilityLabel(TranslationRunState.runBookAccessibilityLabel(language: language))
                     .help(run.bookRefusal
                           ?? TranslationRunState.runBookHelp(language: language, count: book.count,
+                                                            noun: PieceNoun.of(nil, in: store.manifest),
                                                             preflight: preflight))
                 if run.isRunning {
                     Button(TranslationRunState.cancelTitle) { verbs.cancelRound() }
@@ -1207,7 +1210,8 @@ struct EditionHeadView: View {
                         .help(TranslationRunState.cancelHelp)
                 }
             }
-            Text(ResolveEditionItems.runScopeLine(count: book.count, imprint: editionRead.imprint,
+            Text(ResolveEditionItems.runScopeLine(count: book.count, noun: PieceNoun.of(nil, in: store.manifest),
+                                                  imprint: editionRead.imprint,
                                                   preflight: preflight))
                 .font(.caption)
                 .foregroundStyle(.secondary)

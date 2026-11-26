@@ -185,7 +185,7 @@ public enum ListCanvasTool: MCPTool {
 
     public static let description = """
         Read a project's planning canvas: every card, every region and every line, \
-        with the marks the inspector shows. A "scrap" is a loose thought whose words \
+        with the marks the writer sees on each card. A "scrap" is a loose thought whose words \
         live only on the canvas; an "item" node is something the canvas shows as \
         itself, and `provenance` says which sort: "project" for research the canvas \
         points at and never writes to (`reference_id` names it), or "owned" for a \

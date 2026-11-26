@@ -250,7 +250,7 @@ final class ResolveFilterTests: XCTestCase {
                                    unreadableDocIds: [])
         let groups = ResolveGrouping.groups(read, scope: .piece(docId: "doc-a", includesBookLevel: false),
                                             structure: [], sceneIndex: nil, sceneTitles: [],
-                                            figureNames: [:], projectType: .novel)
+                                            figureNames: [:], book: PieceNoun.Book(type: .novel))
         XCTAssertEqual(groups.count, 30)
 
         XCTAssertTrue(ResolveFilter.isDense(items))

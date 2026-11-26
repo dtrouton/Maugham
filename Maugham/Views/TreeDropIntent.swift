@@ -117,10 +117,10 @@ enum TreeDropIntent {
             case .sharedOnly: return "this project keeps all research shared"
             case .notAResearchTarget: return "not a research scope target"
             case .alreadyThere: return "already there — the drop changes nothing"
-            case .readThrough: return "a chapter that holds it is in read-through"
+            case .readThrough: return "the text that holds it is in read-through"
             case .linksNotPermitted: return "this Mac may not change that piece's research links"
             case .linkedFoldHasNoOrder:
-                return "a linked chapter's research has no order of its own to set"
+                return "research linked into a fold has no order of its own to set"
             case .notAFigureKind: return "only a table, picture or PDF from Research becomes a figure"
             case .alreadyInFigures: return "already in Figures"
             case .figuresHaveNoOrder: return "figures are numbered by the text, not by a drag"

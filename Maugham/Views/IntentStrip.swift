@@ -105,7 +105,7 @@ struct IntentStrip: View {
         .buttonStyle(.plain)
         .onHover { isHovering = $0 }
         .help("Open Intent")
-        .accessibilityHint("Opens the Intent pane")
+        .accessibilityHint("Opens the piece\u{2019}s intent in Brief")
     }
 
     /// The mark itself — glyph and fixed words, inside the one affordance.

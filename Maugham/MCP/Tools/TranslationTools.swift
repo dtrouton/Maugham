@@ -538,12 +538,12 @@ public enum TranslationStatusTool: MCPTool {
         "(Add Language). " +
         "`unreadable_documents` (always present, empty when the whole book read cleanly) " +
         "names every document this call could not open, with the reason — its rows are " +
-        "missing from `rows` rather than zero, so read it before concluding a chapter is " +
+        "missing from `rows` rather than zero, so read it before concluding a piece is " +
         "untranslated. " +
         "`reader` and `collator` name the edition's blind reader and collator the same way " +
         "`translator` does. `last_round` (omitted until a pipeline round has finished on " +
         "that document; a cancelled round is not reported) is that document's own newest " +
-        "finished round in that language, kept per document however many chapters later " +
+        "finished round in that language, kept per document however many pieces later " +
         "rounds covered, and carries its number, the two readers' verdicts, its " +
         "note/departure/declined counts, its summary, and `stopped_at` for a round that " +
         "failed. " +
@@ -590,7 +590,7 @@ public enum TranslationStatusTool: MCPTool {
                     throw MCPError.invalidArgument(
                         "document_id \(documentId) is a figure, not a document: a table's "
                         + "cell coverage is in this tool's `figures` section — call it "
-                        + "without document_id, or with the id of a chapter that uses the table")
+                        + "without document_id, or with the id of a piece that uses the table")
                 }
                 throw MCPError.invalidArgument(
                     "document_id not found in project manifest: \(documentId)")

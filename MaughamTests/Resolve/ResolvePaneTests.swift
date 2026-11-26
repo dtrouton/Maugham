@@ -61,7 +61,7 @@ final class ResolvePaneTests: XCTestCase {
         -> [ResolveGroup] {
         ResolveGrouping.groups(
             ResolveSnapshot(items: items, sequences: sequences, paragraphText: [:], unreadableDocIds: []),
-            scope: scope, structure: structure, sceneIndex: nil, sceneTitles: [], figureNames: [:], projectType: .novel)
+            scope: scope, structure: structure, sceneIndex: nil, sceneTitles: [], figureNames: [:], book: PieceNoun.Book(type: .novel))
     }
 
     // MARK: - To-do drag-reorder (carried item 11)
@@ -347,7 +347,7 @@ final class ResolvePaneTests: XCTestCase {
         let newPid = try XCTUnwrap(doc.sequence.last)
         XCTAssertNotEqual(newPid, doc.sequence.first, "premise: the to-do is in a new paragraph")
         let groups = ResolveGrouping.groups(held, scope: scope, structure: store.manifest.structure,
-                                            sceneIndex: nil, sceneTitles: [], figureNames: [:], projectType: .novel)
+                                            sceneIndex: nil, sceneTitles: [], figureNames: [:], book: PieceNoun.Book(type: .novel))
         let home = groups.first { group in
             group.items.contains { if case .todo(let task) = $0 { return task.body == "fix the dock" }; return false }
         }
@@ -643,7 +643,7 @@ final class ResolvePaneTests: XCTestCase {
             ResolveSnapshot(items: [note("n1", pid: "bb22")], sequences: ["doc-a": ["aa11", "bb22"]],
                             paragraphText: [:], unreadableDocIds: []),
             scope: piece, structure: structure, sceneIndex: sceneIndex, sceneTitles: ["INT. KITCHEN"],
-            figureNames: [:], projectType: .screenplay)
+            figureNames: [:], book: PieceNoun.Book(type: .screenplay))
         let scene = try XCTUnwrap(built.first { if case .scene = $0.key { return true } else { return false } })
         let outcome = ResolvePane.apply(
             .showParagraph(docId: "doc-a", paragraphId: "bb22"), groups: built,
@@ -955,7 +955,7 @@ final class ResolvePaneTests: XCTestCase {
                        .outside)
         XCTAssertEqual(ResolvePane.EmptyState.outside.sentence,
                        "To resolve gathers what has been raised about a piece, a Part or the Book: "
-                       + "notes, checks, to-dos and questions. Choose one in the tree.")
+                       + "notes, checks, to-dos and questions. Choose one in the binder.")
         XCTAssertEqual(ResolvePane.emptyState(scope: .elsewhere(docId: "doc-x"), hasItems: false,
                                               hasVisible: false, offersColdStart: false), .elsewhere)
         XCTAssertEqual(ResolvePane.EmptyState.elsewhere.sentence,

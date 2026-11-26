@@ -366,7 +366,7 @@ extension Document {
             undoing: .taskCreate, prior: preview,
             docId: docId, device: device, session: session, sessionId: session) {
             OpUndoRegistrar.register(
-                undoManager, actionName: "New Task", target: self,
+                undoManager, actionName: "New To-Do", target: self,
                 workTaskSink: { [weak self] in self?._lastUndoWorkTask = $0 },
                 undo: { doc in
                     // Fire-time guard: only archive if the task still exists and
@@ -424,7 +424,7 @@ extension Document {
                 docId: docId, device: device, session: session, sessionId: session)
         else { return }
         OpUndoRegistrar.register(
-            undoManager, actionName: "Change Task Status", target: self,
+            undoManager, actionName: "Change To-Do Status", target: self,
             workTaskSink: { [weak self] in self?._lastUndoWorkTask = $0 },
             undo: { doc in
                 // Fire-time guard: only revert if the task still holds the value
@@ -462,7 +462,7 @@ extension Document {
                 docId: docId, device: device, session: session, sessionId: session)
         else { return }
         OpUndoRegistrar.register(
-            undoManager, actionName: "Reorder Task", target: self,
+            undoManager, actionName: "Reorder To-Do", target: self,
             workTaskSink: { [weak self] in self?._lastUndoWorkTask = $0 },
             undo: { doc in
                 guard let now = doc.freshTaskSnapshot(id: id), now.priority == priority else {
@@ -501,7 +501,7 @@ extension Document {
                 docId: docId, device: device, session: session, sessionId: session)
         else { return }
         OpUndoRegistrar.register(
-            undoManager, actionName: "Nest Task", target: self,
+            undoManager, actionName: "Nest To-Do", target: self,
             workTaskSink: { [weak self] in self?._lastUndoWorkTask = $0 },
             undo: { doc in
                 // Compare against the sentinel-normalized new value.
@@ -539,7 +539,7 @@ extension Document {
                 docId: docId, device: device, session: session, sessionId: session)
         else { return }
         OpUndoRegistrar.register(
-            undoManager, actionName: "Edit Task", target: self,
+            undoManager, actionName: "Edit To-Do", target: self,
             workTaskSink: { [weak self] in self?._lastUndoWorkTask = $0 },
             undo: { doc in
                 guard let now = doc.freshTaskSnapshot(id: id), now.body == body else {
@@ -708,7 +708,7 @@ extension Document {
                 docId: docId, device: device, session: session, sessionId: session)
             else { return }
             OpUndoRegistrar.register(
-                undoManager, actionName: "Archive Task", target: self,
+                undoManager, actionName: "Archive To-Do", target: self,
                 workTaskSink: { [weak self] in self?._lastUndoWorkTask = $0 },
                 undo: { doc in
                     // Fire-time guard: only restore if the task is still archived.
@@ -728,7 +728,7 @@ extension Document {
         // Compound (text + op) registration: the inline archive spliced the
         // paragraph, so ⌘Z must restore BOTH the text and the open status.
         OpUndoRegistrar.register(
-            undoManager, actionName: "Archive Task", target: self,
+            undoManager, actionName: "Archive To-Do", target: self,
             workTaskSink: { [weak self] in self?._lastUndoWorkTask = $0 },
             undo: { doc in
                 guard let preState, let preTip, let preOpIds else { return }

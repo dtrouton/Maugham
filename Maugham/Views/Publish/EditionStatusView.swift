@@ -67,7 +67,8 @@ struct EditionStatusHost: View {
     static let coalesce: Duration = .milliseconds(250)
 
     var body: some View {
-        EditionStatusView(structure: store.manifest.structure, isSource: isSource,
+        EditionStatusView(structure: store.manifest.structure, noun: PieceNoun.of(nil, in: store.manifest),
+                          isSource: isSource,
                           loaded: loaded, remembered: remembered, faces: faces,
                           keyboardRequest: keyboardRequest,
                           publishingOffered: { loaded.publishingOffered.contains($0.id) },
@@ -156,6 +157,8 @@ struct EditionStatusView: View {
     }
 
     let structure: [StructureItem]
+    /// What the project calls a piece (`PieceNoun`), for the empty grid.
+    let noun: PieceNoun
     let isSource: Bool
     let loaded: Loaded
     let remembered: Binding<String?>
@@ -166,6 +169,11 @@ struct EditionStatusView: View {
     let onOpenPublishing: (String) -> Void
 
     @FocusState private var holdsTheKeys: Bool
+
+    /// The empty edition, in the project's word for a piece.
+    static func emptyDescription(_ noun: PieceNoun) -> String {
+        "Add \(noun.plural) and Status shows where each one stands in this edition."
+    }
 
     // MARK: - Columns
 
@@ -242,9 +250,9 @@ struct EditionStatusView: View {
             }
             if ids.isEmpty {
                 ContentUnavailableView {
-                    Label("No chapters yet", systemImage: "checklist")
+                    Label(ReviewBoardPane.emptyTitle(noun), systemImage: "checklist")
                 } description: {
-                    Text("Add chapters and Status shows where each one stands in this edition.")
+                    Text(Self.emptyDescription(noun))
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {

@@ -128,7 +128,7 @@ extension ProjectStore {
             docId: Self.projectTasksDocId, device: projectOpDevice,
             session: projectOpSession, sessionId: projectOpSession) {
             OpUndoRegistrar.register(
-                undoManager, actionName: "New Task", target: self,
+                undoManager, actionName: "New To-Do", target: self,
                 workTaskSink: { [weak self] in self?._lastUndoWorkTask = $0 },
                 undo: { store in
                     // Fire-time guard: only archive if still present and not

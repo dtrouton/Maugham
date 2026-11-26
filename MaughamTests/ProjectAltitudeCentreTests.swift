@@ -1138,6 +1138,7 @@ private struct AltitudeCentreProbeView: View {
         ReviewBoardPane(
             structure: structure,
             passes: store.manifest.effectiveReviewPasses,
+            noun: .chapter,
             openNotes: [:],
             unreadableDocIds: [],
             openToDos: [:],

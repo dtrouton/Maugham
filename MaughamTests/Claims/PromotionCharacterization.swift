@@ -1123,7 +1123,7 @@ final class PromotionCharacterization: XCTestCase {
             piece: .unroutable(id: "p", title: "Piece", inherited: false),
             canCarryItsOwnPiece: true)?.errorDescription,
                        "“Piece” cannot keep research of its own, so there is nowhere to file it. "
-                       + "Pick another piece in the inspector, or clear the association.",
+                       + "Pick another piece for it, or clear the association.",
                        "M6-PR-067")
     }
 

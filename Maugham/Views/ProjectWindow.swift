@@ -1268,7 +1268,7 @@ struct ProjectWindow: View {
                     window: window,
                     navigate: navigate,
                     pendingPieceRenameId: $pendingPieceRenameId))
-                .alert("Renumber every chapter and scene?",
+                .alert("Renumber every file in the binder?",
                        isPresented: $showingTidyAllConfirmation
                 ) {
                     Button("Renumber", role: .destructive) {

@@ -449,7 +449,7 @@ enum PiecePlace: Equatable {
     }
 
     /// Said once, beside Compile…, for a book with no paragraph anchors.
-    static let compileAgainLine = "Compile again to jump to chapters"
+    static let compileAgainLine = "Compile again to jump from the binder to the page"
 
     /// **The tag this edition's body carries in the book**, checked against
     /// the tags its anchors actually use: a one-body book whose compile spelled

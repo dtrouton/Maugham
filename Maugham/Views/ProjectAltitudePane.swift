@@ -31,7 +31,7 @@ struct ProjectAltitudePane<Status: View>: View {
                     ContentUnavailableView {
                         Label("No items yet", systemImage: "list.bullet.indent")
                     } description: {
-                        Text("Add chapters or scenes from the Manuscript binder")
+                        Text("Add \(PieceNoun.of(nil, in: store.manifest).plural) from the binder")
                     }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                 } else if view == .outline {

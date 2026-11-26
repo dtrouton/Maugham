@@ -101,9 +101,9 @@ public enum KeyboardShortcuts {
             Entry(label: "Pull up First Reader", shortcut: "⌘⌥Y"),
             Entry(label: "Pull up Visual Language", shortcut: "⌘⌥V"),
             Entry(label: "To resolve: the check's findings", shortcut: "⌘⌥D"),
-            Entry(label: "Open the piece's fold in the tree", shortcut: "⌘⌥E"),
+            Entry(label: "Open the piece's fold in the binder", shortcut: "⌘⌥E"),
             Entry(label: "To resolve: the edition you are reading (else the Source)", shortcut: "⌘⌥K"),
-            Entry(label: "Toggle inspector column", shortcut: "⌘⌥0"),
+            Entry(label: "Show or hide the right column", shortcut: "⌘⌥0"),
         ]),
         // The canvas's keys (canvas-keyboard-flow); `KeyboardShortcutsTests`
         // checks them. The first five act inside a scrap, the rest on the canvas.
@@ -116,8 +116,8 @@ public enum KeyboardShortcuts {
             Entry(label: "New scrap / edit selected", shortcut: "↩"),
             Entry(label: "Move selection",          shortcut: "←↑→↓"),
             Entry(label: "Rename region",           shortcut: "↩"),
-            Entry(label: "Canvas from tree",        shortcut: "⇥"),
-            Entry(label: "Back to tree",            shortcut: "⇧⇥"),
+            Entry(label: "Canvas from binder",        shortcut: "⇥"),
+            Entry(label: "Back to binder",            shortcut: "⇧⇥"),
         ]),
         Category(category: "Help", items: [
             Entry(label: "Maugham Help",            shortcut: "⌘?"),

@@ -33,8 +33,8 @@ final class KeyboardShortcutsTests: XCTestCase {
             "New scrap / edit selected": "↩",
             "Move selection": "←↑→↓",
             "Rename region": "↩",
-            "Canvas from tree": "⇥",
-            "Back to tree": "⇧⇥",
+            "Canvas from binder": "⇥",
+            "Back to binder": "⇧⇥",
         ]
         XCTAssertEqual(canvas.items.count, expected.count)
         XCTAssertEqual(listed, expected)

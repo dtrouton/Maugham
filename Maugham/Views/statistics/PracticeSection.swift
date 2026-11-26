@@ -35,6 +35,8 @@ struct PracticeSection: View {
 
     /// `nil` while the window is still deriving.
     let practice: ProjectPractice?
+    /// What the project calls a piece (`PieceNoun`): what a row opens.
+    let noun: PieceNoun
     /// The window's own jump — a project-scoped `.maughamNavigateToDocument`,
     /// the same closure `WordsByChapterSection` presses.
     let onSelectChapter: (String) -> Void
@@ -65,7 +67,7 @@ struct PracticeSection: View {
 
     /// What a row promises, and the whole of what it promises. Never a scroll
     /// and never a paragraph (global constraint 31).
-    static let opensTheChapter = "Opens the chapter"
+    static func opensThePiece(_ noun: PieceNoun) -> String { "Opens the \(noun.singular)" }
     static let opensTheScene = "Opens the scene\u{2019}s file"
 
     /// A document whose op log could not be read is skipped and NAMED
@@ -251,7 +253,7 @@ struct PracticeSection: View {
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .help(isScreenplay ? Self.opensTheScene : Self.opensTheChapter)
+        .help(isScreenplay ? Self.opensTheScene : Self.opensThePiece(noun))
         .padding(.vertical, 2)
     }
 

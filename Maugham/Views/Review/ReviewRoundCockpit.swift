@@ -416,7 +416,7 @@ struct ReviewRoundCockpit: View {
     static let noEditorReason =
         "A round is an editor\u{2019}s. Set a pass and its editor runs the round."
 
-    static let runTitle = "Run round"
+    static let runTitle = "Run Round"
     static let freshEyesTitle = "Fresh Eyes"
     /// **The invitation names what setting a pass is FOR** (two loops P1
     /// Task 8). "Set a pass" alone reads as a lane picker's placeholder and

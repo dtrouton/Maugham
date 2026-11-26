@@ -64,8 +64,8 @@ final class RightColumnAppraisalTests: XCTestCase {
 
         // The noun is the project's word for a piece.
         let chapter = StructureItem(id: "ch-1", title: "One", type: .document, path: "one.md")
-        XCTAssertEqual(FiledUnder.pieceNoun(chapter, projectType: .novel), "chapter")
-        XCTAssertEqual(FiledUnder.pieceNoun(chapter, projectType: .collection), "piece")
+        XCTAssertEqual(PieceNoun.of(chapter, in: PieceNoun.Book(type: .novel)).singular, "chapter")
+        XCTAssertEqual(PieceNoun.of(chapter, in: PieceNoun.Book(type: .collection)).singular, "piece")
     }
 
     // MARK: - 2. The faces' subject, named

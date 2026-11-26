@@ -66,7 +66,8 @@ final class TreeStructureCreationTests: XCTestCase {
             XCTAssertTrue(store.manifest.structure.isEmpty, "\(type): fixture")
 
             let window = host(store: store)
-            try assertButtonDrawn("New Document", in: window, "\(type)")
+            try assertButtonDrawn(BinderView.newPieceTitle(PieceNoun.of(nil, in: store.manifest)),
+                                  in: window, "\(type)")
             try await startAPiece(.document(store.manifest.type.primaryFormat), in: store)
 
             XCTAssertEqual(store.manifest.structure.count, 1,
@@ -82,7 +83,7 @@ final class TreeStructureCreationTests: XCTestCase {
     func test_aGroupCanBeMadeFromTheTree() async throws {
         let store = try await emptyProject(of: .novel)
         let window = host(store: store)
-        try assertButtonDrawn("New Group", in: window, "novel")
+        try assertButtonDrawn("New Part", in: window, "novel")
         try await startAPiece(.group, in: store)
 
         XCTAssertEqual(store.manifest.structure.first?.type, .group)
@@ -125,7 +126,7 @@ final class TreeStructureCreationTests: XCTestCase {
         XCTAssertFalse(found.isEmpty,
                        "the screenplay's tree published nothing at all, so this "
                        + "test could not have failed for its own reason")
-        for creation in ["New Document", "New Group", "New Scene", "Add a piece"] {
+        for creation in ["New Document", "New Group", "New Script", "New Scene", "Add a piece"] {
             XCTAssertFalse(found.contains(creation),
                            "a screenplay's tree published \u{201C}\(creation)\u{201D}. "
                            + "A screenplay is ONE .fountain and its structure is "

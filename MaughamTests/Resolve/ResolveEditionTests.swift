@@ -200,7 +200,7 @@ final class ResolveEditionTests: XCTestCase {
         let structure = [StructureItem(id: "doc-a", title: "One", type: .document, path: "a.md"),
                          StructureItem(id: "doc-b", title: "Two", type: .document, path: "b.md")]
         let groups = ResolveGrouping.groups(snapshot, scope: es, structure: structure, sceneIndex: nil,
-                                            sceneTitles: [], figureNames: [:], projectType: .novel)
+                                            sceneTitles: [], figureNames: [:], book: PieceNoun.Book(type: .novel))
         XCTAssertEqual(groups.map(\.key), [.bookLevel, .piece(docId: "doc-a"), .piece(docId: "doc-b")])
         XCTAssertEqual(groups.map(\.title), ["The book", "One", "Two"])
         XCTAssertEqual(groups[0].items.map(\.id), ["design:prop-1", ResolveItem.compileProblem(problem("Overfull")).id])
@@ -598,15 +598,17 @@ final class ResolveEditionTests: XCTestCase {
     /// on the scope line and in the help, or the refusal in its place; taken
     /// only while no round runs.
     func test_runWholeBookSaysWhatItWillCost() {
-        XCTAssertEqual(ResolveEditionItems.runScopeLine(count: 12, imprint: "Volume One", preflight: .words(84_000)),
-                       "Runs the 12 chapters of \u{201C}Volume One\u{201D}, the imprint chosen above the book"
+        XCTAssertEqual(ResolveEditionItems.runScopeLine(count: 12, noun: .chapter, imprint: "Volume One",
+                                                        preflight: .words(84_000)),
+                       "Translates \u{201C}Volume One\u{201D}, the imprint chosen above: 12 chapters"
                        + " \u{00b7} 7 legs \u{00b7} ~84,000 words briefed.")
-        XCTAssertEqual(ResolveEditionItems.runScopeLine(count: 3, imprint: nil, preflight: .words(900)),
-                       "Runs every chapter of the book: 3 chapters \u{00b7} 7 legs \u{00b7} ~900 words briefed.")
-        XCTAssertEqual(ResolveEditionItems.runScopeLine(count: 3, imprint: nil, preflight: .unreadable("x.json won't read")),
-                       "Runs every chapter of the book: 3 chapters \u{00b7} x.json won't read.")
-        XCTAssertEqual(ResolveEditionItems.runScopeLine(count: 3, imprint: nil),
-                       "Runs every chapter of the book: 3 chapters.", "no figure yet: no clause")
+        XCTAssertEqual(ResolveEditionItems.runScopeLine(count: 3, noun: .chapter, imprint: nil, preflight: .words(900)),
+                       "Translates every chapter of the book: 3 chapters \u{00b7} 7 legs \u{00b7} ~900 words briefed.")
+        XCTAssertEqual(ResolveEditionItems.runScopeLine(count: 3, noun: .chapter, imprint: nil,
+                                                        preflight: .unreadable("x.json won't read")),
+                       "Translates every chapter of the book: 3 chapters \u{00b7} x.json won't read.")
+        XCTAssertEqual(ResolveEditionItems.runScopeLine(count: 3, noun: .chapter, imprint: nil),
+                       "Translates every chapter of the book: 3 chapters.", "no figure yet: no clause")
         XCTAssertTrue(TranslationPreflight.refillsBudgets(pipeline: .idle))
         XCTAssertFalse(TranslationPreflight.refillsBudgets(
             pipeline: .running(docId: "d", language: "es", leg: .translate, book: nil)))

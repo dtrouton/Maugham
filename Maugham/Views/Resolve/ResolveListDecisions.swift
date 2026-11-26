@@ -518,7 +518,7 @@ extension ResolvePane {
     static let replacedByTheNextCheckCaption = "Replaced by the next check"
     /// An edition's kinds wear their own lifetimes, in the check's style
     /// (shell p4 Task 6; the design's "Two lifetimes").
-    static let replacedByTheNextRoundCaption = "Replaced by this chapter\u{2019}s next round"
+    static let replacedByTheNextRoundCaption = "Replaced by the next round"
     static let replacedByTheNextDesignRoundCaption = "Replaced by the next design round"
     static let replacedByTheNextCompileCaption = "Replaced by the next compile"
 
@@ -609,7 +609,7 @@ extension ResolvePane {
             switch self {
             case .outside:
                 return "To resolve gathers what has been raised about a piece, a Part or the Book: "
-                    + "notes, checks, to-dos and questions. Choose one in the tree."
+                    + "notes, checks, to-dos and questions. Choose one in the binder."
             case .elsewhere:
                 return "This piece belongs to another project. Open that project to see what it raises."
             case .coldStart:

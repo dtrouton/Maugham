@@ -455,7 +455,7 @@ final class TreeEditionRowsTests: XCTestCase {
             ("⌘⌥K", "Maugham/MaughamApp.swift", "FocusedEditionResolveButton()"),
             // A one-chapter run in a language: the piece read in it (shell p4 Task 9).
             ("Run (one chapter)", views + "Resolve/ResolvePieceInLanguage.swift",
-             "Button(TranslationRunState.runTitle) { runThisPiece() }"),
+             "Button(TranslationRunState.runTitle(pieceWord)) { runThisPiece() }"),
             ("the open chapter's last run report (lastRun)", views + "Resolve/ResolvePieceInLanguage.swift",
              "lastRun: roster?.translationRuns.run(docId: docId, language: language),"),
             ("\"Open a chapter to run it\"", views + "Resolve/ResolvePieceInLanguage.swift",

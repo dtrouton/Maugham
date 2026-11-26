@@ -128,7 +128,7 @@ final class ResolvePieceInLanguageTests: XCTestCase {
             ResolveSnapshot(items: snapshot.items + items, sequences: snapshot.sequences,
                             paragraphText: snapshot.paragraphText, unreadableDocIds: []),
             scope: read, structure: structure, sceneIndex: nil, sceneTitles: [], figureNames: [:],
-            projectType: .novel)
+            book: PieceNoun.Book(type: .novel))
         XCTAssertEqual(groups.map(\.key), [.wholePiece(docId: "doc-a"),
                                             .paragraph(docId: "doc-a", paragraphId: "aa11")])
         XCTAssertEqual(groups.last?.items.map(\.id),
@@ -181,7 +181,7 @@ final class ResolvePieceInLanguageTests: XCTestCase {
                        "the same scenes as its source")
         let groups = ResolveGrouping.groups(snapshot, scope: read, structure: scripts,
                                             sceneIndex: scenes.index, sceneTitles: scenes.titles,
-                                            figureNames: [:], projectType: .screenplay)
+                                            figureNames: [:], book: PieceNoun.Book(type: .screenplay))
         XCTAssertEqual(groups.map(\.key), [.scene(docId: "doc-s", headingParagraphId: "bb22")])
         XCTAssertEqual(groups.map(\.title), ["INT. KITCHEN - DAY"])
     }
@@ -216,7 +216,7 @@ final class ResolvePieceInLanguageTests: XCTestCase {
             XCTAssertEqual(scenes.index, ["aa11": 0, "bb22": 0, "cc33": 1, "dd44": 1], "\(scope)")
             let groups = ResolveGrouping.groups(snapshot, scope: scope, structure: scriptsAB,
                                                 sceneIndex: scenes.index, sceneTitles: scenes.titles,
-                                                figureNames: [:], projectType: .collection)
+                                                figureNames: [:], book: PieceNoun.Book(type: .collection))
             XCTAssertEqual(groups.map(\.key), [.scene(docId: "doc-b", headingParagraphId: "cc33")], "\(scope)")
             XCTAssertEqual(groups.map(\.title), ["EXT. GARDEN - DUSK"], "\(scope)")
         }
@@ -396,7 +396,7 @@ final class ResolvePieceInLanguageTests: XCTestCase {
         XCTAssertTrue(signed.hasPrefix("\u{2014} Kiš \u{00B7} round 4"), signed)
         XCTAssertEqual(ResolvePieceInLanguage.runScopeLine(noun: "chapter", language: "sr",
                                                            preflight: .words(1200)),
-                       "Runs this chapter into \(LanguageName.title("sr")) \u{00B7} "
+                       "Translates this chapter into \(LanguageName.title("sr")) \u{00B7} "
                        + (TranslationRunState.preflightLine(.words(1200)) ?? "") + ".")
     }
 
@@ -436,7 +436,7 @@ final class ResolvePieceInLanguageTests: XCTestCase {
     /// project's own word, as the scope line beside it does.
     func test_runsLabelNamesThePieceByTheProjectsWord() {
         XCTAssertEqual(ResolvePieceInLanguage.runAccessibilityLabel(language: "sr", noun: "story"),
-                       "Run a round on this story into " + LanguageName.labelled("sr"))
+                       "Translate this story into " + LanguageName.labelled("sr"))
     }
 
     // MARK: - The source's keys (closing review I2)
@@ -498,7 +498,7 @@ final class ResolvePieceInLanguageTests: XCTestCase {
         XCTAssertFalse(ResolvePieceInLanguage.offersRun(docId: "doc-a", isOpen: false, mayTranslate: { _ in true }),
                        "not open: no Run")
         XCTAssertEqual(ResolvePieceInLanguage.openToRunLine(noun: "chapter"),
-                       "Open this chapter to run a round on it")
+                       "Open this chapter to translate it")
     }
 
     /// Run's refusals in order, then the one start over this piece; the
@@ -553,11 +553,15 @@ final class ResolvePieceInLanguageTests: XCTestCase {
                                                        queued: ["doc-4"], docId: "doc-1", language: "es"),
                        .elsewhere(docId: "doc-2", language: "es", book: book),
                        "a book run that has passed this chapter, or leaves it out, is not")
-        let line = ResolvePieceInLanguage.elsewhereLine(other, titleOf: { $0 == "doc-7" ? "Chapter Seven" : nil })
+        let line = ResolvePieceInLanguage.elsewhereLine(other, noun: "chapter",
+                                                        titleOf: { $0 == "doc-7" ? "Chapter Seven" : nil })
         XCTAssertEqual(line, "Translating \u{201C}Chapter Seven\u{201D} into \(LanguageName.title("es"))\u{2026}")
-        XCTAssertNil(ResolvePieceInLanguage.elsewhereLine(.this, titleOf: { _ in nil }))
+        XCTAssertNil(ResolvePieceInLanguage.elsewhereLine(.this, noun: "chapter", titleOf: { _ in nil }))
+        XCTAssertEqual(ResolvePieceInLanguage.elsewhereLine(
+            .elsewhere(docId: "doc-2", language: "es", book: nil), noun: "story", titleOf: { _ in nil }),
+                       "Translating another story into \(LanguageName.title("es"))\u{2026}")
         XCTAssertTrue(ResolvePieceInLanguage.elsewhereLine(
-            .elsewhere(docId: "doc-2", language: "es", book: book), titleOf: { _ in "Two" })?
+            .elsewhere(docId: "doc-2", language: "es", book: book), noun: "chapter", titleOf: { _ in "Two" })?
             .contains("2 of 12") ?? false)
     }
 
@@ -611,7 +615,7 @@ final class ResolvePieceInLanguageTests: XCTestCase {
                        .open("Open this chapter to answer its questions"))
         XCTAssertEqual(ResolvePieceInLanguage.openSlot(isOpen: false, isOpening: false, hasItemsToAnswer: false,
                                                        noun: "chapter"),
-                       .open("Open this chapter to run a round on it"))
+                       .open("Open this chapter to translate it"))
         XCTAssertEqual(ResolvePieceInLanguage.openSlot(isOpen: false, isOpening: true, hasItemsToAnswer: true,
                                                        noun: "chapter"),
                        .opening, "never 'open' what is already opening")
@@ -819,7 +823,7 @@ final class ResolvePieceInLanguageTests: XCTestCase {
             "if ResolvePieceInLanguage.offersRun(docId: docId, isOpen: isOpen, mayTranslate: {",
             "let slot = ResolvePieceInLanguage.openSlot(isOpen: isOpen, isOpening: isOpening,",
             "TranslationRunStart.postureOfTheTranslator(forPiece: $0, in: documentStore).allows(.translate)",
-            "Button(TranslationRunState.runTitle) { runThisPiece() }",
+            "Button(TranslationRunState.runTitle(pieceWord)) { runThisPiece() }",
             "let outcome = await ResolvePieceInLanguage.run(language: language, docId: docId,",
             "Button(TranslationRunState.cancelTitle) { verbs.cancel() }",
             "notice = await ResolvePieceInLanguage.confirmCast(",
@@ -828,7 +832,7 @@ final class ResolvePieceInLanguageTests: XCTestCase {
             "isOpen: isOpen, authorPosture: documentStore.posture(forDocId: docId)) {",
             "confirmingClear = translation.leftOvers",
             "switch ResolvePieceInLanguage.clearDecision(shown: shown, now: now.leftOvers) {",
-            "if let elsewhere = ResolvePieceInLanguage.elsewhereLine(relation, titleOf: {",
+            "if let elsewhere = ResolvePieceInLanguage.elsewhereLine(relation, noun: noun, titleOf: {",
             "pipeline: ResolvePieceInLanguage.pipelineStatus(pipeline, relation: relation),",
             "}, relation: relation) {",
             "notice = await ResolvePieceInLanguage.clearAndAnnounce(ids, docId: docId, language: language,",

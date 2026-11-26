@@ -262,11 +262,11 @@ final class BriefPaneTests: XCTestCase {
         XCTAssertEqual(BriefPane.elsewhereLine,
                        "This piece belongs to another project. Its brief is that project's.")
         XCTAssertEqual(BriefPane.outsideLine,
-                       "Brief holds what a piece, a Part, the Book or an edition is held to. Choose one in the tree.")
+                       "Brief holds what a piece, a Part, the Book or an edition is held to. Choose one in the binder.")
         let f = try await fixture("BriefOutside")
         let outside = f.hostView(AnyView(pane(f, scope: .outside)))
-        await pumpUntil(deadline: 5) { f.shows("Choose one in the tree.", in: outside) }
-        XCTAssertTrue(f.shows("Choose one in the tree.", in: outside))
+        await pumpUntil(deadline: 5) { f.shows("Choose one in the binder.", in: outside) }
+        XCTAssertTrue(f.shows("Choose one in the binder.", in: outside))
         let elsewhere = f.hostView(AnyView(pane(f, scope: .elsewhere(docId: f.documentItemId))))
         await pumpUntil(deadline: 5) { f.shows("belongs to another project", in: elsewhere) }
         XCTAssertTrue(f.shows("belongs to another project", in: elsewhere))

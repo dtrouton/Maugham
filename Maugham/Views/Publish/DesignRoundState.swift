@@ -325,7 +325,9 @@ struct DesignRoundState: Equatable {
 
     // MARK: - Copy
 
-    static let runTitle = "Run"
+    /// "Run Design" — the designer's round, in the vocabulary's one verb
+    /// (shell p5 Task 6).
+    static let runTitle = "Run Design"
     static let requestChangesTitle = "Request Changes"
 
     /// The door to the gate (P4 Task 5). **"Show" and not "Show Proposal"** —
@@ -357,8 +359,8 @@ struct DesignRoundState: Equatable {
     /// Three buttons on one pane all labelled "Run" are three buttons a
     /// VoiceOver user cannot tell apart, and the visible titles are told apart
     /// only by the row they sit on — which a linear tree does not carry. The
-    /// visible title stays "Run" (spec §5's word for it); what is announced,
-    /// and what a test finds the design verb by, is this.
+    /// visible title is "Run Design"; what is announced, and what a test
+    /// finds the design verb by, is this.
     static let runAccessibilityLabel = "Run a design round"
     static let cancelAccessibilityLabel = "Cancel the design round"
 
@@ -458,7 +460,7 @@ struct DesignRoundState: Equatable {
 
     static let noBookRefusal =
         "There are no pages to design for yet \u{2014} a design round is about "
-        + "what the book actually contains. Write a chapter first."
+        + "what the book actually contains. Write something first."
 
     static let noWordsRefusal =
         "Say what to change in the box above, then ask again \u{2014} a round "

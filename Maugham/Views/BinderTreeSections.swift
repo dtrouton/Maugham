@@ -793,8 +793,7 @@ struct BinderTreeVerbs {
                           state: BinderTreeSectionsState) -> HeldResearchAct? {
         HeldResearchAct.ofDelete(ids: ids, homes: state.researchHomes(in: store.manifest),
                                  research: store.manifest.research,
-                                 noun: ResolveGrouping.pieceNoun(isScript: false,
-                                                                 projectType: store.manifest.type))
+                                 noun: PieceNoun.of(nil, in: store.manifest))
     }
 
     /// **A move's plan on the manifest as it is** (`ResearchMovePlan`, the
@@ -819,8 +818,7 @@ struct BinderTreeVerbs {
                                homes: state.researchHomes(in: store.manifest),
                                research: store.manifest.research,
                                structure: store.manifest.structure,
-                               noun: ResolveGrouping.pieceNoun(isScript: false,
-                                                               projectType: store.manifest.type))
+                               noun: PieceNoun.of(nil, in: store.manifest))
     }
 
     /// The fold each of `ids` was taken from: the menu's row's fold, else
@@ -1086,7 +1084,7 @@ struct BinderTreeVerbs {
     func homeMenu(for item: ResearchItem, inFold fold: String?) -> ResearchHomeMenu? {
         ResearchHomeMenu.of(
             itemId: item.id, inFold: fold, homes: state.researchHomes(in: store.manifest),
-            noun: ResolveGrouping.pieceNoun(isScript: false, projectType: store.manifest.type),
+            noun: PieceNoun.of(nil, in: store.manifest),
             mayLink: { mayEditResearchLinks(of: $0) })
     }
 

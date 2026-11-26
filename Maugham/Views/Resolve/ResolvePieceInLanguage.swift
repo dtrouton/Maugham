@@ -235,9 +235,9 @@ enum ResolvePieceInLanguage {
 
     /// The quiet line for a round running elsewhere — no Cancel here; the
     /// toolbar's indicator is where that run is reached.
-    static func elsewhereLine(_ relation: PieceRun, titleOf: (String) -> String?) -> String? {
+    static func elsewhereLine(_ relation: PieceRun, noun: String, titleOf: (String) -> String?) -> String? {
         guard case .elsewhere(let docId, let language, let book) = relation else { return nil }
-        let title = titleOf(docId).map { "\u{201C}\($0)\u{201D}" } ?? "another chapter"
+        let title = titleOf(docId).map { "\u{201C}\($0)\u{201D}" } ?? "another \(noun)"
         let progress = book.map { " (\($0.position) of \($0.count))" } ?? ""
         return "Translating \(title) into \(LanguageName.title(language))\(progress)\u{2026}"
     }
@@ -266,7 +266,7 @@ enum ResolvePieceInLanguage {
     static let seeInBookHelp = "Open this edition\u{2019}s compiled book at this piece\u{2019}s first page"
 
     static func openToRunLine(noun: String) -> String {
-        "Open this \(noun) to run a round on it"
+        "Open this \(noun) to translate it"
     }
 
     /// **What the Run slot holds** (fix round 1, I1 + M12): Run on the open
@@ -306,7 +306,7 @@ enum ResolvePieceInLanguage {
     }
 
     static func runAccessibilityLabel(language: String, noun: String) -> String {
-        "Run a round on this \(noun) into " + LanguageName.labelled(language)
+        "Translate this \(noun) into " + LanguageName.labelled(language)
     }
 
     /// The line under Run: what it runs, and what it will cost before the
@@ -314,7 +314,7 @@ enum ResolvePieceInLanguage {
     static func runScopeLine(noun: String, language: String,
                              preflight: TranslationPreflight.Budgets.Answer?) -> String {
         let cost = TranslationRunState.preflightLine(preflight).map { " \u{00B7} \($0)" } ?? ""
-        return "Runs this \(noun) into \(LanguageName.title(language))\(cost)."
+        return "Translates this \(noun) into \(LanguageName.title(language))\(cost)."
     }
 
     /// **Run, decided**: a round under way, an unusable tag, then the start —
@@ -616,10 +616,12 @@ struct PieceInLanguageHeadView: View {
         PieceInLanguageHeadVerbs.production(roster: roster, store: store, documentStore: documentStore)
     }
 
-    private var noun: String {
-        FiledUnder.pieceNoun(TreeWalk.find(id: docId, in: store.manifest.structure),
-                             projectType: store.manifest.type)
+    /// What the project calls this piece (`PieceNoun`).
+    private var pieceWord: PieceNoun {
+        PieceNoun.of(TreeWalk.find(id: docId, in: store.manifest.structure), in: store.manifest)
     }
+
+    private var noun: String { pieceWord.singular }
 
     /// The editor's badges, when the editor shows this piece in this
     /// language; nil otherwise (then `derived` answers).
@@ -821,7 +823,7 @@ struct PieceInLanguageHeadView: View {
                                                    hasItemsToAnswer: hasItemsToAnswer, noun: noun)
         // Another chapter's round: said quietly, no Cancel and no Run here
         // (the toolbar's indicator reaches it) — fix round 1, I2.
-        if let elsewhere = ResolvePieceInLanguage.elsewhereLine(relation, titleOf: {
+        if let elsewhere = ResolvePieceInLanguage.elsewhereLine(relation, noun: noun, titleOf: {
             TreeWalk.find(id: $0, in: store.manifest.structure)?.title
         }) {
             Text(elsewhere)
@@ -835,7 +837,7 @@ struct PieceInLanguageHeadView: View {
             TranslationRunStart.postureOfTheTranslator(forPiece: $0, in: documentStore).allows(.translate)
         }, relation: relation) {
             FlowLayout(spacing: 6) {
-                Button(TranslationRunState.runTitle) { runThisPiece() }
+                Button(TranslationRunState.runTitle(pieceWord)) { runThisPiece() }
                     .controlSize(.small)
                     .fixedSize()
                     .disabled(!run.canRun)

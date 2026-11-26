@@ -20,7 +20,7 @@ public enum RightColumnPosition: String, Codable, CaseIterable, Sendable {
         switch self {
         case .resolve: return "To resolve — what has been raised and waits on you (⌘1)"
         case .brief: return "Brief — what this is held to (⌘2)"
-        case .pulledUp: return "Pulled up — the one thing you pulled up from the tree (⌘3)"
+        case .pulledUp: return "Pulled up — the one thing you pulled up from the binder (⌘3)"
         }
     }
 

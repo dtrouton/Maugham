@@ -79,6 +79,8 @@ import MaughamCore
 struct ReviewBoardPane: View {
     let structure: [StructureItem]
     let passes: [ReviewPass]
+    /// What the project calls a piece (`PieceNoun`), for the empty board.
+    let noun: PieceNoun
     /// **How many notes each piece still has open** (M3 P2 Task 9), keyed by
     /// piece id. A VALUE, computed off the body path by the mount and handed in
     /// — counting them here would open every document in the project once per
@@ -153,6 +155,12 @@ struct ReviewBoardPane: View {
         ReviewBoardChipVerbs(onSetState: onSetState, onRunRound: onRunRound)
     }
 
+    /// The empty board, in the project's word for a piece.
+    static func emptyTitle(_ noun: PieceNoun) -> String { "No \(noun.plural) yet" }
+    static func emptyDescription(_ noun: PieceNoun) -> String {
+        "Add \(noun.plural) and Status shows where each one stands."
+    }
+
     // MARK: - Metrics
 
     /// The stage column, first: the tree's dot and the word (`StatusSwatch`).
@@ -170,7 +178,7 @@ struct ReviewBoardPane: View {
     /// hit area; the name truncates and `.help` carries it whole.
     static let minimumPassColumnWidth: CGFloat = 40
     /// The open-notes column (M3 P2 Task 9). It holds a small number.
-    static let openNotesColumnWidth: CGFloat = 48
+    static let openNotesColumnWidth: CGFloat = 56
     /// The open to-dos column, after open notes (shell p4 Task 4).
     static let openToDosColumnWidth: CGFloat = 52
     private static let horizontalPadding: CGFloat = 10
@@ -230,9 +238,9 @@ struct ReviewBoardPane: View {
         return VStack(spacing: 0) {
             if rows.isEmpty {
                 ContentUnavailableView {
-                    Label("No chapters yet", systemImage: "checklist")
+                    Label(Self.emptyTitle(noun), systemImage: "checklist")
                 } description: {
-                    Text("Add chapters and Status shows where each one stands.")
+                    Text(Self.emptyDescription(noun))
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
@@ -744,7 +752,7 @@ enum ReviewBoardOpenNotes {
 
     /// The column's own heading. Short, because the column is narrow and the
     /// row's tooltip carries the sentence.
-    static let columnHeading = "Open"
+    static let columnHeading = "Notes open"
 
     enum Kind: Equatable {
         /// Nothing open: an empty cell, and nothing to click.

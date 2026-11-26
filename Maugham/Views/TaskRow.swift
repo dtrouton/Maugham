@@ -101,7 +101,7 @@ struct TaskRow: View {
         case .paneCreated:
             Image(systemName: "square.dashed")
                 .foregroundStyle(.secondary)
-                .help("Pane-created task — no source to jump to")
+                .help("Added in To resolve — no source to jump to")
         }
     }
 

@@ -378,8 +378,7 @@ struct ResolvePane: View {
         case .pieceInLanguage(let docId, let language):
             return ResolvePieceInLanguage.clearLine(
                 language: language,
-                noun: FiledUnder.pieceNoun(TreeWalk.find(id: docId, in: store.manifest.structure),
-                                           projectType: store.manifest.type),
+                noun: PieceNoun.of(TreeWalk.find(id: docId, in: store.manifest.structure), in: store.manifest).singular,
                 hasRounds: editionRead.hasRounds,
                 readingBook: Self.readsQuestionsFromPresence(docId: docId, presence: presenceReading,
                                                              documentStore: documentStore),
@@ -874,8 +873,7 @@ struct ResolvePane: View {
         for group in groups {
             guard let docId = ResolveHead.groupOpensItsPiece(group, mayAct: mayAct(on:)) else { continue }
             lines[group.key] = (docId, ResolveHead.openThePieceLine(
-                noun: FiledUnder.pieceNoun(TreeWalk.find(id: docId, in: store.manifest.structure),
-                                           projectType: store.manifest.type),
+                noun: PieceNoun.of(TreeWalk.find(id: docId, in: store.manifest.structure), in: store.manifest).singular,
                 hasItemsToAnswer: true))
         }
         return lines
@@ -1152,7 +1150,7 @@ struct ResolvePane: View {
         sceneIndex = index
         groups = ResolveGrouping.groups(held, scope: scope, structure: structure,
                                         sceneIndex: index, sceneTitles: titles,
-                                        figureNames: names, projectType: store.manifest.type)
+                                        figureNames: names, book: PieceNoun.Book(store.manifest))
         chips = ResolveFilter.chips(held.items, passes: passes, localName: localName)
         dense = ResolveTriage.isDense(held.items, choice: triageChoice)
         incomplete = Self.incompleteLine(held, structure: structure, figureNames: names)

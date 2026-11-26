@@ -415,7 +415,7 @@ final class CitationCompletionTests: XCTestCase {
         XCTAssertTrue(m.coordinator.isCompletionOpen, "an empty library still answers")
         XCTAssertEqual(m.keys, [])
         XCTAssertEqual(m.list.emptyMessage,
-                       "No matching sources — add citation details in the research inspector")
+                       "No matching sources — give a research item its citation details first")
         XCTAssertGreaterThanOrEqual(m.list.preferredSize.width,
                                     m.list.emptyRowWidth(for: m.list.emptyMessage),
                                     "the list is wide enough to read the sentence")

@@ -25,7 +25,7 @@ public enum ReadLessonsTool: MCPTool {
         + "when the writer has not started a ledger yet; that is a valid, deliberate "
         + "state — do not invent one on their behalf. Claude never writes to this ledger; "
         + "it moves only through the writer's own verbs in Maugham. Project scope only — "
-        + "there is no item_id, because what a writer is working on is not per-chapter."
+        + "there is no item_id, because what a writer is working on is not per-piece."
     public static let inputSchemaJSON =
         #"{"type":"object","properties":{"project_id":{"type":"string"}},"required":["project_id"]}"#
 

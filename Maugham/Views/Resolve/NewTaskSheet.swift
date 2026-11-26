@@ -16,9 +16,9 @@ struct NewTaskSheet: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("New task")
+            Text("New to-do")
                 .font(.headline)
-            TextField("Task body", text: $taskBody)
+            TextField("To-do", text: $taskBody)
                 .textFieldStyle(.roundedBorder)
             HStack {
                 Picker("Scope", selection: $scope) {

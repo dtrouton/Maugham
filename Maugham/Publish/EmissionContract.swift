@@ -767,7 +767,7 @@ public enum EmissionContract {
 
     Overwriting or clearing a style file moves the prior version to the \
     project's trash folder (`.trash/` at the project root, swept after 30 days). \
-    It is Maugham's own safety copy, so it stays out of the Trash pane and \
+    It is Maugham's own safety copy, so it stays out of the binder's Trash and \
     Restore Last Deletion; recover it from that folder. There is **no git** in \
     this workflow; the trash is the recovery path. `build/body.<lang>.tex` \
     (the PDF emitter's output for one language — `build/body.tex` is the \

@@ -124,13 +124,13 @@ public enum PromoteInboxEntryTool: MCPTool {
         "Move an inbox capture into the project's research and mark it " +
         "promoted. Non-destructive (the capture becomes a research item). " +
         "Three alternative, mutually exclusive destinations — at most one: " +
-        "target_document_id scopes it to a chapter or collection piece " +
-        "(piece → its research folder; novel chapter → shared research plus " +
-        "a research link); palette_card_id lands it as a sensory note (or " +
+        "target_document_id scopes it to a piece of the manuscript " +
+        "(a Collection piece → its research folder; any other → shared research " +
+        "plus a research link); palette_card_id lands it as a sensory note (or " +
         "image) on an existing palette card by id; palette_subject does the " +
         "same by case-insensitive card title match (no match fails, listing " +
         "existing titles — this tool never mints a new card; create one in " +
-        "the tree's Palette section first). Omitting all three promotes to shared " +
+        "the binder's Palette section first). Omitting all three promotes to shared " +
         "research. title is honored for research promotes only (the default " +
         "and target_document_id paths); palette-card promotes ignore it — " +
         "the card keeps its own title. Palette promotes reuse the research " +

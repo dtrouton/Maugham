@@ -61,7 +61,7 @@ enum CanvasBindingOffer {
     /// dragging the row out of the binder (spec §8A.1).
     static let cardNotHere = Message(
         headline: "This item isn't on this canvas yet.",
-        instruction: "Drag its row from the tree to place it.")
+        instruction: "Drag its row from the binder to place it.")
 
     /// **TWO signals, and one of them is not enough.**
     ///

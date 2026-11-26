@@ -34,8 +34,7 @@ enum FiledUnder {
     static let visualLanguage = "Filed under \(BriefBookView.visualLanguageTitle)"
 
     /// The sentence for `destination`, seen from the faces: the faces' own
-    /// piece is "this chapter" (the noun its project gives a piece); another
-    /// piece is named by its title. A destination the write found the words
+    /// Brief is "Brief"; another piece's is named by its title. A destination the write found the words
     /// already standing in (`FiledDestination.alreadyStood`) says "Already
     /// in", not "Filed under": nothing was written.
     static func sentence(_ destination: FiledDestination, faces: BinderSubject,
@@ -92,15 +91,6 @@ enum FiledUnder {
         case .unknown:
             return nil
         }
-    }
-
-    /// The word a piece is called by — To resolve's own
-    /// (`ResolveGrouping.pieceNoun`): a script for a screenplay or a piece
-    /// written in a screenplay format, a piece in a Collection, else a
-    /// chapter.
-    static func pieceNoun(_ item: StructureItem?, projectType: ProjectType) -> String {
-        let isScript = DocumentFormat.ofManuscript(path: item?.path).isScreenplay
-        return ResolveGrouping.pieceNoun(isScript: isScript, projectType: projectType)
     }
 
     /// **The Brief that shows the destination** — what the line's click

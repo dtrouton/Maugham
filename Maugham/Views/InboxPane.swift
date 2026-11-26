@@ -644,7 +644,7 @@ struct InboxPane: View {
                 // appearance otherwise.
                 CanvasCapture.show(node, in: projectStore)
                 sentToCanvas = "Sent “\(title(for: entry))” to the canvas. "
-                    + "Open the Canvas in the tree to see it."
+                    + "Open the Canvas in the binder to see it."
             } catch { promoteError = error.localizedDescription }
         }
     }

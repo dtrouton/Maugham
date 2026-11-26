@@ -66,11 +66,11 @@ enum ResolveGrouping {
     ///   - figureNames: figure id → its name (`FigureRecord.name`), for
     ///     figure group titles. No default on purpose: an omitted map titles
     ///     every figure "Figure", invisible in a green suite.
-    ///   - projectType: names the whole-piece group by what the project calls a
-    ///     piece (`pieceNoun`). No default, for the same reason.
+    ///   - book: names the whole-piece group by what the project calls a
+    ///     piece (`PieceNoun`). No default, for the same reason.
     static func groups(_ snapshot: ResolveSnapshot, scope: ResolveScope, structure: [StructureItem],
                        sceneIndex: [String: Int]?, sceneTitles: [String],
-                       figureNames: [String: String], projectType: ProjectType) -> [ResolveGroup] {
+                       figureNames: [String: String], book: PieceNoun.Book) -> [ResolveGroup] {
         let isPiece: Bool
         switch scope {
         case .elsewhere, .outside: return []
@@ -115,7 +115,7 @@ enum ResolveGrouping {
                 docId: docId, items: items, sequence: snapshot.sequences[docId],
                 paragraphText: snapshot.paragraphText,
                 sceneIndex: isPiece ? sceneIndex : nil, sceneTitles: sceneTitles,
-                projectType: projectType)
+                noun: PieceNoun.of(TreeWalk.find(id: docId, in: structure), in: book))
             if isPiece && position == 0 {
                 groups += sections
             } else {
@@ -134,16 +134,6 @@ enum ResolveGrouping {
         return groups
     }
 
-    /// **What a piece is called**: "script" for a screenplay's (or any
-    /// piece read as a script), "piece" in a project that holds pieces (a
-    /// Collection), else "chapter". Asked by capability (tripwire 55). The
-    /// one noun: To resolve's whole-piece group and `FiledUnder`'s "this
-    /// chapter's intent" both say it.
-    static func pieceNoun(isScript: Bool, projectType: ProjectType) -> String {
-        if isScript || projectType.primaryFormat.isScreenplay { return "script" }
-        return projectType.holdsPieces ? "piece" : "chapter"
-    }
-
     // MARK: - One piece
 
     /// One piece's items as sections: whole piece, then paragraphs (or
@@ -153,7 +143,7 @@ enum ResolveGrouping {
     private static func sections(docId: String, items: [ResolveItem], sequence: [String]?,
                                  paragraphText: [String: String],
                                  sceneIndex: [String: Int]?, sceneTitles: [String],
-                                 projectType: ProjectType) -> [ResolveGroup] {
+                                 noun: PieceNoun) -> [ResolveGroup] {
         var position: [String: Int] = [:]
         for (index, pid) in (sequence ?? []).enumerated() where position[pid] == nil {
             position[pid] = index
@@ -176,8 +166,7 @@ enum ResolveGrouping {
         var sections: [ResolveGroup] = []
         if !whole.isEmpty {
             sections.append(ResolveGroup(key: .wholePiece(docId: docId),
-                                         title: "Whole " + pieceNoun(isScript: sceneIndex != nil,
-                                                                     projectType: projectType),
+                                         title: "Whole " + (sceneIndex != nil ? PieceNoun.script : noun).singular,
                                          items: ordered(whole, sequence: order)))
         }
         if !unplaced.isEmpty {

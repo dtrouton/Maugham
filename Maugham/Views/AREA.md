@@ -11,7 +11,7 @@ Every file in `Maugham/Views/` appears once, plus the `Maugham/Models/` files CL
 - `CentreRoute.swift` — `CentreRoute`, `CentreCover`, `ProjectWindow.centreRoute(…)`: centre as one value (tripwires 6, 27, 30); `CentreItem.swift`, `CentreItemCover.swift`: a statement or History as cover; `CentreKeys.swift`, keys under covers.
 - `CentreColumn.swift` — the centre column: one `switch` over `centreRoute`, the canvas's one mount, `manuscriptEditor` (`EditorHost`, Book's view, one cover), `statusBoard` (the board's one mount) and open-notes counts, the Inbox (tripwires 2, 6, 30).
 - `RightColumn.swift` — resize handle, control over one arm, hidden arm; `RightColumnToggle.swift`, toolbar button; `RightColumnControl.swift`, three positions; `RightColumnContent.swift`, what each shows; `PulledUpView.swift`, pulled-up thing (`PulledUpRegionView.swift`, a region; `PulledUpHistory.swift`, Back); `PulledUpEscape.swift`, its Esc; `RightColumnSubjectLine.swift`, faces' title; `BriefFocus.swift`, ⌘⌥I/⌘⌥N's field, Going for's height.
-- `PaletteWallState.swift` — the wall's window state (the right column's stash, the subject it was opened over), its fold and its Close. Open is the subject's `open == .palette`.
+- `PaletteWallState.swift` — the wall's window state, its fold and its Close. Open is the subject's `open == .palette`.
 - `Maugham/Views/Publish/PublishCentreModel.swift` — an edition's centre and its compile; each rule a named method.
 - `ProjectActiveSheet.swift`, `FirstReaderHandoff.swift` — the window's one sheet enum; the Describe… hand-off.
 - `WindowFlashes.swift`, `CompilerFlashSink.swift` — the window's acknowledgments in one `@State`; ⌘R's capsule as a value a suspended caller can hold.
@@ -28,20 +28,21 @@ Every file in `Maugham/Views/` appears once, plus the `Maugham/Models/` files CL
 - `AdmissionModifier.swift`, `NewPieceModifier.swift` — the window's halves of the admission and new-piece questions (below).
 - `SubjectValidationModifier.swift` — repairs the whole subject (`validatedSubject`) on a structure, research or figure change, and when a figure's stream parks it.
 - `ResearchRevealModifier.swift` — an item arriving beside reveals the right column.
-- `WindowAccessor.swift`, `WindowEscapeArbiter.swift` — the hosting `NSWindow` (cached; never re-nils); one Escape monitor per window, fixed priority, let go when the window closes.
+- `WindowAccessor.swift`, `WindowEscapeArbiter.swift` — the hosting `NSWindow` (cached; never re-nils); one Escape monitor per window.
 - `WindowFloorFree.swift` — `WindowFloorFreeLayout`, `.doesNotRaiseTheWindowFloor()`: a pane may not raise the window's minimum height.
 - The window borrows a `ProjectSession` from `ProjectSessionRegistry` (a `.window` lease) and its `claude` services through `AgentRoster`: `Maugham/Stores/AREA.md` ("Project sessions").
 
 ### The shell
 - `ReadThroughToggle.swift` — the open piece's padlock.
+- `PieceNoun.swift` — the project's word for a piece.
 - `ManuscriptNavigation.swift` — going to a place opens its piece.
-- `TreeTravel.swift` — the double-click: the row mark (`treeTravelOnDoubleClick`, also drawing the outlined state), `TreeTravelClickWatcher`, `TreeTravelModifier`.
+- `TreeTravel.swift` — the double-click: the row mark (`treeTravelOnDoubleClick`), `TreeTravelClickWatcher`, `TreeTravelModifier`.
 - `IntentStrip.swift`, `CentreTopLines.swift` — the signature line; the centre's top lines.
 - `LanguageSwitch.swift`, `RunningRoundIndicator.swift` — the toolbar's language switch, running round.
 - `SaveFlashOverlay.swift` — the ⌘S muscle-memory capsule.
 - `MCPBannerModel.swift`, `MCPNoteBanner.swift` — Claude's note banner.
 - `BackupRecoveryBanner.swift`, `ManifestRestoredBanner.swift` — the refused-backup banner (Restore); the put-back-manifest note.
-- `SharingStatusPill.swift` — *Shared* / *Shared by <owner>*: an indicator, never a role.
+- `SharingStatusPill.swift` — the share indicator, never a role.
 - `ViewOnlyShareNotice.swift` — the banner over a read-only iCloud share (`ProjectWindow.shareIsReadOnly`).
 - `ProjectShareSheetPresenter.swift` — File → Share Project via iCloud… (`NSSharingServicePicker`).
 
@@ -253,6 +254,7 @@ Every file in `Maugham/Views/` appears once, plus the `Maugham/Models/` files CL
 
 ### The subject decides, never a mode
 - **No production source names a persona** (`NoPersonaCensusTests`): the window's subject decides what it shows.
+- **A piece is named by `PieceNoun.of`, never a literal** (`WordingCensusTests`), which also bans retired surface names.
 - **The right column is three positions in one order** (`RightColumnMountingTests`): the pulled-up one hidden while it would show nothing. One remembered position in `UIState`.
 - **Run is the command's**: each File menu item posts its own `RunCommand` (`RunKindTests`).
 - **Going to a place opens its piece via `ManuscriptNavigation.go`**, whatever the centre; every receiver routes through it (`ManuscriptForceCensusTests.test_everyNavigationReceiverStillRoutesThroughTheNavigation`).

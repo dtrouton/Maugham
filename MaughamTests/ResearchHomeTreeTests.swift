@@ -32,9 +32,32 @@ final class ResearchHomeTreeTests: XCTestCase {
 
     // MARK: - The menus (D)
 
+    /// **The project's own word** (shell p5 Task 6): a Report's menu moves
+    /// to a Section, and a question in a Collection's word keeps notes with their
+    /// pieces — the plural from `PieceNoun`, never a noun plus "s".
+    func test_theMenuAndTheQuestionSayTheProjectsWordForAPiece() throws {
+        let menu = try XCTUnwrap(ResearchHomeMenu.of(
+            itemId: "book", inFold: nil, homes: homes, noun: .section, mayLink: { _ in true }))
+        XCTAssertEqual(menu.moveTitle, "Move to Section")
+
+        let research = [ResearchItem(id: "outer", title: "Outer", type: .group, path: "research/outer",
+                                     children: [note("solo"), note("both")])]
+        let held = ResearchHomes.derive(
+            structure: [chapter("one", links: ["solo", "both"]), chapter("two", links: ["both"])],
+            research: research, projectType: .novel)
+        let act = try XCTUnwrap(HeldResearchAct.ofDelete(ids: ["outer"], homes: held, research: research,
+                                                         noun: .piece))
+        XCTAssertEqual(act.message, "\u{201C}solo\u{201D} (Chapter one) and \u{201C}both\u{201D} "
+                       + "(Chapter one and Chapter two) stay with their pieces; the rest of "
+                       + "\u{201C}Outer\u{201D} goes to the Trash.")
+        let story = try XCTUnwrap(HeldResearchAct.ofDelete(ids: ["outer"], homes: held, research: research,
+                                                           noun: .story))
+        XCTAssertTrue(story.message.contains("stay with their stories;"), story.message)
+    }
+
     func test_aWholeBookRowMovesToAnyChapter() throws {
         let menu = try XCTUnwrap(ResearchHomeMenu.of(
-            itemId: "book", inFold: nil, homes: homes, noun: "chapter", mayLink: { _ in true }))
+            itemId: "book", inFold: nil, homes: homes, noun: .chapter, mayLink: { _ in true }))
         XCTAssertEqual(menu.moveTitle, "Move to Chapter")
         XCTAssertEqual(menu.moveTargets.map(\.verb), [
             .link(researchId: "book", to: "one"), .link(researchId: "book", to: "two"),
@@ -46,7 +69,7 @@ final class ResearchHomeTreeTests: XCTestCase {
 
     func test_aChaptersOnlyRowMovesOnOrBecomesWholeBook() throws {
         let menu = try XCTUnwrap(ResearchHomeMenu.of(
-            itemId: "solo", inFold: "one", homes: homes, noun: "chapter", mayLink: { _ in true }))
+            itemId: "solo", inFold: "one", homes: homes, noun: .chapter, mayLink: { _ in true }))
         XCTAssertEqual(menu.moveTargets.map(\.verb), [
             .move(researchId: "solo", from: "one", to: "two"),
             .move(researchId: "solo", from: "one", to: "three")])
@@ -60,7 +83,7 @@ final class ResearchHomeTreeTests: XCTestCase {
     /// is its own item.
     func test_aRowTwoChaptersLinkSaysWhichAndLeavesOne() throws {
         let menu = try XCTUnwrap(ResearchHomeMenu.of(
-            itemId: "both", inFold: "one", homes: homes, noun: "chapter", mayLink: { _ in true }))
+            itemId: "both", inFold: "one", homes: homes, noun: .chapter, mayLink: { _ in true }))
         XCTAssertEqual(menu.removeFromThis,
                        .init(title: "Remove from “Chapter one”",
                              verb: .unlink(researchId: "both", from: ["one"])))
@@ -74,24 +97,24 @@ final class ResearchHomeTreeTests: XCTestCase {
     /// offers no link verb of its own.
     func test_aRowInsideALinkedGroupOffersNoLinkVerb() {
         XCTAssertNil(ResearchHomeMenu.of(itemId: "ingrp", inFold: "one", homes: homes,
-                                         noun: "chapter", mayLink: { _ in true }))
+                                         noun: .chapter, mayLink: { _ in true }))
     }
 
     /// **What linking needs**: a chapter the posture refuses is offered
     /// nowhere — not as a target, not as the chapter to leave.
     func test_aChapterThePostureRefusesIsNotOffered() throws {
         let menu = try XCTUnwrap(ResearchHomeMenu.of(
-            itemId: "book", inFold: nil, homes: homes, noun: "chapter", mayLink: { $0 != "two" }))
+            itemId: "book", inFold: nil, homes: homes, noun: .chapter, mayLink: { $0 != "two" }))
         XCTAssertEqual(menu.moveTargets.map(\.verb), [
             .link(researchId: "book", to: "one"), .link(researchId: "book", to: "three")])
         XCTAssertNil(ResearchHomeMenu.of(itemId: "solo", inFold: "one", homes: homes,
-                                         noun: "chapter", mayLink: { $0 != "one" }))
+                                         noun: .chapter, mayLink: { $0 != "one" }))
         let both = try XCTUnwrap(ResearchHomeMenu.of(
-            itemId: "both", inFold: "one", homes: homes, noun: "chapter", mayLink: { $0 != "two" }))
+            itemId: "both", inFold: "one", homes: homes, noun: .chapter, mayLink: { $0 != "two" }))
         XCTAssertNil(both.makeWholeBook, "leaving both chapters needs both")
         XCTAssertNotNil(both.removeFromThis)
         XCTAssertNil(ResearchHomeMenu.of(itemId: "book", inFold: nil, homes: homes,
-                                         noun: "chapter", mayLink: { _ in false }),
+                                         noun: .chapter, mayLink: { _ in false }),
                      "nothing permitted: no menu")
     }
 
@@ -120,7 +143,7 @@ final class ResearchHomeTreeTests: XCTestCase {
                          StructureItem(id: "b", title: "Untitled", type: .document, path: "manuscript/b.md")]
         let homes = ResearchHomes.derive(structure: structure, research: [note("book")], projectType: .novel)
         let menu = try XCTUnwrap(ResearchHomeMenu.of(itemId: "book", inFold: nil, homes: homes,
-                                                     noun: "chapter", mayLink: { _ in true }))
+                                                     noun: .chapter, mayLink: { _ in true }))
         XCTAssertEqual(Set(menu.moveTargets.map(\.id)).count, 2)
         XCTAssertEqual(Set(menu.moveTree.map(\.id)).count, 2)
     }
@@ -139,7 +162,7 @@ final class ResearchHomeTreeTests: XCTestCase {
         ]
         let homes = ResearchHomes.derive(structure: structure, research: [note("book")], projectType: .novel)
         let menu = try XCTUnwrap(ResearchHomeMenu.of(itemId: "book", inFold: nil, homes: homes,
-                                                     noun: "chapter", mayLink: { _ in true }))
+                                                     noun: .chapter, mayLink: { _ in true }))
         func item(_ id: String) -> ResearchHomeMenu.MoveNode {
             .target(.init(title: "Chapter \(id)", verb: .link(researchId: "book", to: id)))
         }
@@ -150,7 +173,7 @@ final class ResearchHomeTreeTests: XCTestCase {
             item("four"),
         ])
         let flat = try XCTUnwrap(ResearchHomeMenu.of(itemId: "book", inFold: nil, homes: self.homes,
-                                                     noun: "chapter", mayLink: { _ in true }))
+                                                     noun: .chapter, mayLink: { _ in true }))
         XCTAssertEqual(flat.moveTree, flat.moveTargets.map { .target($0) }, "no Parts: a flat list")
     }
 

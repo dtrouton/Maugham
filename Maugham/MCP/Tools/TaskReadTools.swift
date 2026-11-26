@@ -44,8 +44,8 @@ extension MCPError {
     public static func taskNotFound(taskId: String) -> MCPError {
         .toolError(payload: .init(
             error: "task_not_found",
-            message: "Task '\(taskId)' is not in the project's current task set.",
-            hint: "Call list_tasks (scope=\"project\") to refresh the task ids and retry. Task ids are stable across reorder/parent changes but disappear when the underlying op is rewound or the inline checkbox/boneyard text is removed.",
+            message: "No task '\(taskId)' is in the project's current task set.",
+            hint: "Call list_tasks (scope=\"project\") to refresh the task ids and retry. The ids are stable across reorder/parent changes but disappear when the underlying op is rewound or the inline checkbox/boneyard text is removed.",
             fields: ["task_id": .string(taskId)]))
     }
 
@@ -76,9 +76,9 @@ public enum ListTasksTool: MCPTool {
     public static let method = "list_tasks"
     public static let description =
         "List tasks in a project. Aggregates inline `- [ ]` markdown " +
-        "checkboxes, Fountain `[[todo:]]` boneyards, and pane-created " +
-        "tasks. `scope`: \"document\" (requires document_id) or " +
-        "\"project\" (every open doc + project-scope pane tasks). " +
+        "checkboxes, Fountain `[[todo:]]` boneyards, and the writer's own " +
+        "to-dos added in To resolve. `scope`: \"document\" (requires document_id) or " +
+        "\"project\" (every open doc + the project's own to-dos). " +
         "`statuses` defaults to [\"open\"]; pass [\"open\",\"done\",\"archived\"] " +
         "to see everything. Read-only — task writes belong to the writer."
     public static let inputSchemaJSON =
@@ -176,7 +176,7 @@ public enum GetTaskTool: MCPTool {
     public static let method = "get_task"
     public static let description =
         "Return the full record for a single task by id. Searches across " +
-        "every open document plus the project-scope pane-task log. Errors " +
+        "every open document plus the project's own to-do log. Errors " +
         "with `task_not_found` if no derived task currently matches the id."
     public static let inputSchemaJSON =
         #"{"type":"object","properties":{"project_id":{"type":"string"},"task_id":{"type":"string"}},"required":["project_id","task_id"]}"#

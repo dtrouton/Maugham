@@ -229,12 +229,12 @@ struct ResolveTaskVerbs {
     func archiveAllDoneOnTheBook() {
         let done = Self.bookTasks(store: store).filter { $0.status == .done && offered($0).archive }
         // The stream's one door answers for every append in the batch: where
-        // it refuses, open no group, so no empty "Archive Done Tasks" ⌘Z step.
+        // it refuses, open no group, so no empty "Archive Done To-Dos" ⌘Z step.
         guard Self.opensBookArchiveGroup(doneCount: done.count,
                                          refusal: store.projectTaskRefusal()) else { return }
         undoManager?.beginUndoGrouping()
         defer {
-            undoManager?.setActionName("Archive Done Tasks")
+            undoManager?.setActionName("Archive Done To-Dos")
             undoManager?.endUndoGrouping()
         }
         for task in done {
@@ -273,7 +273,7 @@ struct ResolveTaskVerbs {
             device: store.projectOpDevice, session: store.projectOpSession,
             sessionId: store.projectOpSession) else { return }
         OpUndoRegistrar.register(
-            undoManager, actionName: "Change Task Status", target: store,
+            undoManager, actionName: "Change To-Do Status", target: store,
             workTaskSink: { [weak store] in store?._lastUndoWorkTask = $0 },
             undo: { s in
                 // Fire-time guard: only revert what this action wrote.
@@ -337,7 +337,7 @@ struct ResolveTaskVerbs {
 
         // Partition BEFORE opening the undo group: the empty batch must not
         // open a group at all (an empty manual group leaves a do-nothing
-        // "Archive Done Tasks" ⌘Z entry), and the batch-aware D1 clear below
+        // "Archive Done To-Dos" ⌘Z entry), and the batch-aware D1 clear below
         // needs to know up front whether any inline task will splice text.
         var projectTasks: [WriterTask] = []
         var docTasks: [(task: WriterTask, doc: Document)] = []
@@ -376,7 +376,7 @@ struct ResolveTaskVerbs {
         // NSUndoManager coalesces the group into one action.
         undoManager?.beginUndoGrouping()
         defer {
-            undoManager?.setActionName("Archive Done Tasks")
+            undoManager?.setActionName("Archive Done To-Dos")
             undoManager?.endUndoGrouping()
         }
 
@@ -428,7 +428,7 @@ struct ResolveTaskVerbs {
             device: store.projectOpDevice, session: store.projectOpSession,
             sessionId: store.projectOpSession) else { return }
         OpUndoRegistrar.register(
-            undoManager, actionName: "Archive Done Tasks", target: store,
+            undoManager, actionName: "Archive Done To-Dos", target: store,
             workTaskSink: { [weak store] in store?._lastUndoWorkTask = $0 },
             undo: { s in
                 // Fire-time guard: only restore if still archived — decline as
@@ -518,7 +518,7 @@ struct ResolveTaskVerbs {
     }
 
     /// Emit the parent + priority ops a reorder drop implies. A reparenting
-    /// drag emits BOTH — group them under one "Move Task" action so a single
+    /// drag emits BOTH — group them under one "Move To-Do" action so a single
     /// ⌘Z reverts the whole drag, not half of it.
     private func moveTask(
         _ dragged: WriterTask, toParent parentTaskId: String?,
@@ -528,7 +528,7 @@ struct ResolveTaskVerbs {
         if reparents { undoManager?.beginUndoGrouping() }
         defer {
             if reparents {
-                undoManager?.setActionName("Move Task")
+                undoManager?.setActionName("Move To-Do")
                 undoManager?.endUndoGrouping()
             }
         }

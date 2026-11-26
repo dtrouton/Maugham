@@ -17,9 +17,9 @@ public enum MoveResearchItemTool: MCPTool {
         "a collection piece's research folder. research_ids accepts a batch. " +
         "Give exactly one of: target=\"shared\", target_group_id, or " +
         "target_document_id (a loose piece). Whole groups move with their contents. " +
-        "Where a note is, is whose it is: into a group a chapter holds makes it that " +
-        "chapter's; to shared research or a whole-book group makes it whole-book, its own " +
-        "links to chapters removed. `left` names every chapter an item left, " +
+        "Where a note is, is whose it is: into a group a piece holds makes it that " +
+        "piece's; to shared research or a whole-book group makes it whole-book, its own " +
+        "links to pieces removed. `left` names every piece an item left, " +
         "`home` whose it is now."
     public static let inputSchemaJSON =
         #"{"type":"object","properties":{"project_id":{"type":"string"},"research_ids":{"type":"array","items":{"type":"string"}},"target":{"type":"string","enum":["shared"]},"target_group_id":{"type":"string"},"target_document_id":{"type":"string"}},"required":["project_id","research_ids"]}"#

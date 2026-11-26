@@ -687,13 +687,13 @@ extension HistoryPane {
         "Open this \(noun) to rewind it"
     }
 
-    /// The piece's word, where `docId` is a manuscript piece the editor can
-    /// open; nil otherwise.
+    /// The piece's word (`PieceNoun`), where `docId` is a manuscript piece
+    /// the editor can open; nil otherwise.
     @MainActor
-    static func pieceNoun(docId: String, store: ProjectStore) -> String? {
+    static func rewindablePiece(docId: String, store: ProjectStore) -> String? {
         guard let item = TreeWalk.find(id: docId, in: store.manifest.structure),
               EditorHost.loadsAsAManuscript(item) else { return nil }
-        return FiledUnder.pieceNoun(item, projectType: store.manifest.type)
+        return PieceNoun.of(item, in: store.manifest).singular
     }
 
     /// **What every rewind post carries** — its own piece, as `jump` does,

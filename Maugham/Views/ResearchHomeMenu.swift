@@ -95,7 +95,7 @@ struct ResearchHomeMenu: Equatable {
 
     static let makeWholeBookTitle = "Make Whole-Book"
 
-    static func moveTitle(noun: String) -> String { "Move to \(noun.capitalized)" }
+    static func moveTitle(noun: PieceNoun) -> String { "Move to \(noun.capitalised)" }
     static func removeTitle(_ piece: String) -> String { "Remove from “\(piece)”" }
     static func alsoInLine(_ pieces: [String]) -> String {
         "Also in " + pieces.map { "“\($0)”" }.joined(separator: ", ")
@@ -104,7 +104,7 @@ struct ResearchHomeMenu: Equatable {
     /// The menu `itemId`'s row offers, drawn in `fold`'s fold (nil: the
     /// Research section), or nil where it offers none.
     static func of(itemId: String, inFold fold: String?, homes: ResearchHomes,
-                   noun: String, mayLink: (String) -> Bool) -> ResearchHomeMenu? {
+                   noun: PieceNoun, mayLink: (String) -> Bool) -> ResearchHomeMenu? {
         func title(_ piece: String) -> String { homes.pieceTitles[piece] ?? piece }
         let homesOfItem = homes.homes(of: itemId)
         let movable = homes.pieceOrder.filter {
@@ -244,7 +244,7 @@ struct HeldResearchAct: Equatable {
     /// chapter notes) and what it takes (`asked`).
     static func ofMove(_ plan: ResearchMovePlan, landing: Landing, sources: [String: String],
                        homes: ResearchHomes, research: [ResearchItem],
-                       structure: [StructureItem], noun: String) -> HeldResearchAct? {
+                       structure: [StructureItem], noun: PieceNoun) -> HeldResearchAct? {
         let asked = Self.asked(of: plan, sources: sources, research: research)
         guard !plan.held.isEmpty || !asked.isEmpty else { return nil }
         let ids = plan.ids
@@ -312,7 +312,7 @@ struct HeldResearchAct: Equatable {
                     let list = more > 0
                         ? shown.joined(separator: ", ") + " and \(more) more"
                         : shown.dropLast().joined(separator: ", ") + " and " + shown.last!
-                    stays = "\(list) stay with their \(noun)s"
+                    stays = "\(list) stay with their \(noun.plural)"
                 }
                 sentence = "\(stays); the rest of \(named) moves to \(to)."
             } else {
@@ -320,7 +320,7 @@ struct HeldResearchAct: Equatable {
                 // “Maps” with Three and takes a note each from One and Two."
                 let leaves = plan.held.count == 1
                     ? "“\(title(plan.held[0]))” with \(chapters(of: plan.held[0]))"
-                    : listed(plan.held.map { "“\(title($0))”" }) + " with their \(noun)s"
+                    : listed(plan.held.map { "“\(title($0))”" }) + " with their \(noun.plural)"
                 let each = losingOrder.allSatisfy { perChapter[$0] == 1 }
                 let takes = each && losingOrder.count > 1
                     ? "a note each from \(listed(losingNames))"
@@ -354,7 +354,7 @@ struct HeldResearchAct: Equatable {
             verb: .move(plan.target ?? .sharedRoot, landing: landing), ids: ids,
             take: ResearchHomes.Take(taken: [], held: plan.held, staying: []), lifts: plan.lifts,
             title: "Move \(named) to \(to)?", message: sentence, confirmTitle: "Move",
-            afterLift: "The \(noun)s’ notes were lifted out of \(named), but \(named) couldn’t be moved: ")
+            afterLift: "The \(noun.plural)’ notes were lifted out of \(named), but \(named) couldn’t be moved: ")
         act.plan = plan
         act.asked = asked
         act.sources = sources
@@ -363,9 +363,9 @@ struct HeldResearchAct: Equatable {
 
     /// **A Delete's question** over what chapters hold beneath the rows
     /// (fix rounds 1–3, closing round A): lifted out first, then the rows go.
-    /// `noun`: the project's word for a piece ("chapter").
+    /// `noun`: the project's word for a piece (`PieceNoun`).
     static func ofDelete(ids: [String], homes: ResearchHomes, research: [ResearchItem],
-                         noun: String) -> HeldResearchAct? {
+                         noun: PieceNoun) -> HeldResearchAct? {
         func parent(of id: String) -> String? {
             TreeWalk.first(in: research, where: { ($0.children ?? []).contains { $0.id == id } })?.id
         }
@@ -406,7 +406,7 @@ struct HeldResearchAct: Equatable {
             let list = more > 0
                 ? shown.joined(separator: ", ") + " and \(more) more"
                 : shown.dropLast().joined(separator: ", ") + " and " + shown.last!
-            stays = "\(list) stay with their \(noun)s"
+            stays = "\(list) stay with their \(noun.plural)"
         }
         return HeldResearchAct(
             verb: .delete, ids: ids, take: take, lifts: lifts,

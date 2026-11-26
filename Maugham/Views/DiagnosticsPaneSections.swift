@@ -147,10 +147,10 @@ struct DiagnosticRow: View {
                               + "intent, and the next check reads it.")
                 }
                 if canPromote {
-                    Button("Promote to Task", action: onPromote)
+                    Button("Make a To-Do", action: onPromote)
                         .buttonStyle(.bordered)
                         .controlSize(.small)
-                        .help("Keep this note as a task on the document.")
+                        .help("Keep this note as a to-do on the document.")
                 }
             }
             if isAnswering { replyField }

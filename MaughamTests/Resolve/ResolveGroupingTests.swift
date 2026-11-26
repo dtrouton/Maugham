@@ -55,7 +55,7 @@ final class ResolveGroupingTests: XCTestCase {
                         projectType: ProjectType = .novel) -> [ResolveGroup] {
         ResolveGrouping.groups(snapshot, scope: scope, structure: structure,
                                sceneIndex: sceneIndex, sceneTitles: sceneTitles,
-                               figureNames: figureNames, projectType: projectType)
+                               figureNames: figureNames, book: PieceNoun.Book(type: projectType))
     }
 
     private func itemIds(_ group: ResolveGroup) -> [String] { group.items.map(\.id) }
@@ -81,10 +81,11 @@ final class ResolveGroupingTests: XCTestCase {
         // group agrees with `FiledUnder`'s "this piece's intent".
         XCTAssertEqual(groups(read, .piece(docId: "doc-a", includesBookLevel: false),
                               projectType: .collection).first?.title, "Whole piece")
-        XCTAssertEqual(ResolveGrouping.pieceNoun(isScript: false, projectType: .novel), "chapter")
-        XCTAssertEqual(ResolveGrouping.pieceNoun(isScript: true, projectType: .collection), "script",
+        XCTAssertEqual(PieceNoun.of(nil, in: PieceNoun.Book(type: .novel)).singular, "chapter")
+        XCTAssertEqual(PieceNoun.of(StructureItem(id: "s", title: "S", type: .document, path: "s.fountain"),
+                                    in: PieceNoun.Book(type: .collection)).singular, "script",
                        "a script in a Collection is still a script")
-        XCTAssertEqual(ResolveGrouping.pieceNoun(isScript: false, projectType: .screenplay), "script")
+        XCTAssertEqual(PieceNoun.of(nil, in: PieceNoun.Book(type: .screenplay)).singular, "script")
 
         XCTAssertEqual(result.map(\.key), [
             .wholePiece(docId: "doc-a"),

@@ -23,11 +23,13 @@ struct ProjectStatisticsView: View {
                     dailyCounts: dailyCounts)
                 WordsByChapterSection(
                     chapters: chapterRows,
+                    noun: PieceNoun.of(nil, in: store.manifest),
                     onSelectChapter: onSelectChapter)
                 RecentSessionsSection(
                     events: sessionLog.eventsRecent(limit: 50))
                 PracticeSection(
                     practice: practice,
+                    noun: PieceNoun.of(nil, in: store.manifest),
                     onSelectChapter: onSelectChapter)
             }
             .padding(24)

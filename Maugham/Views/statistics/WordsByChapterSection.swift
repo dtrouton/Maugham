@@ -2,6 +2,8 @@ import SwiftUI
 
 struct WordsByChapterSection: View {
     let chapters: [ChapterRow]
+    /// What the project calls a piece (`PieceNoun`): the section's title.
+    let noun: PieceNoun
     let onSelectChapter: (String) -> Void
 
     struct ChapterRow: Identifiable, Equatable {
@@ -11,9 +13,12 @@ struct WordsByChapterSection: View {
         let wordTarget: Int?
     }
 
+    /// "Words by chapter", in the project's word for a piece.
+    static func title(_ noun: PieceNoun) -> String { "Words by \(noun.singular)" }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            sectionHeader("Words by chapter")
+            sectionHeader(Self.title(noun))
             VStack(spacing: 4) {
                 ForEach(chapters) { row in
                     chapterRow(row)

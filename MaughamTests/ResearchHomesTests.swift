@@ -349,7 +349,7 @@ final class ResearchHomesTests: XCTestCase {
                     let move = (target: plan.target, linkTo: linkTo)
                     let act = HeldResearchAct.ofMove(plan, landing: .end, sources: sources, homes: before,
                                                      research: research, structure: structure,
-                                                     noun: "chapter")
+                                                     noun: .chapter)
                     // Done by its steps, here.
                     var after = research
                     for lift in plan.lifts {

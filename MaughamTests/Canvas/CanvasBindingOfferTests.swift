@@ -189,9 +189,9 @@ final class CanvasBindingOfferTests: XCTestCase {
                       "the instruction does not name the drag that places the card: \""
                       + CanvasBindingOffer.cardNotHere.instruction + "\"")
         XCTAssertTrue(CanvasBindingOffer.cardNotHere.instruction.lowercased()
-                        .contains("tree"),
+                        .contains("binder"),
                       "the instruction does not say WHERE to drag from — the row is "
-                      + "in the tree and the writer is looking at the board: \""
+                      + "in the binder and the writer is looking at the board: \""
                       + CanvasBindingOffer.cardNotHere.instruction + "\"")
         XCTAssertFalse(CanvasBindingOffer.cardNotHere.instruction.lowercased()
                         .contains("region"),

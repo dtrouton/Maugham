@@ -95,7 +95,7 @@ struct BriefPane: View {
     }
 
     static let elsewhereLine = "This piece belongs to another project. Its brief is that project's."
-    static let outsideLine = "Brief holds what a piece, a Part, the Book or an edition is held to. Choose one in the tree."
+    static let outsideLine = "Brief holds what a piece, a Part, the Book or an edition is held to. Choose one in the binder."
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {

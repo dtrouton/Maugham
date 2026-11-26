@@ -34,7 +34,7 @@ final class CitationCompletion: CompletionSource {
     }
 
     /// R-3b-6's empty result, with the citation version's pointer.
-    static let emptyResultMessage = "No matching sources — add citation details in the research inspector"
+    static let emptyResultMessage = "No matching sources — give a research item its citation details first"
 
     let emptyMessage = CitationCompletion.emptyResultMessage
     let actionName = "Insert Citation"

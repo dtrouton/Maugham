@@ -123,13 +123,13 @@ struct BinderView: View {
                 // **Starting a piece is the book author's** (P3c Task 8,
                 // ruling R3): hidden, never greyed, where the posture refuses.
                 if mayStartAPiece {
-                    Button("New Document") {
+                    Button(Self.newPieceTitle(noun)) {
                         Task {
                             await addItem(
                                 parent: nil, kind: .document(store.manifest.type.primaryFormat))
                         }
                     }
-                    Button("New Group") {
+                    Button(Self.newGroupTitle(noun)) {
                         Task { await addItem(parent: nil, kind: .group) }
                     }
                 }
@@ -338,13 +338,13 @@ struct BinderView: View {
             // guard of their own — roles guard the words, not the binder.
             let verbs = structureVerbs(for: item)
             if verbs.newInside {
-                Button("New Document") {
+                Button(Self.newPieceTitle(noun)) {
                     Task {
                         await addItem(
                             parent: item, kind: .document(store.manifest.type.primaryFormat))
                     }
                 }
-                Button("New Group") {
+                Button(Self.newGroupTitle(noun)) {
                     Task { await addItem(parent: item, kind: .group) }
                 }
                 Divider()
@@ -446,7 +446,18 @@ struct BinderView: View {
         }
     }
 
-    /// **New Document / New Group's verb, windowless** — what every creation
+    /// What the project calls a piece (`PieceNoun`): every creation verb
+    /// and the empty binder say it.
+    private var noun: PieceNoun { PieceNoun.of(nil, in: store.manifest) }
+
+    /// "New Chapter" / "New Part" — the binder's creation verbs, in the
+    /// project's words; a project with no word for a group says "Group".
+    static func newPieceTitle(_ noun: PieceNoun) -> String { "New \(noun.capitalised)" }
+    static func newGroupTitle(_ noun: PieceNoun) -> String { "New \(noun.group ?? "Group")" }
+    static func emptyTitle(_ noun: PieceNoun) -> String { "No \(noun.plural) yet" }
+    static func emptyHint(_ noun: PieceNoun) -> String { "Add your first \(noun.singular)." }
+
+    /// **New Chapter / New Part's verb, windowless** — what every creation
     /// button and menu item in the tree runs, pinned without a press
     /// (tripwire 33, `TreeStructureCreationTests`): a document or group
     /// inside `parent` when it is a group, beside it otherwise, at the root
@@ -459,10 +470,11 @@ struct BinderView: View {
                 ? parent.id
                 : findParent(childId: parent.id, in: store.manifest.structure, parent: nil)
         }()
+        let noun = PieceNoun.of(nil, in: store.manifest)
         let title: String
         switch kind {
-        case .document: title = "New Document"
-        case .group:    title = "New Group"
+        case .document: title = newPieceTitle(noun)
+        case .group:    title = newGroupTitle(noun)
         }
         let item = try await store.addStructureItem(
             parentId: parentId, title: title, kind: kind)
@@ -479,12 +491,9 @@ struct BinderView: View {
             Image(systemName: "doc.text")
                 .imageScale(.large)
                 .foregroundStyle(.secondary)
-            Text("No documents yet")
+            Text(Self.emptyTitle(noun))
                 .font(.headline)
-            Text(
-                store.manifest.type.primaryFormat.isScreenplay
-                ? "Add your first screenplay."
-                : "Add your first chapter or scene.")
+            Text(Self.emptyHint(noun))
                 .font(.callout)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
@@ -496,13 +505,13 @@ struct BinderView: View {
                                 parent: nil, kind: .document(store.manifest.type.primaryFormat))
                         }
                     } label: {
-                        Label("New Document", systemImage: "doc.badge.plus")
+                        Label(Self.newPieceTitle(noun), systemImage: "doc.badge.plus")
                     }
                     .buttonStyle(.borderedProminent)
                     Button {
                         Task { await addItem(parent: nil, kind: .group) }
                     } label: {
-                        Label("New Group", systemImage: "folder.badge.plus")
+                        Label(Self.newGroupTitle(noun), systemImage: "folder.badge.plus")
                     }
                     .buttonStyle(.bordered)
                 }

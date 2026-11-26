@@ -65,8 +65,7 @@ enum TranslationRunTarget: Equatable {
     /// serves all of them and the desk never has to explain a distinction the
     /// writer did not draw.
     static let openAChapter =
-        "Open a chapter to translate it \u{2014} a round translates the document "
-        + "this window is on."
+        "Open it to translate it \u{2014} a round translates what this window has open."
 
     /// **Resolve the window's subject to a run target.**
     ///
@@ -365,7 +364,10 @@ struct TranslationRunState: Equatable {
 
     // MARK: - Copy
 
-    static let runTitle = "Run"
+    /// **"Translate This Chapter"** (owner's answer to Question 1,
+    /// 2026-11-22): the piece's button says what it does, in the project's
+    /// word for a piece.
+    static func runTitle(_ noun: PieceNoun) -> String { "Translate This \(noun.capitalised)" }
     static let cancelTitle = "Cancel"
 
     /// **What Cancel can honestly promise a PIPELINE round** (spec §5).
@@ -388,7 +390,7 @@ struct TranslationRunState: Equatable {
     /// the case: a writer who presses Run and sees the row unchanged cannot tell
     /// "checked, everything is fresh" from "the button did nothing".
     static let nothingToTranslateLine =
-        "Nothing to translate \u{2014} this chapter\u{2019}s edition is up to date."
+        "Nothing to translate \u{2014} every paragraph here is up to date in this edition."
 
     /// A cancel is the writer's own act and is never drawn as a failure
     /// (`ReviewRoundCockpit`'s rule, in this surface's currency).
@@ -427,26 +429,24 @@ struct TranslationRunState: Equatable {
     /// whole book's coverage and the run is about one chapter of it.
     static func runHelp(language: String, target: TranslationRunTarget) -> String {
         let edition = LanguageName.labelled(language)
-        guard let title = target.title else {
-            return "Translate a chapter into \(edition)."
-        }
+        guard let title = target.title else { return "Translate into \(edition)." }
         return "Translate \u{201C}\(title)\u{201D} into \(edition) \u{2014} the "
             + "round covers what is stale or missing."
     }
 
-    static let runBookTitle = "Run Whole Book"
+    static let runBookTitle = "Translate Whole Book"
     static func runBookAccessibilityLabel(language: String) -> String {
-        "Run the whole book into " + LanguageName.labelled(language)
+        "Translate the whole book into " + LanguageName.labelled(language)
     }
-    static func runBookHelp(language: String, count: Int,
+    static func runBookHelp(language: String, count: Int, noun: PieceNoun,
                             preflight: TranslationPreflight.Budgets.Answer?) -> String {
         let edition = LanguageName.labelled(language)
-        let chapters = count == 1 ? "1 chapter" : "\(count) chapters"
         let budget = preflightLine(preflight).map { " \u{2014} \($0)" } ?? ""
-        return "Run one round on every chapter of this book into \(edition), in order: \(chapters)\(budget)."
+        return "Translate every \(noun.singular) of this book into \(edition), one round each, "
+            + "in order: \(noun.counted(count))\(budget)."
     }
     static let nothingInTheBook =
-        "There is nothing in this book to translate \u{2014} the imprint chosen above the book names no chapters."
+        "There is nothing in this book to translate \u{2014} the imprint chosen above leaves everything out."
     static let showRoundTitle = "Show"
     static func showRoundAccessibilityLabel(language: String) -> String {
         "Show the latest " + LanguageName.labelled(language) + " round"
@@ -458,7 +458,7 @@ struct TranslationRunState: Equatable {
     static func legLine(_ leg: TranslationRound.Leg, book: TranslationPipeline.BookProgress?) -> String {
         let verb = "\(leg.verb)\u{2026} (leg \(leg.rawValue) of \(TranslationRound.Leg.allCases.count))"
         guard let book else { return verb.prefix(1).uppercased() + verb.dropFirst() }
-        return "Chapter \(book.position) of \(book.count) \u{00b7} \(verb)"
+        return "\(book.position) of \(book.count) \u{00b7} \(verb)"
     }
 
     /// A finished round's line: where it ended, and how long ago.

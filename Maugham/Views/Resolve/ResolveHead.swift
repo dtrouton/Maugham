@@ -224,7 +224,7 @@ enum ResolveHead {
     /// (appraisal 1). Where the piece has notes or to-dos, whose verbs act
     /// only on the open piece (`ResolveVerbGate`), it says that is why they
     /// have no buttons here; otherwise it says what opening offers. `noun` is
-    /// what the project calls a piece (`FiledUnder.pieceNoun`). Pure.
+    /// what the project calls a piece (`PieceNoun`). Pure.
     static func openThePieceLine(noun: String, hasItemsToAnswer: Bool) -> String {
         hasItemsToAnswer
             ? "Open this \(noun) to answer its notes"
@@ -480,8 +480,7 @@ struct ResolveHeadView: View {
             if offers.opensThePiece {
                 ResolveOpenThePieceButton(
                     line: ResolveHead.openThePieceLine(
-                        noun: FiledUnder.pieceNoun(TreeWalk.find(id: docId, in: store.manifest.structure),
-                                                   projectType: store.manifest.type),
+                        noun: PieceNoun.of(TreeWalk.find(id: docId, in: store.manifest.structure), in: store.manifest).singular,
                         hasItemsToAnswer: ResolveHead.hasItemsToAnswer(snapshot.items, docId: docId)),
                     open: { ResolveNavigation.go(toDocId: docId) })
                 .padding(.horizontal, 12).padding(.vertical, 6)

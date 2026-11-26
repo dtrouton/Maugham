@@ -41,7 +41,14 @@ struct BriefPartView: View {
         }
     }
 
-    static let emptyLine = "No chapter in this Part has decided anything yet."
+    /// "No chapter in this Part has decided anything yet." — in the
+    /// project's words for a piece and a group (`PieceNoun`).
+    static func emptyLine(_ noun: PieceNoun) -> String {
+        "No \(noun.singular) in this \(noun.group ?? "group") has decided anything yet."
+    }
+
+    /// "Open this chapter's Brief".
+    static func openBriefHelp(_ noun: PieceNoun) -> String { "Open this \(noun.singular)\u{2019}s Brief" }
 
     var body: some View {
         let statements = store.manifest.statements
@@ -53,7 +60,7 @@ struct BriefPartView: View {
                                      structure: store.manifest.structure, unreadable: unreadable)
         VStack(alignment: .leading, spacing: 14) {
             if sections.isEmpty {
-                Text(Self.emptyLine)
+                Text(Self.emptyLine(PieceNoun.of(nil, in: store.manifest)))
                     .font(.callout)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -67,7 +74,8 @@ struct BriefPartView: View {
                             .truncationMode(.middle)
                     }
                     .buttonStyle(.plain)
-                    .help("Open this chapter's Brief")
+                    .help(Self.openBriefHelp(PieceNoun.of(
+                        TreeWalk.find(id: section.docId, in: store.manifest.structure), in: store.manifest)))
                     BriefDecidedSection(
                         fileOrder: contents.fileOrder[section.docId] ?? [],
                         decisions: section.decisions,
