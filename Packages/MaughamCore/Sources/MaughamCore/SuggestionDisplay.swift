@@ -1,7 +1,7 @@
 import Foundation
 
-/// Display helpers for a suggested change's before/after, shared by the Mac
-/// `AnnotationsPane` and the phone `AnnotationDetailView` so both read the same
+/// Display helpers for a suggested change's before/after, shared by the Mac's
+/// To resolve rows (`AnnotationRow`) and the phone `AnnotationDetailView` so both read the same
 /// (cross-surface contract).
 ///
 /// The op stores the BARE replacement as `suggestedText` (the "after"); the

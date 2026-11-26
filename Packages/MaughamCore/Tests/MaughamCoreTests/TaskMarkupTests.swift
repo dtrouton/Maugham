@@ -3,8 +3,8 @@ import XCTest
 
 /// `TaskMarkup.lineContainsTaskMarker` is the single source of truth for
 /// "does this text contain inline-task markup", consumed by the OpLog
-/// cache-invalidation gate, the anchor-alignment move-detector, and the
-/// TasksPane flip helper. Uppercase `- [X]` is the case that had drifted
+/// cache-invalidation gate, the anchor-alignment move-detector, and To
+/// resolve's to-do flip helper (`ResolveTaskVerbs`). Uppercase `- [X]` is the case that had drifted
 /// (see A1-Medium in docs/superpowers/notes/2026-07-11-maintainability-review.md §3.1).
 final class TaskMarkupTests: XCTestCase {
     func test_lowercaseCheckedBox_isTaskMarker() {

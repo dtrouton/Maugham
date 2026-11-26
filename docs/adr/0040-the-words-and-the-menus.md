@@ -54,6 +54,14 @@ The guide, the welcome tour, the samples, the syntax sheets, the skills and the 
 
 MCP `initialize` now sends `instructions` (`MCPInitializeHandler.instructions`, spelled once, at most 125 words, pinned by `MCPProtocolHandlersTests.test_initialize_sendsTheServersInstructions` and read by the help census): what Maugham is, that Claude never writes manuscript text, that a multi-step job starts with `get_help` topic "skills", and that Claude speaks in what the writer sees (the binder, the centre, To resolve ⌘1, Brief ⌘2, Pulled up ⌘3) and the project's own word for a piece. **The agent's ruling**: the bootstrap skill reaches Claude Code only, so Claude Desktop had no such guidance. No tool was added or removed.
 
+### 9. The closing round: the open piece, Help without a project, where research went
+
+**Who may read the faces is a counted list** (`FacesReaderCensusTests`, the agent's; the milestone review's I1/I2 and the shape's third appearance). `WindowSubject.faces` is the right column's subject; every act about the text being typed — ⌘S, ⇧⌘S, ⌘⌥C, the line above the prose and its drift mark, ⌘/ — reads the open piece through one resolution (`WindowSubject.openPiece`/`openDocId`, `CheckpointTarget`), and ⌘R checks the open piece when one is open ([ADR 0035](0035-the-subject-not-the-persona.md), Run, amended). Each production file reading `.faces` is named with a count and a reason; a new reader fails the gate, with a planted offender and a control.
+
+**Help ▸ Syntax & Keyboard Shortcuts and Set up Claude Desktop… work with no project window** (`HelpSheetRoute`; changes approved row 57's "disabled with none in front"): with a project window in front each is that window's sheet, as before; with none, each opens a small window scene of its own, the syntax sheet on Markdown. `MenuBarCensusTests` reads every menu's item structs (File, Edit, View, Insert, Format ▸ Table, the `Focused*` structs, Help) and names these two as the window-free exceptions beside Run's four.
+
+**The Research section says where the rest went** (`ResearchHomes.underAPiece`, derived with the homes and cached on the manifest): one quiet line at its foot, "12 notes are with their chapters — open a chapter’s fold to see them." in the project's noun, after "No whole-book research." when the section is empty.
+
 ## Gone by design
 
 - "Toggle" titles (Focus Mode and Full-Screen Focus are checked items; Show/Hide Research Preview by state), "Outline" as a second item (⌘⌥O is Go to the Book), the bare-noun place items (Research, Palette, Inbox are "Go to …").
@@ -71,7 +79,7 @@ MCP `initialize` now sends `instructions` (`MCPInitializeHandler.instructions`, 
 Decisions the build left to him; each is built as described above until he says otherwise.
 
 1. **Two "Ask about…" fields in one head** (the round's under Run, the check's in the check's line): a writer will type into the first one she sees. A design question.
-2. **Help ▸ Syntax & Keyboard Shortcuts is grey with no project window** (row 57 as approved); opening the sheet without a project needs a window scene of its own.
+2. **Help's two sheets open without a project** (section 9; the agent's, changing approved row 57, which disabled them with no project window): first run has only the Welcome window, and the guide's first setup step is Help ▸ Set up Claude Desktop….
 3. **File ▸ "Save" or "Save Checkpoint"?** The item keeps "Save" for the ⌘S reflex (row 3); the cheat sheet says "Save Checkpoint", which is what ⌘S does.
 4. **The Welcome window's sentence-case buttons** ("New project…", "Open project…") against the menus' title case.
 5. **⇥ / ⇧⇥ to the canvas** works only in a novel's binder.
@@ -87,3 +95,11 @@ Decisions the build left to him; each is built as described above until he says 
 15. **A dense To resolve list and a clicked margin mark**: the list gives way to the clicked note's own source, not "All", since a dense list has one chip by design. Should dense lists gain an All?
 16. **Claude's notes on a reviewer's copy** are not drawn beside the text in read-through either: kept by the owner "for now" (2026-11-25, [ADR 0027](0027-the-compiler-and-the-editor-boundary.md)'s amendment).
 17. **The Inbox at scale** ([ADR 0035](0035-the-subject-not-the-persona.md); the design's open decision): not mocked.
+18. **⌘⌥K's title.** Row 35 as approved read "Serbian Edition’s To Resolve"; it is built as "To Resolve: Serbian Edition", the shape of its siblings (the filters' colon), because a re-review found the possessive read as a different kind of item. The agent reversed an approved row; one string (`EditionWiring.keyTitle`) to change back.
+19. **Task 4a's rulings R1–R6**, made for the owner to confirm (R7 he confirmed): a Collection piece's link to shared research draws the note in the piece's fold, and a drop on the section unlinks it (R1); research in a `pieces/…/research/` folder no live piece owns is the book's (R2); "Move to Chapter" is a submenu listing the chapters, and link verbs are for a single row (R3); a fold opens by itself on a tree selection only, never from Find, ⌘⌥E or navigation (R4); a fold-to-section drop leaves the note where it lives in the research tree (R5); a single-document project keeps its fold listing every research item beside the section (R6).
+20. **A group's Delete and Move act only on what the section shows under it**: notes a chapter holds stay with their chapter, and the confirm says so (Task 4a, I2).
+21. **New Note on a view-only share is refused by an alert**, not hidden (Task 4a; hiding it per row was not cheap).
+22. **⌘R checks the open piece** when one is open (section 9; the agent's, amending plan 1's preference for the faces).
+23. **The Research section's "where they went" line** (section 9; the agent's).
+24. **The Inbox's fast "Promote to Research for “…”" is removed** (the agent's): it was reachable only after a Brief link with the Inbox open, and filed into a piece the writer only glanced at. Promote to Whole-Book Research and Promote to Research for… stay.
+25. **The phone's wording** ("Annotations", "This piece") waits for the next paired release (the owner's ruling); until then the two devices name the same things differently.
