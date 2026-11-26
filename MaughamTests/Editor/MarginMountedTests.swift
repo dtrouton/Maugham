@@ -129,11 +129,15 @@ final class MarginMountedTests: XCTestCase {
         let s = surface()
         let before = layout(s.textView)
         // "third" in "The third paragraph…": graphemes 4..<9.
-        apply(MarginMarks(dots: [.init(paragraphId: "cc33", span: 4..<9, annotationId: "n1", name: "Denver")],
+        let pencil = ReviewPalette().color(for: AnnotationAuthor(sourceKind: .human, displayName: "Denver"))
+        apply(MarginMarks(dots: [.init(paragraphId: "cc33", span: 4..<9, annotationId: "n1", name: "Denver",
+                                       colour: pencil)],
                           ticks: ["cc33"]), to: s)
         let marks = try XCTUnwrap(s.coordinator.marginOverlay).visibleMarks()
         XCTAssertEqual(marks.map(\.places).map { $0.map(\.mark) },
-                       [[.tick], [.dot(annotationId: "n1", name: "Denver")]])
+                       [[.tick], [.dot(annotationId: "n1", name: "Denver", colour: pencil)]])
+        XCTAssertEqual(marks.last?.colour, pencil, "the dot is drawn in its person's pencil")
+        XCTAssertEqual(marks.first?.colour, MarginOverlayView.dotColor, "a tick is no one's")
         let dot = try XCTUnwrap(marks.last)
         XCTAssertEqual(dot.places.first?.tint, NSRange(location: try XCTUnwrap(Self.range(of: "cc33")).location + 4, length: 5))
         XCTAssertFalse(dot.tintRects.isEmpty, "the words are tinted")
@@ -383,6 +387,38 @@ final class MarginMountedTests: XCTestCase {
         spoken = spokenFromTheTextView(s.textView)
         XCTAssertFalse(spoken.contains(where: isBadge), "back in Source, no badge: \(spoken)")
         XCTAssertTrue(spoken.contains("The text view's own"), "kept: \(spoken)")
+    }
+
+    // MARK: - M4 (closing round B): the ticks' lane beside the review rail
+
+    /// **In read-through a tick never sits on a review card**: Everything
+    /// Flagged's tick on ¶bb22 and the rail's card for a note on ¶bb22 are
+    /// both drawn, and measured: the tick's click area ends before the card
+    /// begins, so neither takes the other's click. Frames read synchronously
+    /// off the real overlay and rail.
+    func test_aTickHasItsOwnLaneBesideTheReviewRail() throws {
+        let s = surface()
+        let c = s.coordinator
+        c.reviewParagraphRangeProvider = { Self.range(of: $0) }
+        c.setReviewMode(true)
+        let note = Annotation(id: "n-rail", kind: .comment, paragraphId: "bb22", body: "tighten this",
+                              suggestedText: nil, priorText: nil, createdAt: Date(), createdBySession: nil,
+                              status: .open, userResponse: nil, resolvedAt: nil, isStale: false,
+                              author: AnnotationAuthor(sourceKind: .human, displayName: "Denver"))
+        s.control.isReviewMode = true
+        s.control.reviewAnnotations = [note]
+        apply(MarginMarks(dots: [], ticks: ["bb22"]), to: s)
+        let rail = try XCTUnwrap(c.marginRail)
+        XCTAssertFalse(rail.isHidden, "premise: the review rail shows")
+        rail.display()
+        let card = try XCTUnwrap(rail.cardRect(forAnnotationId: "n-rail"), "premise: the rail drew the card")
+        let cardInTextView = rail.convert(card, to: s.textView)
+        let overlay = try XCTUnwrap(c.marginOverlay)
+        overlay.display()
+        let tick = try XCTUnwrap(overlay.lastDrawn.first { $0.isTick }, "premise: the tick is drawn")
+        XCTAssertLessThanOrEqual(tick.hitRect.maxX, cardInTextView.minX,
+                                 "the tick's click area \(tick.hitRect) ends before the card \(cardInTextView)")
+        XCTAssertFalse(tick.rect.intersects(cardInTextView), "the tick is not drawn on the card")
     }
 
     // MARK: - Fix round 2: a delete across paragraphs

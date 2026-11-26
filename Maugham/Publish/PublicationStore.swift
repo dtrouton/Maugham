@@ -49,11 +49,32 @@ public final class PublicationStore {
         }
     }
 
+    /// **Read off the main actor** (shell p5a closing round B): the folder
+    /// listing and every device file's read run detached, so a slow folder —
+    /// a macOS consent prompt, an iCloud folder not yet downloaded — never
+    /// holds a window's first frame. The result is the caller's, on its actor.
     public func load() async throws -> [Publication] {
+        let projectURL = self.projectURL
+        let presenter = self.presenter
+        return try await Task.detached(priority: .userInitiated) {
+            try Self.catalogue(in: projectURL, presenter: presenter)
+        }.value
+    }
+
+    /// Test seam: whether the last catalogue read ran on the main thread.
+    nonisolated(unsafe) static var lastReadWasOnMainForTesting: Bool?
+
+    /// The catalogue, read: every device file, merged. Never call it on the
+    /// main actor (`load` runs it detached).
+    nonisolated static func catalogue(in projectURL: URL,
+                                      presenter: NSFilePresenter?) throws -> [Publication] {
+        lastReadWasOnMainForTesting = Thread.isMainThread
         var merged: [Publication] = []
         for url in Self.fileURLs(in: projectURL) {
-            let store = JSONLAppendStore<Publication>(fileURL: url, presenter: presenter)
-            do { merged.append(contentsOf: try await store.loadStrict()) }
+            do {
+                merged.append(contentsOf: try JSONLAppendStore<Publication>.loadStrictPlain(
+                    fileURL: url, presenter: presenter))
+            }
             catch {
                 throw ReadError.unreadableFile(
                     name: url.lastPathComponent,

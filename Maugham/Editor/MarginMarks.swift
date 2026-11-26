@@ -1,4 +1,4 @@
-import Foundation
+import AppKit
 import MaughamCore
 
 /// **View ▸ Margin** (shell p5 Task 2): what the trailing margin beside the
@@ -47,6 +47,11 @@ struct MarginMarks: Equatable {
         let annotationId: String
         /// Who wrote it, for VoiceOver ("Note by …"): the person's own name.
         let name: String
+        /// **The person's colour** (closing round B; ADR 0027 §1 as
+        /// amended): the review render's pencil for that person
+        /// (`ReviewPalette`), so a dot and its card agree. A dot is only ever
+        /// a person's (`drawnBesideTheText`); a model's note draws none.
+        var colour: NSColor = MarginOverlayView.dotColor
     }
 
     let dots: [Dot]
@@ -81,7 +86,8 @@ struct MarginMarks: Equatable {
         let dots: [Dot] = reviewRenderIsOn ? [] : persons.compactMap { note in
             guard let paragraphId = note.paragraphId else { return nil }
             return Dot(paragraphId: paragraphId, span: note.resolvedSpanRange,
-                       annotationId: note.id, name: note.author?.displayName ?? "")
+                       annotationId: note.id, name: note.author?.displayName ?? "",
+                       colour: ReviewPalette().color(for: note.author))
         }
         guard setting == .everythingFlagged else { return MarginMarks(dots: dots, ticks: []) }
         let personIds = Set(persons.map(\.id))

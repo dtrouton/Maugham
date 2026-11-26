@@ -7,7 +7,7 @@ import MaughamCore
 /// draw only reads it (tripwire 4).
 struct MarginPlace: Equatable {
     enum Mark: Equatable {
-        case dot(annotationId: String, name: String)
+        case dot(annotationId: String, name: String, colour: NSColor = MarginOverlayView.dotColor)
         case tick
     }
     let mark: Mark
@@ -59,6 +59,11 @@ enum MarginGeometry {
     static let tickOffset: CGFloat = 2
     /// A click lands within this much of a mark.
     static let hitSlop: CGFloat = 4
+    /// **The ticks' own lane** past the column's edge (closing round B,
+    /// M4): a tick and its click area end inside it, and the review rail's
+    /// cards begin after it (`ReviewMarginRailView`), so in read-through a
+    /// tick never sits on a card nor takes its click.
+    static let tickLane: CGFloat = tickOffset + tickWidth + hitSlop + 2
 
     static func dotRect(columnTrailingX x: CGFloat, line: NSRect) -> NSRect {
         let d = dotDiameter
@@ -145,22 +150,34 @@ final class MarginOverlayView: NSView {
         var id: String {
             isTick ? "tick:\(paragraphId)"
                 : "dots:" + places.map { place -> String in
-                    if case .dot(let id, _) = place.mark { return id }
+                    if case .dot(let id, _, _) = place.mark { return id }
                     return ""
                 }.joined(separator: ",")
         }
         /// The note a one-note dot stands for (its click shows that note);
         /// nil for a tick or a dot of several notes.
         var soleNoteId: String? {
-            guard places.count == 1, case .dot(let id, _) = places[0].mark else { return nil }
+            guard places.count == 1, case .dot(let id, _, _) = places[0].mark else { return nil }
             return id
         }
         /// The dots' writers, for their one fixed label.
         var names: [String] {
             places.compactMap { place in
-                if case .dot(_, let name) = place.mark { return name }
+                if case .dot(_, let name, _) = place.mark { return name }
                 return nil
             }
+        }
+        /// The dot's fill: its person's colour, or the quiet grey where one
+        /// mark stands for several people.
+        var colour: NSColor {
+            let colours = places.compactMap { place -> NSColor? in
+                if case .dot(_, _, let colour) = place.mark { return colour }
+                return nil
+            }
+            guard let first = colours.first, colours.allSatisfy({ $0 == first }) else {
+                return MarginOverlayView.dotColor
+            }
+            return first
         }
     }
 
@@ -252,8 +269,9 @@ final class MarginOverlayView: NSView {
     // MARK: - Drawing: positions, never words
 
     /// Quiet in light and dark: the system's secondary and tertiary label
-    /// greys, and the accent at a whisper for the tint. One colour per
-    /// mark, whoever wrote the note and whatever an item says.
+    /// greys, and the accent at a whisper for the tint. A dot takes its
+    /// person's pencil (`Drawn.colour`; the grey where a mark is several
+    /// people's); a tick is never anyone's.
     static let dotColor = NSColor.secondaryLabelColor
     static let tickColor = NSColor.tertiaryLabelColor
     static let tintColor = NSColor.controlAccentColor.withAlphaComponent(0.10)
@@ -268,7 +286,7 @@ final class MarginOverlayView: NSView {
                 Self.tickColor.setFill()
                 NSBezierPath(roundedRect: mark.rect, xRadius: 1, yRadius: 1).fill()
             } else {
-                Self.dotColor.setFill()
+                mark.colour.setFill()
                 NSBezierPath(ovalIn: mark.rect).fill()
             }
         }
@@ -384,7 +402,8 @@ extension EditorCoordinator {
                     tint = NSRange(location: paragraph.location + utf16.location, length: utf16.length)
                     anchor = tint!.location
                 }
-                places.append(MarginPlace(mark: .dot(annotationId: dot.annotationId, name: dot.name),
+                places.append(MarginPlace(mark: .dot(annotationId: dot.annotationId, name: dot.name,
+                                                     colour: dot.colour),
                                           paragraphId: dot.paragraphId, anchor: anchor, tint: tint))
             }
         }

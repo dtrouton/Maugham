@@ -123,6 +123,16 @@ enum PublishPreviewResolver {
             // sentence for every error that can arrive.
             return .unreadableCatalog(reason: error.localizedDescription)
         }
+        // Every row's file is stat'ed and OPENED: off the main actor (shell
+        // p5a closing round B), so a slow folder never holds a frame.
+        let readable = await Task.detached(priority: .userInitiated) {
+            Self.drawable(rows, in: projectURL)
+        }.value
+        return readable.isEmpty ? .nothingCompiled : .ready(newestFirst: readable)
+    }
+
+    /// The rows whose file exists and opens as a PDF, newest first.
+    nonisolated static func drawable(_ rows: [Publication], in projectURL: URL) -> [Publication] {
         var readable: [Publication] = []
         for row in rows.reversed() where row.format == .pdf {
             guard let file = fileURL(of: row, in: projectURL),
@@ -130,7 +140,7 @@ enum PublishPreviewResolver {
             guard PDFDocument(url: file) != nil else { continue }
             readable.append(row)
         }
-        return readable.isEmpty ? .nothingCompiled : .ready(newestFirst: readable)
+        return readable
     }
 
     /// **Which of the readable books the centre actually draws** — the writer's
@@ -193,7 +203,7 @@ enum PublishPreviewResolver {
     ///
     /// A relative path that leaves the project answers nil (tripwire 58): the
     /// record is synced.
-    static func fileURL(of publication: Publication, in projectURL: URL) -> URL? {
+    nonisolated static func fileURL(of publication: Publication, in projectURL: URL) -> URL? {
         publication.outputPath.hasPrefix("/")
             ? URL(fileURLWithPath: publication.outputPath)
             : try? SafeRelativePath.resolve(publication.outputPath, under: projectURL)

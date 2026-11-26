@@ -152,7 +152,8 @@ final class MarginOverlayCensusTests: XCTestCase {
         XCTAssertTrue(type(of: MarginMarks.none.ticks) == Set<String>.self, "ticks are paragraph ids")
         XCTAssertEqual(Self.fields(MarginMarks.none), ["dots", "ticks"])
         XCTAssertEqual(Self.fields(MarginMarks.Dot(paragraphId: "aa11", span: nil, annotationId: "n", name: "")),
-                       ["paragraphId", "span", "annotationId", "name"], "a dot: where, and whose — no words")
+                       ["paragraphId", "span", "annotationId", "name", "colour"],
+                       "a dot: where, whose, and their colour — no words")
         XCTAssertEqual(Self.fields(MarginPlace(mark: .tick, paragraphId: "aa11", anchor: 0, tint: nil)),
                        ["mark", "paragraphId", "anchor", "tint"])
         let drawn = MarginOverlayView.Drawn(
@@ -160,7 +161,8 @@ final class MarginOverlayCensusTests: XCTestCase {
             rect: .zero, hitRect: .zero, tintRects: [])
         XCTAssertEqual(Self.fields(drawn), ["places", "rect", "hitRect", "tintRects"], "N4: a drawn mark")
         XCTAssertEqual(Self.fields(MarginMarkElement(paragraphId: "aa11", isTick: true, names: [], coordinator: nil)),
-                       ["paragraphId", "coordinator"], "N4: VoiceOver's element")
+                       ["paragraphId", "soleNoteId", "coordinator"],
+                       "N4: VoiceOver's element — where, and (a one-note dot) which note's id")
         struct Planted { let paragraphId: String; let body: String }
         XCTAssertNotEqual(Self.fields(Planted(paragraphId: "aa11", body: "x")), ["paragraphId"],
                           "a planted field is caught")

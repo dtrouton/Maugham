@@ -77,10 +77,16 @@ final class MarginMarksTests: XCTestCase {
             "n1": .verified(.author, ofThisWriter: true),
             "n2": .verified(.author, ofThisWriter: false),
         ])
+        let palette = ReviewPalette()
         XCTAssertEqual(result.dots, [
-            .init(paragraphId: "aa11", span: 4..<9, annotationId: "n1", name: "Denver"),
-            .init(paragraphId: "bb22", span: nil, annotationId: "n2", name: "Ada"),
+            .init(paragraphId: "aa11", span: 4..<9, annotationId: "n1", name: "Denver",
+                  colour: palette.color(for: mine.author)),
+            .init(paragraphId: "bb22", span: nil, annotationId: "n2", name: "Ada",
+                  colour: palette.color(for: reviewers.author)),
         ], "the writer's note tints its words; an admitted reviewer's is a person's too")
+        // Each dot takes its person's pencil — the review card's colour —
+        // never the assistant's reserved one (closing round B).
+        XCTAssertFalse(result.dots.contains { $0.colour == ReviewPalette.claudeTerracotta })
         XCTAssertEqual(result.ticks, [], "My Notes draws no ticks")
     }
 

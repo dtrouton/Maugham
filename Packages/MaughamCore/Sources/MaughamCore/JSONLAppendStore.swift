@@ -301,6 +301,20 @@ public final class JSONLAppendStore<Element: Codable & Sendable> {
 
     /// The strict twin of `readBytes`: absent is still empty, unreadable throws.
     private func readBytesStrict() throws -> Data {
+        try Self.readBytesStrict(fileURL: fileURL, presenter: presenter)
+    }
+
+    /// **`loadStrict` for a plain store (no dedup, sort or chain), off any
+    /// actor**: the coordinated read and the shared parser, so a reader may
+    /// run them detached — a folder slow to answer (a consent prompt, an
+    /// iCloud file not yet downloaded) then never holds the main actor.
+    public nonisolated static func loadStrictPlain(fileURL: URL,
+                                                   presenter: NSFilePresenter?) throws -> [Element] {
+        parse(bytes: try readBytesStrict(fileURL: fileURL, presenter: presenter)).elements
+    }
+
+    private nonisolated static func readBytesStrict(fileURL: URL,
+                                                    presenter: NSFilePresenter?) throws -> Data {
         guard FileManager.default.fileExists(atPath: fileURL.path) else { return Data() }
         let coord = NSFileCoordinator(filePresenter: presenter)
         var coordErr: NSError?

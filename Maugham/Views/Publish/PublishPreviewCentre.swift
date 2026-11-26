@@ -751,6 +751,8 @@ struct PublishPreviewModifier: ViewModifier {
     let centre: PublishCentreModel
     /// The project, for the manuscript ids the source tag is resolved over.
     var store: ProjectStore? = nil
+    /// The newest refresh: an older one that finishes later applies nothing.
+    @State private var refreshes = LatestOnly()
 
     func body(content: Content) -> some View {
         content
@@ -805,7 +807,11 @@ struct PublishPreviewModifier: ViewModifier {
             }
     }
 
+    /// **The catalog and the config, read off the main actor** (shell p5a
+    /// closing round B): a window opening on a slow folder draws its first
+    /// frame; the result is applied on main, and only by the newest refresh.
     private func refresh() async {
+        let ticket = refreshes.begin()
         let stores = PublishingStores.sharedFor(
             projectID: ProjectIdentifier.id(for: projectURL),
             projectURL: projectURL)
@@ -814,7 +820,11 @@ struct PublishPreviewModifier: ViewModifier {
         // **The config, read once with the catalog** (shell p4 Task 5): which
         // edition is the Source, and the header's imprint rows —
         // own two readings of it (`PublishImprint`).
-        let config = (try? PublishConfigStore.read(in: projectURL)) ?? nil
+        let url = projectURL
+        let config = await Task.detached(priority: .userInitiated) {
+            (try? PublishConfigStore.read(in: url)) ?? nil
+        }.value
+        guard refreshes.isCurrent(ticket) else { return }
         centre.sourceLanguage = PublishImprint.sourceLanguage(
             imprint: nil, in: config, pieceIDs: manuscriptIDs())
         centre.imprints = PublishImprint.imprintNames(in: config)
@@ -826,6 +836,19 @@ struct PublishPreviewModifier: ViewModifier {
     private func manuscriptIDs() -> [String] {
         store.map { EditionStatus.manuscriptDocumentIds(in: $0.manifest) } ?? []
     }
+}
+
+/// **The newest of overlapping async reads wins** (shell p5a closing round
+/// B): each read takes a ticket; one that finishes after a newer began
+/// applies nothing, so a slow first read never overwrites a fresher one.
+@MainActor
+final class LatestOnly {
+    private var newest = 0
+    func begin() -> Int {
+        newest &+= 1
+        return newest
+    }
+    func isCurrent(_ ticket: Int) -> Bool { ticket == newest }
 }
 
 /// **The compile bar's own words** (imprints P3 Task 5; moved off the
