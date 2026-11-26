@@ -371,9 +371,9 @@ final class BinderTreeDropRoutingTests: XCTestCase {
         XCTAssertEqual(act.take.taken, [coast.id])
         XCTAssertEqual(act.take.held, [maps.id, tides.id])
         XCTAssertEqual(act.confirmTitle, "Delete")
-        XCTAssertTrue(act.message.contains("“Maps” (\(one.title))"), act.message)
-        XCTAssertTrue(act.message.contains("“Tides” (Five)"), act.message)
-        XCTAssertTrue(act.message.contains("Trash"), act.message)
+        XCTAssertEqual(act.message,
+                       "“Maps” (\(one.title)) and “Tides” (Five) stay with their chapters; "
+                       + "the rest of “World” goes to the Trash.")
 
         try await BinderTreeVerbs.performHeld(act, store: store)
 
@@ -412,6 +412,9 @@ final class BinderTreeDropRoutingTests: XCTestCase {
             return XCTFail("a group over chapters' notes asks first")
         }
         XCTAssertEqual(act.title, "Move “World” to “Places”?")
+        XCTAssertEqual(act.message,
+                       "“Maps” (\(one.title)) and “Tides” (Five) stay with their chapters; "
+                       + "the rest of “World” moves to “Places”.")
         XCTAssertEqual(act.lifts, [HeldResearchAct.Lift(ids: [maps.id, tides.id], to: .sharedRoot)])
         try await BinderTreeVerbs.performHeld(act, store: store)
 
@@ -457,7 +460,8 @@ final class BinderTreeDropRoutingTests: XCTestCase {
                 return XCTFail("depth \(depth): Delete asks first")
             }
             XCTAssertEqual(act.take.held, [maps.id], "depth \(depth)")
-            XCTAssertTrue(act.message.contains("“Maps” (\(one.title))"), act.message)
+            XCTAssertEqual(act.message, "“Maps” stays with \(one.title); the rest of “World” goes to the Trash.",
+                           "depth \(depth)")
             XCTAssertEqual(act.take.taken, [tides.id], "depth \(depth): only the book's note goes")
             state.dismissAlert(.confirmHeld(act))
             try await BinderTreeVerbs.performHeld(act, store: store)
@@ -557,7 +561,7 @@ final class BinderTreeDropRoutingTests: XCTestCase {
             return XCTFail("the fold's Delete asks")
         }
         XCTAssertEqual(act.take.held, [shared.id])
-        XCTAssertTrue(act.message.contains("“Hull” (Two)"), act.message)
+        XCTAssertEqual(act.message, "“Hull” stays with Two; the rest of “Ships” goes to the Trash.")
         XCTAssertEqual(act.take.taken, [own.id])
         state.dismissAlert(.confirmHeld(act))
         try await BinderTreeVerbs.performHeld(act, store: store)
@@ -871,6 +875,23 @@ final class BinderTreeDropRoutingTests: XCTestCase {
             .joined(separator: "\n")
         XCTAssertFalse(fold.contains("newGroup(nil)") || fold.contains("addFile(nil)")
                        || fold.contains("addLink(nil)"), "no top-level maker in the fold")
+    }
+
+    /// **Several held notes: three named, then "and N more"** (closing round
+    /// A addendum), in one sentence.
+    func test_aLongHeldListNamesThreeThenCounts() async throws {
+        let store = try await novel(notes: [])
+        let world = try await store.addResearchItem(parentId: nil, title: "World", kind: nil)
+        let one = try XCTUnwrap(store.manifest.structure.first)
+        for title in ["A", "B", "C", "D", "E"] {
+            let note = try await store.addResearchTextNote(parentId: world.id, title: title)
+            try await store.linkResearch(researchId: note.id, toDocumentId: one.id)
+        }
+        _ = try await store.addResearchTextNote(parentId: world.id, title: "Coast")
+        let act = try XCTUnwrap(verbs(store).heldAct(.delete, ids: [world.id]))
+        XCTAssertEqual(act.message,
+                       "“A” (\(one.title)), “B” (\(one.title)), “C” (\(one.title)) and 2 more stay with "
+                       + "their chapters; the rest of “World” goes to the Trash.")
     }
 
     /// The control: a group with nothing of a chapter's under it deletes as

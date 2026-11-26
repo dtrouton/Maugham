@@ -262,24 +262,31 @@ struct HeldResearchAct: Equatable {
         // The pieces the rows are drawn under (a fold's row) are not the ones
         // that keep what is held: name the others.
         let own = Set(ids.flatMap { homes.homes(of: $0) })
-        let kept = take.held.map { id -> String in
-            let pieces = homes.homes(of: id).filter { !own.contains($0) }
-                .map { homes.pieceTitles[$0] ?? $0 }
-            return "“\(title(id))” (\(pieces.joined(separator: ", ")))"
+        func chapters(of id: String) -> String {
+            let pieces = homes.homes(of: id).filter { !own.contains($0) }.map { homes.pieceTitles[$0] ?? $0 }
+            return pieces.count < 2 ? pieces.joined()
+                : pieces.dropLast().joined(separator: ", ") + " and " + pieces.last!
         }
-        let keptLine = kept.count == 1
-            ? "\(kept[0]) is a \(noun)’s and stays with it"
-            : "\(kept.dropLast().joined(separator: ", ")) and \(kept.last!) are \(noun)s’ and stay with them"
+        // **One plain sentence** (closing round A addendum): one note named
+        // with its chapter; several, up to three named with theirs, then
+        // "and N more".
+        let stays: String
+        if take.held.count == 1, let id = take.held.first {
+            stays = "“\(title(id))” stays with \(chapters(of: id))"
+        } else {
+            let shown = take.held.prefix(3).map { "“\(title($0))” (\(chapters(of: $0)))" }
+            let more = take.held.count - shown.count
+            let list = more > 0
+                ? shown.joined(separator: ", ") + " and \(more) more"
+                : shown.dropLast().joined(separator: ", ") + " and " + shown.last!
+            stays = "\(list) stay with their \(noun)s"
+        }
         switch verb {
         case .delete:
-            let list = kept.count == 1
-                ? kept[0] : "\(kept.dropLast().joined(separator: ", ")) and \(kept.last!)"
-            let one = kept.count == 1
             return HeldResearchAct(
                 verb: verb, ids: ids, take: take, lifts: lifts,
                 title: "Delete \(named)?",
-                message: "\(list) \(one ? "stays" : "stay") with \(one ? "its" : "their") \(noun)\(one ? "" : "s"), "
-                    + "lifted out to where \(named) stood; the rest of \(named) goes to the Trash.",
+                message: "\(stays); the rest of \(named) goes to the Trash.",
                 confirmTitle: "Delete", afterLift: "")
         case .move(let target, _):
             let to: String
@@ -291,7 +298,7 @@ struct HeldResearchAct: Equatable {
             return HeldResearchAct(
                 verb: verb, ids: ids, take: take, lifts: lifts,
                 title: "Move \(named) to \(to)?",
-                message: "It goes with its whole-book research. \(keptLine): lifted out first, \(kept.count == 1 ? "it stays" : "they stay") where \(named) was.",
+                message: "\(stays); the rest of \(named) moves to \(to).",
                 confirmTitle: "Move",
                 afterLift: "The \(noun)s’ notes were lifted out of \(named), but \(named) couldn’t be moved: ")
         }
