@@ -928,7 +928,7 @@ struct BinderTreeVerbs {
     /// **A tree rename, through the read-through question** (closing round A).
     func renameResearch(_ id: String, to title: String) {
         if let refusal = readThroughRefusal([id]) { state.pendingError = refusal; return }
-        perform { try await store.updateResearchItem(id: id, title: title) }
+        performSaying { try await store.updateResearchItem(id: id, title: title) }
     }
 
     /// **Why a move is refused, named, or nil** — asked when the writer acts
@@ -991,7 +991,7 @@ struct BinderTreeVerbs {
         }
         state.showLanding(of: ids, inFoldOf: plan.landingPiece, to: target,
                           structure: store.manifest.structure, research: store.manifest.research)
-        perform { try await Self.performPlan(plan, landing: landing, afterLift: "", store: store) }
+        performSaying { try await Self.performPlan(plan, landing: landing, afterLift: "", store: store) }
         return true
     }
 
@@ -1039,16 +1039,21 @@ struct BinderTreeVerbs {
                               structure: store.manifest.structure, research: store.manifest.research)
             Task { @MainActor in
                 do {
-                    try await performPlan(plan, landing: landing, afterLift: live?.afterLift ?? "",
-                                          store: store)
+                    // What the move left is said as `performSaying` says it (#148 D2).
+                    if let sentence = try await performPlan(plan, landing: landing,
+                                                            afterLift: live?.afterLift ?? "",
+                                                            store: store).sentence {
+                        state.pendingError = sentence
+                    }
                 } catch { state.pendingError = error.localizedDescription }
             }
         }
     }
 
-    /// What `confirmHeld` performs, awaited (the store tests' door).
-    @MainActor
-    static func performHeld(_ act: HeldResearchAct, store: ProjectStore) async throws {
+    /// What `confirmHeld` performs, awaited (the store tests' door); a move
+    /// returns what it left (#148 D2), a delete nil.
+    @MainActor @discardableResult
+    static func performHeld(_ act: HeldResearchAct, store: ProjectStore) async throws -> ProjectStore.RenameOutcome? {
         switch act.verb {
         case .delete:
             // **No ghost group** (closing round A, branch M1): what chapters
@@ -1056,18 +1061,23 @@ struct BinderTreeVerbs {
             // by id, then the rows go whole to the Trash.
             try await performLifts(act.lifts, store: store)
             try await performDelete(act.ids, store: store)
+            return nil
         case .move(_, let landing):
-            guard let plan = act.plan else { return }
-            try await performPlan(plan, landing: landing, afterLift: act.afterLift, store: store)
+            guard let plan = act.plan else { return nil }
+            return try await performPlan(plan, landing: landing, afterLift: act.afterLift, store: store)
         }
     }
 
-    /// What chapters hold, lifted out to where each row stood.
-    @MainActor
-    private static func performLifts(_ lifts: [HeldResearchAct.Lift], store: ProjectStore) async throws {
+    /// What chapters hold, lifted out to where each row stood; returns the
+    /// notes whose picture links a lift could not rewrite (#148 D2).
+    @MainActor @discardableResult
+    private static func performLifts(_ lifts: [HeldResearchAct.Lift], store: ProjectStore) async throws -> [String] {
+        var assetRefsLeftIn: [String] = []
         for lift in lifts {
-            try await store.moveResearchItems(ids: lift.ids, to: lift.to, atIndex: nil)
+            assetRefsLeftIn += try await store.moveResearchItems(ids: lift.ids, to: lift.to, atIndex: nil)
+                .assetRefsLeftIn
         }
+        return assetRefsLeftIn
     }
 
     /// The tree's one call of the store's research delete.
@@ -1079,20 +1089,23 @@ struct BinderTreeVerbs {
     /// **A plan, done** — the lifts, then the move and its link edits in ONE
     /// save (`moveResearchItems(…relinking:)`, closing round A3), at the
     /// landing as the tree stands after the lifts; a plan with no file move
-    /// (a drop between chapters by their links) is one link save.
-    @MainActor
+    /// (a drop between chapters by their links) is one link save. Returns
+    /// what the move (and its lifts) left: notes whose picture links could
+    /// not be rewritten (#148 D2, RULING-52).
+    @MainActor @discardableResult
     static func performPlan(_ plan: ResearchMovePlan, landing: HeldResearchAct.Landing,
-                            afterLift: String, store: ProjectStore) async throws {
-        try await performLifts(plan.lifts, store: store)
+                            afterLift: String, store: ProjectStore) async throws -> ProjectStore.RenameOutcome {
+        let liftLeft = try await performLifts(plan.lifts, store: store)
         guard let target = plan.target else {
             let from = Array(Set(plan.unlinks.values.joined()))
             try await performRelink(plan.ids, from: from, to: plan.linkTo, store: store)
-            return
+            return ProjectStore.RenameOutcome(assetRefsLeftIn: liftLeft, act: .moved)
         }
         let index = landing.index(movingIds: plan.ids, to: target, in: store.manifest.research)
         do {
-            try await store.moveResearchItems(ids: plan.ids, to: target, atIndex: index,
-                                              relinking: plan.linkEdit)
+            let moved = try await store.moveResearchItems(ids: plan.ids, to: target, atIndex: index,
+                                                          relinking: plan.linkEdit)
+            return ProjectStore.RenameOutcome(assetRefsLeftIn: liftLeft + moved.assetRefsLeftIn, act: .moved)
         } catch where !plan.lifts.isEmpty {
             // The lift stands: say so, then why the rest did not happen.
             throw TreeLinkError(message: afterLift + error.localizedDescription)
@@ -1243,6 +1256,19 @@ struct BinderTreeVerbs {
         Task { @MainActor in
             do { try await work() }
             catch { state.pendingError = error.localizedDescription }
+        }
+    }
+
+    /// A rename or move, run as `perform` runs it, whose outcome is said in
+    /// the same alert when it left something behind: the verb stood, and the
+    /// sentence names what it did and what it could not (RULING-52) — a
+    /// note's picture links not rewritten (#148 D2), as the binder says the
+    /// `[[links]]` a manuscript rename left (`BinderView.rename`).
+    func performSaying(_ work: @escaping () async throws -> ProjectStore.RenameOutcome) {
+        Task { @MainActor in
+            do {
+                if let sentence = try await work().sentence { state.pendingError = sentence }
+            } catch { state.pendingError = error.localizedDescription }
         }
     }
 

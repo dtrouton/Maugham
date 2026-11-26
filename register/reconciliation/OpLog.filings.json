@@ -196,13 +196,18 @@
   "reason": "A read-only surface over a translation is the agent's design (ADR 0038 §6); RULING-6 rules what is the writer's text versus presentation, not which surface may write, and no ruling covers reading in a language."
  },
  {
+  "claim_id": "M9-OL-023",
+  "outcome": "NO_RULING_REACHES",
+  "reason": "Which of two same-path Document instances may remove the pending file is an internal invariant of the close, M9-OL-019's sibling. RULING-54 is about an unreadable-yet-present file being surfaced, not about whose file a clear may delete, and nothing rules the close. The coordinator's call, hardening 2026-11-17 (#146 first half), not Denver's."
+ },
+ {
   "_summary": {
    "reached": 18,
    "complies": 18,
    "violates": 0,
-   "no_ruling": 3,
-   "total": 21,
-   "coverage": "86%",
+   "no_ruling": 4,
+   "total": 22,
+   "coverage": "82%",
    "by_ruling": {
     "RULING-52": [
      "M9-OL-004",

@@ -200,7 +200,16 @@ struct InspectorResearchPanel: View {
 
     private func commitTitle() {
         Task {
-            try? await store.updateResearchItem(id: item.id, title: draftTitle)
+            // The rename stands; what it left (a note's picture links, #148
+            // D2) is said in the project's notice, as the tree says it; so is
+            // a rename that failed (a save failure naming the stale links too).
+            do {
+                if let sentence = try await store.updateResearchItem(id: item.id, title: draftTitle).sentence {
+                    MaughamEvent.postNotice(sentence, projectURL: store.url)
+                }
+            } catch {
+                MaughamEvent.postNotice(error.localizedDescription, projectURL: store.url)
+            }
         }
     }
     private func commitCaption() {

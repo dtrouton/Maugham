@@ -739,6 +739,11 @@
   "reason": "A figure's removal and restore (report plan 6b Task 5) rest on the plan's ruling P-3 and Denver's review ruling that a taken name refuses the restore, neither of which is a register ruling yet. RULING-4 is the nearest (recovery where the writer would look) and is not contradicted: the record comes back under its own name, or the entry stays in the Trash."
  },
  {
+  "claim_id": "M3-TR-066",
+  "outcome": "NO_RULING_REACHES",
+  "reason": "The row here names a file that is THERE, inside the project but outside every research root (the manuscript, a .maugham/ file a synced manifest names), so RULING-63, whose row-only clause is for a row whose file is already missing, does not reach it (scope, not symptom); RULING-15's single meaning of delete is not contradicted (nothing is unlinked: the file stays where it is and the row comes back), but no ruling states that Maugham leaves such a file in place and trashes the row alone, refuses the rename, the move and a group that still holds rows, or brings a trashed file back inside a research root. Those are the coordinator's call, note versions plan 2 fix wave 2 round 2 (2026-11-10), not Denver's; the partial route after the refusals are asked is M3-TR-069's, filed under RULING-63."
+ },
+ {
   "claim_id": "M3-TR-067",
   "outcome": "NO_RULING_REACHES",
   "reason": "RULING-23 says Trash destroying its contents honours the writer's intent and losing trash is not a defect; it permits the removal of a destroyed item's derived files without requiring it, and RULING-24 calls derived material unprotected without saying when it is removed. No ruling states that Permanently Delete, Empty Trash or the sweep remove an item's note record and table sidecar, the age gate on the sweep, or the cross-device edge. The removal is the coordinator's call, hardening 2026-11-16, not Denver's."
@@ -756,7 +761,7 @@
    "commit": "e060bcfc ff55afbf",
    "date": "2026-11-16",
    "authorised_by": "RULING-63 — Denver, 2026-11-16, structured question, recommended option accepted",
-   "pinned_by": "ResearchMoverOutsideResearchTests.test_aBatchDeleteWhoseSecondFileIsMissingDeletesAllThree_andUndoesAsOne and test_aMissingRowAlone_andABatchWhoseFilesAreAllMissing_deleteAndUndoAsOne",
+   "pinned_by": "ResearchMoverOutsideResearchTests.test_aBatchDeleteWhoseSecondFileIsMissingDeletesAllThree_andUndoesAsOne, test_aMissingRowAlone_andABatchWhoseFilesAreAllMissing_deleteAndUndoAsOne and (the missing-group arm, 2026-11-17, #148 D4) test_aGroupWhoseFolderIsGoneIsDeletedAsARow_andItsRestoreNamesTheRowsItCannotReturn",
    "note": "Filed already built: hardening 2026-11-16 plan 2 (#142 T1), not a flip of an earlier VIOLATES."
   }
  },
@@ -795,13 +800,18 @@
   }
  },
  {
+  "claim_id": "M3-TR-071",
+  "outcome": "NO_RULING_REACHES",
+  "reason": "Where a piece's nested Research rows say their files are after the piece's folder moves is bookkeeping the writer meets only as a symptom (a note the door cannot save, an add refused). RULING-52 (the collateral report) is the nearest family and does not reach it: nothing here fails part way, the verb now leaves every path right. No ruling decides that Research follows its piece; the coordinator's call, hardening 2026-11-17, not Denver's."
+ },
+ {
   "_summary": {
    "reached": 45,
    "complies": 45,
    "violates": 0,
-   "no_ruling": 24,
-   "total": 69,
-   "coverage": "65%",
+   "no_ruling": 26,
+   "total": 71,
+   "coverage": "63%",
    "by_ruling": {
     "RULING-15": [
      "M3-TR-003",

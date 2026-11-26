@@ -45,6 +45,11 @@ public enum MoveResearchItemTool: MCPTool {
     }
     public struct Result: Codable, Equatable {
         public let moved: [MovedItem]
+        /// Titles of the moved notes whose picture links could not be
+        /// rewritten to their new folder (#148 D2); absent when none.
+        public var asset_refs_left_in: [String]? = nil
+        /// The sentence the writer is told about them; absent when none.
+        public var notice: String? = nil
     }
 
     /// "whole-book", or "“Chapter One”’s" / "“One” and “Two”’s".
@@ -94,8 +99,9 @@ public enum MoveResearchItemTool: MCPTool {
                                          structure: store.manifest.structure,
                                          research: store.manifest.research,
                                          projectType: store.manifest.type)
-        try await store.moveResearchItems(ids: params.research_ids, to: targets[0],
-                                          relinking: plan.linkEdit)
+        // The move stands; what it left is said in the result (RULING-52).
+        let outcome = try await store.moveResearchItems(ids: params.research_ids, to: targets[0],
+                                                        relinking: plan.linkEdit)
 
         let homes = ResearchHomes.derive(structure: store.manifest.structure,
                                          research: store.manifest.research,
@@ -106,6 +112,9 @@ public enum MoveResearchItemTool: MCPTool {
                       home: Self.home(of: id, in: homes),
                       left: plan.losses[id].map { $0.map { before.pieceTitles[$0] ?? $0 } })
         }
-        return try JSONEncoder().encode(Result(moved: moved))
+        return try JSONEncoder().encode(Result(
+            moved: moved,
+            asset_refs_left_in: outcome.assetRefsLeftIn.isEmpty ? nil : outcome.assetRefsLeftIn,
+            notice: outcome.sentence))
     }
 }

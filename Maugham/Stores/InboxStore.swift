@@ -720,7 +720,10 @@ final class InboxStore {
                 // this text marked as `writer`'s (#141 N5).
                 guard case .saved = await documentStore.saveResearchNote(
                     itemId: created.id, text: entry.inlineText ?? "", by: writer, from: projectStore) else {
-                    throw ProjectStoreError.researchTextNotSaved(title: created.title)
+                    // The empty note it made is taken back first, so a retry
+                    // makes one note, not a second (#148 D1).
+                    throw await projectStore.takeBackUnsavedNewNote(
+                        created, refusal: ProjectStoreError.researchTextNotSaved(title: created.title))
                 }
             } else {
                 // Never given a store: the raw write. Lost it (teardown):

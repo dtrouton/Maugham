@@ -602,6 +602,59 @@ final class ResearchNoteDoorTests: XCTestCase {
         XCTAssertEqual(heard.notices, ["Couldn’t save “Notes”: \(Self.changedWhileSaving)"])
     }
 
+    // MARK: - Hardening 11-17 task 5: a caller's expectation is compare-and-swap (#147 R2)
+
+    /// A caller that made its text from bytes no longer on disk is turned
+    /// away: nothing written, nothing kept, nothing said, no reload.
+    func test_aSaveExpectingOtherBytesWritesNothing_andAnswersChangedSinceTheCallerRead() async throws {
+        let (store, projectStore) = try await openBook()
+        let heard = listen()
+        let item = try await note("From outside.", in: projectStore)
+
+        let saved = await store.saveResearchNote(itemId: item.id, text: "Replaced.",
+                                                 expectingBytesHash: ContentHash.of(Data("Before.".utf8)))
+
+        XCTAssertEqual(saved, .changedSinceTheCallerRead)
+        XCTAssertEqual(try text(of: item, projectStore), "From outside.")
+        XCTAssertTrue(versions(of: item).isEmpty, "nothing was kept")
+        XCTAssertEqual(heard.notices, [], "the caller answers for it")
+        XCTAssertEqual(store.researchNoteReloadCount(itemId: item.id), 0)
+    }
+
+    /// The expectation met, the save is made as any direct save is.
+    func test_aSaveExpectingTheBytesOnDiskIsMade() async throws {
+        let (store, projectStore) = try await openBook()
+        let item = try await note("Before.", in: projectStore)
+
+        let saved = await store.saveResearchNote(itemId: item.id, text: "Replaced.",
+                                                 expectingBytesHash: ContentHash.of(Data("Before.".utf8)))
+
+        XCTAssertEqual(saved, .saved(keptAVersion: true))
+        XCTAssertEqual(try text(of: item, projectStore), "Replaced.")
+        XCTAssertEqual(try versions(of: item).map(versionText), ["Before."])
+    }
+
+    /// Bytes landing after the door's own read are found by the coordinated
+    /// write; the door's retry reads them, and they fail the caller's
+    /// expectation: they stand, and are not kept. The first pass had already
+    /// kept the bytes the caller read (a direct save always keeps what it
+    /// replaces), so that version remains though nothing was written.
+    func test_aChangeLandingAfterTheDoorsReadFailsTheCallersExpectationOnTheRetry() async throws {
+        let (store, projectStore) = try await openBook()
+        let heard = listen()
+        let item = try await note("Before.", in: projectStore)
+        landOutside(["From outside."], at: file(try XCTUnwrap(item.path)))
+
+        let saved = await store.saveResearchNote(itemId: item.id, text: "Replaced.",
+                                                 expectingBytesHash: ContentHash.of(Data("Before.".utf8)))
+
+        XCTAssertEqual(saved, .changedSinceTheCallerRead)
+        XCTAssertEqual(try text(of: item, projectStore), "From outside.")
+        XCTAssertEqual(try versions(of: item).map(versionText), ["Before."],
+                       "the first pass's version of the bytes read remains; the outside bytes were not kept")
+        XCTAssertEqual(heard.notices, [])
+    }
+
     // MARK: - The prior file
 
     func test_aMissingOrEmptyFileKeepsNothingAndSaves() async throws {
@@ -1524,5 +1577,30 @@ final class ResearchNoteDoorTests: XCTestCase {
         XCTAssertEqual(try contents(newPath), "Typed after it.", "the mover's flush saved the newer edit")
         XCTAssertFalse(try versions(of: item).map(versionText).contains("The assistant's change."),
                        "T0's text was never written anywhere")
+    }
+
+    // MARK: - A destroyed note takes its files with it (#148 D4; N7's production path)
+
+    /// The record and versions a real save made — not files planted by the
+    /// test — go when the note is destroyed for good: deleted to the Trash,
+    /// they stay; Permanently Delete removes them (M3-TR-067).
+    func test_aNoteSavedThroughTheDoorThenDestroyedLeavesNoRecordOrVersions() async throws {
+        let (store, projectStore) = try await openBook()
+        let item = try await note("Before.", in: projectStore)
+        try read(item, store, projectStore)
+        let saved = await store.saveResearchNote(itemId: item.id, text: "The assistant's.", by: .assistant)
+        XCTAssertEqual(saved, .saved(keptAVersion: true))
+        let record = try ResearchNoteRecord.fileURL(forItem: item.id, in: projectURL)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: record.path), "premise: the save wrote its record")
+        XCTAssertEqual(try ResearchNoteRecord.read(forItem: item.id, in: projectURL)?.writtenBy, .assistant)
+        XCTAssertEqual(versions(of: item).count, 1, "premise: the save kept a version")
+
+        try await projectStore.deleteResearchItems(ids: [item.id])
+        XCTAssertTrue(FileManager.default.fileExists(atPath: record.path), "an item in the Trash keeps its record")
+        XCTAssertEqual(versions(of: item).count, 1, "and its versions")
+        try await projectStore.permanentlyDeleteTrashEntry(id: try XCTUnwrap(projectStore.trashEntries.first?.id))
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: record.path), "the record is gone")
+        XCTAssertTrue(versions(of: item).isEmpty, "the versions are gone")
     }
 }

@@ -758,9 +758,10 @@ final class ResearchMoveTests: XCTestCase {
         try "![i](./old_assets/i.png)".write(
             to: noteURL, atomically: true, encoding: .utf8)
         struct Boom: Error {}
-        await ProjectStore.rewriteAssetRefsBestEffort(
+        let leftStale = await ProjectStore.rewriteAssetRefsBestEffort(
             oldStem: "old", newStem: "new", noteURL: noteURL,
             write: { _, _ in throw Boom() })
+        XCTAssertTrue(leftStale, "the failure is returned, so the verb can say it (#148 D2)")
         // No throw reached here; file keeps old refs (stale ref, intact move).
         XCTAssertEqual(try String(contentsOf: noteURL, encoding: .utf8),
                        "![i](./old_assets/i.png)")
@@ -772,9 +773,10 @@ final class ResearchMoveTests: XCTestCase {
         try "![i](./old_assets/i.png)".write(
             to: noteURL, atomically: true, encoding: .utf8)
         var written: String?
-        await ProjectStore.rewriteAssetRefsBestEffort(
+        let leftStale = await ProjectStore.rewriteAssetRefsBestEffort(
             oldStem: "old", newStem: "new", noteURL: noteURL,
             write: { text, _ in written = text })
+        XCTAssertFalse(leftStale)
         XCTAssertEqual(written, "![i](./new_assets/i.png)")
     }
 
@@ -809,6 +811,232 @@ final class ResearchMoveTests: XCTestCase {
         XCTAssertTrue(content.contains("./sarah-2_assets/"), "refs rewritten: \(content)")
         XCTAssertFalse(content.contains("./sarah_assets/"), content)
         await ds.close()
+    }
+
+    // MARK: a picture-link rewrite that fails is said (#148 D2, F8)
+
+    /// The note's folder made unwritable just before the door writes the
+    /// rewritten refs (the keep runs first and lands elsewhere), so the move
+    /// or rename has happened and only the refs' write fails.
+    private func failTheRefRewrite(of noteId: String, _ store: ProjectStore, _ ds: DocumentStore,
+                                   in url: URL, locked: @escaping (URL) -> Void) {
+        ds.researchNoteDoor.keepWillRunForTesting = { [store] in
+            guard let path = TreeWalk.find(id: noteId, in: store.manifest.research)?.path else { return }
+            let folder = url.appendingPathComponent(path).deletingLastPathComponent()
+            try? FileManager.default.setAttributes([.posixPermissions: 0o555], ofItemAtPath: folder.path)
+            locked(folder)
+        }
+    }
+
+    private func unlock(_ folder: URL?) {
+        guard let folder else { return }
+        try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: folder.path)
+    }
+
+    func test_aRenameWhosePictureLinkRewriteFails_standsAndNamesTheNote() async throws {
+        let (url, store, ds, _) = try await makeCollection()
+        let note = try await store.addResearchTextNote(parentId: nil, title: "Sarah")
+        let assetsURL = url.appendingPathComponent("research/sarah_assets")
+        try FileManager.default.createDirectory(at: assetsURL, withIntermediateDirectories: true)
+        try Data([0xFF]).write(to: assetsURL.appendingPathComponent("img.png"))
+        try await ds.coordinatedWrite(
+            text: "![img](./sarah_assets/img.png)",
+            to: url.appendingPathComponent("research/sarah.md"))
+        var locked: URL?
+        failTheRefRewrite(of: note.id, store, ds, in: url) { locked = $0 }
+        defer { unlock(locked) }
+
+        let outcome = try await store.updateResearchItem(id: note.id, title: "Marta")
+
+        XCTAssertNotNil(locked, "premise: the rewrite reached the door's write")
+        unlock(locked)
+        let renamed = try XCTUnwrap(item(store, note.id))
+        XCTAssertEqual(renamed.title, "Marta", "the rename stands")
+        XCTAssertEqual(renamed.path, "research/marta.md")
+        XCTAssertTrue(FileManager.default.fileExists(
+            atPath: url.appendingPathComponent("research/marta_assets/img.png").path))
+        let content = try String(  // adr-0018-ok: research-note read, not manuscript
+            contentsOf: url.appendingPathComponent("research/marta.md"), encoding: .utf8)
+        XCTAssertTrue(content.contains("./sarah_assets/"), "premise: the refs stayed stale: \(content)")
+        XCTAssertEqual(outcome.assetRefsLeftIn, ["Marta"])
+        XCTAssertEqual(outcome.sentence,
+                       "Renamed “Marta”, but the picture links in “Marta” could not be updated.")
+        await ds.close()
+    }
+
+    func test_aMoveWhosePictureLinkRewriteFails_standsAndNamesTheNote() async throws {
+        let (url, store, ds, piece) = try await makeCollection()
+        let note = try await store.addResearchTextNote(parentId: nil, title: "Sarah")
+        let assetsURL = url.appendingPathComponent("research/sarah_assets")
+        try FileManager.default.createDirectory(at: assetsURL, withIntermediateDirectories: true)
+        try Data([0xFF]).write(to: assetsURL.appendingPathComponent("img.png"))
+        try await ds.coordinatedWrite(
+            text: "![img](./sarah_assets/img.png)",
+            to: url.appendingPathComponent("research/sarah.md"))
+        // A taken `sarah_assets` at the destination dedups the stem, so the
+        // refs need rewriting.
+        let prefix = try XCTUnwrap(ProjectStore.pieceResearchPrefix(for: piece))
+        try FileManager.default.createDirectory(
+            at: url.appendingPathComponent(prefix).appendingPathComponent("sarah_assets"),
+            withIntermediateDirectories: true)
+        var locked: URL?
+        failTheRefRewrite(of: note.id, store, ds, in: url) { locked = $0 }
+        defer { unlock(locked) }
+
+        let outcome = try await store.moveResearchItems(ids: [note.id], to: .piece(piece.id))
+
+        XCTAssertNotNil(locked, "premise: the rewrite reached the door's write")
+        unlock(locked)
+        let moved = try XCTUnwrap(item(store, note.id))
+        XCTAssertTrue(moved.path!.hasPrefix(prefix), "the move stands: \(moved.path!)")
+        XCTAssertTrue(moved.path!.hasSuffix("sarah-2.md"), moved.path!)
+        let content = try String(  // adr-0018-ok: research-note read, not manuscript
+            contentsOf: url.appendingPathComponent(moved.path!), encoding: .utf8)
+        XCTAssertTrue(content.contains("./sarah_assets/"), "premise: the refs stayed stale: \(content)")
+        XCTAssertEqual(outcome.assetRefsLeftIn, ["Sarah"])
+        XCTAssertEqual(outcome.sentence,
+                       "Moved “Sarah”, but the picture links in “Sarah” could not be updated.")
+        await ds.close()
+    }
+
+    /// A move or rename whose refs were rewritten says nothing.
+    func test_aMoveWhosePictureLinksAreRewritten_saysNothing() async throws {
+        let (url, store, ds, piece) = try await makeCollection()
+        let note = try await store.addResearchTextNote(parentId: nil, title: "Sarah")
+        try FileManager.default.createDirectory(
+            at: url.appendingPathComponent("research/sarah_assets"), withIntermediateDirectories: true)
+        try await ds.coordinatedWrite(
+            text: "![img](./sarah_assets/img.png)",
+            to: url.appendingPathComponent("research/sarah.md"))
+        let prefix = try XCTUnwrap(ProjectStore.pieceResearchPrefix(for: piece))
+        try FileManager.default.createDirectory(
+            at: url.appendingPathComponent(prefix).appendingPathComponent("sarah_assets"),
+            withIntermediateDirectories: true)
+
+        let outcome = try await store.moveResearchItems(ids: [note.id], to: .piece(piece.id))
+
+        XCTAssertEqual(outcome.assetRefsLeftIn, [])
+        XCTAssertNil(outcome.sentence)
+        await ds.close()
+    }
+
+    /// Several notes left stale are counted, each named.
+    func test_theSentenceForSeveralNotesCountsThem() {
+        let two = ProjectStore.RenameOutcome(assetRefsLeftIn: ["Sarah", "Ines"], act: .moved)
+        XCTAssertEqual(two.sentence,
+                       "Moved “Sarah” and “Ines”, but the picture links in 2 notes could not be updated.")
+        let three = ProjectStore.RenameOutcome(assetRefsLeftIn: ["Sarah", "Ines", "Tom"], act: .moved)
+        XCTAssertEqual(three.sentence,
+                       "Moved “Sarah”, “Ines” and “Tom”, but the picture links in 3 notes could not be updated.")
+    }
+
+    // MARK: …and when the manifest save then fails too (#148 D2 fix round 1)
+
+    /// The thrown save failure carries the stale links too (RULING-52): the
+    /// error replaces the outcome, so it must say both.
+    private func assertSaveFailureAlsoNamesTheLinks(_ error: Error, _ refs: String,
+                                                   file: StaticString = #filePath, line: UInt = #line) {
+        guard case .manifestUnwritable(let detail)? = error as? ProjectStoreError else {
+            return XCTFail("\(error)", file: file, line: line)
+        }
+        XCTAssertTrue(detail.hasSuffix(". " + refs), detail, file: file, line: line)
+        XCTAssertGreaterThan(detail.count, refs.count + 2, "the save failure leads: \(detail)", file: file, line: line)
+    }
+
+    func test_aRenameWhoseRewriteAndManifestSaveBothFail_throwsNamingBoth() async throws {
+        let (url, store, ds, _) = try await makeCollection()
+        let note = try await store.addResearchTextNote(parentId: nil, title: "Sarah")
+        let assetsURL = url.appendingPathComponent("research/sarah_assets")
+        try FileManager.default.createDirectory(at: assetsURL, withIntermediateDirectories: true)
+        try await ds.coordinatedWrite(
+            text: "![img](./sarah_assets/img.png)",
+            to: url.appendingPathComponent("research/sarah.md"))
+        var locked: URL?
+        failTheRefRewrite(of: note.id, store, ds, in: url) { locked = $0 }
+        defer { unlock(locked) }
+
+        try await UnwritableFolder.with(url) {
+            do {
+                try await store.updateResearchItem(id: note.id, title: "Marta")
+                XCTFail("the manifest save did not fail")
+            } catch {
+                assertSaveFailureAlsoNamesTheLinks(
+                    error, "The picture links in “Marta” could not be updated.")
+            }
+        }
+        XCTAssertNotNil(locked, "premise: the rewrite reached the door's write")
+        unlock(locked)
+        let content = try String(  // adr-0018-ok: research-note read, not manuscript
+            contentsOf: url.appendingPathComponent("research/marta.md"), encoding: .utf8)
+        XCTAssertTrue(content.contains("./sarah_assets/"), "premise: the refs stayed stale: \(content)")
+        await ds.close()
+    }
+
+    func test_aMoveWhoseRewriteAndManifestSaveBothFail_throwsNamingBoth() async throws {
+        let (url, store, ds, piece) = try await makeCollection()
+        let note = try await store.addResearchTextNote(parentId: nil, title: "Sarah")
+        try FileManager.default.createDirectory(
+            at: url.appendingPathComponent("research/sarah_assets"), withIntermediateDirectories: true)
+        try await ds.coordinatedWrite(
+            text: "![img](./sarah_assets/img.png)",
+            to: url.appendingPathComponent("research/sarah.md"))
+        let prefix = try XCTUnwrap(ProjectStore.pieceResearchPrefix(for: piece))
+        try FileManager.default.createDirectory(
+            at: url.appendingPathComponent(prefix).appendingPathComponent("sarah_assets"),
+            withIntermediateDirectories: true)
+        var locked: URL?
+        failTheRefRewrite(of: note.id, store, ds, in: url) { locked = $0 }
+        defer { unlock(locked) }
+
+        try await UnwritableFolder.with(url) {
+            do {
+                try await store.moveResearchItems(ids: [note.id], to: .piece(piece.id))
+                XCTFail("the manifest save did not fail")
+            } catch {
+                assertSaveFailureAlsoNamesTheLinks(
+                    error, "The picture links in “Sarah” could not be updated.")
+            }
+        }
+        XCTAssertNotNil(locked, "premise: the rewrite reached the door's write")
+        await ds.close()
+    }
+
+    /// A save that fails with nothing left stale throws as before.
+    func test_aMoveWhoseManifestSaveFailsAlone_throwsTheSaveFailureUnchanged() async throws {
+        let (url, store, ds, piece) = try await makeCollection()
+        let note = try await store.addResearchTextNote(parentId: nil, title: "Sarah")
+        try await UnwritableFolder.with(url) {
+            do {
+                try await store.moveResearchItems(ids: [note.id], to: .piece(piece.id))
+                XCTFail("the manifest save did not fail")
+            } catch let error as ProjectStoreError {
+                guard case .manifestUnwritable(let detail) = error else { return XCTFail("\(error)") }
+                XCTAssertFalse(detail.contains("picture links"), detail)
+            }
+        }
+        await ds.close()
+    }
+
+    /// A save failure's detail joins the next sentence with one full stop,
+    /// whether or not the system's text already ends in one (final review,
+    /// finding 4) — the join both `saveManifest(saying:)` and
+    /// `settleDeletedInPart` make.
+    func test_aSaveFailureDetailJoinsTheNextSentenceWithOneFullStop() {
+        XCTAssertEqual(ProjectStore.saveFailure("The disk is full.", thenSaying: "Next."),
+                       "The disk is full. Next.")
+        XCTAssertEqual(ProjectStore.saveFailure("The disk is full. \n", thenSaying: "Next."),
+                       "The disk is full. Next.")
+        XCTAssertEqual(ProjectStore.saveFailure("The disk is full", thenSaying: "Next."),
+                       "The disk is full. Next.")
+        XCTAssertEqual(ProjectStore.saveFailure("Wait...", thenSaying: "Next."),
+                       "Wait... Next.", "only a single trailing full stop is taken")
+    }
+
+    /// The several-notes form of the save-failure sentence.
+    func test_theSaveFailureSentenceForSeveralNotes() {
+        let outcome = ProjectStore.RenameOutcome(assetRefsLeftIn: ["Sarah", "Ines"], act: .moved)
+        XCTAssertEqual(outcome.assetRefsAfterAFailedSave,
+                       "The picture links in 2 notes, “Sarah” and “Ines”, could not be updated.")
     }
 }
 

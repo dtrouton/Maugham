@@ -750,7 +750,7 @@
  {
   "claim_id": "M5-AN-090",
   "outcome": "NO_RULING_REACHES",
-  "reason": "No ruling states where a Research Replace splices, what a stale match does, whether Replaces take turns or what happens to the results after one; RULING-56 versions the text Replace writes (M5-AN-070) and is not about which text it replaces. Re-finding by ordinal, refusing a stale match, running Replaces one at a time (Replace All included), refreshing the results after each and skipping a file whose query is gone are the coordinator's calls, hardening 2026-11-16, not Denver's."
+  "reason": "No ruling states where a Research Replace splices, what a stale match does, whether Replaces take turns or what happens to the results after one; RULING-56 versions the text Replace writes (M5-AN-070) and is not about which text it replaces. Re-finding by ordinal, falling back by path, range and line for a click whose results were refreshed, in a document unchanged since (hardening 2026-11-17), refusing a stale match, running Replaces one at a time (Replace All included), refreshing the results after each and skipping a file whose query is gone are the coordinator's calls, hardening 2026-11-16, not Denver's."
  },
  {
   "claim_id": "M5-AN-091",
@@ -760,7 +760,7 @@
  {
   "claim_id": "M5-AN-092",
   "outcome": "NO_RULING_REACHES",
-  "reason": "RULING-24 and ADR 0034 say what the assistant's writes keep once a note exists; no ruling states whose text a note's first body is recorded as, or what a body write that does not land does to the call or to the note just created. Recording add_note's and an MCP promotion's body as the assistant's, and throwing before the inbox flip (leaving the empty note), are the coordinator's calls, hardening 2026-11-16, not Denver's."
+  "reason": "RULING-24 and ADR 0034 say what the assistant's writes keep once a note exists; no ruling states whose text a note's first body is recorded as, or what a body write that does not land does to the call or to the note just created. Recording add_note's and an MCP promotion's body as the assistant's, throwing before the inbox flip, and taking back the empty note the call created (hardening 2026-11-17, #148 D1; a note holding bytes by then is left and named), are the coordinator's calls, hardening 2026-11-16 and 2026-11-17, not Denver's."
  },
  {
   "_summary": {

@@ -1205,6 +1205,46 @@ extension ProjectStore {
         return imported
     }
 
+    /// **The Research items under these pieces' research folders**
+    /// (`pieceResearchPrefix`): every item, at any depth, whose path lies
+    /// under one. What a piece verb that moves a piece's folder holds in
+    /// flight (#145); `withResearchItemsInFlight` adds each one's descendants.
+    func researchIds(underPieces pieceIds: [String]) -> [String] {
+        let prefixes = pieceIds.compactMap { id in
+            manifest.structure.first { $0.id == id }.flatMap { Self.pieceResearchPrefix(for: $0) }
+        }
+        guard !prefixes.isEmpty else { return [] }
+        return TreeWalk.collect(in: manifest.research, where: { item in
+            guard let path = item.path else { return false }
+            return prefixes.contains { path.hasPrefix($0) }
+        }).map(\.id)
+    }
+
+    /// **The Research tree after piece folders moved** (`oldRel` → `newRel`,
+    /// each a piece folder): every item, at ANY depth, whose path lies under
+    /// an old folder's `research/` names the new one — a note inside a group
+    /// inside the piece's research moves with the folder, as its group does.
+    /// The reorder and the rename both ask it; neither keeps a loop of its
+    /// own. Each item takes the first rewrite it lies under, judged by its
+    /// path before any rewrite, so a reorder whose new folder name is another
+    /// piece's old one never rewrites an item twice.
+    nonisolated static func researchAfterPieceFoldersMoved(
+        _ research: [ResearchItem], _ rewrites: [(oldRel: String, newRel: String)]
+    ) -> [ResearchItem] {
+        research.map { item in
+            var item = item
+            if let path = item.path,
+               let rewrite = rewrites.first(where: { path.hasPrefix("\($0.oldRel)/research/") }) {
+                item.path = "\(rewrite.newRel)/research/"
+                    + path.dropFirst("\(rewrite.oldRel)/research/".count)
+            }
+            if let children = item.children {
+                item.children = researchAfterPieceFoldersMoved(children, rewrites)
+            }
+            return item
+        }
+    }
+
     /// Reorder a Collection piece within manifest.structure. Renumbers all
     /// piece folder NN- prefixes contiguously (01, 02, 03, …), moves folders
     /// on disk to match, updates manifest entry paths, and rewrites per-piece
@@ -1229,6 +1269,7 @@ extension ProjectStore {
         // 2. Compute new NN- prefix for each piece in its new position.
         // Build a path rewrite map: oldFolderRel -> newFolderRel.
         var folderRewrites: [(oldRel: String, newRel: String)] = []
+        var movingPieceIds: [String] = []
         var updatedPieces: [StructureItem] = []
         for (i, p) in reordered.enumerated() {
             guard let oldPath = p.path else {
@@ -1250,6 +1291,7 @@ extension ProjectStore {
 
             if oldFolderRel != newFolderRel {
                 folderRewrites.append((oldRel: oldFolderRel, newRel: newFolderRel))
+                movingPieceIds.append(p.id)
             }
 
             var copy = p
@@ -1299,26 +1341,22 @@ extension ProjectStore {
             // Phase B: oldRel + tmpSuffix -> newRel
             for swap in swaps { try await move(swap.tmp, swap.new) }
         }
-        if let ds = documentStore {
-            try await ds.relocateUserContent(
-                affectedPaths: affectedPiecePaths, perform: swapFolders)
-        } else {
-            try await swapFolders()
-        }
-
-        // 4. Rewrite per-piece research item paths.
-        for (i, item) in manifest.research.enumerated() {
-            guard let p = item.path else { continue }
-            for rewrite in folderRewrites {
-                let oldPrefix = "\(rewrite.oldRel)/research/"
-                let newPrefix = "\(rewrite.newRel)/research/"
-                if p.hasPrefix(oldPrefix) {
-                    var copy = item
-                    copy.path = newPrefix + String(p.dropFirst(oldPrefix.count))
-                    manifest.research[i] = copy
-                    break
-                }
+        // From just before the typed mover until the in-memory manifest names
+        // where they now are — across BOTH phases of the swap — a save of a
+        // note under any renumbered piece's research folder by anyone but
+        // this verb is turned away rather than written afresh at the old path
+        // (#145, #142 T2's span). The manifest's save is outside it.
+        try await withResearchItemsInFlight(researchIds(underPieces: movingPieceIds)) {
+            if let ds = documentStore {
+                try await ds.relocateUserContent(
+                    affectedPaths: affectedPiecePaths, perform: swapFolders)
+            } else {
+                try await swapFolders()
             }
+
+            // 4. Rewrite per-piece research item paths, at any depth.
+            manifest.research = Self.researchAfterPieceFoldersMoved(
+                manifest.research, folderRewrites)
         }
 
         // 5. Commit
@@ -1418,24 +1456,23 @@ extension ProjectStore {
                 }
             }
         }
-        if let ds = documentStore {
-            try await ds.relocateUserContent(
-                affectedPaths: [oldPath], perform: renameFolderAndDoc)
-        } else {
-            try await renameFolderAndDoc()
-        }
-
         let newPiecePath = "\(newFolderRel)/\(newDocBaseName)"
 
-        // 3. Rewrite per-piece research item paths in manifest.research.
-        let oldResearchPrefix = "\(oldFolderRel)/research/"
-        let newResearchPrefix = "\(newFolderRel)/research/"
-        for (i, item) in manifest.research.enumerated() {
-            if let p = item.path, p.hasPrefix(oldResearchPrefix) {
-                var copy = item
-                copy.path = newResearchPrefix + String(p.dropFirst(oldResearchPrefix.count))
-                manifest.research[i] = copy
+        // From just before the typed mover until the in-memory manifest names
+        // the new research folder, a note save under this piece by anyone but
+        // this verb is turned away rather than written afresh at the old path
+        // (#145, #142 T2's span). The manifest's save is outside it.
+        try await withResearchItemsInFlight(researchIds(underPieces: [pieceId])) {
+            if let ds = documentStore {
+                try await ds.relocateUserContent(
+                    affectedPaths: [oldPath], perform: renameFolderAndDoc)
+            } else {
+                try await renameFolderAndDoc()
             }
+
+            // 3. Rewrite per-piece research item paths, at any depth.
+            manifest.research = Self.researchAfterPieceFoldersMoved(
+                manifest.research, [(oldRel: oldFolderRel, newRel: newFolderRel)])
         }
 
         // 4. Update manifest entry: title + path.

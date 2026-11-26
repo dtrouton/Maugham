@@ -47,6 +47,38 @@ final class PublishFileToolsTests: XCTestCase {
         }
     }
 
+    func test_listPublishFiles_unreadableDirectoryRefusesNotEmpty() async throws {
+        let publish = projectURL.appendingPathComponent(".maugham/publish")
+        let fm = FileManager.default
+        try fm.setAttributes([.posixPermissions: 0o000], ofItemAtPath: publish.path)
+        defer { try? fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: publish.path) }
+        do {
+            _ = try await ListPublishFilesTool.handle(
+                paramsJSON: Data(#"{"project_id":"\#(pid!)"}"#.utf8),
+                registry: registry)
+            XCTFail("an unreadable publish folder must not read as empty")
+        } catch let MCPError.toolError(payload) {
+            XCTAssertEqual(payload.error, "publish_dir_unreadable")
+        }
+    }
+
+    func test_listPublishFiles_absentAndEmptyDirectoriesReadAsAnEmptyTree() async throws {
+        let publish = projectURL.appendingPathComponent(".maugham/publish")
+        let fm = FileManager.default
+        for step in ["empty", "absent"] {
+            try? fm.removeItem(at: publish)
+            if step == "empty" {
+                try fm.createDirectory(at: publish, withIntermediateDirectories: true)
+            }
+            let data = try await ListPublishFilesTool.handle(
+                paramsJSON: Data(#"{"project_id":"\#(pid!)"}"#.utf8),
+                registry: registry)
+            let resp = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+            XCTAssertEqual((resp?["files"] as? [Any])?.count, 0, step)
+            XCTAssertEqual((resp?["build_artifacts"] as? [Any])?.count, 0, step)
+        }
+    }
+
     func testList_skipsBuildSubdir() async throws {
         // Plant a file under build/ — should not appear in the listing.
         let build = projectURL.appendingPathComponent(".maugham/publish/build")

@@ -348,6 +348,34 @@ final class ResearchMoverOutsideResearchTests: XCTestCase {
         XCTAssertTrue(store.trashEntries.isEmpty)
     }
 
+    /// **M3-TR-068's missing-group arm** (#148 D4): a group whose folder is
+    /// gone (deleted in Finder) is read by its folder, deleted as the ROW with
+    /// its rows inside the entry, and comes back by ⌘⌥Z with the rows whose
+    /// files are gone dropped and named in the report, no folder re-made.
+    func test_aGroupWhoseFolderIsGoneIsDeletedAsARow_andItsRestoreNamesTheRowsItCannotReturn() async throws {
+        let (url, store) = try await novel()
+        let group = try await store.addResearchItem(parentId: nil, title: "Gone", kind: nil)
+        let notes = [try await store.addResearchTextNote(parentId: group.id, title: "Note One"),
+                     try await store.addResearchTextNote(parentId: group.id, title: "Note Two")]
+        let folder = url.appendingPathComponent(try XCTUnwrap(group.path))
+        try FileManager.default.removeItem(at: folder)
+
+        try await store.deleteResearchItems(ids: [group.id])
+
+        XCTAssertEqual(store.trashEntries.map(\.carriesFile), [false], "one row-only entry")
+        XCTAssertEqual(store.lastDeletion?.label, "Gone")
+        let onDisk = try await researchIdsOnDisk(url)
+        XCTAssertTrue(onDisk.isDisjoint(with: [group.id] + notes.map(\.id)), "the group and its rows are gone")
+
+        let report = try await store.restoreLastDeletion()
+
+        let restored = try XCTUnwrap(store.findResearchItem(id: group.id, in: store.manifest.research))
+        XCTAssertEqual(restored.children ?? [], [], "rows whose files are gone are not put back")
+        XCTAssertEqual(Set(report?.unreturned ?? []), ["Note One", "Note Two"], "and are named")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: folder.path), "no folder is re-made")
+        XCTAssertTrue(store.trashEntries.isEmpty)
+    }
+
     /// An old-style iCloud placeholder (`.<name>.icloud`) is a file still
     /// coming down, not a missing one (tripwire 18): the row is not trashed
     /// as a row, so its file cannot arrive later with no row to own it.

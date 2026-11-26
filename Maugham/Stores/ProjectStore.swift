@@ -143,6 +143,13 @@ public enum ProjectStoreError: Error, Equatable {
 /// Foundation fallback "(Maugham.ProjectStoreError error N)". `fileSystemError`
 /// carries an already-composed message, so it renders its payload verbatim.
 extension ProjectStoreError: LocalizedError {
+    /// The lead of `researchTextNotSaved`'s sentence, without the “so it is
+    /// as it was” that follows it there: a new note's take-back says what
+    /// happened to the note instead (`takeBackUnsavedNewNote`).
+    static func couldNotSave(_ title: String) -> String {
+        "Maugham couldn’t save “\(title)”"
+    }
+
     public var errorDescription: String? {
         switch self {
         case .manifestNotFound:
@@ -192,7 +199,7 @@ extension ProjectStoreError: LocalizedError {
         case .outsideResearch(let title):
             return "“\(title)” isn’t inside Research, so Maugham didn’t write it."
         case .researchTextNotSaved(let title):
-            return "Maugham couldn’t save “\(title)”, so it is as it was."
+            return Self.couldNotSave(title) + ", so it is as it was."
         case .profileFromNewerBuild:
             return "This project’s profile was set by a newer version of Maugham, so it can’t be changed here."
         case .staleSearchMatch:
@@ -437,6 +444,10 @@ public final class ProjectStore {
     /// The query and options the search field last asked for (nil once the
     /// overlay closes): what a Replace's own refresh searches.
     @ObservationIgnored var latestSearchRequest: (query: String, options: SearchOptions)?
+    /// The last few results that landed, newest last: what a click whose
+    /// id a refresh has since retired came from (`ProjectStore+Search
+    /// .listedMatch(for:)`, #147 R1). Emptied by `clearSearch`.
+    @ObservationIgnored var recentlyLandedSearches: [SearchResults] = []
     /// The Replace (single or Replace All) in flight, if any: the next one
     /// waits for it and its refresh, so it is judged against fresh results.
     @ObservationIgnored var replaceTail: Task<Void, Never>?
