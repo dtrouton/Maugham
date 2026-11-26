@@ -153,7 +153,7 @@ struct BinderTreeSections: View {
                 }
                 Button("New Group") { actions.newGroup(nil) }
                 Button("Add File…") { actions.addFile(nil) }
-                Button("Add Link…") { actions.addLink(nil) }
+                Button(ResearchTreeActions.addWebLinkTitle) { actions.addLink(nil) }
             }
             // **The header's own scroll identity** (Task 8) — what ⌘⌥R's
             // `scrollRequest = .researchHeader` targets. A revealed research
@@ -303,6 +303,11 @@ struct BinderTreeSections: View {
                 actions.deleteMany(acting)
             }
         } else {
+            // The click's twin first (row 66).
+            if let pullUp = actions.pullUp, let title = actions.pullUpTitle {
+                Button(title(card.id)) { pullUp(card.id) }
+                Divider()
+            }
             Button("Duplicate") { actions.duplicate(card.id) }
             Button("Delete", role: .destructive) { actions.delete(card.id) }
         }
@@ -660,6 +665,24 @@ struct BinderTreeVerbs {
     let state: BinderTreeSectionsState
     @Binding var subject: WindowSubject
 
+    /// **"Pull Up" or "Put Away"** — what the row's click does now: put
+    /// away only the one up AND on show (`TreeRowKeys.returned`'s rule).
+    static func pullUpTitle(_ pulled: PulledUp, subject: WindowSubject, columnShowsPulledUp: Bool) -> String {
+        subject.beside == pulled && columnShowsPulledUp ? putAwayTitle : pullUpTitle
+    }
+    static let pullUpTitle = "Pull Up"
+    static let putAwayTitle = "Put Away"
+
+    /// A row menu's Pull Up / Put Away: Return or Space's act on the row
+    /// (`TreeRowKeys.returned`), the row staying the one selected.
+    func pullUpOrPutAway(_ pulled: PulledUp) {
+        let next = TreeRowKeys.returned(pulled, subject: subject, columnShowsPulledUp: state.columnShowsPulledUp)
+        if let id = pulled.researchID { state.record(selection: [.research(id)], subject: next.subject) }
+        state.pendingSettle = nil
+        subject = next.subject
+        if next.reveals { state.pulledUpRevealRequests += 1 }
+    }
+
     var bundle: ResearchTreeActions {
         var bundle = ResearchTreeActions(
             rename: { id, newTitle in renameResearch(id, to: newTitle) },
@@ -752,6 +775,16 @@ struct BinderTreeVerbs {
             figureVerbRefusal: { [figures = figures] item in figures.bringBackRefusal(for: item) })
         // A shared row's feedback: `internalDrop`/`externalDrop`'s own rule.
         bundle.dropAnswers = { item in dropAnswers(on: .researchRow(item.id)) }
+        // The click's twin and ⌘↓'s (shell p5 Task 7, rows 64–66).
+        bundle.pullUpTitle = { [state, subject] id in
+            Self.pullUpTitle(.research(id), subject: subject, columnShowsPulledUp: state.columnShowsPulledUp)
+        }
+        bundle.pullUp = { id in pullUpOrPutAway(.research(id)) }
+        bundle.openInCentre = { id in
+            subject = TreeTravel.openInCentre(.research(id), current: subject,
+                                              structure: store.manifest.structure,
+                                              projectType: store.manifest.type)
+        }
         return bundle
     }
 
@@ -1260,6 +1293,10 @@ final class BinderTreeSectionsState {
     /// created item is not in the manifest the current body pass rendered, so
     /// setting `renamingItemId` directly names a row nobody drew.
     var pendingRenameId: String?
+    /// **A binder piece or Part File ▸ New Chapter / New Part just made**
+    /// (shell p5 Task 7): `BinderView` takes it into its own rename, as its
+    /// root verbs always did.
+    var pendingBinderRenameId: String?
     var showingAddLinkSheet: Bool = false
     /// Which group the Add Link sheet's result belongs in; `nil` is the shared
     /// root.
@@ -2447,6 +2484,36 @@ enum TreeRowKeys {
         }
     }
 
+    /// **Open in Centre for one tree row** — ⌘↓'s, and View ▸ Open in
+    /// Centre's (shell p5 Task 7, row 41), one body: a fold's pull-up row as
+    /// its double-click opens it, any other row through the click rule.
+    @MainActor
+    static func openInCentre(_ row: TreeRowTag, subject: Binding<WindowSubject>,
+                             store: ProjectStore, windowCanvas: CanvasModel?) {
+        switch row {
+        case .pullUp(let foldRow):
+            BinderPieceFold.openInCentre(foldRow.pulled, subject: subject, store: store,
+                                         windowCanvas: windowCanvas)
+        case .subject(let clicked), .inFold(let clicked, _):
+            subject.wrappedValue = TreeTravel.openInCentre(clicked, current: subject.wrappedValue,
+                                                           structure: store.manifest.structure,
+                                                           projectType: store.manifest.type)
+        }
+    }
+
+    /// **What View ▸ Open in Centre opens** (row 41): the binder's one
+    /// selected row, else what is pulled up; nil — the item disabled — with
+    /// neither. Pure.
+    enum CentreOpening: Equatable {
+        case row(TreeRowTag)
+        case pulledUp(PulledUp)
+    }
+
+    static func centreOpening(drawn: Set<TreeRowTag>, beside: PulledUp?) -> CentreOpening? {
+        if case .openInCentre(let row)? = act(.openInCentre, drawn: drawn) { return .row(row) }
+        return beside.map(CentreOpening.pulledUp)
+    }
+
     /// The subject after a Return or Space on `pulled`, and whether the
     /// column is to show the pulled-up position: put away only when it is
     /// the one up AND on show; otherwise pulled up and shown. Pure.
@@ -2539,13 +2606,8 @@ struct TreeRowKeysModifier: ViewModifier {
                 state.pendingSettle = nil
                 subject = next.subject
                 if next.reveals { state.pulledUpRevealRequests += 1 }
-            case .openInCentre(.pullUp(let foldRow)):
-                BinderPieceFold.openInCentre(foldRow.pulled, subject: $subject, store: store,
-                                             windowCanvas: windowCanvas)
-            case .openInCentre(.subject(let row)), .openInCentre(.inFold(let row, _)):
-                subject = TreeTravel.openInCentre(row, current: subject,
-                                                  structure: store.manifest.structure,
-                                                  projectType: store.manifest.type)
+            case .openInCentre(let row):
+                TreeRowKeys.openInCentre(row, subject: $subject, store: store, windowCanvas: windowCanvas)
             }
             return .handled
         }

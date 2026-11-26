@@ -383,6 +383,10 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
     /// expanded grid's controller. Key-window scoped; a surface with no grid
     /// opening never expands one, so it has nothing to hand on.
     private var figureTableCommandObserver: NSObjectProtocol?
+    /// Edit ▸ Comment… and the text's right-click Comment… / Suggest… (shell
+    /// p5 Task 7): the annotation composer on the selection. Key-window
+    /// scoped and asks `manuscriptCommandContext()`.
+    private var commentObserver: NSObjectProtocol?
 
     /// Whether this editor answers the Insert menu (plan 3a Task 4): true only
     /// for the manuscript editor of a Markdown piece, which `EditorHost` alone
@@ -1039,6 +1043,12 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
         ) { [weak self] _ in
             self?.convertTableToFigure()
         }
+        commentObserver = MaughamEvent.observe(
+            .maughamCommentOnSelection,
+            context: { [weak self] in self?.manuscriptCommandContext() }
+        ) { [weak self] note in
+            self?.commentOnSelection(AnnotationOffer.kind(of: note.userInfo) ?? .comment)
+        }
         figureTableCommandObserver = MaughamEvent.observe(
             .maughamFigureTableCommand,
             context: { [weak self] in self?.manuscriptCommandContext() }
@@ -1102,6 +1112,9 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
             NotificationCenter.default.removeObserver(token)
         }
         if let token = figureTableCommandObserver {
+            NotificationCenter.default.removeObserver(token)
+        }
+        if let token = commentObserver {
             NotificationCenter.default.removeObserver(token)
         }
         if let token = storageEditObserver {
@@ -1265,7 +1278,7 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
                       insertTableObserver, insertFootnoteObserver, insertFigureObserver,
                       insertExistingFigureObserver,
                       insertCitationObserver, insertCrossReferenceObserver, convertTableObserver,
-                      figureTableCommandObserver] {
+                      figureTableCommandObserver, commentObserver] {
             if let token { NotificationCenter.default.removeObserver(token) }
         }
         navigateObserver = nil; findMatchObserver = nil; paragraphNavigateObserver = nil
@@ -1275,7 +1288,7 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
         insertExistingFigureObserver = nil
         existingFigurePicker?.close()
         insertCitationObserver = nil; insertCrossReferenceObserver = nil; convertTableObserver = nil
-        figureTableCommandObserver = nil
+        figureTableCommandObserver = nil; commentObserver = nil
         if let token = storageEditObserver { NotificationCenter.default.removeObserver(token) }
         storageEditObserver = nil
         // Clear the native undo stack before the text-view reference is

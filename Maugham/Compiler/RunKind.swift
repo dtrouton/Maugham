@@ -79,6 +79,17 @@ enum RunCommand: CaseIterable, Equatable, Sendable {
         }
     }
 
+    /// **The File menu's title, for the pass a round would file in** (shell
+    /// p5 Task 7, row 6): "Run Gould’s Round" — the board chip's
+    /// personification (`RoundNarrative.runRoundTitle`) in a menu's title
+    /// case — and the round read cold "Run Gould’s Round with Fresh Eyes".
+    /// A check is nobody's round, and with no pass the fixed titles stand.
+    func menuTitle(editorName: String?) -> String {
+        guard let editorName, kind == .round else { return title }
+        let round = "Run \(editorName)\u{2019}s Round"
+        return isFreshEyes ? round + " with Fresh Eyes" : round
+    }
+
     /// The key as the writer reads it in a sentence (a tooltip, a teaching
     /// line), in the menu bar's own order — the one spelling copy names a
     /// command's key by, so a sentence cannot teach the wrong chord.

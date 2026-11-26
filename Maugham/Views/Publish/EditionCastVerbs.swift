@@ -239,6 +239,12 @@ enum EditionCastVerbs {
     // MARK: - Removing an edition (shell p4 closing round)
 
     static let removeEditionTitle = "Remove Edition\u{2026}"
+    /// **"Remove Spanish Edition…"** (rows 13, 68): say what goes; the bare
+    /// title with no edition chosen.
+    static func removeEditionTitle(language: String?) -> String {
+        guard let language else { return removeEditionTitle }
+        return "Remove \(LanguageName.title(language)) Edition\u{2026}"
+    }
     static let removeEditionHelp =
         "Hide this edition. Its translations stay in the project and come back if you add the language again."
 

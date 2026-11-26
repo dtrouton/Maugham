@@ -981,18 +981,17 @@ final class MaughamTextView: NSTextView {
     }
 
     /// The right-click menu: AppKit's, with Convert to Table Figure first when
-    /// the click is in a pipe table (report plan 7b Task 5). The coordinator
-    /// decides (`convertTableMenuItem(atCharacterIndex:)`, over the pure
-    /// `convertOffer`); no test may synthesise the right-click (tripwire 33),
-    /// so the tests ask those two directly.
+    /// the click is in a pipe table (report plan 7b Task 5), then Comment… (and
+    /// Suggest…) on a selection where the posture offers them (shell p5 Task
+    /// 7). The coordinator decides (`convertTableMenuItem(atCharacterIndex:)`,
+    /// `annotationMenuItems()`) and `AnnotationOffer.compose` builds; no test
+    /// may synthesise the right-click (tripwire 33), so the tests ask those.
     override func menu(for event: NSEvent) -> NSMenu? {
-        let menu = super.menu(for: event)
         let index = characterIndexForInsertion(at: convert(event.locationInWindow, from: nil))
-        guard let item = coordinator?.convertTableMenuItem(atCharacterIndex: index) else { return menu }
-        let offered = menu ?? NSMenu()
-        offered.insertItem(item, at: 0)
-        if offered.items.count > 1 { offered.insertItem(.separator(), at: 1) }
-        return offered
+        return AnnotationOffer.compose(
+            base: super.menu(for: event),
+            convert: coordinator?.convertTableMenuItem(atCharacterIndex: index),
+            annotate: coordinator?.annotationMenuItems() ?? [])
     }
 
     override var readablePasteboardTypes: [NSPasteboard.PasteboardType] {

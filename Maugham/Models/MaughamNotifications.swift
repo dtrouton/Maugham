@@ -245,7 +245,7 @@ extension Notification.Name {
     /// Posted by View ▸ Margin's items (shell p5 Task 2): the key window's
     /// margin setting (`MaughamEvent.postMarginSetting`). Scope: .keyWindow.
     public static let maughamSetMargin = Notification.Name("maugham.set.margin")
-    /// Posted by ⌘⌥G/⌘⌥Y/⌘⌥V/⌘⌥H (shell plan 3): a Book statement or the
+    /// Posted by ⌘⌥G/⌘⌥Y/⌘⌥V/⌃⌘H (shell plan 3): a Book statement or the
     /// faces' piece's History is pulled up beside the centre
     /// (`MaughamEvent.postPullUp`). Scope: .keyWindow.
     public static let maughamPullUp = Notification.Name("maugham.pull.up")
@@ -275,6 +275,24 @@ extension Notification.Name {
     /// Inbox stopped being a right-column pane when it became a row.
     /// Scope: .keyWindow.
     public static let maughamOpenInbox = Notification.Name("maugham.open.inbox")
+    /// Posted by View ▸ Go to the Canvas (shell p5 Task 7): open the Canvas
+    /// in the centre — the click on its binder row, through `ClickRule`.
+    /// Scope: .keyWindow.
+    public static let maughamOpenCanvas = Notification.Name("maugham.open.canvas")
+    /// Posted by View ▸ Open in Centre (shell p5 Task 7): the binder's
+    /// selected row, else what is pulled up, in the centre — ⌘↓'s act
+    /// (`TreeRowKeys.centreOpening`). Scope: .keyWindow.
+    public static let maughamOpenInCentre = Notification.Name("maugham.open.inCentre")
+    /// Posted by File ▸ New Chapter / New Part and the binder's own root
+    /// verbs (shell p5 Task 7): add a piece or a group at the binder's root,
+    /// `userInfo["binder_item"]` naming which (`MaughamEvent.postAddBinderItem`).
+    /// Scope: .keyWindow.
+    public static let maughamAddBinderItem = Notification.Name("maugham.add.binderItem")
+    /// Posted by Edit ▸ Comment… and the text's right-click Comment… /
+    /// Suggest… (shell p5 Task 7): open the annotation composer on the key
+    /// window's selection, `userInfo["kind"]` naming the kind
+    /// (`AnnotationOffer`). Scope: .keyWindow.
+    public static let maughamCommentOnSelection = Notification.Name("maugham.comment.onSelection")
     /// Posted by every read-through route (`ReadThrough.post`): start or
     /// resume `userInfo["doc_id"]`'s read-through as `userInfo["on"]` says
     /// (`ReadThroughModifier`). Scope: .keyWindow.

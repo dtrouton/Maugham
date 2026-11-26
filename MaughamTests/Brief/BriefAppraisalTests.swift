@@ -89,7 +89,7 @@ final class BriefAppraisalTests: XCTestCase {
     func test_briefFootsCarryHistory() throws {
         let piece = try SourceTree.read("Maugham/Views/Brief/BriefPieceView.swift")
         XCTAssertTrue(piece.contains("BriefFoot.line(docId: docId, store: store, tree: tree)"))
-        XCTAssertTrue(piece.contains("onPullUp: onPullUp, offered: line.offered)"))
+        XCTAssertTrue(piece.contains("onPullUp: onPullUp, offered: line.offered, noun: line.noun)"))
         let foot = try SourceTree.read("Maugham/Views/Brief/BriefDetails.swift")
         XCTAssertTrue(foot.contains("offered: offered, history: .history(docId: docId))"),
                       "a piece's foot ends with that piece's History")

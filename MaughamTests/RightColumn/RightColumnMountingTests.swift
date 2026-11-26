@@ -125,8 +125,6 @@ final class RightColumnMountingTests: XCTestCase {
         ("g", "MaughamEvent.postPullUp(.lessons)"),
         ("y", "MaughamEvent.postPullUp(.firstReader)"),
         ("v", "MaughamEvent.postPullUp(.visualLanguage)"),
-        ("h", "MaughamEvent.postPullUp(.historyOfTheFaces)"),
-        ("e", "MaughamEvent.postShowPieceFold()"),
         ("l", "MaughamEvent.postResolve(.questions)"),
     ]
 
@@ -139,13 +137,13 @@ final class RightColumnMountingTests: XCTestCase {
         ("a", commandOption, "To Resolve: Rounds"),
         ("d", commandOption, "To Resolve: Checks"),
         ("t", commandOption, "To Resolve: Mine"),
-        ("i", commandOption, "Brief: the Line"),
-        ("n", commandOption, "Brief: Going For"),
+        ("i", commandOption, "Write the Line"),
+        ("n", commandOption, "Write Going For"),
         ("g", commandOption, "Pull Up What I've Learned"),
         ("y", commandOption, "Pull Up First Reader"),
         ("v", commandOption, "Pull Up Visual Language"),
-        ("h", commandOption, "Pull Up History"),
-        ("e", commandOption, "Open the Piece's Fold"),
+        // ⌘⌥H is the app menu's Hide Others: History is ⌃⌘H (Task 7).
+        ("h", "[.command,.control]", "Pull Up History"),
         ("l", commandOption, "To Resolve: Questions"),
     ]
 
@@ -205,11 +203,17 @@ final class RightColumnMountingTests: XCTestCase {
                      "First Reader", "Visual Language"] {
             XCTAssertFalse(keys.contains { $0.title == gone }, "an item is still titled “\(gone)”")
         }
-        // ⌘⌥E is disabled, not inert, where the window has no piece.
+        // ⌃⌘H pulls the History up (it was ⌘⌥H, which Hide Others holds).
+        XCTAssertEqual(Self.action(for: "h", modifiers: "[.command,.control]", in: keys),
+                       ["MaughamEvent.postPullUp(.historyOfTheFaces)"])
+        XCTAssertEqual(Self.action(for: "h", modifiers: Self.commandOption, in: keys), [])
+        // ⌘⌥E is disabled, not inert, where the window has no piece, and is
+        // titled by the project's noun (row 42).
         let flat = Self.flat(app)
         XCTAssertTrue(flat.contains(
-            #"Button("Open the Piece's Fold") { MaughamEvent.postShowPieceFold() } .keyboardShortcut("e", modifiers: [.command, .option]) .disabled(offered != true)"#),
-            "the fold item lost its enablement")
+            #"Button(Self.title(noun: noun)) { MaughamEvent.postShowPieceFold() } .keyboardShortcut("e", modifiers: [.command, .option]) .disabled(offered != true || !inFront)"#),
+            "the fold item lost its key or its enablement")
+        XCTAssertEqual(FocusedPieceFoldButton.title(noun: "Chapter"), "Show the Chapter\u{2019}s Fold")
         XCTAssertTrue(flat.contains("@FocusedValue(\\.pieceFoldIsOffered) private var offered"))
         let observer = Self.flat(try SourceTree.sourceOfType("ResearchRevealModifier", under: ["Maugham"]))
         XCTAssertTrue(observer.contains(
@@ -219,17 +223,17 @@ final class RightColumnMountingTests: XCTestCase {
         // ⌘⌥K is titled for the edition it shows and disabled with none
         // (shell p4 Task 7): its item reads the window's focused title.
         XCTAssertTrue(flat.contains(
-            #"Button(title ?? EditionWiring.keyTitleWithNoEdition) { MaughamEvent.postShowEditionResolve() } .keyboardShortcut("k", modifiers: [.command, .option]) .disabled(title == nil)"#),
+            #"Button(title ?? EditionWiring.keyTitleWithNoEdition) { MaughamEvent.postShowEditionResolve() } .keyboardShortcut("k", modifiers: [.command, .option]) .disabled(title == nil || !inFront)"#),
             "⌘⌥K lost its item, its key or its enablement")
         XCTAssertTrue(flat.contains("@FocusedValue(\\.editionKeyTitle) private var title"))
         XCTAssertEqual(Self.action(for: "k", modifiers: Self.commandOption, in: keys), [],
                        "⌘⌥K is bound once, by its focused item")
 
-        // The planted offender: ⌘⌥H bound to Brief.
+        // The planted offender: ⌘⌥Y bound to Brief.
         let planted = app.replacingOccurrences(
-            of: #"Button("Pull Up History") { MaughamEvent.postPullUp(.historyOfTheFaces) }"#,
-            with: #"Button("Pull Up History") { MaughamEvent.postPosition(.brief) }"#)
-        XCTAssertNotEqual(planted, app, "premise: the History item is spelled as the plant expects")
+            of: #"Button("Pull Up First Reader") { MaughamEvent.postPullUp(.firstReader) }"#,
+            with: #"Button("Pull Up First Reader") { MaughamEvent.postPosition(.brief) }"#)
+        XCTAssertNotEqual(planted, app, "premise: the First Reader item is spelled as the plant expects")
         XCTAssertEqual(Self.paneKeyProblems(in: planted).count, 1,
                        "\(Self.paneKeyProblems(in: planted))")
     }
@@ -828,7 +832,9 @@ final class RightColumnMountingTests: XCTestCase {
         for subject in Self.subjects {
             XCTAssertNil(key(subject, []), "\(subject): no editions, nothing to show")
         }
-        XCTAssertEqual(EditionWiring.keyTitle(editions[1]), "To Resolve: Serbian Edition")
+        XCTAssertEqual(EditionWiring.keyTitle(editions[1]), "Serbian Edition\u{2019}s To Resolve",
+                       "row 35: it moves the faces, so no filter's colon title")
+        XCTAssertEqual(EditionWiring.keyTitleWithNoEdition, "An Edition\u{2019}s To Resolve")
         XCTAssertNil(EditionWiring.keyTitle(nil), "with no edition the item is disabled")
 
         // The receiver: the faces move to that edition and To resolve shows.

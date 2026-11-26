@@ -14,9 +14,9 @@ The ones you'll use most:
 | `⌘⇧S` | Save Checkpoint As… — a named checkpoint you can find again, and back up as ⌘S does |
 | `⌘R` | **Check Writing** — notes on what you've written since the last check. In an expanded table, ⌘R is Format ▸ Table ▸ **Fill Right** instead: the selection's left column copied across it |
 | `⌘⇧R` | **Reread** — the check read cold: ends the warm session and reads the whole piece |
-| `⌘⌃R` | **Run Round** — a numbered round in the piece's pass |
-| `⌘⌃⇧R` | **Fresh Eyes** — the round read cold |
-| `⌘⇧↩` | Promote… — turn the canvas selection into a durable artifact |
+| `⌘⌃R` | **Run the round** — a numbered round in the piece's pass; File names whose ("Run Gould's Round") |
+| `⌘⌃⇧R` | **The round with fresh eyes** — the round read cold |
+| `⌘⇧↩` | Promote Canvas Selection… — turn the canvas selection into a durable artifact |
 | `⌘Z` | Undo (text, annotation action, task, checkbox, or History Rewind) |
 | `⌘⇧Z` | Redo |
 | `⌘,` | Settings |
@@ -24,7 +24,7 @@ The ones you'll use most:
 | `⌘F` | Find in editor |
 | `⌘G` / `⌘⇧G` | Find next / previous |
 | `⌘⌥F` | Find in project |
-| `⌘⌥A` | Show Annotations pane |
+| `⌘⇧K` | Edit ▸ Comment… — a comment on the selected words, without starting a read-through; right-clicking a selection offers it too |
 | `⌘⌥C` | Translator's Note… — a directive on the paragraph under the caret, into the piece's craft intent (every edition) or one edition's brief |
 | `⌘⌥Z` | Restore last deletion |
 | `⌘⇧T` | Insert ▸ Table — a 3×3 table figure with a header row in the project's `figures/` folder, with its figure line written at the caret and "Caption" selected; one ⌘Z takes back the line and the figure |
@@ -38,33 +38,38 @@ The ones you'll use most:
 | `⌘⌥←` | Format ▸ Table ▸ Insert Column Left |
 | `⌘⌥→` | Format ▸ Table ▸ Insert Column Right |
 | `⌘D` | Format ▸ Table ▸ Fill Down — in an expanded table, the selection's top row copied down it, formulas adjusted as Excel's are; one cell fills from the cell above |
-| `⌘\` | Toggle focus mode (on the canvas, also collapses both side columns) |
-| `⌘⇧F` | Toggle full-screen focus (turns focus mode on, so the canvas collapses too) |
-| `⌘1` | Plan persona |
-| `⌘2` | Author persona |
-| `⌘3` | Review persona |
-| `⌘4` | Publish persona |
-| `⌘⌥⇧R` | Toggle Review Mode — the annotate-only posture, see [Annotations & Suggestions](annotations-and-suggestions.md#review-mode--reading-your-own-draft-cold) |
-| `⌘⌥I` | Inspector pane |
-| `⌘⌥R` | Open the tree's Research section, scrolled into view (no-op while Find in Project covers the tree) |
-| `⌘⌥O` | Select the project row — corkboard/outline in Author, the review board (pieces × passes) in Review, the planning canvas in Plan, the compiled book in Publish once you've made one (corkboard/outline there too, before you have) |
-| `⌘⌥H` | History pane |
-| `⌘⌥T` | Tasks pane |
-| `⌘⌥B` | Inbox pane |
-| `⌘⌥P` | Open the tree's Palette section, scrolled into view (no-op while Find in Project covers the tree) |
-| `⌘⌥L` | Translation pane |
-| `⌘⌥N` | Intent pane |
-| `⌘⌥G` | What I've Learned pane — the lessons ledger, across the whole project |
-| `⌘⌥Y` | First Reader pane — who reads this project, and what she knows |
-| `⌘⌥V` | Visual Language pane |
+| `⌘\` | View ▸ Focus Mode (on the canvas, also collapses both side columns) |
+| `⌘⇧F` | View ▸ Full-Screen Focus (turns Focus Mode on, so the canvas collapses too) |
+| `⌘⌥⇧R` | View ▸ Start Read-through / Resume Writing — the open piece read as a reader would, its words locked until you resume |
+| `⌘⇧P` | View ▸ Show or Hide Research Preview |
+| `⌘⌥0` | View ▸ Show or Hide Right Column |
+| `⌘⌃L` | View ▸ Read In Next Language — Source, then each translation, then Source again |
+| `⌘⌃⇧L` | View ▸ Show Source Under Translation |
+| `⌘1` | To Resolve — what has been raised about what the right column faces |
+| `⌘⌥D` | To Resolve: Checks — the check's findings |
+| `⌘⌥A` | To Resolve: Rounds — the rounds' notes |
+| `⌘⌥T` | To Resolve: Mine — your own notes and to-dos |
+| `⌘⌥L` | To Resolve: Questions — a translator's questions; where there are none, it says so |
+| `⌘⌥K` | The To Resolve of the edition you are reading, else the Source's |
+| `⌘2` | Brief |
+| `⌘⌥I` | Write the Line — Brief, with the cursor in the piece's line |
+| `⌘⌥N` | Write Going For — Brief, with the cursor in what the piece is going for |
+| `⌘3` | Pulled Up — the thing pulled up beside the centre |
+| `⌘⌥G` | Pull Up What I've Learned — the lessons ledger, across the whole project |
+| `⌘⌥Y` | Pull Up First Reader — who reads this project, and what she knows |
+| `⌘⌥V` | Pull Up Visual Language |
+| `⌘⌃H` | Pull Up History — the piece's history (the project's, with no piece) |
 | `⌘[` | Back: pull up again what was pulled up before (View ▸ Back) |
-| `⌘⌥D` | Diagnostics pane — the compiler's notes on what you've written |
-| `⌘⌥E` | References pane — what this piece is pinned to |
-| `⌘⌥K` | Department pane — Publish's desk: the book's design and its language editions |
-| `⌘⌥0` | Toggle inspector column |
-| `⌘⌥⇧L` | Lock or unlock research and figures (the toolbar's padlock); the manuscript stays editable |
-| `⌘⇧P` | Toggle Research preview |
-| `⌘/` | Syntax + keyboard reference |
+| `⌘⌥E` | Show the piece's fold in the binder — what it is pinned to |
+| `⌘⌥O` | Go to the Book — the Book row, its cards, outline and status |
+| `⌘⌥R` | Go to Research — the binder's Research section, scrolled into view (no-op while Find in Project covers the binder) |
+| `⌘⌥P` | Go to Palette — the binder's Palette section, scrolled into view (no-op while Find in Project covers the binder) |
+| `⌘⌥B` | Go to Inbox |
+| `⌘⌃1` | View as Cards (an edition: its Book) |
+| `⌘⌃2` | View as Outline |
+| `⌘⌃3` | View as Status |
+| `⌘↓` | In the binder: Open in Centre — the selected row, in the centre (View ▸ Open in Centre) |
+| `⌘/` | Syntax & Keyboard Shortcuts |
 | `⌘?` | Maugham Help — this guide |
 
 **Two different things are called "review", and only the shortcut tells them apart.** `⌘3` is the **Review persona** — a window layout that leads with the Annotations pane. `⌘⌥⇧R` is **Toggle Review Mode** — a posture of the *editor* that makes your manuscript read-only and puts you in the reviewer's seat. They're independent: you can turn Review Mode on in any persona, and the Review persona doesn't turn it on for you.

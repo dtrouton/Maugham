@@ -180,7 +180,7 @@ struct BriefPieceView: View {
             openSheet: tree.map { tree in
                 { [docId] item in tree.pieceRowSheet = PieceRowSheet(item, pieceId: docId) }
             },
-            onPullUp: onPullUp, offered: line.offered)
+            onPullUp: onPullUp, offered: line.offered, noun: line.noun)
     }
 
     // MARK: - The two quiet lines

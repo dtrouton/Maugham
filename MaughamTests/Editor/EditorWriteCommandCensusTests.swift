@@ -30,6 +30,7 @@ final class EditorWriteCommandCensusTests: XCTestCase {
         ".maughamReadInLanguage": "flips the translation membrane; writes no text",
         ".maughamReadInSource": "flips the translation membrane; writes no text",
         ".maughamSetReadThrough": "flips the read-through membrane of its own document; writes no text",
+        ".maughamCommentOnSelection": "opens the annotation composer on the selection; a note, never the text (and asks manuscriptCommandContext all the same)",
     ]
 
     static let askingContexts = ["manuscriptCommandContext()", "insertCommandContext()"]
@@ -105,6 +106,9 @@ final class EditorWriteCommandCensusTests: XCTestCase {
     func test_theWindowSideDoorsAskTheOneQuestion() throws {
         let gate = try SourceTree.declaration(named: "static func isEnabled(posture:", under: "Maugham")
         XCTAssertTrue(gate.contains("ProjectWindow.manuscriptIsVisible(route: route)"))
+        // Edit ▸ Comment… (shell p5 Task 7) asks the same question.
+        let comment = try SourceTree.declaration(named: "static func offersComment(posture:", under: "Maugham")
+        XCTAssertTrue(comment.contains("ProjectWindow.manuscriptIsVisible(route: route)"))
         let window = SourceScan.codeLines(
             of: try SourceTree.sourceOfType("ProjectWindow", under: ["Maugham"]))
         // The route is gathered once per pass (`readThroughFacts`) and the

@@ -630,7 +630,7 @@ final class PromotionCommandTests: XCTestCase {
              + "silently — and a hand-spelled `\"inbox:\" + entry.id` here would "
              + "be a second spelling of a prefix the router destructures"),
             ("Maugham/MaughamApp.swift",
-             ["FocusedPromoteButton()", ".maughamPromoteCanvasSelection"],
+             ["Button(Self.promoteTitle)", ".maughamPromoteCanvasSelection"],
              "the File-menu item is not IN the menu (or does not post this command), "
              + "so ⌘⇧↩ reaches nothing — the 1C-a shape exactly: built, tested, greyed out"),
         ]

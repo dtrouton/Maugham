@@ -318,7 +318,7 @@ enum MaughamEvent {
     }
 
     /// Ask the key window to pull `request` up beside its centre (⌘⌥G, ⌘⌥Y,
-    /// ⌘⌥V, ⌘⌥H; the standing line's History).
+    /// ⌘⌥V, ⌃⌘H; the standing line's History).
     static func postPullUp(_ request: PullUpRequest) {
         post(.maughamPullUp, to: .keyWindow,
              payload: [pullUpKey: request.rawValue])
@@ -336,6 +336,12 @@ enum MaughamEvent {
     /// View ▸ Back; `PulledUpHistory`).
     static func postPullUpPrevious() {
         post(.maughamPullUpPrevious, to: .keyWindow)
+    }
+
+    /// Ask the key window to add a piece or a group at its binder's root
+    /// (File ▸ New Chapter / New Part; the binder's own root verbs).
+    static func postAddBinderItem(_ request: BinderItemRequest) {
+        post(.maughamAddBinderItem, to: .keyWindow, payload: [BinderItemRequest.key: request.rawValue])
     }
 
     /// Ask the key window's tree to open the faces' piece's fold (⌘⌥E).

@@ -130,7 +130,10 @@ final class RightColumnAppraisalTests: XCTestCase {
         let hint = PulledUpView.nothingPulledUpHint
         XCTAssertTrue(hint.contains("fold"), "the fold is the way in")
         let keys = hint.components(separatedBy: "\u{2318}\u{2325}").dropFirst().map { String($0.prefix(1)) }
-        XCTAssertEqual(keys, ["G", "Y", "V", "H"])
+        XCTAssertEqual(keys, ["G", "Y", "V"])
+        // History's key is ⌃⌘H (Task 7's key pass: ⌘⌥H is the app menu's
+        // Hide Others), said as the menu bar says it.
+        XCTAssertTrue(hint.contains("\u{2303}\u{2318}H for the piece\u{2019}s History"))
         let app = SourceScan.codeLines(of: try SourceTree.read("Maugham/MaughamApp.swift"))
             .joined(separator: " ")
             .components(separatedBy: .whitespacesAndNewlines).filter { !$0.isEmpty }.joined(separator: " ")
@@ -143,6 +146,7 @@ final class RightColumnAppraisalTests: XCTestCase {
         // The control: a key that is not a pull-up does not pass.
         let planted = #"Button\("[^"]*"\) \{ MaughamEvent\.postPullUp\(\.\w+\) \} \.keyboardShortcut\("d", modifiers: \[\.command, \.option\]\)"#
         XCTAssertNil(app.range(of: planted, options: .regularExpression))
+        XCTAssertTrue(app.contains(#"Button("Pull Up History") { MaughamEvent.postPullUp(.historyOfTheFaces) } .keyboardShortcut("h", modifiers: [.command, .control])"#))
         // A ContentUnavailableView's description, under tripwire 15's frames.
         let view = SourceScan.codeLines(of: try SourceTree.read("Maugham/Views/PulledUpView.swift"))
             .joined(separator: "\n")
@@ -171,18 +175,22 @@ final class RightColumnAppraisalTests: XCTestCase {
 
     // MARK: - 5. The View menu, grouped by destination
 
-    /// The View menu's own group (`CommandGroup(after: .toolbar)`), as the
-    /// items' titles in order with a `|` for each divider.
+    /// The View menu's own items (`ViewMenuItems`, mounted by
+    /// `CommandGroup(after: .toolbar)`), as the items' titles in order with a
+    /// `|` for each divider; an item titled by a function is named by it
+    /// ("RightColumn.toggleTitle"), a focused item by its type.
     private static func viewMenuSequence(_ app: String) -> [String] {
-        guard let start = app.range(of: "CommandGroup(after: .toolbar) {"),
-              let end = app.range(of: "CommandGroup(after: .pasteboard) {", range: start.upperBound..<app.endIndex)
+        guard let start = app.range(of: "private struct ViewMenuItems: View {"),
+              let end = app.range(of: "enum ViewMenuTitles {", range: start.upperBound..<app.endIndex)
         else { return [] }
         let body = String(app[start.upperBound..<end.lowerBound])
-        let regex = try! NSRegularExpression(pattern: #"Button\("([^"]*)"\)|Divider\(\)|(Focused\w+)\(\)"#)
+        let regex = try! NSRegularExpression(
+            pattern: #"(?:Button|Toggle)\("([^"]*)"|Button\(([A-Z]\w*\.\w+)\(|Divider\(\)|(Focused\w+)\("#)
         let ns = body as NSString
         return regex.matches(in: body, range: NSRange(location: 0, length: ns.length)).map { match in
-            if match.range(at: 1).location != NSNotFound { return ns.substring(with: match.range(at: 1)) }
-            if match.range(at: 2).location != NSNotFound { return ns.substring(with: match.range(at: 2)) }
+            for group in 1...3 where match.range(at: group).location != NSNotFound {
+                return ns.substring(with: match.range(at: group))
+            }
             return "|"
         }
     }
@@ -196,7 +204,7 @@ final class RightColumnAppraisalTests: XCTestCase {
         "To Resolve", "To Resolve: Checks", "To Resolve: Rounds", "To Resolve: Mine",
         "To Resolve: Questions", "FocusedEditionResolveButton",
     ]
-    static let briefGroup = ["Brief", "Brief: the Line", "Brief: Going For"]
+    static let briefGroup = ["Brief", "Write the Line", "Write Going For"]
     static let pullUpGroup = [
         "Pulled Up", "Pull Up What I've Learned", "Pull Up First Reader",
         "Pull Up Visual Language", "Pull Up History", "FocusedPullUpPreviousButton",
@@ -217,7 +225,7 @@ final class RightColumnAppraisalTests: XCTestCase {
         // The window's toggles: the right column's, and the open piece's
         // read-through (the padlock's menu twin, Lock's slot gone).
         let toggles = try XCTUnwrap(groups.first)
-        XCTAssertTrue(toggles.contains("FocusedRightColumnToggle"))
+        XCTAssertTrue(toggles.contains("RightColumn.toggleTitle"))
         XCTAssertTrue(toggles.contains("FocusedReadThroughItem"))
         XCTAssertFalse(toggles.contains("FocusedLockToggle"))
         XCTAssertFalse(Self.viewMenuSequence(app).contains("Toggle Inspector"),
@@ -227,11 +235,11 @@ final class RightColumnAppraisalTests: XCTestCase {
 
         // The planted offender: Brief: the Line moved into To resolve's group.
         let planted = app.replacingOccurrences(
-            of: #"Button("Brief: the Line") { MaughamEvent.postBriefField(.line) }"#,
+            of: #"Button("Write the Line") { MaughamEvent.postBriefField(.line) }"#,
             with: "")
             .replacingOccurrences(
                 of: #"Button("To Resolve: Mine") { MaughamEvent.postResolve(.mine) }"#,
-                with: #"Button("To Resolve: Mine") { MaughamEvent.postResolve(.mine) } Button("Brief: the Line") { }"#)
+                with: #"Button("To Resolve: Mine") { MaughamEvent.postResolve(.mine) } Button("Write the Line") { }"#)
         XCTAssertNotEqual(planted, app, "premise: the plant applies")
         let plantedGroups = Self.groups(Self.viewMenuSequence(planted))
         XCTAssertFalse(plantedGroups.contains(Self.toResolveGroup)

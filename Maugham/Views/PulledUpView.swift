@@ -326,7 +326,7 @@ struct PulledUpView: View {
         "Click a research note, card, region or figure in a piece\u{2019}s fold in the binder "
         + "to read it here beside your text. Or press \u{2318}\u{2325}G for What I\u{2019}ve Learned, "
         + "\u{2318}\u{2325}Y for First Reader, \u{2318}\u{2325}V for Visual Language, "
-        + "or \u{2318}\u{2325}H for the piece\u{2019}s History."
+        + "or \u{2303}\u{2318}H for the piece\u{2019}s History."
 
     // MARK: - The view
 

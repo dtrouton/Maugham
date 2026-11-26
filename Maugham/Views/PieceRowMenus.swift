@@ -21,13 +21,16 @@ import MaughamCore
 /// row inside a lazy `List` is presented from a view the list may unmount.
 enum PieceRowMenus {
 
-    enum Item: Equatable, CaseIterable {
+    enum Item: Hashable, CaseIterable {
         case tags, addLink, target, publishing
 
-        var title: String {
+        /// The item's title; a link names what it links to, in the
+        /// project's word (row 60: "Link to Another Chapter…" — the binder's
+        /// other "link" verb is Link Research…).
+        func title(_ noun: PieceNoun) -> String {
             switch self {
             case .tags: return "Tags…"
-            case .addLink: return "Add Link…"
+            case .addLink: return "Link to Another \(noun.capitalised)\u{2026}"
             case .target: return "Target…"
             case .publishing: return "Publishing…"
             }
@@ -139,6 +142,8 @@ struct PieceRowMenuButtons: View {
     var offersTarget: Bool = false
     /// False for a screenplay's one script.
     var offersLinks: Bool = true
+    /// The project's word for this piece (`PieceNoun`), for "Link to Another …".
+    var noun: PieceNoun = .piece
 
     var body: some View {
         let items = PieceRowMenus.items(
@@ -147,12 +152,12 @@ struct PieceRowMenuButtons: View {
         if !items.isEmpty || PieceRowMenus.offersHistory(for: item) {
             Divider()
         }
-        ForEach(items, id: \.title) { menuItem in
-            Button(menuItem.title) {
+        ForEach(items, id: \.self) { menuItem in
+            Button(menuItem.title(noun)) {
                 state.pieceRowSheet = PieceRowSheet(menuItem, pieceId: item.id)
             }
         }
-        // That row's piece's History, by ⌘⌥H's route — never the faces'.
+        // That row's piece's History, by ⌃⌘H's route — never the faces'.
         if PieceRowMenus.offersHistory(for: item) {
             Button(PieceRowMenus.historyTitle) {
                 MaughamEvent.postPullUpHistory(ofPiece: item.id)

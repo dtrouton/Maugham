@@ -311,8 +311,57 @@ final class DocSyncTests: XCTestCase {
 
     // MARK: - Test 2b: EVERY shortcut in MaughamApp.swift has a reference.md row (#56 E1)
 
+    /// **Every source file that declares a menu key** (shell p5 Task 7): the
+    /// View menu's reading items and centre views are bound in their own
+    /// files. `MenuBarCensusTests` reads the real menu bar; this reads the
+    /// source, so a key held in a named constant is resolved first.
+    static let menuKeySources = [
+        "Maugham/MaughamApp.swift", "Maugham/Views/LanguageSwitch.swift",
+        "Maugham/Views/CentreViewSwitch.swift",
+    ]
+
+    /// `text` with each `.keyboardShortcut(Type.name, modifiers: Type.mods)`
+    /// argument held in a named constant (`static let name: KeyEquivalent =
+    /// "l"`, `static let mods: EventModifiers = [...]`) replaced by its
+    /// literal, so the extractor reads `LanguageSwitch.nextKey` as `"l"`. A
+    /// computed key (`KeyEquivalent(...)`) stays unread: the walk sees it.
+    static func resolvingNamedKeys(_ text: String) -> String {
+        let declaration = try! NSRegularExpression(
+            pattern: #"static let (\w+): (?:KeyEquivalent|EventModifiers) = ("[^"]*"|\[[^\]]*\])"#)
+        let ns = text as NSString
+        var constants: [String: String] = [:]
+        for match in declaration.matches(in: text, range: NSRange(location: 0, length: ns.length)) {
+            constants[ns.substring(with: match.range(at: 1))] = ns.substring(with: match.range(at: 2))
+        }
+        let use = try! NSRegularExpression(pattern: #"\.keyboardShortcut\(([^()]*)\)"#)
+        var out = text
+        for match in use.matches(in: text, range: NSRange(location: 0, length: ns.length)).reversed() {
+            var arguments = ns.substring(with: match.range(at: 1))
+            for (name, literal) in constants {
+                arguments = arguments.replacingOccurrences(
+                    of: #"\b[A-Z]\w*\.\#(name)\b"#, with: literal, options: .regularExpression)
+            }
+            out = (out as NSString).replacingCharacters(in: match.range, with: ".keyboardShortcut(\(arguments))")
+        }
+        return out
+    }
+
+    func test_theNamedKeyResolutionReadsAConstant() {
+        let planted = #"""
+        static let nextKey: KeyEquivalent = "l"
+        static let underModifiers: EventModifiers = [.command, .control, .shift]
+        Button("A") { }.keyboardShortcut(LanguageSwitch.nextKey, modifiers: [.command, .control])
+        Toggle("B") { }.keyboardShortcut(LanguageSwitch.nextKey, modifiers: LanguageSwitch.underModifiers)
+        """#
+        XCTAssertEqual(Self.extractShortcutBindings(from: Self.resolvingNamedKeys(planted)).map(\.token),
+                       ["⌘⌃L", "⌘⌃⇧L"])
+        XCTAssertEqual(Self.extractShortcutBindings(from: planted).map(\.token), [],
+                       "control: unresolved, the constant is invisible to the extractor")
+    }
+
     func test_everyShortcutInTheAppHasAReferenceRow() throws {
-        let sourceText = try readFile("Maugham/MaughamApp.swift")
+        let sourceText = try Self.menuKeySources.map { Self.resolvingNamedKeys(try readFile($0)) }
+            .joined(separator: "\n")
         let tokens = Self.extractShortcutBindings(from: sourceText).map(\.token)
         // Anti-vacuity: 41 bindings on 2026-10-18. A floor with slack, so a
         // binding removed for a reason does not red this, but a parser that
@@ -322,7 +371,7 @@ final class DocSyncTests: XCTestCase {
             "extracted only \(tokens.count) .keyboardShortcut bindings from MaughamApp.swift — "
             + "has the extractor stopped matching a form? Found: \(tokens)")
         // Controls for each form the ⌘⌥ extractor could not see.
-        for form in ["⌘S", "⌘\\", "⌘⇧↩", "⌘?", "⌘⇧,", "⌘⌥⇧R"] {
+        for form in ["⌘S", "⌘\\", "⌘⇧↩", "⌘?", "⌘⇧,", "⌘⌥⇧R", "⌘⌃L", "⌘⌃⇧L"] {
             XCTAssertTrue(tokens.contains(form),
                           "the extractor no longer sees \(form) in MaughamApp.swift. Found: \(tokens)")
         }
@@ -405,7 +454,7 @@ final class DocSyncTests: XCTestCase {
     /// anti-vacuity floor of the two extractor checks above: every one of
     /// these must be among the tokens read out of `MaughamApp.swift`.
     static let viewMenuPaneKeys = [
-        "⌘⌥I", "⌘⌥R", "⌘⌥O", "⌘⌥A", "⌘⌥H", "⌘⌥T", "⌘⌥B", "⌘⌥P",
+        "⌘⌥I", "⌘⌥R", "⌘⌥O", "⌘⌥A", "⌘⌥T", "⌘⌥B", "⌘⌥P",
         "⌘⌥L", "⌘⌥N", "⌘⌥G", "⌘⌥Y", "⌘⌥V", "⌘⌥D", "⌘⌥E", "⌘⌥K",
     ]
 

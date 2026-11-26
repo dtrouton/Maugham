@@ -122,17 +122,19 @@ struct BinderView: View {
             .contextMenu {
                 // **Starting a piece is the book author's** (P3c Task 8,
                 // ruling R3): hidden, never greyed, where the posture refuses.
+                // File ▸ New Chapter / New Part's twins: the same post, one
+                // receiver (`.maughamAddBinderItem`).
                 if mayStartAPiece {
-                    Button(Self.newPieceTitle(noun)) {
-                        Task {
-                            await addItem(
-                                parent: nil, kind: .document(store.manifest.type.primaryFormat))
-                        }
-                    }
-                    Button(Self.newGroupTitle(noun)) {
-                        Task { await addItem(parent: nil, kind: .group) }
-                    }
+                    Button(Self.newPieceTitle(noun)) { MaughamEvent.postAddBinderItem(.piece) }
+                    Button(Self.newGroupTitle(noun)) { MaughamEvent.postAddBinderItem(.group) }
                 }
+            }
+            // A piece the File menu or a root verb made goes into rename here,
+            // once its row exists (the receiver adds it before it asks).
+            .onChange(of: treeState.pendingBinderRenameId, initial: true) { _, id in
+                guard let id else { return }
+                renamingItemId = id
+                treeState.pendingBinderRenameId = nil
             }
             .alert("Couldn't update project",
                    isPresented: Binding(
@@ -366,10 +368,11 @@ struct BinderView: View {
                 Divider()
                 Button("Link Research…", action: openLinkPicker)
             }
-            // Tags…, Add Link…, Publishing… (shell p3 Task 8): the old
-            // Inspector's controls, offered by the same verbs.
+            // Tags…, Link to Another Chapter…, Publishing… (shell p3 Task 8):
+            // the old Inspector's controls, offered by the same verbs.
             PieceRowMenuButtons(item: item, verbs: verbs, state: treeState,
-                                offersTarget: PieceRowMenus.target(for: item, store: store) != nil)
+                                offersTarget: PieceRowMenus.target(for: item, store: store) != nil,
+                                noun: PieceNoun.of(item, in: store.manifest))
             if verbs.tidy, item.type == .group {
                 Divider()
                 Button("Tidy Filenames") {
@@ -500,16 +503,13 @@ struct BinderView: View {
             if mayStartAPiece {
                 HStack(spacing: 8) {
                     Button {
-                        Task {
-                            await addItem(
-                                parent: nil, kind: .document(store.manifest.type.primaryFormat))
-                        }
+                        MaughamEvent.postAddBinderItem(.piece)
                     } label: {
                         Label(Self.newPieceTitle(noun), systemImage: "doc.badge.plus")
                     }
                     .buttonStyle(.borderedProminent)
                     Button {
-                        Task { await addItem(parent: nil, kind: .group) }
+                        MaughamEvent.postAddBinderItem(.group)
                     } label: {
                         Label(Self.newGroupTitle(noun), systemImage: "folder.badge.plus")
                     }

@@ -68,7 +68,7 @@ struct TreeEditionRows: View {
                         // A translated edition can be removed (closing round):
                         // hidden, its translations kept; asked first.
                         if Self.offersRemove(row, mayAddLanguage: mayAddLanguage) {
-                            Button(EditionCastVerbs.removeEditionTitle) {
+                            Button(EditionCastVerbs.removeEditionTitle(language: row.language)) {
                                 MaughamEvent.postRemoveEdition(row.language)
                             }
                             .help(EditionCastVerbs.removeEditionHelp)

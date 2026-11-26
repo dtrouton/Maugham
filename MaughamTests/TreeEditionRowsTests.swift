@@ -284,6 +284,9 @@ final class TreeEditionRowsTests: XCTestCase {
         XCTAssertNil(EditionWiring.landing(subject: onSpanish, before: [], after: rows), "the first read moves nothing")
         XCTAssertNil(EditionWiring.landing(subject: .book, before: rows, after: [rows[0]]))
 
+        XCTAssertEqual(EditionCastVerbs.removeEditionTitle(language: "es"),
+                       "Remove \(LanguageName.title("es")) Edition\u{2026}", "rows 13 and 68 say what goes")
+        XCTAssertEqual(EditionCastVerbs.removeEditionTitle(language: nil), "Remove Edition\u{2026}")
         XCTAssertEqual(EditionCastCopy.removeEditionTitle(language: "es"),
                        "Remove the \(LanguageName.title("es")) edition?")
         XCTAssertEqual(EditionCastCopy.removeEditionMessage(language: "es"),
@@ -295,9 +298,9 @@ final class TreeEditionRowsTests: XCTestCase {
         }
         let doors: [(String, String)] = [
             ("Maugham/Views/TreeEditionRows.swift",
-             "if Self.offersRemove(row, mayAddLanguage: mayAddLanguage) { Button(EditionCastVerbs.removeEditionTitle) { MaughamEvent.postRemoveEdition(row.language) }"),
-            ("Maugham/MaughamApp.swift", "FocusedRemoveEditionButton()"),
-            ("Maugham/MaughamApp.swift", "if let language { MaughamEvent.postRemoveEdition(language) } } .disabled(language == nil)"),
+             "if Self.offersRemove(row, mayAddLanguage: mayAddLanguage) { Button(EditionCastVerbs.removeEditionTitle(language: row.language)) { MaughamEvent.postRemoveEdition(row.language) }"),
+            ("Maugham/MaughamApp.swift", "Button(EditionCastVerbs.removeEditionTitle(language: removable)) {"),
+            ("Maugham/MaughamApp.swift", "if let removable { MaughamEvent.postRemoveEdition(removable) } } .disabled(!enabled(removable != nil))"),
             ("Maugham/Views/Publish/EditionWiring.swift", "guard let documentStore, EditionCastVerbs.mayAddLanguage(documentStore: documentStore),"),
             ("Maugham/Views/Publish/EditionWiring.swift", ".alert(EditionCastCopy.removeEditionTitle(language: removing ?? \"\"), isPresented: Binding("),
             ("Maugham/Views/Publish/EditionWiring.swift", "if case .refused(let sentence) = await EditionCastVerbs.removeEdition("),
@@ -388,9 +391,9 @@ final class TreeEditionRowsTests: XCTestCase {
         // File ▸ Add Language… is the keyboard's way to the same sheet.
         let app = SourceScan.codeLines(of: try SourceTree.read("Maugham/MaughamApp.swift"))
             .map { $0.trimmingCharacters(in: .whitespaces) }.joined(separator: " ")
-        XCTAssertTrue(app.contains("FocusedAddLanguageButton()"))
+        XCTAssertTrue(app.contains("@FocusedValue(\\.mayAddLanguage) private var mayAdd"))
         XCTAssertTrue(app.contains(
-            "Button(EditionCastVerbs.addLanguageTitle) { MaughamEvent.postAddLanguage() } .disabled(mayAdd != true)"))
+            "Button(EditionCastVerbs.addLanguageTitle) { MaughamEvent.postAddLanguage() } .disabled(!enabled(mayAdd == true))"))
     }
 
     /// **Every capability the Department desk had — what it offered, showed
@@ -445,14 +448,14 @@ final class TreeEditionRowsTests: XCTestCase {
              "unreadable.map { (EditionStatusRows.couldNotRead($0.title), $0.reason) }"),
             ("Add Language…, with no editions too", rows,
              "static func drawsSection(rows: [Row], mayAddLanguage: Bool) -> Bool {"),
-            ("Add Language… from the keyboard", "Maugham/MaughamApp.swift", "FocusedAddLanguageButton()"),
+            ("Add Language… from the keyboard", "Maugham/MaughamApp.swift", "Button(EditionCastVerbs.addLanguageTitle) { MaughamEvent.postAddLanguage() }"),
             ("the cast sheet", views + "Publish/EditionWiring.swift", "EditionCastSheet("),
             ("adding an edition the book has", views + "Publish/EditionCastVerbs.swift", "return .existing(language:"),
             ("a proposed brief with no edition", brief,
              "EditionCastVerbs.proposalsWithoutAnEdition(proposals, editions: editions)"),
             ("re-reads on a proposal", views + "Resolve/ResolvePresence.swift",
              ".onProjectEvent(.maughamStatementProposalsChanged, url: url, window: window) { _ in"),
-            ("⌘⌥K", "Maugham/MaughamApp.swift", "FocusedEditionResolveButton()"),
+            ("⌘⌥K", "Maugham/MaughamApp.swift", "FocusedEditionResolveButton(inFront: inFront)"),
             // A one-chapter run in a language: the piece read in it (shell p4 Task 9).
             ("Run (one chapter)", views + "Resolve/ResolvePieceInLanguage.swift",
              "Button(TranslationRunState.runTitle(pieceWord)) { runThisPiece() }"),

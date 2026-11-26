@@ -197,11 +197,20 @@ extension EditorCoordinator {
         // parent's coords. `convert(_:to:)` walks the view tree and accounts
         // for the scroll view's clip/scroll offset automatically, so as the
         // document scrolls the toolbar tracks the on-screen selection.
-        let rectInParent = textView.convert(rectInTextView, to: parent)
         // The toolbar is pure-frame (no Auto Layout): it sized itself to its
         // content at construction, so read its actual frame size rather than
         // `fittingSize` (which is .zero for an unconstrained NSView).
-        let size = toolbar.frame.size
+        toolbar.setFrameOrigin(Self.originAbove(rectInTextView, size: toolbar.frame.size,
+                                                in: parent, from: textView))
+        toolbar.isHidden = false
+    }
+
+    /// **Where an overlay sized `size` sits just above a selection** — the
+    /// floating toolbar's place, and the composer's when Edit ▸ Comment… or
+    /// the right-click opens it with no toolbar showing (shell p5 Task 7).
+    static func originAbove(_ rectInTextView: NSRect, size: NSSize, in parent: NSView,
+                            from textView: NSTextView) -> NSPoint {
+        let rectInParent = textView.convert(rectInTextView, to: parent)
         let gap: CGFloat = 6
         // Position just ABOVE the selection. AppKit's default coordinate system
         // is y-up (flipped == false for the scroll view's superview), so
@@ -214,7 +223,6 @@ extension EditorCoordinator {
                       min(originX, parent.bounds.maxX - size.width))
         originY = max(parent.bounds.minY,
                       min(originY, parent.bounds.maxY - size.height))
-        toolbar.setFrameOrigin(NSPoint(x: originX, y: originY))
-        toolbar.isHidden = false
+        return NSPoint(x: originX, y: originY)
     }
 }

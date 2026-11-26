@@ -76,8 +76,8 @@ Every source file in `Maugham/Editor/` appears once.
 - `ReviewCardActions.swift` — which actions a margin card offers per kind and posture.
 - `MarginMarks.swift` — View ▸ Margin's marks, pure: a person's note (`NoteOwner.isAPersons`) a dot, a check's or round's paragraph a tick.
 - `MarginOverlayView.swift` — the trailing-inset overlay: placed in one ranges pass, shifted per edit; hit tests read the last draw; no words.
-- `ReviewAnnotationComposerView.swift` — the inline annotation composer, a plain `NSView`. Tripwire 5.
-- `SelectionToolbarView.swift` — the floating selection toolbar (Comment, Suggest, Query, Translator's note), a plain `NSView`. Tripwire 5.
+- `ReviewAnnotationComposerView.swift` — the inline annotation composer; `AnnotationOffer.swift` opens it outside read-through.
+- `SelectionToolbarView.swift` — the floating selection toolbar (Comment, Suggest, Query, Translator's note). Both plain `NSView`s; tripwire 5.
 - `SuggestedEditDiff.swift` — a reviewer's replacement → the `(body, suggestedText)` pair.
 - `TranslationBadgeLayout.swift` — the translated surface's pure geometry: badges, source lines, a caret's paragraph.
 - `TranslationBadgeOverlayView.swift` — the badge overlay in the left inset.

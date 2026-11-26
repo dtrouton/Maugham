@@ -420,12 +420,51 @@ extension EditorCoordinator {
         annotationComposer = composer
 
         // Position the composer where the toolbar is (just above the selection),
-        // then hide the toolbar so they don't overlap.
-        if let toolbar = selectionToolbar {
+        // then hide the toolbar so they don't overlap. With no toolbar showing
+        // (Edit ▸ Comment…, the right-click), the same place, measured.
+        if let toolbar = selectionToolbar, !toolbar.isHidden {
             composer.setFrameOrigin(toolbar.frame.origin)
             toolbar.isHidden = true
+        } else if let rect = selectionViewRect(in: textView) {
+            composer.setFrameOrigin(Self.originAbove(rect, size: composer.frame.size,
+                                                     in: parent, from: textView))
         }
         composer.focus()
+    }
+
+    // MARK: - Comment… outside the toolbar (shell p5 Task 7)
+
+    /// What the selection may take now, by the posture (`AnnotationOffer`).
+    var annotationKindsOffered: [SelectionToolbarView.Kind] {
+        AnnotationOffer.kinds(posture: reviewCardPosture, isReadingTranslation: isReadingTranslation,
+                              hasSelection: (textView?.selectedRange().length ?? 0) > 0,
+                              answersAnnotations: createAnnotationHandler != nil)
+    }
+
+    /// **The text's right-click Comment… (and Suggest…)** on a selection —
+    /// built for `AnnotationOffer.compose`, each item reaching
+    /// `commentOnSelection`, as Edit ▸ Comment… does through its event.
+    func annotationMenuItems() -> [NSMenuItem] {
+        annotationKindsOffered.map { kind in
+            let item = NSMenuItem(title: AnnotationOffer.title(of: kind),
+                                  action: #selector(commentFromMenu(_:)), keyEquivalent: "")
+            item.target = self
+            item.representedObject = kind.rawValue
+            return item
+        }
+    }
+
+    @objc func commentFromMenu(_ sender: NSMenuItem) {
+        commentOnSelection((sender.representedObject as? String)
+            .flatMap(SelectionToolbarView.Kind.init(rawValue:)) ?? .comment)
+    }
+
+    /// **The one receiver of Comment… and Suggest…**: the toolbar's composer
+    /// on the selection, where the posture offers the kind; a beep where it
+    /// does not (no selection, a translation, a refusing posture).
+    func commentOnSelection(_ kind: SelectionToolbarView.Kind) {
+        guard annotationKindsOffered.contains(kind) else { NSSound.beep(); return }
+        beginAuthoringAnnotation(kind: kind == .suggest ? .suggestedChange : .comment)
     }
 
     /// Compute (paragraphId, SpanAnchor, selectedText) for the current non-empty

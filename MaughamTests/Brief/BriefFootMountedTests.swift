@@ -74,7 +74,7 @@ final class BriefFootMountedTests: XCTestCase {
         // (shell p5 Task 5).
         let spoken = try XCTUnwrap(try f.axValues(identifiedBy: "brief.details", in: window).first)
         let offers = spoken.components(separatedBy: ", ")
-        let names = PieceRowMenus.Item.allCases.map { BriefFoot.spokenName($0) }
+        let names = PieceRowMenus.Item.allCases.map { BriefFoot.spokenName($0, noun: .chapter) }
         XCTAssertFalse(spoken.isEmpty, "the Details menu reads its offers")
         XCTAssertTrue(offers.allSatisfy(names.contains), "every offer is a row-menu sheet: \(spoken)")
         for gone in ["What you answer in To resolve", "Nothing is attached", "Set a target", "Add tags",

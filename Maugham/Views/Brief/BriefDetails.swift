@@ -25,14 +25,14 @@ enum BriefFoot {
     static let separator = "\u{00B7}"
 
     /// A sheet's name as VoiceOver says it: its title without the ellipsis.
-    static func spokenName(_ item: PieceRowMenus.Item) -> String {
-        item.title.replacingOccurrences(of: "\u{2026}", with: "")
+    static func spokenName(_ item: PieceRowMenus.Item, noun: PieceNoun = .piece) -> String {
+        item.title(noun).replacingOccurrences(of: "\u{2026}", with: "")
     }
 
     /// **What VoiceOver reads as the Details menu's value** (shell p5 Task
     /// 5): its offers, never a pop-up's empty selection.
-    static func detailsValue(_ offers: [PieceRowMenus.Item]) -> String {
-        offers.map(spokenName).joined(separator: ", ")
+    static func detailsValue(_ offers: [PieceRowMenus.Item], noun: PieceNoun = .piece) -> String {
+        offers.map { spokenName($0, noun: noun) }.joined(separator: ", ")
     }
 
     /// The values the line can show. Tags alone give way: they truncate in
@@ -101,6 +101,8 @@ enum BriefFoot {
     struct Line: Equatable {
         let parts: [Part]
         let offered: [PieceRowMenus.Item]
+        /// The piece's word, for the sheets' titles (row 71: as row 60).
+        var noun: PieceNoun = .piece
     }
 
     /// A piece's foot, from the window's own values. Nil `tree` (a test
@@ -123,7 +125,8 @@ enum BriefFoot {
                                                         projectPageTarget: manifest.targets?.pageTarget),
                          tags: piece.tags ?? [], links: (piece.links ?? []).count,
                          offered: offered, history: .history(docId: docId)),
-            offered: offered)
+            offered: offered,
+            noun: PieceNoun.of(piece, in: manifest))
     }
 }
 
@@ -143,6 +146,8 @@ struct BriefFootView: View {
     let onPullUp: (PulledUp) -> Void
     /// The row menu's sheets, for the context menu.
     var offered: [PieceRowMenus.Item] = []
+    /// The piece's word, for the sheets' titles.
+    var noun: PieceNoun = .piece
 
     var body: some View {
         ViewThatFits(in: .horizontal) {
@@ -157,8 +162,8 @@ struct BriefFootView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .contextMenu {
             if let openSheet {
-                ForEach(offered, id: \.title) { item in
-                    Button(item.title) { openSheet(item) }
+                ForEach(offered, id: \.self) { item in
+                    Button(item.title(noun)) { openSheet(item) }
                 }
             }
         }
@@ -189,9 +194,9 @@ struct BriefFootView: View {
             if let opens, let openSheet {
                 Button { openSheet(opens) } label: { valueText(shown, maxWidth: maxWidth) }
                     .buttonStyle(BriefFootButtonStyle())
-                    .help(opens.title.replacingOccurrences(of: "\u{2026}", with: ""))
+                    .help(BriefFoot.spokenName(opens, noun: noun))
                     .accessibilityLabel(spoken)
-                    .accessibilityHint("Opens \(opens.title.replacingOccurrences(of: "\u{2026}", with: ""))")
+                    .accessibilityHint("Opens \(BriefFoot.spokenName(opens, noun: noun))")
                     .accessibilityIdentifier("brief.value.\(value).\(fit)")
             } else {
                 valueText(shown, maxWidth: maxWidth)
@@ -200,8 +205,8 @@ struct BriefFootView: View {
             }
         case .details(let offers):
             Menu {
-                ForEach(offers, id: \.title) { item in
-                    Button(item.title) { openSheet?(item) }
+                ForEach(offers, id: \.self) { item in
+                    Button(item.title(noun)) { openSheet?(item) }
                 }
             } label: {
                 Text(BriefFoot.detailsTitle)
@@ -213,7 +218,7 @@ struct BriefFootView: View {
             .help("Target, tags, links and publishing")
             .accessibilityLabel(BriefFoot.detailsTitle)
             // A pop-up's value is its selection, empty here: say the offers.
-            .accessibilityValue(BriefFoot.detailsValue(offers))
+            .accessibilityValue(BriefFoot.detailsValue(offers, noun: noun))
             .accessibilityHint("A menu")
             .accessibilityIdentifier("brief.details")
         case .history(let item):

@@ -105,6 +105,8 @@ struct ProjectWindow: View {
     private var lastParsedScript: FountainScript? { windowScript?.script }
     @State private var showingSyntaxHelp: Bool = false
     @State private var researchPreviewVisible: Bool = false
+    /// Whether the window is full screen — View ▸ Full-Screen Focus's check.
+    @State private var isFullScreen = false
     /// **Find in Project, as an overlay of the left column.** Window state
     /// rather than segment state: ⌘⌥F writes this and nothing else, so the
     /// overlay rides through a subject change untouched and closing it reveals
@@ -377,7 +379,9 @@ struct ProjectWindow: View {
                     viewSwitch: centreViewOffer != .none, textWidth: RunningRound.measured)
             } ?? true,
             openRunningRound: { RunningRound.open($0, openDocId: TranslationReveal.openDocId(subject),
-                                                  reading: reading) }))
+                                                  reading: reading) },
+            windowChrome: windowChrome,
+            isFullScreen: $isFullScreen))
         .background(WindowAccessor(window: $window))
         // Signed op log P2b: a device asking to be let into this book. Mounted on
         // the whole window, because the question is the PROJECT's and arrives
@@ -501,6 +505,15 @@ struct ProjectWindow: View {
         // ⌘⌥B: a click on the Inbox row, through the click rule.
         .onKeyWindowCommand(.maughamOpenInbox, window: window) { _ in
             subject = ClickRule.resolve(.inbox, gesture: .click, current: subject,
+                                        structure: store?.manifest.structure ?? [],
+                                        projectType: store?.manifest.type ?? .novel)
+        }
+        // View ▸ Open in Centre (row 41): ⌘↓'s act on the binder's one
+        // selected row, else the pulled-up view's own Open in Centre.
+        .onKeyWindowCommand(.maughamOpenInCentre, window: window) { _ in openTheSelectionInCentre() }
+        // View ▸ Go to the Canvas: a click on the Canvas row, the same way.
+        .onKeyWindowCommand(.maughamOpenCanvas, window: window) { _ in
+            subject = ClickRule.resolve(.canvas, gesture: .click, current: subject,
                                         structure: store?.manifest.structure ?? [],
                                         projectType: store?.manifest.type ?? .novel)
         }
@@ -658,6 +671,9 @@ struct ProjectWindow: View {
             membrane: Self.editorMembrane(facts),
             posture: facts.posture,
             mayInsertReportElement: mayInsertReportElement(facts),
+            mayComment: CommentMenuGate.offersComment(posture: facts.posture,
+                                                  isReadingTranslation: facts.isReadingTranslation,
+                                                  route: facts.route),
             effectiveTypography: effectiveTypography,
             readThroughPieces: facts.pieces,
             readThroughLackingCheckpoint: facts.lackingCheckpoint,
@@ -935,6 +951,9 @@ struct ProjectWindow: View {
         /// Whether it draws its sentence or its short form (the width budget).
         let runningRoundIsFull: Bool
         let openRunningRound: (RunningRound.Line) -> Void
+        /// What the menu bar reads of this window (`WindowChrome`).
+        var windowChrome = WindowChrome(rightColumnShown: true)
+        var isFullScreen: Binding<Bool> = .constant(false)
 
         private var toolbarVisibility: Visibility {
             ProjectWindow.windowToolbarIsVisible(isNoChromeOn: isNoChromeOn) ? .visible : .hidden
@@ -988,7 +1007,14 @@ struct ProjectWindow: View {
                 .toolbar(toolbarVisibility, for: .windowToolbar)
                 .focusedSceneValue(\.projectURL, projectURL)
                 // View ▸ Show/Hide Right Column titles itself by this.
-                .focusedSceneValue(\.windowChrome, WindowChrome(rightColumnShown: showInspector))
+                .focusedSceneValue(\.windowChrome, windowChrome)
+                // Full-Screen Focus is checked by the window's own state.
+                .onReceive(NotificationCenter.default.publisher(for: NSWindow.didEnterFullScreenNotification)) { note in
+                    if (note.object as? NSWindow) === window { isFullScreen.wrappedValue = true }
+                }
+                .onReceive(NotificationCenter.default.publisher(for: NSWindow.didExitFullScreenNotification)) { note in
+                    if (note.object as? NSWindow) === window { isFullScreen.wrappedValue = false }
+                }
                 // ⌃⌘1/2/3: View ▸ View as …, the switch from the keyboard.
                 .focusedSceneValue(\.centreViewOffer, centreViewOffer)
                 // View ▸ Read In and ⌃⌘L, the language switch from the menu.
@@ -1136,7 +1162,7 @@ struct ProjectWindow: View {
                         position: $position,
                         structure: store?.manifest.structure ?? [])
                 }
-                // ⌘⌥G, ⌘⌥Y, ⌘⌥V and ⌘⌥H: a Book statement, or the faces'
+                // ⌘⌥G, ⌘⌥Y, ⌘⌥V and ⌃⌘H: a Book statement, or the faces'
                 // piece's History, pulled up beside the centre.
                 .onKeyWindowCommand(.maughamPullUp, window: window) { note in
                     guard let request = ProjectWindow.pullUpRequest(in: note.userInfo) else { return }
@@ -1267,7 +1293,8 @@ struct ProjectWindow: View {
                     store: store,
                     window: window,
                     navigate: navigate,
-                    pendingPieceRenameId: $pendingPieceRenameId))
+                    pendingPieceRenameId: $pendingPieceRenameId,
+                    treeState: treeState))
                 .alert("Renumber every file in the binder?",
                        isPresented: $showingTidyAllConfirmation
                 ) {
@@ -1308,6 +1335,8 @@ struct ProjectWindow: View {
         /// Points the window at the piece a command made.
         let navigate: (BinderSubject) -> Void
         @Binding var pendingPieceRenameId: String?
+        /// The tree's shared state: a binder piece File made is renamed there.
+        let treeState: BinderTreeSectionsState
         /// What a promotion has to say: what of the book's figures did not
         /// carry whole, or why it failed. Nil when there is nothing to say.
         @State private var promotionOutcome: String?
@@ -1350,6 +1379,23 @@ struct ProjectWindow: View {
                             navigate(.item(piece.id))
                             pendingPieceRenameId = piece.id
                         }
+                    }
+                }
+                // File ▸ New Chapter / New Part and the binder's root verbs
+                // (shell p5 Task 7): one receiver, the binder's own verb
+                // (`BinderView.addItem`), the binder's rename after it.
+                .onKeyWindowCommand(.maughamAddBinderItem, window: window) { note in
+                    guard let store, TreePane(for: store.manifest.type) == .binder,
+                          let request = (note.userInfo?[BinderItemRequest.key] as? String)
+                            .flatMap(BinderItemRequest.init(rawValue:)) else { return }
+                    Task {
+                        guard await StartAPieceDoor.admits(store: store) else { return }
+                        let kind: StructureItemKind = request == .group
+                            ? .group : .document(store.manifest.type.primaryFormat)
+                        guard let item = try? await BinderView.addItem(parent: nil, kind: kind, in: store)
+                        else { return }
+                        treeState.pendingBinderRenameId = item.id
+                        navigate(.item(item.id))
                     }
                 }
                 .onKeyWindowCommand(.maughamAddScreenplayPiece, window: window) { _ in
@@ -3010,7 +3056,7 @@ struct ProjectWindow: View {
             briefField: briefField)
     }
 
-    /// **Pull a Book statement or a History up** (⌘⌥G, ⌘⌥Y, ⌘⌥V, ⌘⌥H; the
+    /// **Pull a Book statement or a History up** (⌘⌥G, ⌘⌥Y, ⌘⌥V, ⌃⌘H; the
     /// Describe… hand-off; a statement mark's Open): what the request names
     /// (`RightColumnContent.pulledUp` — for History the faces' piece, else the
     /// open one, else the project's) goes through the one pull-up act.
@@ -3049,6 +3095,53 @@ struct ProjectWindow: View {
     /// **The piece ⌘⌥E opens the fold of**: the faces' piece, else the open
     /// one (`RightColumnContent.facesPiece`, History's rule); nil where
     /// neither is a piece — the menu item is then disabled.
+    /// View ▸ Open in Centre's one receiver (`TreeRowKeys.centreOpening`).
+    private func openTheSelectionInCentre() {
+        guard let store else { return }
+        let drawn = BinderTreeSelection.drawnTags(state: treeState, subject: subject, store: store)
+        switch TreeRowKeys.centreOpening(drawn: drawn, beside: subject.beside) {
+        case .row(let row)?:
+            TreeRowKeys.openInCentre(row, subject: subjectBinding, store: store, windowCanvas: canvasModel)
+        case .pulledUp(let pulled)?:
+            switch PulledUpView.opening(pulled, subject: subject, structure: store.manifest.structure,
+                                        projectType: store.manifest.type,
+                                        photoNode: { PulledUpView.photoNode($0, store: store) }) {
+            case .subject(let next): subject = next
+            case .canvas(let next, let target):
+                subject = next
+                if let target { canvasModel.revealAndSelect(target) }
+            case .centreItem(let item): openInCentre(item)
+            }
+        case nil:
+            break
+        }
+    }
+
+    /// **What the menu bar reads of this window** (shell p5 Task 7): the
+    /// toggles' states, the round's editor, File's creation items and the
+    /// fold's noun (`WindowChrome`).
+    private var windowChrome: WindowChrome {
+        guard let store else { return WindowChrome(rightColumnShown: showInspector) }
+        let structure = store.manifest.structure
+        let runPiece = CompilerRunModifier.runDocId(for: subject, structure: structure)
+        let memory = documentStore?.uiState.activePassMemory
+        let fold = Self.foldPiece(subject: subject, structure: structure)
+            .flatMap { TreeWalk.find(id: $0, in: structure) }
+        return WindowChrome(
+            rightColumnShown: showInspector,
+            focusMode: isNoChromeOn,
+            fullScreen: isFullScreen,
+            researchPreview: researchPreviewVisible,
+            roundEditorName: runPiece.flatMap { piece in
+                memory.flatMap { store.manifest.roundEditor(forPiece: piece, memory: $0)?.effectiveEditorName }
+            },
+            newPiece: NewPieceOffer.of(store.manifest, mayStart: StartAPieceDoor.drawn(store: store) ?? false),
+            foldNoun: fold.map { PieceNoun.of($0, in: store.manifest).capitalised },
+            opensInCentre: TreeRowKeys.centreOpening(
+                drawn: BinderTreeSelection.drawnTags(state: treeState, subject: subject, store: store),
+                beside: subject.beside) != nil)
+    }
+
     static func foldPiece(subject: WindowSubject, structure: [StructureItem]) -> String? {
         RightColumnContent.facesPiece(subject, structure: structure)
     }

@@ -425,6 +425,7 @@ never by read-through; pinned through the real menu builder, with the menu table
 | 19 | Edit | Find… ⌘F; Find Next ⌘G; Find Previous ⌘⇧G; Find in Project… ⌘⌥F | as is | keep | — |
 | 20 | Edit | Translator's Note… ⌘⌥C | as is | keep | — |
 | 21 | Edit | Restore Last Deletion ⌘⌥Z | as is | keep | — |
+| 21a | Edit; the text's right-click | — | a comment outside read-through has no route | **built (Task 7):** Edit ▸ Comment… ⌘⇧K; the right-click on a selection offers Comment… (and Suggest… where the posture refuses the words); the read-through toolbar's composer; offered by `Posture`, never read-through | the owner's added row |
 | 22 | View | Toggle Focus Mode ⌘\ | "Toggle" title | "Focus Mode", checked when on | state, the macOS way |
 | 23 | View | Toggle Full-Screen Focus ⌘⇧F | "Toggle" title | "Full-Screen Focus", checked when on | the same |
 | 24 | View | Toggle Review Mode ⌘⌥⇧R | manual review | **slot: read-through's item and key** (read-through's plan removes this) | — |

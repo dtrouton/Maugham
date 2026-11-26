@@ -59,6 +59,9 @@ enum LanguageSwitch {
     /// ⌃⌘L — Source, then each language, then Source again.
     static let nextKey: KeyEquivalent = "l"
     static let sourceUnderTitle = "Show Source Under Translation"
+    /// ⌃⇧⌘L (shell p5 Task 7, row 31): the switch's menu has it, so the
+    /// keyboard does too — Read In Next Language's key with ⇧.
+    static let sourceUnderModifiers: EventModifiers = [.command, .control, .shift]
 
     /// The choice event's payload: the language, or nothing for Source; and
     /// the piece it is for, when that is not the one open (`choose(_:inPiece:)`).
@@ -168,6 +171,7 @@ struct FocusedReadingItems: View {
         Toggle(LanguageSwitch.sourceUnderTitle, isOn: Binding(
             get: { offer?.showsSourceUnder ?? true },
             set: { _ in LanguageSwitch.toggleSourceUnder() }))
+        .keyboardShortcut(LanguageSwitch.nextKey, modifiers: LanguageSwitch.sourceUnderModifiers)
         .disabled(offer == nil)
     }
 }

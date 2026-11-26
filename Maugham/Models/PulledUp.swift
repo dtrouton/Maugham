@@ -31,7 +31,7 @@ public enum PulledUp: Hashable, Codable, Sendable {
     case history(docId: String)
 
     /// **The project's History**: its checkpoints, as the old History pane
-    /// showed with no piece (⌘⌥H on the Book). `HistoryPane` already reads the
+    /// showed with no piece (⌃⌘H on the Book). `HistoryPane` already reads the
     /// no-document id that way, so it is that id and no second case.
     public static let projectHistory = PulledUp.history(docId: BinderSubject.noDocumentSubject)
 

@@ -183,223 +183,13 @@ struct MaughamApp: App {
         .commands {
             UpdateMenuCommand()
             CommandGroup(replacing: .newItem) {
-                Button("New Project…") {
-                    MaughamEvent.post(.maughamNewProject, to: .allWindows)
-                }
-                .keyboardShortcut("n", modifiers: .command)
-                Button("Open Project…") {
-                    MaughamEvent.post(.maughamOpenProject, to: .allWindows)
-                }
-                .keyboardShortcut("o", modifiers: .command)
-                Menu("Open Recent") {
-                    OpenRecentSubmenu(recents: recents)
-                }
-                Divider()
-                Button("Save") {
-                    MaughamEvent.post(.maughamDummySave, to: .keyWindow)
-                    MaughamEvent.post(.maughamSaveCheckpoint, to: .keyWindow)
-                }
-                .keyboardShortcut("s", modifiers: .command)
-                Button("Save Checkpoint As…") {
-                    MaughamEvent.post(.maughamNamedCheckpoint, to: .keyWindow)
-                }
-                .keyboardShortcut("s", modifiers: [.command, .shift])
-                Divider()
-                // The compiler's four commands (spec §3.1; shell p1 Task 5).
-                // Plain ⌘R, verified unbound 2026-08-04: the two other "r"
-                // bindings carry ⌘⌥⇧ (read-through) and ⌘⌥ (Research
-                // pane). ⌘⇧R for the cold read, verified unbound 2026-08-15
-                // against the same three. ⌃⌘R and ⌃⇧⌘R for the round's two,
-                // verified unbound 2026-11-17 across `Maugham/` (no other
-                // `.control` "r" chord; the figure grid's own ⌘R key handler
-                // matches plain ⌘ only). Beside Save because a run
-                // acknowledges in Save's register — a sub-second flash and
-                // nothing else.
-                //
-                // **Four commands, each naming its kind** (`RunCommand`): what
-                // Run means is the command's, never the window's. ⌘R is a check
-                // wherever the writer stands; a round is asked for by name.
-                RunButtons()
-                Divider()
-                FocusedRestoreButton()
-                Divider()
-                Button("Tidy All Filenames") {
-                    MaughamEvent.post(.maughamTidyAllFilenames, to: .keyWindow)
-                }
-                Button("Add Research File…") {
-                    MaughamEvent.post(.maughamAddResearchFile, to: .keyWindow)
-                }
-                // File ▸ Add Language… (shell p4 Task 7 fix round, I1): the
-                // Editions `+`'s keyboard path, and the way to a first edition
-                // in any book. Plan 5's menu review may move it.
-                FocusedAddLanguageButton()
-                // File ▸ Remove Edition… (closing round): the selected
-                // translated edition, asked first. Plan 5's menu review too.
-                FocusedRemoveEditionButton()
-                FocusedPromoteButton()
-                Divider()
-                Button("Show Project Statistics") {
-                    MaughamEvent.post(.maughamShowProjectStatistics, to: .keyWindow)
-                }
-                Divider()
-                FocusedStartAPieceButtons()
-                Divider()
-                FocusedShareForReviewButton()
-                Button("Project Settings…") {
-                    MaughamEvent.post(.maughamShowProjectSettings, to: .keyWindow)
-                }
-                .keyboardShortcut(",", modifiers: [.command, .shift])
+                FileMenuItems(recents: recents)
             }
             // Augment the existing View menu (which AppKit auto-creates when
             // NavigationSplitView is in use) rather than creating a second one
             // via CommandMenu("View").
             CommandGroup(after: .toolbar) {
-                // The window's toggles first; then the right column's
-                // positions, grouped by where each lands; then the tree's
-                // places.
-                Button("Toggle Focus Mode") {
-                    MaughamEvent.post(.maughamToggleNoChrome, to: .keyWindow)
-                }
-                .keyboardShortcut("\\", modifiers: .command)
-                Button("Toggle Full-Screen Focus") {
-                    MaughamEvent.post(.maughamToggleFullScreen, to: .keyWindow)
-                }
-                .keyboardShortcut("f", modifiers: [.command, .shift])
-                // ⌘⌥⇧R: the open piece's read-through, titled by its offer.
-                FocusedReadThroughItem()
-                // A piece read in a language (shell p4 Task 8): View ▸ Read
-                // In ▸ …, Read In Next Language (⌃⌘L), Show Source Under
-                // Translation — the toolbar switch's other two routes.
-                FocusedReadingItems()
-                // View ▸ Margin ▸ Off / My Notes / Everything Flagged (shell
-                // p5 Task 2): three checked items, no key.
-                FocusedMarginItems()
-                // ⌘⌥0 shows or hides the right column, titled for the
-                // focused window's state (`WindowChrome`).
-                FocusedRightColumnToggle()
-                Button("Toggle Research Preview") {
-                    MaughamEvent.post(.maughamToggleResearchPreview, to: .keyWindow)
-                }
-                .keyboardShortcut("p", modifiers: [.command, .shift])
-                Divider()
-
-                // **The right column's keys, declared here and nowhere else**
-                // (`RightColumnControl` holds none), so every one reveals a
-                // hidden column through the window's one receiver. Grouped by
-                // where each lands (appraisal 5): To resolve, Brief, Pull Up,
-                // each led by its position's ⌘1/⌘2/⌘3. **The old pane keys
-                // keep their letters** (owner, 2026-11-18); each item is
-                // titled for what its key does.
-                Button("To Resolve") { MaughamEvent.postPosition(.resolve) }
-                    .keyboardShortcut("1", modifiers: .command)
-                // ⌘⌥D, ⌘⌥A and ⌘⌥T keep their keys (shell plan 2 Task 7):
-                // the three panes they opened are To resolve now, so each
-                // opens it on the filter that pane was — the check's
-                // findings, the rounds' notes, the writer's own to-dos.
-                Button("To Resolve: Checks") { MaughamEvent.postResolve(.checks) }
-                    .keyboardShortcut("d", modifiers: [.command, .option])
-                Button("To Resolve: Rounds") { MaughamEvent.postResolve(.rounds) }
-                    .keyboardShortcut("a", modifiers: [.command, .option])
-                Button("To Resolve: Mine") { MaughamEvent.postResolve(.mine) }
-                    .keyboardShortcut("t", modifiers: [.command, .option])
-                // ⌘⌥L (it was the translation pane's key): To resolve on
-                // Questions — a translator's questions, wherever the faces
-                // are (shell p4 Task 7, call 8).
-                Button("To Resolve: Questions") { MaughamEvent.postResolve(.questions) }
-                    .keyboardShortcut("l", modifiers: [.command, .option])
-                // ⌘⌥K (it was the Department desk's key): the To resolve of
-                // the edition the window reads in, else the Source's, its
-                // title naming which (`EditionWiring.editionForTheKey`);
-                // disabled in a book with no editions. Plan 5's menu review
-                // may revisit both.
-                FocusedEditionResolveButton()
-                Divider()
-                Button("Brief") { MaughamEvent.postPosition(.brief) }
-                    .keyboardShortcut("2", modifiers: .command)
-                // ⌘⌥I (the Inspector's): Brief, with the keys in the line.
-                Button("Brief: the Line") { MaughamEvent.postBriefField(.line) }
-                    .keyboardShortcut("i", modifiers: [.command, .option])
-                // ⌘⌥N: Brief, with the keys in Going for. (⌘⌥I was the
-                // Inspector's, so Intent took the next letter in its name.)
-                Button("Brief: Going For") { MaughamEvent.postBriefField(.goingFor) }
-                    .keyboardShortcut("n", modifiers: [.command, .option])
-                Divider()
-                Button("Pulled Up") { MaughamEvent.postPosition(.pulledUp) }
-                    .keyboardShortcut("3", modifiers: .command)
-                // **⌘⌥G, and no letter of "What I've Learned" was available**:
-                // L is Translation, E References, A Annotations, N Intent, D
-                // Diagnostics, R Research, T Tasks, H History, W and (with ⌥)
-                // M are macOS's own Close All and Minimize All. So the letter
-                // comes from the writer's word for what it HOLDS, the way
-                // ⌘⌥K's came from the department *desk*: the rows are a
-                // led**g**er (`RulingsStratumView.title(for:)`). ⌘G and ⌘⇧G
-                // are Find Next/Previous and neither takes ⌥.
-                Button("Pull Up What I've Learned") { MaughamEvent.postPullUp(.lessons) }
-                    .keyboardShortcut("g", modifiers: [.command, .option])
-                // **⌘⌥Y**: every letter of "first reader" is bound except S,
-                // and S is one ⌥ slip from ⌘S, the checkpoint reflex this app
-                // goes out of its way to keep. Y is free across the whole ⌘⌥
-                // keyspace (verified 2026-09-05) and takes nothing.
-                Button("Pull Up First Reader") { MaughamEvent.postPullUp(.firstReader) }
-                    .keyboardShortcut("y", modifiers: [.command, .option])
-                Button("Pull Up Visual Language") { MaughamEvent.postPullUp(.visualLanguage) }
-                    .keyboardShortcut("v", modifiers: [.command, .option])
-                // ⌘⌥H: the faces' piece's History, pulled up — the project's,
-                // with no piece faced or open.
-                Button("Pull Up History") { MaughamEvent.postPullUp(.historyOfTheFaces) }
-                    .keyboardShortcut("h", modifiers: [.command, .option])
-                // ⌘[: the system's own Back, free across the app — what was
-                // pulled up before goes up again (the pulled-up header's Back).
-                FocusedPullUpPreviousButton()
-                Divider()
-                // The tree's places: the piece's fold, its sections, the Book's
-                // view, the Inbox.
-                // ⌘⌥E (§6.3 of the redesign: "E references"): what a piece is
-                // pinned to is its fold in the tree, so the key opens the
-                // faces' piece's fold and scrolls to it.
-                FocusedPieceFoldButton()
-                // ⌘⌥R re-pointed (shell-finish stage-3a Task 5): Research
-                // stopped being a right-pane segment when every tree grew its
-                // own Research section (stage 2a) — the shortcut now opens
-                // that section rather than a pane.
-                Button("Research") {
-                    MaughamEvent.post(.maughamRevealResearchSection, to: .keyWindow)
-                }
-                    .keyboardShortcut("r", modifiers: [.command, .option])
-                // ⌘⌥P re-pointed (stage-3a Task 5): same story as Research,
-                // for the tree's Palette section.
-                Button("Palette") {
-                    MaughamEvent.post(.maughamRevealPaletteSection, to: .keyWindow)
-                }
-                    .keyboardShortcut("p", modifiers: [.command, .option])
-                // ⌘⌥O re-pointed (stage-3a Task 5): the outline is now the
-                // project row's altitude view (Tasks 1–3) — the shortcut
-                // selects that row instead of opening a pane.
-                Button("Outline") {
-                    MaughamEvent.post(.maughamSelectProjectRow, to: .keyWindow)
-                }
-                    .keyboardShortcut("o", modifiers: [.command, .option])
-                // ⌘⌥B opens the Inbox in the centre, as a click on its tree
-                // row does (shell p1 Task 6) — the Inbox is a place, not a pane.
-                Button("Inbox") {
-                    MaughamEvent.post(.maughamOpenInbox, to: .keyWindow)
-                }
-                    .keyboardShortcut("b", modifiers: [.command, .option])
-                Divider()
-                // ⌃⌘1/2/3: the centre's view switch (the toolbar's), from
-                // the keyboard — disabled where the centre has no views.
-                FocusedCentreViewItems()
-                #if MAUGHAM_DEV_BUILD
-                // Scene-storage spike instrument (ADR 0021): logs how many
-                // EditorCoordinators are still alive. Close a project window,
-                // then click this — live→0 means SwiftUI released the scene
-                // graph; live staying >0 is the documented framework retention.
-                // See docs/superpowers/notes/2026-07-02-scene-storage-spike.md.
-                Divider()
-                Button("Dump Coordinator Leak Probe (dev)") {
-                    CoordinatorLeakProbe.dump()
-                }
-                #endif
+                ViewMenuItems()
             }
             CommandGroup(after: .pasteboard) {
                 Divider()
@@ -417,25 +207,7 @@ struct MaughamApp: App {
                 .keyboardShortcut("g", modifiers: [.command, .shift])
             }
             CommandGroup(after: .pasteboard) {
-                Button("Find in Project…") {
-                    MaughamEvent.post(.maughamFindInProject, to: .keyWindow)
-                }
-                .keyboardShortcut("f", modifiers: [.command, .option])
-                // **⌘⌥C, for *direCtive*** — every letter of "translator's
-                // note" the ⌘⌥ family could use is spoken for (T Tasks, N
-                // Intent, R Research, A Annotations, L Translation, O Outline,
-                // E References), and C is the first free letter in the word
-                // for what the note IS on disk (spec §3).
-                Button("Translator\u{2019}s Note\u{2026}") {
-                    MaughamEvent.post(.maughamTranslatorsNote, to: .keyWindow)
-                }
-                .keyboardShortcut("c", modifiers: [.command, .option])
-                // Scoped to the delete ACTION, not to one item (RULING-40), and
-                // the label says so.
-                Button("Restore Last Deletion") {
-                    MaughamEvent.post(.maughamRestoreLastDeleted, to: .keyWindow)
-                }
-                .keyboardShortcut("z", modifiers: [.command, .option])
+                EditMenuItems()
             }
             // The app's first `CommandMenu` (plan 3a R-3a-2): report elements
             // written into the manuscript at the caret.
@@ -634,6 +406,17 @@ extension FocusedValues {
     }
 }
 
+/// Whether the focused window's editor offers Edit ▸ Comment… (`CommentMenuGate`,
+/// shell p5 Task 7). Published by `EditorControlMirrorModifier`; read only by
+/// `EditMenuItems`.
+struct FocusedMayCommentKey: FocusedValueKey { typealias Value = Bool }
+extension FocusedValues {
+    var mayComment: Bool? {
+        get { self[FocusedMayCommentKey.self] }
+        set { self[FocusedMayCommentKey.self] = newValue }
+    }
+}
+
 /// What the focused window's expanded table grid may do (`FigureGridPresence`,
 /// report plan 7c Task 9); nil with no grid expanded. Published by
 /// `FigureTableMenuModifier`; read only by `FigureTableMenuButtons`.
@@ -785,53 +568,478 @@ private struct InsertMenuButtons: View {
     }
 }
 
-/// File → the compiler's four commands (`RunCommand`), each posting its own
-/// kind. Fixed titles: nothing here reads the focused window. Deliberately NOT
-/// `.disabled`: a run with no project window in front is already a no-op at
-/// the receiver, and greying the items out would make the writer's own muscle
-/// memory look broken while a sheet or the Welcome window held focus.
-private struct RunButtons: View {
+// MARK: - The menus (shell p5 Task 7: the approved table, every key once)
+
+/// **Whether a menu item is enabled, per focused window** (row 57). An item
+/// that acts on a project window is disabled when none is in front — the
+/// Welcome window, Help, Statistics or a sheet's parent — because a press
+/// there does nothing. Run's four are the standing exception (`RunButtons`):
+/// never greyed, so the writer's muscle memory never looks broken. Pure, and
+/// pinned as a table (`MenuBarCensusTests`).
+enum MenuBarAvailability {
+    enum Scope: Equatable {
+        /// Acts with or without a project window (New Project…, Find…).
+        case anywhere
+        /// Acts on the project window in front.
+        case projectWindow
+        /// Run's four: a no-op at the receiver with no window, never greyed.
+        case run
+    }
+
+    /// `offered` is the item's own answer where it has one (a focused
+    /// value's); `nil` is no answer, which offers.
+    static func isEnabled(_ scope: Scope, projectWindowInFront: Bool, offered: Bool? = nil) -> Bool {
+        switch scope {
+        case .run: return true
+        case .anywhere: return offered ?? true
+        case .projectWindow: return projectWindowInFront && (offered ?? true)
+        }
+    }
+}
+
+/// **What File's creation items are, for the project in front** (rows 11,
+/// 16): a binder's "New Chapter" / "New Part", titled by the project's noun
+/// (`PieceNoun`, `BinderView.newPieceTitle`); a Collection's three; nothing
+/// for a screenplay, whose one script is the project. Pure.
+enum NewPieceOffer: Equatable {
+    case binder(piece: String, group: String, mayStart: Bool)
+    case collection(mayStart: Bool)
+    case none
+
+    static func of(_ manifest: ProjectManifest, mayStart: Bool) -> NewPieceOffer {
+        switch TreePane(for: manifest.type) {
+        case .binder:
+            let noun = PieceNoun.of(nil, in: manifest)
+            return .binder(piece: BinderView.newPieceTitle(noun),
+                           group: BinderView.newGroupTitle(noun), mayStart: mayStart)
+        case .collectionPieces: return .collection(mayStart: mayStart)
+        case .sceneNavigator: return .none
+        }
+    }
+
+    /// With no project window in front: the generic pair, disabled.
+    static let noWindow = NewPieceOffer.binder(
+        piece: BinderView.newPieceTitle(.piece), group: BinderView.newGroupTitle(.piece), mayStart: false)
+}
+
+/// File ▸ New Chapter / New Part's payload (`.maughamAddBinderItem`).
+enum BinderItemRequest: String {
+    case piece, group
+    static let key = "binder_item"
+}
+
+/// **File** (rows 2–17), in groups: opening; Save; the four runs; new
+/// things; editions; backup and statistics; housekeeping.
+private struct FileMenuItems: View {
+    @Bindable var recents: RecentsStore
+    @FocusedValue(\.projectURL) private var projectURL
+    @FocusedValue(\.windowChrome) private var chrome
+    @FocusedValue(\.mayStartAPiece) private var mayStartAPiece
+    @FocusedValue(\.canvasPromotable) private var promotable
+    @FocusedValue(\.mayAddLanguage) private var mayAdd
+    @FocusedValue(\.removableEdition) private var removable
+    @Environment(\.openWindow) private var openWindow
+
+    private func enabled(_ offered: Bool? = nil) -> Bool {
+        MenuBarAvailability.isEnabled(.projectWindow, projectWindowInFront: projectURL != nil, offered: offered)
+    }
+
     var body: some View {
-        Button(RunCommand.checkWriting.title) {
+        Button("New Project…") {
+            MaughamEvent.post(.maughamNewProject, to: .allWindows)
+        }
+        .keyboardShortcut("n", modifiers: .command)
+        Button("Open Project…") {
+            MaughamEvent.post(.maughamOpenProject, to: .allWindows)
+        }
+        .keyboardShortcut("o", modifiers: .command)
+        Menu("Open Recent") {
+            OpenRecentSubmenu(recents: recents)
+        }
+        Divider()
+        Button("Save") {
+            MaughamEvent.post(.maughamDummySave, to: .keyWindow)
+            MaughamEvent.post(.maughamSaveCheckpoint, to: .keyWindow)
+        }
+        .keyboardShortcut("s", modifiers: .command)
+        .disabled(!enabled())
+        Button("Save Checkpoint As…") {
+            MaughamEvent.post(.maughamNamedCheckpoint, to: .keyWindow)
+        }
+        .keyboardShortcut("s", modifiers: [.command, .shift])
+        .disabled(!enabled())
+        Divider()
+        // The compiler's four commands (spec §3.1; shell p1 Task 5), beside
+        // Save because a run acknowledges in Save's register.
+        RunButtons(editorName: chrome?.roundEditorName)
+        Divider()
+        // New things (rows 10, 11, 14, 16).
+        Button("Add Research File…") {
+            MaughamEvent.post(.maughamAddResearchFile, to: .keyWindow)
+        }
+        .disabled(!enabled())
+        newPieceItems
+        Button(Self.promoteTitle) {
+            MaughamEvent.post(.maughamPromoteCanvasSelection, to: .keyWindow)
+        }
+        .keyboardShortcut(.return, modifiers: [.command, .shift])
+        .disabled(!enabled(promotable == true))
+        Divider()
+        // Editions (rows 12, 13).
+        Button(EditionCastVerbs.addLanguageTitle) { MaughamEvent.postAddLanguage() }
+            .disabled(!enabled(mayAdd == true))
+        Button(EditionCastVerbs.removeEditionTitle(language: removable)) {
+            if let removable { MaughamEvent.postRemoveEdition(removable) }
+        }
+        .disabled(!enabled(removable != nil))
+        Divider()
+        Button("Restore from Backup…") {
+            if let projectURL { openWindow(id: "backup-restore", value: projectURL) }
+        }
+        .disabled(!enabled())
+        Button("Show Project Statistics") {
+            MaughamEvent.post(.maughamShowProjectStatistics, to: .keyWindow)
+        }
+        .disabled(!enabled())
+        Divider()
+        // Housekeeping (rows 9, 17).
+        Button("Share Project via iCloud…") {
+            MaughamEvent.post(.maughamShareForReview, to: .keyWindow)
+        }
+        .disabled(!enabled())
+        Button("Tidy All Filenames") {
+            MaughamEvent.post(.maughamTidyAllFilenames, to: .keyWindow)
+        }
+        .disabled(!enabled())
+        Button("Project Settings…") {
+            MaughamEvent.post(.maughamShowProjectSettings, to: .keyWindow)
+        }
+        .keyboardShortcut(",", modifiers: [.command, .shift])
+        .disabled(!enabled())
+    }
+
+    /// Row 14: it is a canvas verb, and the binder has another Promote.
+    static let promoteTitle = "Promote Canvas Selection\u{2026}"
+
+    /// Rows 11 and 16: the project's own creation verbs. Each adds a piece,
+    /// so each is disabled where the posture refuses `.startAPiece` (P3c
+    /// Task 8); the receiver refuses with a notice if a post arrives anyway.
+    @ViewBuilder
+    private var newPieceItems: some View {
+        switch projectURL == nil ? .noWindow : (chrome?.newPiece ?? .noWindow) {
+        case .binder(let piece, let group, let mayStart):
+            Button(piece) { MaughamEvent.postAddBinderItem(.piece) }
+                .disabled(!enabled(mayStart))
+            Button(group) { MaughamEvent.postAddBinderItem(.group) }
+                .disabled(!enabled(mayStart))
+        case .collection(let mayStart):
+            let offered = mayStart && StartAPieceDoor.menuIsEnabled(mayStartAPiece: mayStartAPiece)
+            Button(StartAPieceDoor.newProsePieceTitle) {
+                MaughamEvent.post(.maughamAddLoosePiece, to: .keyWindow)
+            }
+            .disabled(!enabled(offered))
+            Button(StartAPieceDoor.newScriptTitle) {
+                MaughamEvent.post(.maughamAddScreenplayPiece, to: .keyWindow)
+            }
+            .disabled(!enabled(offered))
+            Button(StartAPieceDoor.linkProjectTitle) {
+                MaughamEvent.post(.maughamLinkProject, to: .keyWindow)
+            }
+            .disabled(!enabled(offered))
+        case .none:
+            EmptyView()
+        }
+    }
+}
+
+/// File → the compiler's four commands (`RunCommand`), each posting its own
+/// kind. The two rounds are titled for the pass the run would file in
+/// ("Run Gould’s Round", as the board's chip says it); with none, the fixed
+/// titles. Deliberately NOT `.disabled`: a run with no project window in
+/// front is already a no-op at the receiver, and greying the items out would
+/// make the writer's own muscle memory look broken while a sheet or the
+/// Welcome window held focus (`MenuBarAvailability.Scope.run`).
+private struct RunButtons: View {
+    let editorName: String?
+
+    var body: some View {
+        Button(RunCommand.checkWriting.menuTitle(editorName: editorName)) {
             MaughamEvent.postRun(.checkWriting)
         }
         .keyboardShortcut("r", modifiers: .command)
-        Button(RunCommand.reread.title) {
+        Button(RunCommand.reread.menuTitle(editorName: editorName)) {
             MaughamEvent.postRun(.reread)
         }
         .keyboardShortcut("r", modifiers: [.command, .shift])
-        Button(RunCommand.runRound.title) {
+        Button(RunCommand.runRound.menuTitle(editorName: editorName)) {
             MaughamEvent.postRun(.runRound)
         }
         .keyboardShortcut("r", modifiers: [.command, .control])
-        Button(RunCommand.freshEyes.title) {
+        Button(RunCommand.freshEyes.menuTitle(editorName: editorName)) {
             MaughamEvent.postRun(.freshEyes)
         }
         .keyboardShortcut("r", modifiers: [.command, .control, .shift])
     }
 }
 
-/// File → New Prose Story / New Screenplay / Link Existing Project — each adds a
-/// piece, so each is DISABLED (the menu bar's convention; the tree's own + is
-/// hidden) where the focused window's posture refuses `.startAPiece` (P3c Task
-/// 8, controller ruling X). The receiver refuses with a notice if a post
-/// arrives anyway (`StartAPieceDoor.admits`).
-private struct FocusedStartAPieceButtons: View {
-    @FocusedValue(\.mayStartAPiece) private var mayStartAPiece
+/// **Edit**'s own items after the pasteboard group.
+private struct EditMenuItems: View {
+    @FocusedValue(\.projectURL) private var projectURL
+    @FocusedValue(\.mayComment) private var mayComment
+
+    private func enabled(_ offered: Bool? = nil) -> Bool {
+        MenuBarAvailability.isEnabled(.projectWindow, projectWindowInFront: projectURL != nil, offered: offered)
+    }
+
     var body: some View {
-        let enabled = StartAPieceDoor.menuIsEnabled(mayStartAPiece: mayStartAPiece)
-        Button("New Prose Story") {
-            MaughamEvent.post(.maughamAddLoosePiece, to: .keyWindow)
+        Button("Find in Project…") {
+            MaughamEvent.post(.maughamFindInProject, to: .keyWindow)
         }
-        .disabled(!enabled)
-        Button("New Screenplay (Collection)") {
-            MaughamEvent.post(.maughamAddScreenplayPiece, to: .keyWindow)
+        .keyboardShortcut("f", modifiers: [.command, .option])
+        .disabled(!enabled())
+        // **Comment… (⌘⇧K, Pages' key for the same act)** — the owner's
+        // added row: a comment on the selection without entering
+        // read-through, through the same composer read-through's toolbar
+        // opens. Offered by the posture (`CommentMenuGate`); with no
+        // selection the editor beeps.
+        Button(AnnotationOffer.commentTitle) {
+            MaughamEvent.post(.maughamCommentOnSelection, to: .keyWindow)
         }
-        .disabled(!enabled)
-        Button("Link Existing Project…") {
-            MaughamEvent.post(.maughamLinkProject, to: .keyWindow)
+        .keyboardShortcut("k", modifiers: [.command, .shift])
+        .disabled(!enabled(mayComment == true))
+        // **⌘⌥C, for *direCtive*** — every letter of "translator's
+        // note" the ⌘⌥ family could use is spoken for (T Tasks, N
+        // Intent, R Research, A Annotations, L Translation, O Outline,
+        // E References), and C is the first free letter in the word
+        // for what the note IS on disk (spec §3).
+        Button("Translator\u{2019}s Note\u{2026}") {
+            MaughamEvent.post(.maughamTranslatorsNote, to: .keyWindow)
         }
-        .disabled(!enabled)
+        .keyboardShortcut("c", modifiers: [.command, .option])
+        .disabled(!enabled())
+        // Scoped to the delete ACTION, not to one item (RULING-40), and
+        // the label says so.
+        Button("Restore Last Deletion") {
+            MaughamEvent.post(.maughamRestoreLastDeleted, to: .keyWindow)
+        }
+        .keyboardShortcut("z", modifiers: [.command, .option])
+        .disabled(!enabled())
+    }
+}
+
+/// **View** (rows 22–48), in the approved order: the window's toggles;
+/// Reading; the Margin; the right column's three groups, each led by its
+/// position's ⌘1/⌘2/⌘3; the binder's places; the centre's views.
+///
+/// **The right column's keys are declared here and nowhere else**
+/// (`RightColumnControl` holds none), so every one reveals a hidden column
+/// through the window's one receiver. **The old pane keys keep their
+/// letters** (owner, 2026-11-18); each item is titled for what its key does.
+private struct ViewMenuItems: View {
+    @FocusedValue(\.projectURL) private var projectURL
+    @FocusedValue(\.windowChrome) private var chrome
+
+    private var inFront: Bool { projectURL != nil }
+    private func enabled(_ offered: Bool? = nil) -> Bool {
+        MenuBarAvailability.isEnabled(.projectWindow, projectWindowInFront: inFront, offered: offered)
+    }
+
+    var body: some View {
+        // The window's toggles (rows 22, 23, 24, 26, 27): checked by state.
+        Toggle("Focus Mode", isOn: Binding(
+            get: { chrome?.focusMode ?? false },
+            set: { _ in MaughamEvent.post(.maughamToggleNoChrome, to: .keyWindow) }))
+        .keyboardShortcut("\\", modifiers: .command)
+        .disabled(!enabled())
+        Toggle("Full-Screen Focus", isOn: Binding(
+            get: { chrome?.fullScreen ?? false },
+            set: { _ in MaughamEvent.post(.maughamToggleFullScreen, to: .keyWindow) }))
+        .keyboardShortcut("f", modifiers: [.command, .shift])
+        .disabled(!enabled())
+        // ⌘⌥⇧R: the open piece's read-through, titled by its offer.
+        FocusedReadThroughItem()
+        Button(ViewMenuTitles.researchPreview(shown: chrome?.researchPreview ?? false)) {
+            MaughamEvent.post(.maughamToggleResearchPreview, to: .keyWindow)
+        }
+        .keyboardShortcut("p", modifiers: [.command, .shift])
+        .disabled(!enabled())
+        // ⌘⌥0 shows or hides the right column, titled for the focused
+        // window's state (`WindowChrome`).
+        Button(RightColumn.toggleTitle(shown: chrome?.rightColumnShown ?? true)) {
+            MaughamEvent.post(.maughamToggleInspector, to: .keyWindow)
+        }
+        .keyboardShortcut("0", modifiers: [.command, .option])
+        .disabled(!enabled())
+        Divider()
+        // Reading (rows 29–31): View ▸ Read In ▸ …, Read In Next Language
+        // (⌃⌘L), Show Source Under Translation (⌃⇧⌘L).
+        FocusedReadingItems()
+        Divider()
+        // View ▸ Margin ▸ Off / People's Notes / Everything Flagged (shell
+        // p5 Task 2): three checked items, no key.
+        FocusedMarginItems()
+        Divider()
+        Button("To Resolve") { MaughamEvent.postPosition(.resolve) }
+            .keyboardShortcut("1", modifiers: .command)
+            .disabled(!enabled())
+        // ⌘⌥D, ⌘⌥A and ⌘⌥T keep their keys (shell plan 2 Task 7): each
+        // opens To resolve on the filter that pane was.
+        Button("To Resolve: Checks") { MaughamEvent.postResolve(.checks) }
+            .keyboardShortcut("d", modifiers: [.command, .option])
+            .disabled(!enabled())
+        Button("To Resolve: Rounds") { MaughamEvent.postResolve(.rounds) }
+            .keyboardShortcut("a", modifiers: [.command, .option])
+            .disabled(!enabled())
+        Button("To Resolve: Mine") { MaughamEvent.postResolve(.mine) }
+            .keyboardShortcut("t", modifiers: [.command, .option])
+            .disabled(!enabled())
+        // ⌘⌥L (it was the translation pane's key): a translator's
+        // questions, wherever the faces are (shell p4 Task 7, call 8).
+        Button("To Resolve: Questions") { MaughamEvent.postResolve(.questions) }
+            .keyboardShortcut("l", modifiers: [.command, .option])
+            .disabled(!enabled())
+        // ⌘⌥K (row 35): the edition the window reads in, else the
+        // Source's — it moves the faces, so it is no filter's colon title.
+        FocusedEditionResolveButton(inFront: inFront)
+        Divider()
+        Button("Brief") { MaughamEvent.postPosition(.brief) }
+            .keyboardShortcut("2", modifiers: .command)
+            .disabled(!enabled())
+        // ⌘⌥I and ⌘⌥N (row 37): Brief, with the keys in the field —
+        // titled for what the press does: the cursor goes there.
+        Button("Write the Line") { MaughamEvent.postBriefField(.line) }
+            .keyboardShortcut("i", modifiers: [.command, .option])
+            .disabled(!enabled())
+        Button("Write Going For") { MaughamEvent.postBriefField(.goingFor) }
+            .keyboardShortcut("n", modifiers: [.command, .option])
+            .disabled(!enabled())
+        Divider()
+        Button("Pulled Up") { MaughamEvent.postPosition(.pulledUp) }
+            .keyboardShortcut("3", modifiers: .command)
+            .disabled(!enabled())
+        // **⌘⌥G**: the rows are a led**g**er (`RulingsStratumView.title(for:)`);
+        // no letter of "What I've Learned" was free.
+        Button("Pull Up What I've Learned") { MaughamEvent.postPullUp(.lessons) }
+            .keyboardShortcut("g", modifiers: [.command, .option])
+            .disabled(!enabled())
+        // **⌘⌥Y**: every letter of "first reader" is bound except S, one ⌥
+        // slip from ⌘S.
+        Button("Pull Up First Reader") { MaughamEvent.postPullUp(.firstReader) }
+            .keyboardShortcut("y", modifiers: [.command, .option])
+            .disabled(!enabled())
+        Button("Pull Up Visual Language") { MaughamEvent.postPullUp(.visualLanguage) }
+            .keyboardShortcut("v", modifiers: [.command, .option])
+            .disabled(!enabled())
+        // **⌃⌘H** (Task 7's key pass): ⌘⌥H is the app menu's Hide Others,
+        // so SwiftUI bound nothing to this item and the key hid every other
+        // app instead (`MenuBarCensusTests.test_everyMenuKeyIsBoundOnce`).
+        // ⌃⌘ keeps the H, beside ⌃⌘L and ⌃⌘R.
+        Button("Pull Up History") { MaughamEvent.postPullUp(.historyOfTheFaces) }
+            .keyboardShortcut("h", modifiers: [.command, .control])
+            .disabled(!enabled())
+        // ⌘[: the system's own Back — what was pulled up before goes up again.
+        FocusedPullUpPreviousButton(inFront: inFront)
+        Divider()
+        // The binder's places (rows 41–45).
+        FocusedPieceFoldButton(noun: chrome?.foldNoun, inFront: inFront)
+        // ⌘⌥O (row 44): the Book row, the outline's place.
+        Button("Go to the Book") {
+            MaughamEvent.post(.maughamSelectProjectRow, to: .keyWindow)
+        }
+        .keyboardShortcut("o", modifiers: [.command, .option])
+        .disabled(!enabled())
+        // Row 45: a primary place with no route in the menu, and no key.
+        Button("Go to the Canvas") {
+            MaughamEvent.post(.maughamOpenCanvas, to: .keyWindow)
+        }
+        .disabled(!enabled())
+        // ⌘⌥R and ⌘⌥P open the binder's own sections; ⌘⌥B opens the Inbox
+        // in the centre, as a click on its row does.
+        Button("Go to Research") {
+            MaughamEvent.post(.maughamRevealResearchSection, to: .keyWindow)
+        }
+        .keyboardShortcut("r", modifiers: [.command, .option])
+        .disabled(!enabled())
+        Button("Go to Palette") {
+            MaughamEvent.post(.maughamRevealPaletteSection, to: .keyWindow)
+        }
+        .keyboardShortcut("p", modifiers: [.command, .option])
+        .disabled(!enabled())
+        Button("Go to Inbox") {
+            MaughamEvent.post(.maughamOpenInbox, to: .keyWindow)
+        }
+        .keyboardShortcut("b", modifiers: [.command, .option])
+        .disabled(!enabled())
+        // Row 41: the binder's selected row, else what is pulled up — **no
+        // key equivalent**: ⌘↓ stays the binder's own, since as a menu key it
+        // would take "end of document" from every text view.
+        Button(BesideHeader.openInCentreLabel) {
+            MaughamEvent.post(.maughamOpenInCentre, to: .keyWindow)
+        }
+        .disabled(!enabled(chrome?.opensInCentre == true))
+        Divider()
+        // ⌃⌘1/2/3: the centre's view switch (the toolbar's), from the
+        // keyboard — disabled where the centre has no views.
+        FocusedCentreViewItems()
+        #if MAUGHAM_DEV_BUILD
+        // Scene-storage spike instrument (ADR 0021): logs how many
+        // EditorCoordinators are still alive.
+        // See docs/superpowers/notes/2026-07-02-scene-storage-spike.md.
+        Divider()
+        Button("Dump Coordinator Leak Probe (dev)") {
+            CoordinatorLeakProbe.dump()
+        }
+        #endif
+    }
+
+}
+
+/// The View menu's titles that read a state (row 26: the macOS way).
+enum ViewMenuTitles {
+    static func researchPreview(shown: Bool) -> String {
+        shown ? "Hide Research Preview" : "Show Research Preview"
+    }
+}
+
+/// View ▸ Back (⌘[): disabled with nothing to go back to.
+private struct FocusedPullUpPreviousButton: View {
+    let inFront: Bool
+    @FocusedValue(\.pulledUpBackIsOffered) private var offered
+    var body: some View {
+        Button(BesideHeader.backMenuTitle) { MaughamEvent.postPullUpPrevious() }
+            .keyboardShortcut("[", modifiers: .command)
+            .disabled(offered != true || !inFront)
+    }
+}
+
+/// View ▸ ⌘⌥K: titled for the edition it shows, disabled with none.
+private struct FocusedEditionResolveButton: View {
+    let inFront: Bool
+    @FocusedValue(\.editionKeyTitle) private var title
+    var body: some View {
+        Button(title ?? EditionWiring.keyTitleWithNoEdition) { MaughamEvent.postShowEditionResolve() }
+            .keyboardShortcut("k", modifiers: [.command, .option])
+            .disabled(title == nil || !inFront)
+    }
+}
+
+/// View → "Show the Chapter's Fold" (⌘⌥E): what a piece is pinned to is its
+/// fold in the binder, named by the project's noun. DISABLED (the menu bar's
+/// convention) where the focused window has no piece in its faces or its
+/// centre.
+struct FocusedPieceFoldButton: View {
+    let noun: String?
+    let inFront: Bool
+    @FocusedValue(\.pieceFoldIsOffered) private var offered
+    var body: some View {
+        Button(Self.title(noun: noun)) { MaughamEvent.postShowPieceFold() }
+            .keyboardShortcut("e", modifiers: [.command, .option])
+            .disabled(offered != true || !inFront)
+    }
+
+    /// "Show the Chapter's Fold"; with no piece, the project's general word.
+    static func title(noun: String?) -> String {
+        "Show the \(noun ?? PieceNoun.piece.capitalised)\u{2019}s Fold"
     }
 }
 
@@ -858,6 +1066,19 @@ struct FocusedReadThroughItem: View {
 /// `ProjectWindow.TopChromeModifier`; read only by `FocusedRightColumnToggle`.
 struct WindowChrome: Equatable {
     let rightColumnShown: Bool
+    /// Rows 22, 23 and 26: the window's toggles, checked or titled by state.
+    var focusMode = false
+    var fullScreen = false
+    var researchPreview = false
+    /// Row 6: the editor of the pass a round on the run's piece would file
+    /// in (`ProjectManifest.roundEditor(forPiece:memory:)`), nil with none.
+    var roundEditorName: String? = nil
+    /// Rows 11 and 16: File's creation items for this project.
+    var newPiece: NewPieceOffer = .noWindow
+    /// Row 42: the fold's piece's noun ("Chapter"), nil with no piece.
+    var foldNoun: String? = nil
+    /// Row 41: whether Open in Centre has something to open.
+    var opensInCentre = false
 }
 
 struct FocusedWindowChromeKey: FocusedValueKey { typealias Value = WindowChrome }
@@ -865,111 +1086,6 @@ extension FocusedValues {
     var windowChrome: WindowChrome? {
         get { self[FocusedWindowChromeKey.self] }
         set { self[FocusedWindowChromeKey.self] = newValue }
-    }
-}
-
-/// View → "Hide Right Column" / "Show Right Column" (⌘⌥0): the column To
-/// resolve, Brief and the pulled-up thing share (it was "Toggle Inspector",
-/// for a panel that no longer exists). Titled for what a press does.
-private struct FocusedRightColumnToggle: View {
-    @FocusedValue(\.windowChrome) private var chrome
-    var body: some View {
-        Button(RightColumn.toggleTitle(shown: chrome?.rightColumnShown ?? true)) {
-            MaughamEvent.post(.maughamToggleInspector, to: .keyWindow)
-        }
-        .keyboardShortcut("0", modifiers: [.command, .option])
-    }
-}
-
-/// View → "Open the Piece's Fold" (⌘⌥E): what a piece is pinned to is its
-/// fold in the tree. DISABLED (the menu bar's convention) where the focused
-/// window has no piece in its faces or its centre.
-/// View ▸ Back (⌘[): disabled with nothing to go back to.
-private struct FocusedPullUpPreviousButton: View {
-    @FocusedValue(\.pulledUpBackIsOffered) private var offered
-    var body: some View {
-        Button(BesideHeader.backMenuTitle) { MaughamEvent.postPullUpPrevious() }
-            .keyboardShortcut("[", modifiers: .command)
-            .disabled(offered != true)
-    }
-}
-
-/// File ▸ Add Language…: enabled where the focused window may add one
-/// (`EditionWiring` publishes `EditionCastVerbs.mayAddLanguage`).
-private struct FocusedAddLanguageButton: View {
-    @FocusedValue(\.mayAddLanguage) private var mayAdd
-    var body: some View {
-        Button(EditionCastVerbs.addLanguageTitle) { MaughamEvent.postAddLanguage() }
-            .disabled(mayAdd != true)
-    }
-}
-
-/// File ▸ Remove Edition…: enabled where the focused window has a translated
-/// edition selected and may add one (`EditionWiring.editionToRemove`).
-private struct FocusedRemoveEditionButton: View {
-    @FocusedValue(\.removableEdition) private var language
-    var body: some View {
-        Button(EditionCastVerbs.removeEditionTitle) {
-            if let language { MaughamEvent.postRemoveEdition(language) }
-        }
-        .disabled(language == nil)
-    }
-}
-
-/// View ▸ ⌘⌥K: titled for the edition it shows, disabled with none.
-private struct FocusedEditionResolveButton: View {
-    @FocusedValue(\.editionKeyTitle) private var title
-    var body: some View {
-        Button(title ?? EditionWiring.keyTitleWithNoEdition) { MaughamEvent.postShowEditionResolve() }
-            .keyboardShortcut("k", modifiers: [.command, .option])
-            .disabled(title == nil)
-    }
-}
-
-private struct FocusedPieceFoldButton: View {
-    @FocusedValue(\.pieceFoldIsOffered) private var offered
-    var body: some View {
-        Button("Open the Piece's Fold") { MaughamEvent.postShowPieceFold() }
-            .keyboardShortcut("e", modifiers: [.command, .option])
-            .disabled(offered != true)
-    }
-}
-
-/// File → "Promote…". Acts on the canvas's current selection; the focused
-/// window resolves what that is, exactly as the Share and Translation items do.
-private struct FocusedPromoteButton: View {
-    @FocusedValue(\.canvasPromotable) private var promotable
-    var body: some View {
-        Button("Promote…") {
-            MaughamEvent.post(.maughamPromoteCanvasSelection, to: .keyWindow)
-        }
-        .keyboardShortcut(.return, modifiers: [.command, .shift])
-        .disabled(promotable != true)
-    }
-}
-
-private struct FocusedRestoreButton: View {
-    @FocusedValue(\.projectURL) private var projectURL
-    @Environment(\.openWindow) private var openWindow
-    var body: some View {
-        Button("Restore from Backup…") {
-            if let projectURL { openWindow(id: "backup-restore", value: projectURL) }
-        }
-        .disabled(projectURL == nil)
-    }
-}
-
-/// File → "Share Project via iCloud…". Disabled when no project window is focused.
-/// The focused `ProjectWindow` handles the actual presentation (iCloud
-/// Collaborate share sheet, or the move-to-iCloud explanation) so it can anchor
-/// the sheet to its own window and reuse its already-resolved share snapshot.
-private struct FocusedShareForReviewButton: View {
-    @FocusedValue(\.projectURL) private var projectURL
-    var body: some View {
-        Button("Share Project via iCloud…") {
-            MaughamEvent.post(.maughamShareForReview, to: .keyWindow)
-        }
-        .disabled(projectURL == nil)
     }
 }
 
@@ -1003,17 +1119,35 @@ private struct HelpCommands: Commands {
                 }
             }
             Divider()
-            Button("Syntax Reference") {
-                MaughamEvent.post(.maughamShowSyntaxHelp, to: .keyWindow)
-            }
-            .keyboardShortcut("/", modifiers: .command)
-            Button("Set up Claude Desktop…") {
-                MaughamEvent.post(.maughamShowClaudeDesktopHelp, to: .keyWindow)
-            }
+            // Row 56: the sheet has a Keyboard tab, and reference.md sends
+            // readers there for keys. Both sheets open on a project window.
+            HelpWindowItems()
             Divider()
             Button("Acknowledgements") { openWindow(id: "acknowledgements") }
         }
     }
+}
+
+/// Help's two items that open a sheet on the project window in front —
+/// disabled with none (row 57).
+private struct HelpWindowItems: View {
+    @FocusedValue(\.projectURL) private var projectURL
+    private var enabled: Bool {
+        MenuBarAvailability.isEnabled(.projectWindow, projectWindowInFront: projectURL != nil)
+    }
+    var body: some View {
+        Button(Self.syntaxTitle) {
+            MaughamEvent.post(.maughamShowSyntaxHelp, to: .keyWindow)
+        }
+        .keyboardShortcut("/", modifiers: .command)
+        .disabled(!enabled)
+        Button("Set up Claude Desktop…") {
+            MaughamEvent.post(.maughamShowClaudeDesktopHelp, to: .keyWindow)
+        }
+        .disabled(!enabled)
+    }
+
+    static let syntaxTitle = "Syntax & Keyboard Shortcuts"
 }
 
 private struct WelcomeHost: View {

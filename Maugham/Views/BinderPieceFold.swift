@@ -261,7 +261,14 @@ struct BinderPieceFold: View {
                     .allowsHitTesting(false)
             }
         }
+        // The click's twin first, then the double-click's (row 64).
         .contextMenu {
+            if let pulled = entry.pulledUp {
+                Button(BinderTreeVerbs.pullUpTitle(pulled, subject: subject,
+                                                   columnShowsPulledUp: state.columnShowsPulledUp)) {
+                    pullUpOrPutAway(entry)
+                }
+            }
             Button(BesideHeader.openInCentreLabel) { openInCentre(entry) }
         }
         // **The keys reach it** (shell p4 Task 10, plan call 5): a tree-local
@@ -342,6 +349,19 @@ struct BinderPieceFold: View {
         case .double:
             openInCentre(entry)
         }
+    }
+
+    /// The row menu's Pull Up / Put Away: the click's act, not a click —
+    /// no double-click pairing (`TreeRowKeys.returned`, as Return does).
+    private func pullUpOrPutAway(_ entry: PieceFoldEntry) {
+        guard let pulled = entry.pulledUp, let row = Self.foldRow(of: entry, inFoldOf: documentId)
+        else { return }
+        let next = TreeRowKeys.returned(pulled, subject: subject, columnShowsPulledUp: state.columnShowsPulledUp)
+        state.actedInFold(documentId)
+        state.record(selection: [], subject: next.subject, foldRow: row)
+        state.pendingSettle = nil
+        subject = next.subject
+        if next.reveals { state.pulledUpRevealRequests += 1 }
     }
 
     /// Every press on a pull-up row: which row (what it pulls up) and when.

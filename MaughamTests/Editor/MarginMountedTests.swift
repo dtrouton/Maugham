@@ -448,11 +448,11 @@ final class MarginMountedTests: XCTestCase {
         let second = try XCTUnwrap(doc.sequence.last)
         _ = try await doc.addReviewerAnnotation(kind: .comment, paragraphId: second, span: nil,
                                                 body: "tighten", authorName: "Denver")
-        XCTAssertEqual(MarginMirrorModifier.marks(key: key(doc, .myNotes), document: doc, diagnostics: nil).dots.count,
+        XCTAssertEqual(MarginMirrorModifier.marks(key: key(doc, .peoplesNotes), document: doc, diagnostics: nil).dots.count,
                        1, "premise")
         doc.setFullText("First paragraph.")
         XCTAssertFalse(doc.sequence.contains(second), "premise: the paragraph left the text")
-        let after = MarginMirrorModifier.marks(key: key(doc, .myNotes), document: doc, diagnostics: nil)
+        let after = MarginMirrorModifier.marks(key: key(doc, .peoplesNotes), document: doc, diagnostics: nil)
         XCTAssertEqual(after.dots, [], "no dot for a paragraph that is gone")
         await doc.close()
     }
@@ -502,10 +502,10 @@ final class MarginMountedTests: XCTestCase {
         let first = try XCTUnwrap(doc.sequence.first)
         _ = try await doc.addReviewerAnnotation(kind: .comment, paragraphId: first, span: nil,
                                                 body: "tighten", authorName: "Denver")
-        let before = MarginMirrorModifier.marks(key: key(doc, .myNotes), document: doc, diagnostics: nil)
+        let before = MarginMirrorModifier.marks(key: key(doc, .peoplesNotes), document: doc, diagnostics: nil)
         XCTAssertEqual(before.dots.count, 1, "premise")
         doc.setFullText(doc.displayText.replacingOccurrences(of: "Second paragraph.", with: "Second paragraph, typed on."))
-        let after = MarginMirrorModifier.marks(key: key(doc, .myNotes), document: doc, diagnostics: nil)
+        let after = MarginMirrorModifier.marks(key: key(doc, .peoplesNotes), document: doc, diagnostics: nil)
         XCTAssertEqual(after, before, "nothing the marks depend on moved")
         await doc.close()
     }
@@ -597,7 +597,7 @@ final class MarginMountedTests: XCTestCase {
             kind: .comment, paragraphId: second, body: "consider",
             author: AnnotationAuthor(sourceKind: .claude, displayName: "Claude"))
 
-        let myNotes = MarginMirrorModifier.marks(key: key(doc, .myNotes), document: doc, diagnostics: nil)
+        let myNotes = MarginMirrorModifier.marks(key: key(doc, .peoplesNotes), document: doc, diagnostics: nil)
         XCTAssertEqual(myNotes.dots.map(\.annotationId), [mine])
         XCTAssertFalse(myNotes.dots.contains { $0.annotationId == claudes })
         XCTAssertEqual(MarginMirrorModifier.marks(key: key(doc, .off), document: doc, diagnostics: nil), .none)
@@ -635,13 +635,13 @@ final class MarginMountedTests: XCTestCase {
                               authorDisplayName: "Ada")))
 
         let doc = try await load()
-        let before = key(doc, .myNotes)
+        let before = key(doc, .peoplesNotes)
         XCTAssertEqual(MarginMirrorModifier.marks(key: before, document: doc, diagnostics: nil).dots, [],
                        "premise: no seal, a machine stamp — no dot")
 
         _ = try await theirs.sealChain(docId: Self.docId)
         try await doc.handleExternalLogChange()
-        let after = key(doc, .myNotes)
+        let after = key(doc, .peoplesNotes)
         XCTAssertNotEqual(after, before, "the key moved with no new op")
         XCTAssertEqual(MarginMirrorModifier.marks(key: after, document: doc, diagnostics: nil).dots.map(\.annotationId),
                        [noteId], "her seal says a person wrote it: a dot")

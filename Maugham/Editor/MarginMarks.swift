@@ -6,14 +6,18 @@ import MaughamCore
 /// Off is the default and draws nothing at all.
 public enum MarginSetting: String, Codable, CaseIterable, Sendable {
     case off
-    case myNotes
+    /// **People's Notes** (shell p5 Task 7: it was "My Notes"): every
+    /// person's notes — the writer's and an admitted reviewer's, never the
+    /// assistant's. The raw value keeps the old name, so a setting a writer
+    /// already chose survives (derived UI state, no migration).
+    case peoplesNotes = "myNotes"
     case everythingFlagged
 
     /// The menu item's title.
     var title: String {
         switch self {
         case .off: return "Off"
-        case .myNotes: return "My Notes"
+        case .peoplesNotes: return "People\u{2019}s Notes"
         case .everythingFlagged: return "Everything Flagged"
         }
     }

@@ -24,8 +24,10 @@ final class PieceRowMenusTests: XCTestCase {
                        [.tags, .addLink, .publishing])
         XCTAssertEqual(PieceRowMenus.items(for: chapter, verbs: mine, publishingIsSetUp: false),
                        [.tags, .addLink], "the inspector drew Publishing only once it was set up")
-        XCTAssertEqual(PieceRowMenus.Item.allCases.map(\.title),
-                       ["Tags…", "Add Link…", "Target…", "Publishing…"])
+        XCTAssertEqual(PieceRowMenus.Item.allCases.map { $0.title(.chapter) },
+                       ["Tags…", "Link to Another Chapter…", "Target…", "Publishing…"],
+                       "row 60: which link — the binder's other is Link Research…")
+        XCTAssertEqual(PieceRowMenus.Item.addLink.title(.script), "Link to Another Script…")
         // Target… where the status line would offer one — so a target can be
         // set with the status bar hidden — between the links and Publishing.
         XCTAssertEqual(PieceRowMenus.items(for: chapter, verbs: mine, publishingIsSetUp: true,

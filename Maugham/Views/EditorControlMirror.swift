@@ -67,6 +67,19 @@ enum InsertMenuGate {
     }
 }
 
+/// **Whether Edit ▸ Comment… is enabled** (shell p5 Task 7) — the window's
+/// answer, published as `FocusedValues.mayComment`: the manuscript is the
+/// editor the writer sees, the posture allows a note (`.annotate`, never
+/// read-through's state), and the piece is not read in a translation. The
+/// selection is the editor's own question at the press
+/// (`EditorCoordinator.commentOnSelection` beeps without one). Pure.
+enum CommentMenuGate {
+    static func offersComment(posture: Posture?, isReadingTranslation: Bool, route: CentreRoute?) -> Bool {
+        guard ProjectWindow.manuscriptIsVisible(route: route), let posture else { return false }
+        return posture.allows(.annotate) && !isReadingTranslation
+    }
+}
+
 /// Mirrors posture + appearance changes from ProjectWindow-owned sources into
 /// the `EditorControl` model (ADR 0017). A modifier for `ProjectWindow.body`'s
 /// type-check ceiling.
@@ -83,6 +96,8 @@ struct EditorControlMirrorModifier: ViewModifier {
     /// to the menu bar beside the membrane it shadows — the window publishes it
     /// here because this modifier already carries the window's editor posture.
     let mayInsertReportElement: Bool
+    /// Edit ▸ Comment…'s enabled state (`CommentMenuGate`), published beside it.
+    var mayComment = false
     let effectiveTypography: TypographySettings
     /// The session's pieces in read-through (`ReadThroughStore.pieceIds`).
     let readThroughPieces: Set<String>
@@ -94,6 +109,7 @@ struct EditorControlMirrorModifier: ViewModifier {
     func body(content: Content) -> some View {
         content
             .focusedSceneValue(\.mayInsertReportElement, mayInsertReportElement)
+            .focusedSceneValue(\.mayComment, mayComment)
             .onChange(of: membrane) { _, membrane in
                 editorControl.isReviewMode = membrane.isReviewMode
                 editorControl.lockEditing = membrane.lockEditing
@@ -314,7 +330,7 @@ extension FocusedValues {
     }
 }
 
-/// **View ▸ Margin ▸ Off / My Notes / Everything Flagged** (shell p5 Task
+/// **View ▸ Margin ▸ Off / People's Notes / Everything Flagged** (shell p5 Task
 /// 2): three checked items, no key, disabled with no project window.
 struct FocusedMarginItems: View {
     @FocusedValue(\.marginSetting) private var current

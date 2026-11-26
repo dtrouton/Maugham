@@ -179,11 +179,11 @@ struct EditionWiring: ViewModifier {
 
     /// The View menu's title for ⌘⌥K: the edition it would show, by name.
     static func keyTitle(_ row: TreeEditionRows.Row?) -> String? {
-        row.map { "To Resolve: \($0.title) Edition" }
+        row.map { "\($0.title) Edition\u{2019}s To Resolve" }
     }
 
     /// The title while the focused window has no edition to show.
-    static let keyTitleWithNoEdition = "To Resolve: An Edition"
+    static let keyTitleWithNoEdition = "An Edition\u{2019}s To Resolve"
 }
 
 /// Whether the focused window may add a language (File ▸ Add Language…).

@@ -887,7 +887,7 @@ final class BinderTreeDropRoutingTests: XCTestCase {
         let start = try XCTUnwrap(lines.firstIndex(of: "Button(\"New Group\") { actions.newGroup(item.id) }"))
         XCTAssertEqual(lines[start - 1], "if item.type == .group {", "offered on a group row only")
         XCTAssertEqual(lines[start + 1], "Button(\"Add File…\") { actions.addFile(item.id) }")
-        XCTAssertEqual(lines[start + 2], "Button(\"Add Link…\") { actions.addLink(item.id) }")
+        XCTAssertEqual(lines[start + 2], "Button(ResearchTreeActions.addWebLinkTitle) { actions.addLink(item.id) }")
         let fold = SourceScan.codeLines(of: try SourceTree.read("Maugham/Views/BinderPieceFold.swift"))
             .joined(separator: "\n")
         XCTAssertFalse(fold.contains("newGroup(nil)") || fold.contains("addFile(nil)")
@@ -1236,7 +1236,10 @@ final class BinderTreeDropRoutingTests: XCTestCase {
         "externalDrop", "newNote", "newTable", "newGroup", "addFile", "addLink", "duplicate",
         "offersMaking", "offersDuplicate", "selectionForRow", "moveTargets", "dragStarted",
         "homeMenu", "offersChanging", "dropAnswers", "figureVerb", "figureVerbRefusal",
-        "performFigureVerb"])
+        "performFigureVerb",
+        // The click's twin and ⌘↓'s (shell p5 Task 7): they move the
+        // window's subject, never the row, so read-through holds nothing back.
+        "pullUpTitle", "pullUp", "openInCentre"])
     /// The doors a changing verb goes through, and what reaches the question.
     static let doors = ["renameResearch": 0, "routeResearchRowDrop": 0, "requestDelete": 0,
                         "requestMove": 0, "performHome": 0]

@@ -73,7 +73,7 @@ final class MarginMarksTests: XCTestCase {
     func test_aPersonsNoteIsADotAndATint() {
         let mine = note("n1", pid: "aa11", author: denver, span: 4..<9)
         let reviewers = note("n2", pid: "bb22", author: ada)
-        let result = marks(.myNotes, notes: [mine, reviewers], owners: [
+        let result = marks(.peoplesNotes, notes: [mine, reviewers], owners: [
             "n1": .verified(.author, ofThisWriter: true),
             "n2": .verified(.author, ofThisWriter: false),
         ])
@@ -87,7 +87,7 @@ final class MarginMarksTests: XCTestCase {
         // Each dot takes its person's pencil — the review card's colour —
         // never the assistant's reserved one (closing round B).
         XCTAssertFalse(result.dots.contains { $0.colour == ReviewPalette.claudeTerracotta })
-        XCTAssertEqual(result.ticks, [], "My Notes draws no ticks")
+        XCTAssertEqual(result.ticks, [], "People's Notes draws no ticks")
     }
 
     /// **One mark of several people is grey, decided by who they are**
@@ -112,7 +112,7 @@ final class MarginMarksTests: XCTestCase {
     func test_anAssistantNoteIsNeverADotWhateverItsStamp() {
         let stampedHuman = note("n1", author: denver)
         let stampedClaude = note("n2", author: claude)
-        for setting in [MarginSetting.myNotes, .everythingFlagged] {
+        for setting in [MarginSetting.peoplesNotes, .everythingFlagged] {
             let result = marks(setting, notes: [stampedHuman, stampedClaude], owners: [
                 "n1": .verified(.assistant, ofThisWriter: true),
                 "n2": .verified(.assistant, ofThisWriter: true),
@@ -120,7 +120,7 @@ final class MarginMarksTests: XCTestCase {
             XCTAssertEqual(result.dots, [], "\(setting): the seal is the assistant's, the stamp is not read")
         }
         for machine in [DeviceActor.translator, .maugham] {
-            let result = marks(.myNotes, notes: [stampedHuman], owners: ["n1": .verified(machine, ofThisWriter: true)])
+            let result = marks(.peoplesNotes, notes: [stampedHuman], owners: ["n1": .verified(machine, ofThisWriter: true)])
             XCTAssertEqual(result.dots, [], "\(machine)")
         }
     }
@@ -131,18 +131,18 @@ final class MarginMarksTests: XCTestCase {
     func test_anUnsignedNoteGoesByItsStamp() {
         let human = note("n1", author: denver)
         let machine = note("n2", pid: "bb22", author: claude)
-        let result = marks(.myNotes, notes: [human, machine],
+        let result = marks(.peoplesNotes, notes: [human, machine],
                            owners: ["n1": .stamped(.human), "n2": .stamped(.claude)])
         XCTAssertEqual(result.dots.map(\.annotationId), ["n1"])
     }
 
     func test_aNoteSealedByAKeyNotOursIsNeverADot() {
-        let result = marks(.myNotes, notes: [note("n1", author: denver)], owners: ["n1": .unknown])
+        let result = marks(.peoplesNotes, notes: [note("n1", author: denver)], owners: ["n1": .unknown])
         XCTAssertEqual(result, .none)
     }
 
     func test_aSettledNoteIsNoDot() {
-        let result = marks(.myNotes, notes: [note("n1", author: denver, status: .archived)],
+        let result = marks(.peoplesNotes, notes: [note("n1", author: denver, status: .archived)],
                            owners: ["n1": .verified(.author, ofThisWriter: true)])
         XCTAssertEqual(result.dots, [])
     }
@@ -305,7 +305,7 @@ final class MarginMarksTests: XCTestCase {
     /// The menu's three items, checked by the key window's setting (the
     /// `Toggle`'s `isOn` reads this); none with no project window.
     func test_theMenusItemsAreCheckedByTheSetting() {
-        XCTAssertEqual(MarginSetting.allCases.map(\.title), ["Off", "My Notes", "Everything Flagged"])
+        XCTAssertEqual(MarginSetting.allCases.map(\.title), ["Off", "People\u{2019}s Notes", "Everything Flagged"])
         for current in MarginSetting.allCases {
             XCTAssertEqual(MarginSetting.allCases.filter { MarginMarks.isChecked($0, current: current) },
                            [current])
@@ -327,7 +327,9 @@ final class MarginMarksTests: XCTestCase {
     }
 
     func test_theSettingEventCarriesItsValue() {
-        XCTAssertEqual(MaughamEvent.marginSetting(of: [MaughamEvent.marginSettingKey: "myNotes"]), .myNotes)
+        XCTAssertEqual(MaughamEvent.marginSetting(of: [MaughamEvent.marginSettingKey: "myNotes"]), .peoplesNotes)
+        // Renamed in Task 7; the stored value is not, so a chosen setting survives.
+        XCTAssertEqual(MarginSetting.peoplesNotes.rawValue, "myNotes")
         XCTAssertNil(MaughamEvent.marginSetting(of: [MaughamEvent.marginSettingKey: "loud"]))
     }
 }

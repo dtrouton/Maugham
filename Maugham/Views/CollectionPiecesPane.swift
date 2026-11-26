@@ -215,9 +215,10 @@ struct CollectionPiecesPane: View {
                         MaughamEvent.post(.maughamPromotePiece, to: .keyWindow, payload: ["piece_id": piece.id])
                     }
                 }
-                // Tags…, Add Link…, Publishing… (shell p3 Task 8).
+                // Tags…, Link to Another Piece…, Publishing… (shell p3 Task 8).
                 PieceRowMenuButtons(item: piece, verbs: verbs, state: treeState,
-                                    offersTarget: PieceRowMenus.target(for: piece, store: store) != nil)
+                                    offersTarget: PieceRowMenus.target(for: piece, store: store) != nil,
+                                    noun: PieceNoun.of(piece, in: store.manifest))
                 if verbs.delete {
                     Divider()
                     Button("Delete", role: .destructive) {
@@ -366,13 +367,13 @@ struct CollectionPiecesPane: View {
     /// piece, so the menu is the book author's (ruling R3), hidden otherwise.
     private var addMenu: some View {
         Menu {
-            Button("New Prose \(PieceNoun.piece.capitalised)") {
+            Button(StartAPieceDoor.newProsePieceTitle) {
                 MaughamEvent.post(.maughamAddLoosePiece, to: .keyWindow)
             }
-            Button("New \(PieceNoun.script.capitalised)") {
+            Button(StartAPieceDoor.newScriptTitle) {
                 MaughamEvent.post(.maughamAddScreenplayPiece, to: .keyWindow)
             }
-            Button("Link Existing Project…") {
+            Button(StartAPieceDoor.linkProjectTitle) {
                 MaughamEvent.post(.maughamLinkProject, to: .keyWindow)
             }
         } label: {
@@ -390,6 +391,12 @@ struct CollectionPiecesPane: View {
 /// **The File menu's three piece-adding items and their receiver**, asked the
 /// same `.startAPiece` question as the tree's own + (`TreeStructureVerbs`).
 enum StartAPieceDoor {
+
+    /// **One wording for a Collection's three, in File and on the + menu**
+    /// (shell p5 Task 7).
+    static let newProsePieceTitle = "New Prose \(PieceNoun.piece.capitalised)"
+    static let newScriptTitle = "New \(PieceNoun.script.capitalised)"
+    static let linkProjectTitle = "Link Existing Project\u{2026}"
 
     /// The menu item's enabled state. nil — no project window in front — keeps
     /// the item enabled as it always was: the receiver is already a no-op

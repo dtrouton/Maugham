@@ -71,6 +71,19 @@ struct ResearchTreeActions {
     /// same classification `internalDrop`/`externalDrop` perform; a fold
     /// re-routes it with its document, as it re-routes those.
     var dropAnswers: (ResearchItem) -> TreeDropAnswers = { _ in .none }
+    /// **The click's twin and the double-click's** (shell p5 Task 7, rows
+    /// 64–66): the menu holds what the row's click and ⌘↓ do — Pull Up (or
+    /// Put Away, the row being the one up) and Open in Centre. Nil offers
+    /// neither (a fixture with no window behind it).
+    var pullUpTitle: ((String) -> String)? = nil
+    var pullUp: ((String) -> Void)? = nil
+    var openInCentre: ((String) -> Void)? = nil
+}
+
+extension ResearchTreeActions {
+    /// Row 65: "Add Link…" meant a web link here and another piece in the
+    /// binder's piece rows — one title, two meanings.
+    static let addWebLinkTitle = "Add Web Link\u{2026}"
 }
 
 struct ResearchTreeNode: View {
@@ -217,6 +230,13 @@ struct ResearchTreeNode: View {
             onDragStart: { [actions, item, inFold] in actions.dragStarted(item.id, inFold) })
             .tag(rowTag)
             .contextMenu {
+                // What the row's click and double-click do, first (row 65).
+                if item.type != .group, let pullUp = actions.pullUp, let title = actions.pullUpTitle,
+                   let openInCentre = actions.openInCentre {
+                    Button(title(item.id)) { pullUp(item.id) }
+                    Button(BesideHeader.openInCentreLabel) { openInCentre(item.id) }
+                    Divider()
+                }
                 if actions.offersMaking(item) {
                     Button("New Note") {
                         actions.newNote(item.type == .group ? item.id : findParentId(item.id))
@@ -230,7 +250,7 @@ struct ResearchTreeNode: View {
                 if item.type == .group {
                     Button("New Group") { actions.newGroup(item.id) }
                     Button("Add File…") { actions.addFile(item.id) }
-                    Button("Add Link…") { actions.addLink(item.id) }
+                    Button(ResearchTreeActions.addWebLinkTitle) { actions.addLink(item.id) }
                     Divider()
                 }
                 let acting = actions.selectionForRow(item.id)
