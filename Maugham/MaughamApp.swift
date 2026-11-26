@@ -1225,7 +1225,7 @@ private struct HelpWindowItems: View {
         MenuBarAvailability.isEnabled(.projectWindow, projectWindowInFront: projectURL != nil)
     }
     var body: some View {
-        Button(Self.syntaxTitle) {
+        Button(SyntaxHelpSheet.title) {
             MaughamEvent.post(.maughamShowSyntaxHelp, to: .keyWindow)
         }
         .keyboardShortcut("/", modifiers: .command)
@@ -1235,8 +1235,6 @@ private struct HelpWindowItems: View {
         }
         .disabled(!enabled)
     }
-
-    static let syntaxTitle = "Syntax & Keyboard Shortcuts"
 }
 
 private struct WelcomeHost: View {

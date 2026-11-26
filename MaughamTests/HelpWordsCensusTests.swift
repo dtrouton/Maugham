@@ -1,4 +1,5 @@
 import XCTest
+import AppKit
 @testable import Maugham
 
 /// **What the writer and Claude read describes the window that ships**
@@ -41,32 +42,20 @@ final class HelpWordsCensusTests: XCTestCase {
         // The owner's own name never ships in help (the lead's ruling, shell p5
         // Task 8 fix round 2): examples use Alex, Alex Moreno and Sam.
         ("the owner's name", #"(?i)\b(denver|trouton)\b"#),
+        // Shell p5 Task 9: the rest of the window's old vocabulary, and the
+        // owner's own books, which an example must not borrow.
+        ("pane", #"\b[Pp]anes?\b"#),
+        ("the tree", #"\b[Tt]he tree\b|\b(from|to|in) tree\b"#),
+        ("the owner's own book", #"\b[Pp]laylist\b|Good Luck Babe|\bglb\b"#),
     ]
 
     /// The key that allows a whole file.
     static let allFile = "*"
 
-    /// file → phrase → why it may say a retired word. Each "until Task 9"
-    /// entry is a file shell p5 Task 9 rewrites (the samples, the syntax
-    /// sheet's page target and the skills); that task deletes the entry.
+    /// file → phrase → why it may say a retired word.
     static let allowed: [String: [String: String]] = [
         "Maugham/Resources/fountain-syntax.md": [
             "Marlowe sits at his desk.": "a scene's action line in the syntax example, not the retired desk",
-            "in the Inspector (⌘⌥I)": "until Task 9: the sheet's page-target sentence is Task 9's to rewrite",
-        ],
-        "Maugham/Resources/Samples/novel/manuscript/02-try-it.md": [
-            "## The Inspector": "until Task 9: the sample novel's second chapter is Task 9's to rewrite",
-            "is the Inspector": "until Task 9: the sample novel's second chapter is Task 9's to rewrite",
-        ],
-        "docs/skills/editing-pass/SKILL.md": [
-            "**⌘R in Author": "until Task 9: the skills are Task 9's to rewrite",
-            "**Run Round in Review": "until Task 9: the skills are Task 9's to rewrite",
-        ],
-        "docs/skills/maugham-bootstrap/SKILL.md": [
-            "note's inspector": "until Task 9: the skills are Task 9's to rewrite",
-        ],
-        "docs/skills/translation-pass/SKILL.md": [
-            "Review pane": "until Task 9: the skills are Task 9's to rewrite",
         ],
     ]
 
@@ -156,6 +145,9 @@ final class HelpWordsCensusTests: XCTestCase {
             "Choose Lock Research and Figures.",
             "Choose Toggle Review Mode.",
             "This Mac is on DENVER's chain; recognised as Denver Trouton.",
+            "The right-hand pane lists them.",
+            "Drag it in the tree.",
+            "Compile Playlist-v1.0.pdf for the special-glb imprint.",
             "A desk lamp.",
         ]
         XCTAssertEqual(planted.count, Self.retired.count + 1,
@@ -167,6 +159,7 @@ final class HelpWordsCensusTests: XCTestCase {
         The desktop app, a deskilled reader and a segmentation fault are not the words.
         Planning comes first, then you author a chapter, review it and publish the book.
         The ladder is explained in Review Passes; Alex Moreno and Sam share the book.
+        A window panel, a treetop and the binder's Research section; Lighthouse-v1.0.pdf.
         """
         let base = try SourceTree.plantedTree([
             "docs/guide/rogue.md": planted.joined(separator: "\n"),
@@ -206,5 +199,107 @@ final class HelpWordsCensusTests: XCTestCase {
                        "the allowed phrase covers its match")
         XCTAssertTrue(narrowed.contains { $0.hasPrefix("docs/guide/rogue.md:\(planted.count): [desk]") },
                       "an allowed phrase covers no other line holding the same word")
+    }
+
+    // MARK: - What Claude and the tour read as values (shell p5 Task 9)
+
+    /// The texts read as values, not files: the welcome tour's cards and
+    /// every MCP tool's description and input schema, straight from
+    /// `MCPToolCatalog.all`, so a description assembled from pieces is read
+    /// whole. (The `initialize` response carries no server instructions; the
+    /// bootstrap skill is in the file corpus.)
+    static func valueCorpus() -> [(source: String, text: String)] {
+        var values: [(source: String, text: String)] = []
+        for slide in WelcomeSlide.all {
+            values.append(("WelcomeSlide.\(slide.id.rawValue).heading", slide.heading))
+            values.append(("WelcomeSlide.\(slide.id.rawValue).body", slide.body))
+        }
+        for tool in MCPToolCatalog.all {
+            values.append(("\(tool.method).description", tool.description))
+            values.append(("\(tool.method).inputSchema", tool.inputSchemaJSON))
+        }
+        return values
+    }
+
+    /// Each offending value as `source: [word] text`.
+    static func valueOffenders(_ values: [(source: String, text: String)]) -> [String] {
+        var found: [String] = []
+        for (source, text) in values {
+            for (name, regex) in patterns
+            where regex.firstMatch(in: text, range: NSRange(location: 0, length: (text as NSString).length)) != nil {
+                found.append("\(source): [\(name)] " + text.prefix(160))
+            }
+        }
+        return found
+    }
+
+    func test_noTourCardOrMCPDescriptionUsesARetiredWord() {
+        let values = Self.valueCorpus()
+        XCTAssertEqual(values.count, 2 * WelcomeSlide.all.count + 2 * MCPToolCatalog.all.count)
+        XCTAssertGreaterThan(MCPToolCatalog.all.count, 40, "premise: the catalog is read")
+        let found = Self.valueOffenders(values)
+        XCTAssertEqual(found, [], "a tour card or an MCP description names a surface the window no longer has "
+                       + "(\(found.count); by word: \(Self.countsByWord(found))):\n" + found.joined(separator: "\n"))
+    }
+
+    func test_theValueCensusCatchesAPlantedValue() {
+        let found = Self.valueOffenders([
+            ("planted.description", "Shows in the Inspector."),
+            ("control.description", "Shows in To resolve, beside the text, and in the chapter's fold in the binder."),
+        ])
+        XCTAssertEqual(found.count, 1, "\(found)")
+        XCTAssertTrue(found.first?.hasPrefix("planted.description: [Inspector]") == true, "\(found)")
+    }
+
+    // MARK: - Every key the samples and the tour name is a real one
+
+    /// Every key token in `text` (⌘, ⌃, ⌥ or ⇧ then a key), spelled as the
+    /// menu walk spells it: ⌘ first, then ⌃⌥⇧, the key uppercased.
+    static func keyTokens(in text: String) -> [String] {
+        let regex = try! NSRegularExpression(pattern: #"[⌘⌃⌥⇧]+(Space|[A-Za-z0-9\\/\[\],.?↩↓↑←→=-])"#)
+        let ns = text as NSString
+        return regex.matches(in: text, range: NSRange(location: 0, length: ns.length)).map { match in
+            let whole = ns.substring(with: match.range)
+            let key = ns.substring(with: match.range(at: 1))
+            var token = ""
+            for glyph in ["⌘", "⌃", "⌥", "⇧"] where whole.contains(glyph) { token += glyph }
+            return token + key.uppercased()
+        }
+    }
+
+    /// The tokens in each corpus text that are not in `bound`, as `where: token`.
+    static func unboundKeys(_ texts: [(source: String, text: String)], bound: Set<String>) -> [String] {
+        texts.flatMap { source, text in
+            keyTokens(in: text).filter { !bound.contains($0) }.map { "\(source): \($0)" }
+        }
+    }
+
+    /// **A sample names only keys the menus bind** — the real menu bar,
+    /// walked as `MenuBarCensusTests` walks it.
+    @MainActor
+    func test_everyKeyASampleNamesIsBoundByTheMenus() throws {
+        let bound = Set(MenuBarCensusTests.walk(NSApp.mainMenu).compactMap(\.token))
+        XCTAssertTrue(bound.contains("⌘S"), "premise: the walk reached the app's menus")
+        let samples = try Self.corpus().filter { $0.hasPrefix("Maugham/Resources/Samples/") }
+        XCTAssertGreaterThanOrEqual(samples.count, 4, "premise: the samples are read")
+        let texts = try samples.map { ($0, try SourceTree.read($0)) }
+        XCTAssertGreaterThan(texts.flatMap { Self.keyTokens(in: $0.1) }.count, 5, "premise: the samples name keys")
+        XCTAssertEqual(Self.unboundKeys(texts, bound: bound), [], "a sample names a key no menu item binds")
+    }
+
+    /// **No tour card names a key the cheat sheet does not list.**
+    func test_everyKeyATourCardNamesIsOnTheCheatSheet() {
+        let listed = Set(KeyboardShortcuts.all.flatMap(\.items).map(\.shortcut))
+        let cards = WelcomeSlide.all.map { ("WelcomeSlide.\($0.id.rawValue)", $0.heading + " " + $0.body) }
+        XCTAssertEqual(Self.unboundKeys(cards, bound: listed), [], "a tour card names a key the ⌘/ sheet does not list")
+    }
+
+    /// The control: modifiers in either order, the punctuation keys, and an
+    /// unbound key caught; a lone ⌘ glyph and plain prose are not tokens.
+    func test_theKeyCensusReadsTokensAsTheMenuSpellsThem() {
+        XCTAssertEqual(Self.keyTokens(in: "Press ⌃⌘H, then ⌘⌥t, ⌘\\ and ⌘/; ⌘ alone is no key."),
+                       ["⌘⌃H", "⌘⌥T", "⌘\\", "⌘/"])
+        XCTAssertEqual(Self.unboundKeys([("planted.md", "Press ⌘⌥⇧9 or ⌘S.")], bound: ["⌘S"]),
+                       ["planted.md: ⌘⌥⇧9"])
     }
 }

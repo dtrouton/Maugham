@@ -64,7 +64,7 @@ sees a diff against whatever exists and chooses Adopt or Discard in Maugham.
    drafted brief into chat as the deliverable — the proposal call is the
    deliverable. Tell the writer where the gate is: the tool's response
    carries `adoptWhere`, so read it back to them rather than guessing at a
-   menu (the edition under Editions in the tree → its Brief, a diff with
+   menu (the edition under Editions in the binder → its Brief, a diff with
    Adopt / Discard). A second call for the same language
    replaces the pending proposal — if the writer asks for changes before
    they've adopted, redraft and call it again rather than trying to patch

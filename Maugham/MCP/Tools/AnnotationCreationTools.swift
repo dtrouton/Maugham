@@ -18,8 +18,8 @@ public enum AddCommentTool: MCPTool {
     public static let method = "add_comment"
     public static let description =
         "Attach an editorial comment to a manuscript paragraph. Comments do not " +
-        "modify the manuscript; the user accepts or rejects them via the " +
-        "To resolve list. Reject reasoning is captured for future sessions. " +
+        "modify the manuscript; the writer reads and answers them in To resolve " +
+        "(⌘1), beside the piece's text. " +
         "Optionally pass `quote` (an exact phrase from the paragraph) to anchor " +
         "the comment to a sub-paragraph span; omit it to anchor the whole paragraph. " +
         "Running an editing pass? Call get_help with topic \"editing-pass\" first — " +
@@ -96,8 +96,8 @@ public enum AddSuggestedChangeTool: MCPTool {
         "paragraph; (2) pass `quote` (an exact phrase from the paragraph) → " +
         "`suggested_text` replaces ONLY that quoted span, so it must contain " +
         "just the span's replacement — never the whole paragraph and never the " +
-        "text surrounding the quote. The user accepts (applies the change) or " +
-        "rejects (with reasoning). To propose a value for ONE table cell (tables only), pass " +
+        "text surrounding the quote. The writer accepts (applies the change) or " +
+        "rejects (with reasoning) in To resolve. To propose a value for ONE table cell (tables only), pass " +
         "`figure` (tbl:name!C3) and `suggested_value` instead of the paragraph " +
         "fields: a number with `.` for the decimal and no grouping (1234.5; a number " +
         "with a comma such as 1,500 or 1,5 is refused), text, " +
@@ -172,12 +172,13 @@ public enum AddQueryTool: MCPTool {
     public static let method = "add_query"
     public static let description =
         "Ask the writer a question about a paragraph (intent, ambiguity, " +
-        "character motivation). The writer replies in the To resolve list; " +
+        "character motivation). The writer replies in To resolve (⌘1); " +
         "the reply is persisted in the annotation history. Optionally pass " +
         "`quote` (an exact phrase from the paragraph) to anchor the query to a " +
         "sub-paragraph span; omit it to anchor the whole paragraph. During a " +
         "translation pass, pass `language` (the target tag, e.g. `es`) to mark " +
-        "the query as a translator question about that language — " +
+        "the query as a translator question about that language, listed under " +
+        "Questions in To resolve — " +
         "translation_status counts these as `open_queries`. To ask about a " +
         "figure instead, pass `figure` (tbl:name or fig:name; cells on a table: tbl:name!C3 or tbl:name!C3:E3) " +
         "and omit `document_id`, `paragraph_id` and `quote`."

@@ -11,7 +11,8 @@ template-authoring session reads this statement (`read_visual_language`)
 before drawing a single rule; it must not decide taste on the writer's
 behalf, and neither should you. You interview the writer, draft a proposal,
 and hand it to `propose_visual_language`. The writer sees a diff against
-whatever exists and chooses Adopt or Discard in the Visual Language pane.
+whatever exists and chooses Adopt or Discard in Visual Language, which they
+pull up beside the text with ⌘⌥V.
 
 ## What matters, in order
 
@@ -47,8 +48,9 @@ whatever exists and chooses Adopt or Discard in the Visual Language pane.
 5. **End by calling `propose_visual_language`** with the whole `markdown`
    and a short `rationale`. Never paste the drafted statement into chat as
    the deliverable — the proposal call is the deliverable. Tell the writer
-   the gate is the Visual Language pane (⌘⌥V), where a banner offers Adopt
-   / Discard with a diff against the current statement. A second call
+   the gate is Visual Language, pulled up beside the text (⌘⌥V, or its link
+   in the Book's Brief), where a banner offers Adopt / Discard with a diff
+   against the current statement. A second call
    replaces the pending proposal — if the writer asks for changes before
    they've adopted, redraft and call it again.
 

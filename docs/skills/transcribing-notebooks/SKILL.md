@@ -26,9 +26,12 @@ honestly marked where the ink defeats you.
 ## Constraints
 
 - Transcriptions are research notes — never manuscript text. Create the
-  note with `add_note`, then file it beside the source images with
-  `move_research_item` (`research_ids: [<note id>]`,
-  `target_document_id: <piece id>`).
+  note with `add_note` and file it where the source images are, because
+  where a note is, is whose it is: `add_note`'s `parent_group_id` puts it in
+  the images' group; in a Collection, `move_research_item`
+  (`research_ids: [<note id>]`, `target_document_id: <piece id>`) moves it
+  into a piece's research; in a novel, `link_research` gives it to the
+  chapter the pages belong to, and it shows in that chapter's fold.
 - Check what's already transcribed before starting (search existing note
   titles and bodies) and extend the established naming rather than
   repeating work.

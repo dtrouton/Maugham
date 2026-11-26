@@ -192,7 +192,7 @@ The count is `MCPToolCatalog.all.count`; `DocSyncTests` checks this heading agai
 - **`search_text` filters to `.manuscript`; ⌘⌥F does not reach a statement**, and that is a stop, not an omission.
 - **`find_references` and `list_all_links` scan manuscript documents, research note bodies (canvas promotion writes `[[…]]` into notes) and statements**, and resolve a statement's composed title (`"Craft Intent · <doc>"`) as a `[[…]]` target at lowest precedence.
 - **`move_research_item` takes exactly one of `target: "shared"`, `target_group_id`, `target_document_id`**, and wraps `ProjectStore.moveResearchItems` (`Maugham/Stores/ProjectStore+ResearchMove.swift`; read its header before touching the validation).
-- **`update_research_citation` goes through `ProjectStore.updateCitation`, the research inspector's own door**: `citation` replaces the whole set, `null` removes it, an omitted `citation` is refused, `accessed` is a UTC `YYYY-MM-DD` day, and the door's refusals (`CitationEditError`) are `invalid_argument` in the writer's words.
+- **`update_research_citation` goes through `ProjectStore.updateCitation`, the research details' own door**: `citation` replaces the whole set, `null` removes it, an omitted `citation` is refused, `accessed` is a UTC `YYYY-MM-DD` day, and the door's refusals (`CitationEditError`) are `invalid_argument` in the writer's words.
 - **A cross-scope move leaves explicit links (`linkedResearchIds`) untouched**: association is containment-based. A manual link goes dormant while the item lives in a piece's research and resurfaces on move-out; a containment-only association severs on move-out and no link is minted.
 
 **Figures**

@@ -1,6 +1,6 @@
 # Markdown syntax in Maugham
 
-Prose in Maugham is written in Markdown: plain text with a few light marks for headings, emphasis, links and lists. Maugham supports the marks fiction writers actually reach for, plus two extras borrowed from notes apps (wiki links and task checkboxes).
+Prose in Maugham is written in Markdown: plain text with a few light marks for headings, emphasis, links and lists. Maugham supports the marks fiction writers actually reach for, plus two extras borrowed from notes apps (wiki links and to-do checkboxes).
 
 The marks stay visible as you write. When you type `**bold**`, the asterisks stay in the text but fade into a quiet color while the word between them turns bold, so you always see exactly what's in your file.
 
@@ -31,16 +31,16 @@ Start a line with one to six `#` characters, then a space, then the heading. Mor
 
 Start a line with `-`, `*`, `+`, or a number and a period (`1.`), then a space. The marker shows in the quiet syntax color and the item reads as normal text. Indented (nested) items keep their indent but aren't styled differently.
 
-### Task checkboxes
+### To-do checkboxes
 
 ```
 - [ ] Rewrite the meet-cute beat
 - [x] Confirm timeline with director
 ```
 
-A line starting `- [ ]` or `- [x]` becomes a clickable checkbox. Click it to tick or untick the task; a ticked task is struck through.
+A line starting `- [ ]` or `- [x]` becomes a clickable checkbox. Click it to tick or untick the to-do; a ticked one is struck through. Every checkbox in the book is listed in To resolve, under Mine (⌘⌥T).
 
-You can also drop a task into the middle of a paragraph without breaking the flow of your prose: write `[[todo: ...]]`, and it becomes `[[done: ...]]` when you tick it.
+You can also drop a to-do into the middle of a paragraph without breaking the flow of your prose: write `[[todo: ...]]`, and it becomes `[[done: ...]]` when you tick it.
 
 ### Blockquotes
 

@@ -5,7 +5,7 @@ import MaughamCore
 /// existing Research note's body** (ADR 0034), through the note door
 /// (`DocumentStore.saveResearchNote(by: .assistant)`): the text it replaces
 /// (the writer's unsaved edit included) is always kept as a version marked
-/// "Before the assistant’s change", restorable from the inspector, and an
+/// "Before the assistant’s change", restorable from the note's Versions, and an
 /// editor open on the note reloads. Research notes only — never the
 /// manuscript, a palette card or a table — and never a raw file write.
 public enum UpdateNoteTool: MCPTool {

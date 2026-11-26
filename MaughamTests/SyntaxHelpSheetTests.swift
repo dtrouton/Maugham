@@ -1,4 +1,5 @@
 import XCTest
+import AppKit
 @testable import Maugham
 import MaughamCore
 
@@ -76,5 +77,15 @@ final class SyntaxHelpSheetTests: XCTestCase {
             for: ProjectWindow.syntaxHelpFormat(type: .screenplay, activePath: nil)), .fountain)
         XCTAssertEqual(SyntaxHelpSheet.Tab.opening(
             for: ProjectWindow.syntaxHelpFormat(type: .novel, activePath: nil)), .markdown)
+    }
+
+    /// **The sheet is titled as Help's item is** (menu table row 56): one
+    /// string, and the item on the real menu bar carries it with ⌘/.
+    @MainActor
+    func test_theSheetAndHelpsItemShareOneTitle() throws {
+        XCTAssertEqual(SyntaxHelpSheet.title, "Syntax & Keyboard Shortcuts")
+        let item = try XCTUnwrap(MenuBarCensusTests.walk(NSApp.mainMenu)
+            .first { $0.path.hasPrefix("Help ▸ ") && $0.title == SyntaxHelpSheet.title })
+        XCTAssertEqual(item.token, "⌘/")
     }
 }

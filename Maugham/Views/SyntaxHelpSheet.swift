@@ -16,6 +16,10 @@ enum HelpBlock {
 // MARK: - Main view
 
 struct SyntaxHelpSheet: View {
+    /// The sheet's title, and Help's item that opens it (menu table row 56):
+    /// one string, so the menu and the sheet cannot disagree.
+    static let title = "Syntax & Keyboard Shortcuts"
+
     /// The format whose help opens first.
     let format: DocumentFormat
     @Environment(\.dismiss) private var dismiss
@@ -52,7 +56,7 @@ struct SyntaxHelpSheet: View {
     var body: some View {
         NavigationStack {
             VStack(spacing: 0) {
-                Picker("Reference", selection: $selectedTab) {
+                Picker(Self.title, selection: $selectedTab) {
                     ForEach(Tab.allCases, id: \.self) { tab in
                         Text(tab.title).tag(tab)
                     }
@@ -74,7 +78,7 @@ struct SyntaxHelpSheet: View {
                         .keyboardShortcut(.defaultAction)
                 }
             }
-            .navigationTitle("Reference")
+            .navigationTitle(Self.title)
         }
         .frame(minWidth: 640, minHeight: 480)
     }

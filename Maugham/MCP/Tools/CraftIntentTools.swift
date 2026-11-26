@@ -13,7 +13,8 @@ public enum ReadCraftIntentTool: MCPTool {
     public static let method = "read_craft_intent"
     public static let description =
         "Read the writer's craft-intent doc — an optional freeform statement of what "
-        + "the story (or one document in it) needs, e.g. sensory groundedness goals. "
+        + "the story (or one document in it) needs, e.g. sensory groundedness goals; the "
+        + "writer sees and writes it as Going for, in Brief (⌘2). "
         + "Returns exists:false when the writer has not declared one; that is a valid, "
         + "deliberate state — do not invent a standard on their behalf. Pass item_id "
         + "for a particular manuscript document; omit for project scope."

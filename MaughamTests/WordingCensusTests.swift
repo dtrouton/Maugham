@@ -214,9 +214,6 @@ final class WordingCensusTests: XCTestCase {
         "Maugham/Publish/TranslationCoverage.swift": [
             "synopsis": "the Fountain element `= synopsis` by its grammar's name, not the retired Synopses surface",
         ],
-        "Maugham/Views/WelcomeCarousel.swift": [
-            allFile: "the welcome tour is Task 9's to rewrite (shell p5 plan): it still names Synopses and a corkboard",
-        ],
     ]
 
     func test_noAppStringUsesARetiredWord() throws {

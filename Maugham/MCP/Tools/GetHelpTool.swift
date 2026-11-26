@@ -8,7 +8,7 @@ public enum GetHelpTool: MCPTool {
     public static let method = "get_help"
     public static let description =
         "Read Maugham's own user documentation. Omit `topic` to get the list of available help topics (slug + title); pass a `topic` slug to get that topic's full markdown. Use this to answer questions about how to use Maugham (focus mode, the binder, screenplays, publishing, Claude integration, keyboard shortcuts, on-disk layout, troubleshooting)." +
-        " Topic \"skills\" lists Maugham's agent skills (task procedures like transcribing-notebooks, editing-pass); pass a skill name as topic to load it."
+        " Topic \"skills\" lists Maugham's agent skills (task procedures like transcribing-notebooks, editing-pass, translation-pass, publishing-setup); pass a skill name as topic to load it."
     public static let inputSchemaJSON = """
     {"type":"object","properties":{"topic":{"type":"string","description":"Optional help topic slug (e.g. \\"getting-started\\", \\"editor-and-focus\\"). Omit to list all topics."}}}
     """

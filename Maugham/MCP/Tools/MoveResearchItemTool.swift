@@ -13,12 +13,14 @@ import MaughamCore
 public enum MoveResearchItemTool: MCPTool {
     public static let method = "move_research_item"
     public static let description =
-        "Move research items between shared research, a research group, and " +
-        "a collection piece's research folder. research_ids accepts a batch. " +
+        "Move research items between the whole book's research (target=\"shared\": " +
+        "the binder's Research section), a research group, and a Collection piece's " +
+        "research folder (target_document_id; in a novel, give a note to a piece with " +
+        "link_research instead). research_ids accepts a batch. " +
         "Give exactly one of: target=\"shared\", target_group_id, or " +
         "target_document_id (a loose piece). Whole groups move with their contents. " +
         "Where a note is, is whose it is: into a group a piece holds makes it that " +
-        "piece's; to shared research or a whole-book group makes it whole-book, its own " +
+        "piece's; to the whole book's research or a whole-book group makes it whole-book, its own " +
         "links to pieces removed. `left` names every piece an item left, " +
         "`home` whose it is now."
     public static let inputSchemaJSON =

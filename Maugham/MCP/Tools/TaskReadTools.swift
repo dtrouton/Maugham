@@ -75,12 +75,13 @@ public enum ListTasksTool: MCPTool {
 
     public static let method = "list_tasks"
     public static let description =
-        "List tasks in a project. Aggregates inline `- [ ]` markdown " +
+        "List the writer's to-dos in a project (a task, on the wire). Aggregates inline `- [ ]` markdown " +
         "checkboxes, Fountain `[[todo:]]` boneyards, and the writer's own " +
         "to-dos added in To resolve. `scope`: \"document\" (requires document_id) or " +
         "\"project\" (every open doc + the project's own to-dos). " +
         "`statuses` defaults to [\"open\"]; pass [\"open\",\"done\",\"archived\"] " +
-        "to see everything. Read-only — task writes belong to the writer."
+        "to see everything. Read-only — only the writer makes, ticks or archives a to-do, " +
+        "in To resolve (Mine, ⌘⌥T)."
     public static let inputSchemaJSON =
         #"{"type":"object","properties":{"project_id":{"type":"string"},"scope":{"type":"string","enum":["document","project"]},"document_id":{"type":"string"},"statuses":{"type":"array","items":{"type":"string","enum":["open","done","archived"]}}},"required":["project_id","scope"]}"#
 
@@ -175,7 +176,7 @@ public enum GetTaskTool: MCPTool {
 
     public static let method = "get_task"
     public static let description =
-        "Return the full record for a single task by id. Searches across " +
+        "Return the full record for a single to-do (a task, on the wire) by id. Searches across " +
         "every open document plus the project's own to-do log. Errors " +
         "with `task_not_found` if no derived task currently matches the id."
     public static let inputSchemaJSON =
