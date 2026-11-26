@@ -24,6 +24,34 @@ final class MenuBarCensusTests: XCTestCase {
         /// A modifier set with no key: the key was asked for and somebody
         /// else's item already held it, so SwiftUI bound nothing.
         let lostItsKey: Bool
+        /// An item AppKit itself puts in the menu (`systemInjected`), known
+        /// by its action, never by its title.
+        let isSystemInjected: Bool
+    }
+
+    /// An item AppKit injects into the Edit menu of any app, named by the
+    /// action selector it carries.
+    struct SystemInjected {
+        let action: String
+        let reason: String
+    }
+
+    /// **The items macOS adds, which no census of Maugham's keys judges** —
+    /// their keys and their count are the OS version's, not ours. They are
+    /// set aside only from each other: a Maugham item sharing their key is
+    /// still a duplicate (`duplicates`).
+    static let systemInjected: [SystemInjected] = [
+        SystemInjected(action: "startDictation:", reason:
+            "Edit ▸ Start Dictation…: a visible item plus hidden fn-D twins; macOS 27.2 adds one twin, "
+            + "the CI runner's macOS 27.0 two; a full gate once saw it bound to 🎤"),
+        SystemInjected(action: "orderFrontCharacterPalette:", reason:
+            "Edit ▸ Emoji & Symbols: ⌘Space, with hidden ⌃⌘Space and fn-E alternates"),
+    ]
+
+    static func isSystemInjected(action: Selector?) -> Bool {
+        guard let action else { return false }
+        let name = NSStringFromSelector(action)
+        return systemInjected.contains { $0.action == name }
     }
 
     /// The guide's glyph for a function-key character.
@@ -62,7 +90,8 @@ final class MenuBarCensusTests: XCTestCase {
                 path: here, title: item.title,
                 token: token(key: item.keyEquivalent, mask: item.keyEquivalentModifierMask),
                 isHidden: item.isHidden,
-                lostItsKey: item.keyEquivalent.isEmpty && !extra.isEmpty && item.submenu == nil))
+                lostItsKey: item.keyEquivalent.isEmpty && !extra.isEmpty && item.submenu == nil,
+                isSystemInjected: isSystemInjected(action: item.action)))
             out += walk(item.submenu, path: here)
         }
         return out
@@ -86,12 +115,14 @@ final class MenuBarCensusTests: XCTestCase {
     static let allowedOverlaps: [AllowedOverlap] = []
 
     /// Each token bound by more than one item, with the items, minus an
-    /// allowance naming exactly those items.
+    /// allowance naming exactly those items. A token only AppKit's own items
+    /// share (`systemInjected`) is the OS's; one a Maugham item shares with
+    /// anything is reported.
     static func duplicates(_ items: [WalkedItem], allowed: [AllowedOverlap] = allowedOverlaps) -> [String] {
         let bound = items.compactMap { item in item.token.map { ($0, item) } }
         return Dictionary(grouping: bound, by: { $0.0 })
             .filter { group in
-                group.value.count > 1 && !allowed.contains {
+                group.value.count > 1 && group.value.contains { !$0.1.isSystemInjected } && !allowed.contains {
                     $0.token == group.key && $0.paths == Set(group.value.map(\.1.path))
                 }
             }
@@ -105,6 +136,8 @@ final class MenuBarCensusTests: XCTestCase {
         XCTAssertTrue(items.contains { $0.token == "⌘S" }, "premise: File ▸ Save is in the walk")
         XCTAssertTrue(items.contains { $0.token == "⌘⌃1" }, "premise: a key bound outside MaughamApp.swift is seen")
         XCTAssertGreaterThan(items.filter { $0.token != nil }.count, 50, "the walk read almost nothing")
+        XCTAssertTrue(items.contains { $0.isSystemInjected && $0.token != nil },
+                      "premise: AppKit's own keyed Edit items are in the walk, known by their action")
         XCTAssertEqual(Self.duplicates(items), [], "one key, two items")
         XCTAssertEqual(items.filter(\.lostItsKey).map(\.path), [],
                        "an item asked for a key another item already holds, and got none")
@@ -136,6 +169,36 @@ final class MenuBarCensusTests: XCTestCase {
         XCTAssertEqual(Self.token(key: "Z", mask: .command), "⌘⇧Z")
         XCTAssertEqual(Self.token(key: "\u{F700}", mask: [.command, .option]), "⌘⌥↑")
         XCTAssertEqual(Self.token(key: "r", mask: [.command, .control, .shift]), "⌘⌃⇧R")
+    }
+
+    /// The control for `systemInjected`: AppKit's twins are not judged
+    /// against each other; a Maugham item taking their key is reported with
+    /// them; and an item is AppKit's by its action alone — one titled "Start
+    /// Dictation…" with another action is judged like any of ours. (Planted
+    /// on ⌘⌃D: an `NSMenuItem` drops a `.function` mask set from outside
+    /// AppKit, so fn-D itself cannot be planted.)
+    func test_theKeyCensusSetsAsideOnlyAppKitsOwnItems() {
+        func add(_ menu: NSMenu, _ title: String, _ action: Selector?, _ key: String,
+                 _ mask: NSEvent.ModifierFlags) {
+            let item = menu.addItem(withTitle: title, action: action, keyEquivalent: key)
+            item.keyEquivalentModifierMask = mask
+        }
+        let dictation = NSSelectorFromString("startDictation:")
+        let menu = NSMenu(title: "Edit")
+        add(menu, "Start Dictation…", dictation, "d", [.command, .control])
+        add(menu, "Start Dictation…", dictation, "d", [.command, .control])
+        add(menu, "Start Dictation…", #selector(NSText.copy(_:)), "j", .command)
+        add(menu, "Mine", nil, "j", .command)
+        let walked = Self.walk(menu)
+        XCTAssertEqual(walked.map(\.isSystemInjected), [true, true, false, false],
+                       "AppKit's by the action, not the title")
+        XCTAssertEqual(Self.duplicates(walked), ["⌘J: Start Dictation… / Mine"],
+                       "the twins pass; a same-titled item of another action is judged")
+        add(menu, "Dictate Mine", nil, "d", [.command, .control])
+        XCTAssertEqual(Self.duplicates(Self.walk(menu)),
+                       ["⌘J: Start Dictation… / Mine",
+                        "⌘⌃D: Start Dictation… / Start Dictation… / Dictate Mine"],
+                       "a Maugham item taking AppKit's key is reported")
     }
 
     // MARK: - Every declared key reaches its item (fix round 1, I2)
@@ -189,19 +252,25 @@ final class MenuBarCensusTests: XCTestCase {
 
     // MARK: - Every key listed
 
-    /// The Mac's own keys, documented by macOS rather than by Maugham —
-    /// "🎤" is Edit ▸ Start Dictation's key, which AppKit binds once the Edit
-    /// menu has been updated (seen in a full gate, not a lone class).
+    /// The Mac's own keys, documented by macOS rather than by Maugham. The
+    /// keys of the items AppKit injects (`systemInjected`) are set aside by
+    /// the item, not listed here — a token here would excuse a Maugham item
+    /// bound to it too.
     static let systemTokens: Set<String> = [
-        "⌘Q", "⌘H", "⌘⌥H", "⌘W", "⌘⌥W", "⌘M", "⌘X", "⌘C", "⌘V", "⌘A", "⌘Space", "🎤",
+        "⌘Q", "⌘H", "⌘⌥H", "⌘W", "⌘⌥W", "⌘M", "⌘X", "⌘C", "⌘V", "⌘A",
     ]
 
     static func unlisted(_ tokens: [String], in listed: [String]) -> [String] {
         Array(Set(tokens.filter { !systemTokens.contains($0) && !listed.contains($0) })).sorted()
     }
 
+    /// The keys the walk's shown items bind, AppKit's own items set aside.
+    static func boundTokens(_ items: [WalkedItem]) -> [String] {
+        items.filter { !$0.isHidden && !$0.isSystemInjected }.compactMap(\.token)
+    }
+
     func test_everyKeyTheMenusBindHasACheatSheetLineAndAReferenceRow() throws {
-        let tokens = menuBar.filter { !$0.isHidden }.compactMap(\.token)
+        let tokens = Self.boundTokens(menuBar)
         XCTAssertTrue(tokens.contains("⌘⌃1"), "premise: the walk sees ⌘⌃1")
         let cheatSheet = KeyboardShortcuts.all.flatMap(\.items).map(\.shortcut)
         XCTAssertEqual(Self.unlisted(tokens, in: cheatSheet), [],
@@ -213,6 +282,17 @@ final class MenuBarCensusTests: XCTestCase {
 
     func test_theListedCheckFiresOnAPlantedOffender() throws {
         XCTAssertEqual(Self.unlisted(["⌘⌥⇧9", "⌘Q", "⌘S"], in: ["⌘S"]), ["⌘⌥⇧9"])
+        // AppKit's shown item is set aside by its action; the same key on an
+        // item of ours, even one titled like it, is not (⌘⌃D standing in for
+        // fn-D, which a planted item cannot carry).
+        let menu = NSMenu(title: "Edit")
+        for action in [NSSelectorFromString("startDictation:"), nil] {
+            let item = menu.addItem(withTitle: "Start Dictation…", action: action, keyEquivalent: "d")
+            item.keyEquivalentModifierMask = [.command, .control]
+        }
+        XCTAssertEqual(Self.unlisted(Self.boundTokens(Self.walk(menu)), in: []), ["⌘⌃D"])
+        XCTAssertEqual(Self.boundTokens(Array(Self.walk(menu).prefix(1))), [],
+                       "control: AppKit's own item alone binds nothing of ours")
         let reference = try SourceTree.read("docs/guide/reference.md")
         XCTAssertEqual(DocSyncTests.tokensWithoutAReferenceRow(["⌘⌥⇧9", "⌘S"], in: reference), ["⌘⌥⇧9"])
     }
