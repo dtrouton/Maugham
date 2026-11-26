@@ -16,3 +16,14 @@ import AppKit
 class SilentTestWindow: NSWindow {
     override func noResponder(for eventSelector: Selector) {}
 }
+
+/// **A window that draws at 1x**, whatever display the Mac has: the CI
+/// runner's display is non-Retina, where SwiftUI rounds a frame to whole
+/// points rather than half points, so a layout a hair wider than its column
+/// shows a whole point past it there and only half a point here. A width
+/// census mounts at both scales (`PulledUpFitsTheColumnTests`). Measured
+/// 2026-11-26: mounted through this class, the column reproduced the runner's
+/// failures to the point (maxX 241.0 against a 240pt column).
+final class OneXTestWindow: SilentTestWindow {
+    override var backingScaleFactor: CGFloat { 1 }
+}
