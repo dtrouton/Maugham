@@ -167,7 +167,7 @@ final class AnnotationsPassOrderNudgeVerbsTests: XCTestCase {
         let fx = try await makeHarness()
         let window = mountPane(fx)
 
-        XCTAssertTrue(caption(in: window, contains: "Structural still open on this piece"),
+        XCTAssertTrue(caption(in: window, contains: "Structural still open on this chapter"),
                       "premise: the nudge must be showing before its buttons are")
         _ = try button(labelled: "Mark done", in: window)
         _ = try button(labelled: "Skip", in: window)

@@ -449,7 +449,7 @@ final class AnnotationsCharacterization: XCTestCase {
         XCTAssertEqual(opCount(h.doc), before, "no compensating edit was appended")
         XCTAssertEqual(one(h.doc, cid)?.body, "moved on", "and nothing was clobbered")
         XCTAssertEqual(said, [
-            "Couldn't undo the annotation edit — it changed on another device."],
+            "Couldn't undo the note edit — it changed on another device."],
                        "and the writer is told, rather than only documentLog")
 
         // The control: an undrifted undo does revert.

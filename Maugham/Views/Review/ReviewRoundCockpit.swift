@@ -429,7 +429,7 @@ struct ReviewRoundCockpit: View {
     /// control says why. Nothing is queued — there is one session per window,
     /// and a second turn is what the next keystroke does.
     static let busyReason =
-        "This piece is being checked. The next round is the next keystroke."
+        "A check is running here. The next round is the next keystroke."
 
     /// The tooltip names the round the press would actually produce — the
     /// offer, plus its NUMBER, which is the one thing the empty state's copy
@@ -465,7 +465,7 @@ struct ReviewRoundCockpit: View {
     /// answers in both: it reads as an invitation over "Set a pass" and as an
     /// offer to change lanes over a lane line.
     static let setAPassHelp =
-        "Which pass is this piece being read through? The round is filed in "
+        "Which pass is this being read through? The round is filed in "
         + "that lane, and its editor signs the notes."
 
     /// **The one thing, else the say-back** — the derivation, in one place,

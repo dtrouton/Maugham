@@ -86,7 +86,7 @@ enum LoadQuestions {
                 ?? (heldLines == 1 ? "1 line" : "\(heldLines) lines")
             let already = "The \(what) \(name) has already written here"
             return "\(already) will join the draft, and from now on they may "
-                + "write in this piece. Nothing else they may write changes."
+                + "write here. Nothing else they may write changes."
         }
 
         /// Both answers, and there is no third.

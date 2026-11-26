@@ -687,6 +687,8 @@ struct ResolvePane: View {
                 taskBody: $newTaskBody, scope: $newTaskScope,
                 canPickDocumentScope: creation.document,
                 canPickProjectScope: creation.project,
+                noun: PieceNoun.of(pieceDocId.flatMap { TreeWalk.find(id: $0, in: store.manifest.structure) },
+                                   in: store.manifest),
                 onCommit: commitNewTask,
                 onCancel: {
                     showCreateSheet = false
@@ -858,7 +860,9 @@ struct ResolvePane: View {
                     docId: pieceDocId, diagnostics: diagnostics,
                     otherLoopLine: CheckNarrative.otherLoopLine(
                         runState: orchestrator.runState, docId: pieceDocId,
-                        titleOf: { RoundNarrative.pieceTitle(of: $0, in: store.manifest.structure) }))
+                        titleOf: { RoundNarrative.pieceTitle(of: $0, in: store.manifest.structure) }),
+                    noun: PieceNoun.of(TreeWalk.find(id: pieceDocId, in: store.manifest.structure),
+                                       in: store.manifest))
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 16)
             }

@@ -208,7 +208,7 @@ struct ResolveDialogs: ViewModifier {
             } onCancel: { editSheet = nil }
         }
         .alert(
-            "Delete your annotation",
+            "Delete your note",
             isPresented: Binding(
                 get: { withdrawConfirm != nil },
                 set: { if !$0 { withdrawConfirm = nil } })
@@ -221,7 +221,7 @@ struct ResolveDialogs: ViewModifier {
             }
             Button("Cancel", role: .cancel) { withdrawConfirm = nil }
         } message: {
-            Text("This removes your annotation. The history is preserved, but the annotation will no longer appear here or in the editor.")
+            Text("This removes your note. The history is preserved, but the note will no longer appear here or in the editor.")
         }
     }
 
@@ -250,7 +250,7 @@ private struct RejectReasoningSheet: View {
         VStack(alignment: .leading, spacing: 12) {
             Text("Why are you rejecting this?")
                 .font(.headline)
-            Text("Your reasoning is saved with the annotation so Claude can see it in future sessions.")
+            Text("Your reasoning is saved with the note so Claude can see it in future sessions.")
                 .font(.caption).foregroundStyle(.secondary)
             TextEditor(text: $reason)
                 .frame(minHeight: 80)
@@ -303,7 +303,7 @@ private struct EditAnnotationSheet: View {
         VStack(alignment: .leading, spacing: 12) {
             Text("Edit your \(annotation.kind.displayName.lowercased())")
                 .font(.headline)
-            Text("Only you can edit or delete your own annotations.")
+            Text("Only you can edit or delete your own notes.")
                 .font(.caption).foregroundStyle(.secondary)
             Text("Note")
                 .font(.caption.smallCaps()).foregroundStyle(.secondary)

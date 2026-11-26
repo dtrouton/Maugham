@@ -212,7 +212,7 @@ struct ScrapInspector: View {
     // MARK: - The piece association (spec §6.2)
 
     static let pieceFooter =
-        "A note promoted from this card lands in this piece's research. Leave it "
+        "A note promoted from this card lands in the chosen piece's research. Leave it "
         + "as None and the card follows the region it lives in — or the project's "
         + "own research, if it lives in none."
 

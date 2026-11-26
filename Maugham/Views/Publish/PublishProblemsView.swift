@@ -119,8 +119,8 @@ enum PublishProblems {
     static let closeTitle = "Back"
     static let closeAccessibilityLabel = "Back to the book"
     static let showInManuscriptTitle = "Show in Manuscript"
-    static let openPieceHelp = "Open this piece in the manuscript."
-    static let showParagraphHelp = "Open this piece and scroll to the paragraph."
+    static let openPieceHelp = "Open it in the manuscript."
+    static let showParagraphHelp = "Open it and scroll to the paragraph."
     static let emptyTitle = "No Problems"
     static let emptyMessage = "The last compile reported nothing to fix."
 

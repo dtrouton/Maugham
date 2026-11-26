@@ -83,7 +83,7 @@ A source you cite in a manuscript as `[@key]` carries its citation details in th
 
 Voice, text and photo captures from the iPhone companion app land in the **Inbox**. Click its row in the binder (or press ⌘⌥B) and the captures fill the centre. Right-click one to file it:
 
-- **Promote to Research** — the book's research.
+- **Promote to Whole-Book Research** — the book's own research, not one chapter's.
 - **Promote to Research for “…”** — the chapter open in the centre, when there is one that can hold research.
 - **Promote to Research for…** — a list of every chapter to choose from.
 - **Promote to Palette Card…** — onto a palette card.

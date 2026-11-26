@@ -495,13 +495,13 @@ private struct FigureTableMenuButtons: View {
     }
 
     private func button(_ command: FigureTableCommand) -> some View {
-        Button(command.title) { MaughamEvent.postFigureTableCommand(command) }
+        Button(command.title(menu?.noun ?? .piece)) { MaughamEvent.postFigureTableCommand(command) }
             .disabled(menu?.isEnabled(command) != true)
     }
 
     /// A ticked item: Header Row, Total Row, the active cell's format.
     private func toggle(_ command: FigureTableCommand) -> some View {
-        Toggle(command.title, isOn: Binding(
+        Toggle(command.title(menu?.noun ?? .piece), isOn: Binding(
             get: { menu?.isOn(command) == true },
             set: { _ in MaughamEvent.postFigureTableCommand(command) }))
             .disabled(menu?.isEnabled(command) != true)

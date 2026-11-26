@@ -263,7 +263,9 @@ enum ResolvePieceInLanguage {
         "See this \(noun) in the \(LanguageName.title(language)) book"
     }
 
-    static let seeInBookHelp = "Open this edition\u{2019}s compiled book at this piece\u{2019}s first page"
+    static func seeInBookHelp(noun: String) -> String {
+        "Open this edition\u{2019}s compiled book at this \(noun)\u{2019}s first page"
+    }
 
     static func openToRunLine(noun: String) -> String {
         "Open this \(noun) to translate it"
@@ -682,7 +684,7 @@ struct PieceInLanguageHeadView: View {
             }
             .buttonStyle(.link)
             .font(.caption)
-            .help(ResolvePieceInLanguage.seeInBookHelp)
+            .help(ResolvePieceInLanguage.seeInBookHelp(noun: noun))
             .accessibilityIdentifier("resolve.pieceInLanguage.seeInBook")
             letter
             runSection

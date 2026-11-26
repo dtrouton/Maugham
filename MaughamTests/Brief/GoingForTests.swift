@@ -96,8 +96,12 @@ final class GoingForTests: XCTestCase {
                                        intentText: typedInTheCentre, run: check), [],
                        "typed in the centre: Brief reads it without marks")
 
-        XCTAssertEqual(GoingForView.emptyPrompt(for: .document("d")), GoingForView.emptyPrompt)
-        XCTAssertEqual(GoingForView.emptyPrompt(for: .project), GoingForView.bookEmptyPrompt)
+        let novel = ProjectManifest(type: .novel, title: "N", author: "", created: Date(), modified: Date(),
+                                    structure: [], research: [])
+        XCTAssertEqual(GoingForView.emptyPrompt(for: .document("d"), in: novel),
+                       "What is this chapter going for? Write it here.")
+        XCTAssertEqual(GoingForView.emptyPrompt(.story), "What is this story going for? Write it here.")
+        XCTAssertEqual(GoingForView.emptyPrompt(for: .project, in: novel), GoingForView.bookEmptyPrompt)
     }
 
     /// The one-host rule, the pure half: a statement another host holds reads

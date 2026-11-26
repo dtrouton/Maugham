@@ -207,8 +207,9 @@ extension CheckNarrative {
     /// — and because the property that it WRAPS rather than truncating is now
     /// pinned by a test (`DiagnosticsPaneColumnHeightTests`), which must ask
     /// production for the words rather than quote them.
-    static let coldStartOfferSentence =
-        "I haven\u{2019}t read this piece. Read it whole and take notes?"
+    nonisolated static func coldStartOfferSentence(_ noun: PieceNoun) -> String {
+        "I haven\u{2019}t read this \(noun.singular). Read it whole and take notes?"
+    }
 
     /// The header's one line, per state. Static and exhaustive for
     /// `emptyState`'s reason: every sentence the pane can say is then assertable

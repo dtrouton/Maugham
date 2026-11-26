@@ -13,7 +13,7 @@ extension FigureGridController {
     /// was written, and the queue still answers the note.
     static func foldedBeforeTheAnswer(reason: String?) -> String {
         let kept = reason.map { " (your reason: \u{201C}\($0)\u{201D})" } ?? ""
-        return "The table was folded, so the note was left as it was\(kept) \u{2014} answer it in the Annotations queue."
+        return "The table was folded, so the note was left as it was\(kept) \u{2014} answer it in To resolve."
     }
 
     /// Said when the note moved (its cell deleted, the note withdrawn)

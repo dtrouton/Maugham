@@ -231,7 +231,7 @@ final class DetailPaneColumnHeightCensusTests: XCTestCase {
                     .fixedSize(horizontal: false, vertical: true)
                     .padding(.horizontal, 8).padding(.vertical, 6)
                 Divider()
-                Text(CheckNarrative.coldStartOfferSentence)
+                Text(CheckNarrative.coldStartOfferSentence(.chapter))
                     .font(.callout)
                     .multilineTextAlignment(.center)
                     .fixedSize(horizontal: false, vertical: true)

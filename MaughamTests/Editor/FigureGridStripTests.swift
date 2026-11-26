@@ -368,7 +368,7 @@ final class FigureGridStripTests: XCTestCase {
         c.stripReject(note, reason: nil)
         await landed(c)
         XCTAssertEqual(status(note, host), .rejected)
-        XCTAssertEqual(c.gridUndo.undoActionName, "Reject Annotation", "on the grid's stack")
+        XCTAssertEqual(c.gridUndo.undoActionName, "Reject Note", "on the grid's stack")
     }
 
     // MARK: - Refusals

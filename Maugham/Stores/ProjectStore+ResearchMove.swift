@@ -206,7 +206,7 @@ extension ProjectStore {
             if item.role != nil,
                researchScopePieceId(ofPath: item.path) != dest.destPieceId {
                 throw ProjectStoreError.fileSystemError(
-                    "“\(item.title)” has a fixed home and can't move between shared and piece research")
+                    "“\(item.title)” has a fixed home, so it stays in the research it belongs to")
             }
             // C1: the palette group's lookup (`PaletteLookup.paletteGroup`)
             // scans only the TOP level of `research`. A same-scope group move

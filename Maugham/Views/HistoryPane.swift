@@ -47,7 +47,7 @@ public enum HistoryFilter: String, CaseIterable, Identifiable, FilterRowItem {
         case .all: return "All"
         case .checkpoints: return "Checkpoints"
         case .edits: return "Edits"
-        case .annotations: return "Annotations"
+        case .annotations: return "Notes"
         }
     }
 

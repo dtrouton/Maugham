@@ -466,7 +466,8 @@ struct TranslationRunState: Equatable {
     static func legLine(_ leg: TranslationRound.Leg, book: TranslationPipeline.BookProgress?,
                         noun: PieceNoun) -> String {
         let verb = "\(leg.verb)\u{2026} (leg \(leg.rawValue) of \(TranslationRound.Leg.allCases.count))"
-        guard let book else { return verb.prefix(1).uppercased() + verb.dropFirst() }
+        // A book of one piece counts nothing ("Story 1 of 1" says nothing).
+        guard let book, book.count > 1 else { return verb.prefix(1).uppercased() + verb.dropFirst() }
         return "\(noun.capitalised) \(book.position) of \(book.count) \u{00b7} \(verb)"
     }
 

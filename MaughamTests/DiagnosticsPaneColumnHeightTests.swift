@@ -68,7 +68,7 @@ private struct UnbreakableSentencePane: View {
                 .padding(.horizontal, 8).padding(.vertical, 6)
             Divider()
             VStack(spacing: 12) {
-                Text(CheckNarrative.coldStartOfferSentence)
+                Text(CheckNarrative.coldStartOfferSentence(.chapter))
                     .font(.callout)
                     .multilineTextAlignment(.center)
                     .fixedSize(horizontal: false, vertical: true)
@@ -223,7 +223,7 @@ final class DiagnosticsPaneColumnHeightTests: XCTestCase {
     /// ideal for the width it is PROPOSED, which is the whole of what the
     /// removed modifier was believed to be providing.
     func test_theOffersSentenceStillWrapsRatherThanTruncating() {
-        assertWraps(CheckNarrative.coldStartOfferSentence,
+        assertWraps(CheckNarrative.coldStartOfferSentence(.chapter),
                     font: .callout, at: 280)
     }
 
@@ -311,7 +311,7 @@ final class DiagnosticsPaneColumnHeightTests: XCTestCase {
         let (window, split, table) = try await mount(store: store, detailWidth: 280) {
             VStack(spacing: 0) {
                 DiagnosticsColdStartOffer(
-                    docId: document.docId, diagnostics: diagnostics, otherLoopLine: nil)
+                    docId: document.docId, diagnostics: diagnostics, otherLoopLine: nil, noun: .chapter)
                     .frame(maxWidth: .infinity)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)

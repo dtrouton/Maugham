@@ -83,7 +83,7 @@ struct HistoryRow: View {
                         .disabled(compareOffer == .unavailable)
                         .help(compareOffer == .unavailable
                               ? HistoryPane.compareUnavailableHelp
-                              : "Show what has changed in this piece since this checkpoint")
+                              : "Show what has changed since this checkpoint")
                     }
                     if offersRevert {
                         Button("Revert here…", action: onRevert)
@@ -229,14 +229,14 @@ struct HistoryRow: View {
                     .font(.caption).foregroundStyle(.secondary)
                 }
             case .annotationEdit:
-                Text(op.provenance?.annotationBody ?? "Annotation edited")
+                Text(op.provenance?.annotationBody ?? "Note edited")
                     .font(.caption).foregroundStyle(.secondary)
                     .lineLimit(1)
             case .annotationWithdraw:
-                Text("Annotation withdrawn")
+                Text("Note withdrawn")
                     .font(.caption).foregroundStyle(.secondary)
             case .annotationReopen:
-                Text("Annotation reopened")
+                Text("Note reopened")
                     .font(.caption).foregroundStyle(.secondary)
             case .annotationStet:
                 // Same shape as the reject arm: the writer's own words about
@@ -385,14 +385,14 @@ struct HistoryRow: View {
             case .taskParentChange: return "To-do nested"
             case .taskBodyEdit: return "To-do edited"
             case .taskArchive: return "To-do archived"
-            case .annotationEdit: return "Annotation edited"
-            case .annotationWithdraw: return "Annotation withdrawn"
-            case .annotationReopen: return "Annotation reopened"
+            case .annotationEdit: return "Note edited"
+            case .annotationWithdraw: return "Note withdrawn"
+            case .annotationReopen: return "Note reopened"
             // "Stet" is the one user-facing word for the verb (M3 P2) — the
             // pane's button, the margin card's tooltip, the Edit menu's undo
             // and this row all say it.
-            case .annotationStet: return "Annotation stetted"
-            case .annotationTriage: return "Annotation triaged"
+            case .annotationStet: return "Note stetted"
+            case .annotationTriage: return "Note triaged"
             case .figureCreate: return "Figure created"
             case .figureCellSet: return "Cell edited"
             case .figureStructure: return "Rows or columns changed"

@@ -294,6 +294,102 @@ final class WordingCensusTests: XCTestCase {
         }
     }
 
+    // MARK: - Wording round 2: one word per thing, outside MCP
+
+    /// The phrases the guide's rewrite exposed (wording round 2), each a
+    /// census over app literals outside `Maugham/MCP/` (MCP keeps its wire
+    /// nouns: `annotation`, `target="shared"`):
+    /// - "this piece" — the piece is named by `PieceNoun.of`, or the sentence
+    ///   needs no noun ("here", "this text");
+    /// - "Shared Research" / a lone "Shared" — the book's home is
+    ///   "Whole-Book Research" (`FigureResearchDestination.wholeBookTitle`);
+    /// - "New To-do" — the verb is "New To-Do" (`NewTaskSheet.title`);
+    /// - "annotation" — the writer's word is "note".
+    static let roundTwo: [(name: String, pattern: NSRegularExpression, allowed: [String: [String: String]])] = [
+        ("this piece", try! NSRegularExpression(pattern: #"\b[Tt]his [Pp]iece\b"#), [
+            "Maugham/Compiler/CompilerPrompt.swift": [
+                allFile: "the prompt to the model, not a string the writer reads",
+            ],
+            "Maugham/Compiler/TranslatorBriefing.swift": [
+                allFile: "the translator's briefing to the model, not a string the writer reads",
+            ],
+        ]),
+        ("shared research", try! NSRegularExpression(pattern: #"[Ss]hared [Rr]esearch|research shared|^Shared$"#), [
+            "Maugham/Views/SharingStatusPill.swift": [
+                "Shared": "the iCloud share's mark — a shared book, not the book's research home",
+            ],
+        ]),
+        ("New To-do", try! NSRegularExpression(pattern: #"\bNew [Tt]o-do\b"#), [:]),
+        ("annotation", try! NSRegularExpression(pattern: #"\b[Aa]nnotations?\b"#), [
+            "Maugham/Models/MaughamNotifications.swift": [
+                "maugham.annotations.changed": "a notification's name — a key, never shown",
+            ],
+        ]),
+    ]
+
+    func test_noAppStringUsesARoundTwoPhrase() throws {
+        var offenders: [String] = []
+        for census in Self.roundTwo {
+            offenders += try Self.offenders(pattern: census.pattern, allowed: census.allowed,
+                                            excluding: ["Maugham/MCP/"]).map { "[\(census.name)] \($0)" }
+        }
+        XCTAssertEqual(offenders, [], offenders.joined(separator: "\n"))
+    }
+
+    /// Planted offender per phrase, and the controls: a word that merely
+    /// contains it, the right spelling, an identifier, MCP's wire noun.
+    func test_theRoundTwoCensusesCatchPlantedOffenders() throws {
+        let base = try SourceTree.plantedTree([
+            "Maugham/Views/Rogue.swift": #"""
+            let a = "Le Guin reads this piece"
+            let b = "Shared Research"
+            let c = "Shared"
+            let d = "New To-do"
+            let e = "Delete your annotation"
+            let f = "this piecemeal plan, Shared by Ana, New To-Do, annotation_id"
+            """#,
+            "Maugham/MCP/Tools/Rogue.swift": #"let g = "List annotations on this piece in shared research""#,
+        ])
+        var caught: [String] = []
+        for census in Self.roundTwo {
+            caught += try Self.offenders(pattern: census.pattern, allowed: census.allowed,
+                                         excluding: ["Maugham/MCP/"], base: base).map { "[\(census.name)] \($0)" }
+        }
+        XCTAssertEqual(caught, [
+            "[this piece] Maugham/Views/Rogue.swift:1: Le Guin reads this piece",
+            "[shared research] Maugham/Views/Rogue.swift:2: Shared Research",
+            "[shared research] Maugham/Views/Rogue.swift:3: Shared",
+            "[New To-do] Maugham/Views/Rogue.swift:4: New To-do",
+            "[annotation] Maugham/Views/Rogue.swift:5: Delete your annotation",
+        ])
+    }
+
+    /// **The guide quotes what ships** (wording round 2): no guide page still
+    /// quotes an app string this round replaced. Whitespace is folded, so a
+    /// quote wrapped across lines is still found.
+    static let retiredAppStrings = [
+        "This Piece\u{2019}s Research", "Shared Research", "**Promote to Research** \u{2014}",
+        "reads this piece", "I haven't read this piece", "still open on this piece",
+        "New to-do.", "**Document** (this chapter)", "Undo Reject Annotation", "Undo Stet Annotation",
+        "Undo Triage Annotation", "Undo Archive Annotation", "Undo Withdraw Annotation",
+        "Undo Edit Annotation", "- **Annotations** \u{2014}",
+    ]
+
+    func test_theGuideQuotesNoReplacedAppString() throws {
+        var offenders: [String] = []
+        let dir = SourceTree.repoRoot.appendingPathComponent("docs/guide")
+        let pages = try FileManager.default.contentsOfDirectory(atPath: dir.path).filter { $0.hasSuffix(".md") }
+        XCTAssertFalse(pages.isEmpty, "the census read no guide page")
+        for page in pages.sorted() {
+            let text = try String(contentsOf: dir.appendingPathComponent(page), encoding: .utf8)
+                .replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression)
+            for old in Self.retiredAppStrings where text.contains(old) {
+                offenders.append("docs/guide/\(page): \(old)")
+            }
+        }
+        XCTAssertEqual(offenders, [], offenders.joined(separator: "\n"))
+    }
+
     // MARK: - One noun function
 
     /// `func pieceNoun…(` or `func noun(` that names a piece, anywhere but

@@ -34,7 +34,7 @@ struct RecoveredHistorySheet: View {
 
     /// The sentence a refused Append says.
     static let refusedSentence =
-        "This Mac may not change this piece's text, so nothing was appended."
+        "This Mac may not change this text, so nothing was appended."
 
     /// **The door** (re-review item 1, #74): may this press write? The
     /// Document's own stamp, re-stamped on every trust change, AND the

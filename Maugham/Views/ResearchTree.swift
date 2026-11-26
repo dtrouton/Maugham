@@ -11,7 +11,7 @@ import UniformTypeIdentifiers
 /// destination the store consumes.
 struct ResearchMoveMenuTarget: Identifiable {
     let id: String          // stable menu identity, e.g. "shared" / "group-<id>" / "piece-<id>"
-    let title: String       // "Shared", "World / Maps", piece title
+    let title: String       // "Whole-Book Research", "World / Maps", piece title
     let target: ResearchMoveTarget
 }
 
@@ -418,7 +418,7 @@ enum ResearchSelectionSync {
         }
 
         var targets: [ResearchMoveMenuTarget] = [
-            .init(id: "shared", title: "Shared", target: .sharedRoot)
+            .init(id: "shared", title: FigureResearchDestination.wholeBookTitle, target: .sharedRoot)
         ]
         // Groups, flattened titles.
         func walkGroups(_ items: [ResearchItem], prefix: String) {

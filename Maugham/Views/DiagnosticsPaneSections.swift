@@ -15,6 +15,8 @@ struct DiagnosticsColdStartOffer: View {
     let diagnostics: DiagnosticsStore
     /// `CheckNarrative.otherLoopLine`: non-`nil` refuses Read and says why.
     let otherLoopLine: String?
+    /// What the project calls this piece (`PieceNoun`).
+    let noun: PieceNoun
 
     var body: some View { coldStartOffer }
 
@@ -35,7 +37,7 @@ struct DiagnosticsColdStartOffer: View {
             // scrolled back, and the centre column's editor sat above the
             // visible region entirely. `DiagnosticsPaneColumnHeightTests`
             // measures it.
-            Text(CheckNarrative.coldStartOfferSentence)
+            Text(CheckNarrative.coldStartOfferSentence(noun))
                 .font(.callout)
                 .multilineTextAlignment(.center)
                 .frame(maxWidth: 280)
@@ -53,7 +55,7 @@ struct DiagnosticsColdStartOffer: View {
                     // Refused up front while another run holds the session
                     // (#83), saying whose run it waits for.
                     .disabled(CheckNarrative.refusesColdStartRead(otherLoopLine: otherLoopLine))
-                    .help(otherLoopLine ?? CheckNarrative.coldStartOfferSentence)
+                    .help(otherLoopLine ?? CheckNarrative.coldStartOfferSentence(noun))
             }
         }
         .padding(24)

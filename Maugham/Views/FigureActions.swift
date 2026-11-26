@@ -86,6 +86,12 @@ struct FigureActions {
         piece(of: row) == nil ? [.shared] : [.piece, .shared]
     }
 
+    /// A scope's title, in the project's word for the row's piece.
+    func sendTitle(_ destination: FigureResearchDestination, for row: FigureListing.Row) -> String {
+        destination.title(PieceNoun.of(piece(of: row).flatMap { TreeWalk.find(id: $0, in: store.manifest.structure) },
+                                       in: store.manifest))
+    }
+
     // MARK: The verbs
 
     /// **Open in Window**: a window already open on the figure, or an

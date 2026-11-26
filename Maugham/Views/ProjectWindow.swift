@@ -892,7 +892,8 @@ struct ProjectWindow: View {
         return PostureStandingLine.line(
             for: documentStore.posture(forDocId: id), title: item.title, docId: id,
             ownLinesKeptInHistory:
-                documentStore.document(forDocId: id)?.ownLinesKeptInHistory ?? 0)
+                documentStore.document(forDocId: id)?.ownLinesKeptInHistory ?? 0,
+            noun: PieceNoun.of(item, in: store.manifest))
     }
 
     /// The typography the editor actually uses — manifest override else user

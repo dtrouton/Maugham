@@ -298,7 +298,7 @@
   "claim_id": "M5-AN-019",
   "scope": "Document.editReviewerAnnotation ⌘Z",
   "kind": "GUARD",
-  "statement": "the edit's undo is drift-guarded: the compensating edit is appended only while the annotation still shows the body this action wrote. The guard is unchanged — it is what stops a concurrent edit being clobbered by capture-time state. On drift it now DECLINES OUT LOUD: the menu item read 'Undo Edit Annotation', so a project-scoped `.maughamDocumentNotice` says \"Couldn't undo the annotation edit — it changed on another device.\" and the window renders it in the toast RewindModifier owns",
+  "statement": "the edit's undo is drift-guarded: the compensating edit is appended only while the annotation still shows the body this action wrote. The guard is unchanged — it is what stops a concurrent edit being clobbered by capture-time state. On drift it now DECLINES OUT LOUD: the menu item read 'Undo Edit Note', so a project-scoped `.maughamDocumentNotice` says \"Couldn't undo the note edit — it changed on another device.\" and the window renders it in the toast RewindModifier owns",
   "source": {
    "type": "CHARACTERIZATION",
    "ref": "AnnotationsCharacterization.test_theEditUndoDeclinesWhenTheAnnotationDrifted_andSaysSo (renamed from …DeclinesSilentlyWhenTheAnnotationDrifted — a pin whose NAME promised the defect) + production twin MaughamTests/OpLog/DocumentNoticeTests.test_theAnnotationEditUndoDeclineReachesTheWriter"

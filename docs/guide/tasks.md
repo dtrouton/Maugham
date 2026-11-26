@@ -14,7 +14,7 @@ Screenplays have a second form: `[[todo: ...]]` inside a Fountain note.
 
 Each to-do is listed under its paragraph, with the chapter's notes. Click it to go to its paragraph. Tick its box there to mark it done. Click the Book and you see every to-do in the book, the Book's own first, then each chapter's.
 
-**New to-do.** The **+** at the top of To resolve adds a to-do that sits in no paragraph. Type it, choose **Document** (this chapter) or **Project** (the whole book), and press **Add**.
+**New To-Do.** The **+** at the top of To resolve adds a to-do that sits in no paragraph. Type it, choose **This Chapter** or **The Book**, and press **Add**.
 
 **Nesting and order.** Drag a to-do to reorder it. Drop it on the middle of another to nest it one level under it; on the top or bottom third of a row to put it beside it.
 

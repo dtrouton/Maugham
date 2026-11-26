@@ -237,7 +237,7 @@ final class DocumentNoticeTests: XCTestCase {
             await doc.awaitPendingUndoWork()
         }
         XCTAssertEqual(said, [
-            "Couldn't undo the annotation edit — it changed on another device."])
+            "Couldn't undo the note edit — it changed on another device."])
     }
 
     /// The control again: an undrifted undo reverts and stays quiet.

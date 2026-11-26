@@ -557,16 +557,22 @@ final class DocumentWaitingTests: XCTestCase {
             docId: Self.otherDocId, from: "Sam")
         XCTAssertEqual(
             Document.waitingSentence(
-                error, docId: Self.otherDocId, in: projectURL),
+                error, docId: Self.otherDocId, in: projectURL, noun: .piece),
             "Waiting for Sam to say this piece is yours.",
             "Denver's words (P3c plan 2, Option A): the standing line over a "
             + "piece she started says the same")
         XCTAssertEqual(
             Document.waitingSentence(
                 .waitingForPiece(docId: Self.otherDocId, from: nil),
-                docId: Self.otherDocId, in: projectURL),
+                docId: Self.otherDocId, in: projectURL, noun: .piece),
             "Waiting for the book\u{2019}s author to say this piece is yours.",
             "a root not yet read is named by what it is")
+        // In the project's word (wording round 2): Denver's sentence, a novel's chapter.
+        XCTAssertEqual(
+            Document.waitingSentence(error, docId: Self.otherDocId, in: projectURL, noun: .chapter),
+            "Waiting for Sam to say this chapter is yours.")
+        XCTAssertEqual(Document.arrivalSentence(root: "Sam", noun: .chapter),
+                       "Waiting for this chapter to arrive from Sam.")
     }
 
     // MARK: - Option A (P3c plan 2 Task 4): only the starter mints
@@ -634,7 +640,7 @@ final class DocumentWaitingTests: XCTestCase {
         } catch let error as DocumentLoadError {
             XCTAssertEqual(error, .waitingForPiece(docId: Self.docId, from: "Sam"))
             XCTAssertEqual(
-                Document.waitingSentence(error, docId: Self.docId, in: projectURL),
+                Document.waitingSentence(error, docId: Self.docId, in: projectURL, noun: .piece),
                 "Waiting for this piece to arrive from Sam.",
                 "the starter (here the root) is who the wait is for")
         }
@@ -653,10 +659,10 @@ final class DocumentWaitingTests: XCTestCase {
         let error = DocumentLoadError.waitingForPiece(
             docId: Self.docId, from: "Sam")
         XCTAssertEqual(
-            Document.waitingSentence(error, docId: Self.docId, in: projectURL),
+            Document.waitingSentence(error, docId: Self.docId, in: projectURL, noun: .piece),
             "Waiting for this piece to arrive from Sam.")
         XCTAssertEqual(
-            Document.waitingSentence(error, docId: Self.docId, in: projectURL),
+            Document.waitingSentence(error, docId: Self.docId, in: projectURL, noun: .piece),
             error.localizedDescription,
             "the error's own words, unchanged")
     }

@@ -1391,7 +1391,7 @@ final class RightColumnMountingTests: XCTestCase {
         }
         let arms: [Arm] = [
             Arm(name: "To resolve", position: .resolve, subject: piece, expected: .resolve,
-                reads: "New To-do"),
+                reads: "New To-Do"),
             // Shell p4 Task 6: an edition's own To resolve, its empty line.
             Arm(name: "an edition's To resolve", position: .resolve, subject: onAnEdition,
                 expected: .resolve,
@@ -1479,7 +1479,7 @@ final class RightColumnMountingTests: XCTestCase {
         }
         let read = try everythingRead(in: window)
         XCTAssertTrue(shown, "the Spanish list's head shows: \(read)")
-        XCTAssertFalse(read.contains("New To-do"), "a piece read in a language makes no to-do: \(read)")
+        XCTAssertFalse(read.contains("New To-Do"), "a piece read in a language makes no to-do: \(read)")
 
         // Reading in a language selects To resolve from wherever the column was.
         let source = try SourceTree.sourceOfType("RightColumn", under: ["Maugham"])

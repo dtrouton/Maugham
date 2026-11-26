@@ -85,7 +85,7 @@ struct LetterSection: View {
     /// What a Fresh Eyes round can say: it read the whole piece cold, which is
     /// the evidence §6 says a retirement stands on. Drawn with the offer.
     static func freshRetiredLine(_ heading: String) -> String {
-        "I didn't find \u{201C}\(heading)\u{201D} anywhere in this piece."
+        "I didn't find \u{201C}\(heading)\u{201D} anywhere in what I read."
     }
 
     /// **The caption over the process line** (P3 Task 5, spec §3.1/§5) — one

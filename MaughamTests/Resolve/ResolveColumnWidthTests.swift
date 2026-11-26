@@ -325,7 +325,7 @@ final class ResolveColumnWidthTests: XCTestCase {
     /// writer can drag to.
     private static func nudgeRow(passName: String = "Structural") -> some View {
         PassOrderNudgeRow(
-            pass: ReviewPass(id: "structural", name: passName),
+            pass: ReviewPass(id: "structural", name: passName), noun: .chapter,
             onMarkDone: {}, onSkip: {})
     }
 
@@ -407,7 +407,7 @@ final class ResolveColumnWidthTests: XCTestCase {
     private struct FixedSizeNudgeRow: View {
         var body: some View {
             HStack(spacing: 6) {
-                Text("Structural still open on this piece, a caption long "
+                Text("Structural still open on this chapter, a caption long "
                     + "enough that wrapping is the only honest way to fit it")
                     .fixedSize()
                 Button("Mark done") {}.fixedSize()

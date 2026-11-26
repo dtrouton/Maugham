@@ -36,7 +36,7 @@ struct HistoryTimeline: View {
         case .all:         return "No history yet"
         case .checkpoints: return "No checkpoints"
         case .edits:       return "No edits"
-        case .annotations: return "No annotations"
+        case .annotations: return "No notes"
         }
     }
 
@@ -58,7 +58,7 @@ struct HistoryTimeline: View {
         case .edits:
             return "Typing bursts appear here every 30 seconds while you work."
         case .annotations:
-            return "Ask Claude to comment or suggest a change — annotations land here as a forensic record."
+            return "Ask Claude to comment or suggest a change — notes land here as a record."
         }
     }
 

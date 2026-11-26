@@ -548,7 +548,7 @@ struct InboxPane: View {
                 .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 4))
         }
         .contextMenu {
-            Button("Promote to Research") { promote(entry, scope: .shared) }
+            Button("Promote to \(FigureResearchDestination.wholeBookTitle)") { promote(entry, scope: .shared) }
             if let target = activePromoteTarget {
                 Button("Promote to Research for “\(target.title)”") {
                     promote(entry, scope: .document(target.id))

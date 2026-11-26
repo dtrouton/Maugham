@@ -47,7 +47,7 @@ final class BriefUnreadableTests: XCTestCase {
             }
         }
         XCTAssertNotEqual(GoingForView.unreadableLine, GoingForView.noIntentLine)
-        XCTAssertNotEqual(GoingForView.unreadableLine, GoingForView.emptyPrompt)
+        XCTAssertNotEqual(GoingForView.unreadableLine, GoingForView.emptyPrompt(.chapter))
         XCTAssertTrue(GoingForView.unreadableLine.contains("can\u{2019}t be read")
                       || GoingForView.unreadableLine.contains("can't be read"))
     }

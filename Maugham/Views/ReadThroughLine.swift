@@ -76,7 +76,7 @@ struct ReadThroughLine: View {
                     .buttonStyle(.link)
                     .font(.callout)
                     .fixedSize()
-                    .help("Save a checkpoint of this piece as it stands")
+                    .help("Save a checkpoint of the text as it stands")
             }
             if let resume = offer.resumeRequest {
                 Button(Self.resumeTitle) { ReadThrough.post(resume) }
@@ -89,7 +89,7 @@ struct ReadThroughLine: View {
         .padding(.horizontal, 16)
         .padding(.vertical, 6)
         .modifier(TypingRefusedPulse(window: window))
-        .help("Typing is off while you read this piece through. Comments, suggestions "
+        .help("Typing is off while you read it through. Comments, suggestions "
               + "and accepting or rejecting them still work.")
     }
 

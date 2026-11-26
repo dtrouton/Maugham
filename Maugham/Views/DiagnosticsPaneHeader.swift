@@ -212,7 +212,13 @@ struct DiagnosticsPaneHeader: View {
         return ""
     }
 
-    private var readerLine: String { CheckNarrative.readerCopy(for: reader) }
+    private var readerLine: String { CheckNarrative.readerCopy(for: reader, noun: noun) }
+
+    /// What the project calls this piece (`PieceNoun`).
+    private var noun: PieceNoun {
+        guard let manifest = store?.manifest else { return .piece }
+        return PieceNoun.of(TreeWalk.find(id: docId, in: manifest.structure), in: manifest)
+    }
 
     /// **The picker, labelled by the line it replaces** (two loops P2 Task 6).
     ///
@@ -305,8 +311,8 @@ extension CheckNarrative {
     /// say is assertable without mounting anything, and a test constructing
     /// one `AuthorReader` gets the header's answer and the empty state's from
     /// the same value rather than two independently-spelled copies.
-    static func readerCopy(for reader: AuthorReader) -> String {
-        "\(reader.editorName) reads this piece"
+    static func readerCopy(for reader: AuthorReader, noun: PieceNoun) -> String {
+        "\(reader.editorName) reads this \(noun.singular)"
     }
 
     /// **The one item that opens something**, and it opens the place the name

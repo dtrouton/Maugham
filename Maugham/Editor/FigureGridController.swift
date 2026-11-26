@@ -156,6 +156,12 @@ final class FigureGridController: FigureGridDataSource, FigureGridViewDelegate, 
     var foldsOnEscape = true
     /// The piece whose Research Send to Research puts the table in by
     /// default; nil offers Shared alone.
+    /// What the project calls `researchPiece` (`PieceNoun`).
+    private var researchNoun: PieceNoun {
+        guard let manifest = projectStore?.manifest else { return .piece }
+        return PieceNoun.of(researchPiece.flatMap { TreeWalk.find(id: $0, in: manifest.structure) }, in: manifest)
+    }
+
     var researchPiece: String? {
         didSet { refreshMenuState() }
     }
@@ -795,7 +801,8 @@ final class FigureGridController: FigureGridDataSource, FigureGridViewDelegate, 
     private func refreshMenuState() {
         let next = FigureTableMenuState.of(table: values.table, selection: model.selection, mode: mode,
                                            knowsItsPiece: researchPiece != nil,
-                                           maySend: host.offers.sendToResearch)
+                                           maySend: host.offers.sendToResearch,
+                                           noun: researchNoun)
         guard next != menuState else { return }
         menuState = next
         onMenuStateChange?(next)

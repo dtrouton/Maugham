@@ -153,7 +153,7 @@ final class TranslationRunTests: XCTestCase {
     /// idle whenever the queue left the open chapter would say nothing for
     /// eleven of twelve rounds.
     func test_aPipelineLegIsDrawnOnItsLanguagesRowWhateverChapterTheWindowIsOn() {
-        let state = TranslationRunState.resolve(noun: .chapter, 
+        let state = TranslationRunState.resolve(noun: .chapter,
             language: "es",
             target: .ready(docId: "doc-1", title: "Chapter 1"),
             session: .busy(language: "es"),
@@ -168,9 +168,12 @@ final class TranslationRunTests: XCTestCase {
         XCTAssertEqual(TranslationRunState.legLine(.read, book: .init(position: 2, count: 5), noun: .section)
                         .components(separatedBy: " \u{00b7} ").first, "Section 2 of 5",
                        "the queue's line names the piece in the project's word")
+        XCTAssertEqual(TranslationRunState.legLine(.read, book: .init(position: 1, count: 1), noun: .story),
+                       TranslationRunState.legLine(.read, book: nil, noun: .story),
+                       "a book of one piece counts nothing (wording round 2, m1)")
         XCTAssertTrue(state.statusLine?.contains("reading") == true)
 
-        let french = TranslationRunState.resolve(noun: .chapter, 
+        let french = TranslationRunState.resolve(noun: .chapter,
             language: "fr",
             target: .ready(docId: "doc-1", title: "Chapter 1"),
             session: .busy(language: "es"),
@@ -182,7 +185,7 @@ final class TranslationRunTests: XCTestCase {
     /// **A bare translator round keeps its own count line** — the phase the
     /// probe mounts still produce, unchanged in words.
     func test_aBareTranslatorRoundStillSaysHowManyParagraphs() {
-        let state = TranslationRunState.resolve(noun: .chapter, 
+        let state = TranslationRunState.resolve(noun: .chapter,
             language: "es",
             target: .ready(docId: "doc-1", title: "Chapter 1"),
             session: .busy(language: "es"),
@@ -205,7 +208,7 @@ final class TranslationRunTests: XCTestCase {
             runId: "r", docId: "doc-1", language: "es", at: Date(),
             outcome: .ingested(.init(entriesWritten: 2, queriesMinted: 0)))
         let now = Date()
-        let state = TranslationRunState.resolve(noun: .chapter, 
+        let state = TranslationRunState.resolve(noun: .chapter,
             language: "es", target: .ready(docId: "doc-1", title: "Chapter 1"),
             session: .free, runState: .idle, lastRun: summary,
             latestRound: round, trend: [6, 4, 1], now: now)
@@ -214,7 +217,7 @@ final class TranslationRunTests: XCTestCase {
         XCTAssertTrue(state.statusLine?.contains("2m ago") == true)
         XCTAssertTrue(state.offersShow)
 
-        let none = TranslationRunState.resolve(noun: .chapter, 
+        let none = TranslationRunState.resolve(noun: .chapter,
             language: "es", target: .ready(docId: "doc-1", title: "Chapter 1"),
             session: .free, runState: .idle, lastRun: summary)
         XCTAssertEqual(none.statusLine, TranslationRunState.reportLine(summary.outcome),
@@ -276,19 +279,19 @@ final class TranslationRunTests: XCTestCase {
     /// **Run Whole Book needs no open chapter** — the book is the desk's own
     /// set — but it refuses while a session is busy and when the set is empty.
     func test_theBookVerbRefusesOnlyForBusyAndForAnEmptyBook() {
-        let noChapter = TranslationRunState.resolve(noun: .chapter, 
+        let noChapter = TranslationRunState.resolve(noun: .chapter,
             language: "es", target: .unavailable(TranslationRunTarget.openAChapter),
             session: .free, runState: .idle, lastRun: nil, bookDocumentCount: 12)
         XCTAssertNil(noChapter.bookRefusal)
         XCTAssertTrue(noChapter.canRunBook)
         XCTAssertFalse(noChapter.canRun, "…while the chapter Run still refuses")
 
-        let busy = TranslationRunState.resolve(noun: .chapter, 
+        let busy = TranslationRunState.resolve(noun: .chapter,
             language: "es", target: .unavailable(TranslationRunTarget.openAChapter),
             session: .busy(language: "fr"), runState: .idle, lastRun: nil, bookDocumentCount: 12)
         XCTAssertEqual(busy.bookRefusal, TranslationRunState.busyReason(language: "fr"))
 
-        let empty = TranslationRunState.resolve(noun: .chapter, 
+        let empty = TranslationRunState.resolve(noun: .chapter,
             language: "es", target: .unavailable(TranslationRunTarget.openAChapter),
             session: .free, runState: .idle, lastRun: nil, bookDocumentCount: 0)
         XCTAssertEqual(empty.bookRefusal, TranslationRunState.nothingInTheBook)
@@ -580,13 +583,13 @@ final class TranslationRunTests: XCTestCase {
             runId: "r1", docId: "doc-1", language: "es", at: Date(),
             outcome: .ingested(.init(entriesWritten: 3)))
 
-        let mine = TranslationRunState.resolve(noun: .chapter, 
+        let mine = TranslationRunState.resolve(noun: .chapter,
             language: "es",
             target: .ready(docId: "doc-1", title: "Chapter 1"),
             session: .free, runState: .idle, lastRun: summary)
         XCTAssertNotNil(mine.report)
 
-        let elsewhere = TranslationRunState.resolve(noun: .chapter, 
+        let elsewhere = TranslationRunState.resolve(noun: .chapter,
             language: "es",
             target: .ready(docId: "doc-2", title: "Chapter 2"),
             session: .free, runState: .idle, lastRun: summary)

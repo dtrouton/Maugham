@@ -702,7 +702,7 @@ final class ResolveEditionTests: XCTestCase {
         }
         let read = try everythingRead(in: window)
         XCTAssertTrue(found, "the edition's list did not draw \(wanted.filter { !read.contains($0) }); it reads \(read)")
-        XCTAssertFalse(read.contains("New To-do"), "an edition lists no to-dos, so it makes none")
+        XCTAssertFalse(read.contains("New To-Do"), "an edition lists no to-dos, so it makes none")
     }
 
     /// **The Source edition faced**: the designer's head — the direction

@@ -13,6 +13,8 @@ struct FigureRowActions {
     let refusal: () -> String?
     /// Send to Research's scopes, in menu order.
     let sendDestinations: [FigureResearchDestination]
+    /// Each scope's title, in the project's word for the piece.
+    let sendTitle: (FigureResearchDestination) -> String
     let openInWindow: () -> Void
     let sendToResearch: (FigureResearchDestination) -> Void
     let rename: (_ newName: String) -> Void
@@ -136,7 +138,7 @@ struct FigureRow: View {
         if actions.mayEdit() {
             SwiftUI.Menu(FigureTableMenu.sendToResearchTitle) {
                 ForEach(actions.sendDestinations, id: \.self) { destination in
-                    Button(destination.title) { actions.sendToResearch(destination) }
+                    Button(actions.sendTitle(destination)) { actions.sendToResearch(destination) }
                 }
             }
             Divider()
@@ -241,6 +243,6 @@ struct FigureCountButton: View {
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .help("Show this piece\u{2019}s figures")
+        .help("Show its figures")
     }
 }

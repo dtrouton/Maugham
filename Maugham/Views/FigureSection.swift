@@ -422,6 +422,7 @@ struct FigureSectionVerbs {
             mayEdit: { shared.mayEdit(listing.figureId) },
             refusal: { shared.readThroughRefusal(of: listing.figureId)?.because("this figure") },
             sendDestinations: shared.sendDestinations(for: listing),
+            sendTitle: { shared.sendTitle($0, for: listing) },
             openInWindow: { shared.openInWindow(listing) },
             sendToResearch: { _ = shared.sendToResearch(listing, to: $0) },
             rename: { _ = shared.rename(listing.figureId, to: $0) },

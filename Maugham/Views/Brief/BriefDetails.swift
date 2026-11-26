@@ -227,10 +227,10 @@ struct BriefFootView: View {
             .fixedSize()
             .help(item.isProjectHistory
                   ? "Pull up the project\u{2019}s History beside the centre"
-                  : "Pull up this piece\u{2019}s History beside the centre")
+                  : "Pull up its History beside the centre")
             .accessibilityLabel(BriefFoot.historyTitle)
             .accessibilityHint(item.isProjectHistory ? "Pulls up the project\u{2019}s History"
-                                                     : "Pulls up this piece\u{2019}s History")
+                                                     : "Pulls up its History")
             .accessibilityIdentifier("brief.history")
         }
     }

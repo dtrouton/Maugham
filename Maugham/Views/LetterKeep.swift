@@ -105,7 +105,9 @@ enum LetterKeep {
         // Her introduction before any round, the lane line's own shape after
         // one — and her PASS name never, on either.
         let name = pass.effectiveEditorName
-        guard let round else { return "\(name) reads this piece" }
+        guard let round else {
+            return CheckNarrative.readerCopy(for: .coach(pass), noun: PieceNoun.of(nil, in: store.manifest))
+        }
         return "\(name) \u{00b7} round \(round)\(word)"
     }
 

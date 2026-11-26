@@ -2563,7 +2563,7 @@ public struct ManuscriptBeingPromoted: LocalizedError, Equatable {
         if let title {
             return "\u{201C}\(title)\u{201D} is being promoted to its own project \u{2014} try again in a moment."
         }
-        return "This piece is being promoted to its own project \u{2014} try again in a moment."
+        return "This \(PieceNoun.piece.singular) is being promoted to its own project \u{2014} try again in a moment."
     }
 }
 

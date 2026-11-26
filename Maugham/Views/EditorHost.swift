@@ -1723,7 +1723,9 @@ struct EditorHost: View {
                 loadOutcome = .waitingForPiece(
                     docId: docId,
                     sentence: Document.waitingSentence(
-                        waiting, docId: docId, in: store.url))
+                        waiting, docId: docId, in: store.url,
+                        noun: PieceNoun.of(TreeWalk.find(id: docId, in: store.manifest.structure),
+                                           in: store.manifest)))
                 return
             }
             // RULING-7 + RULING-54: the refusal is SHOWN — in the pane where

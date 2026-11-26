@@ -330,7 +330,7 @@ final class PostureSurfaceTests: XCTestCase {
         }
 
         XCTAssertEqual(said, [
-            "Couldn't change that note — this Mac can no longer answer notes in this piece."])
+            "Couldn't change that note — this Mac can no longer answer notes here."])
         XCTAssertEqual(h.doc._opLogMirror.count, before, "the undo appended nothing")
         XCTAssertEqual(annotation(h.doc, comment)?.status, .accepted)
 
@@ -344,7 +344,7 @@ final class PostureSurfaceTests: XCTestCase {
             await h.doc.awaitPendingUndoWork()
         }
         XCTAssertEqual(saidOnRedo, [
-            "Couldn't change that note — this Mac can no longer answer notes in this piece."])
+            "Couldn't change that note — this Mac can no longer answer notes here."])
         XCTAssertEqual(h.doc._opLogMirror.count, before, "the redo appended nothing")
     }
 
@@ -367,7 +367,7 @@ final class PostureSurfaceTests: XCTestCase {
         }
 
         XCTAssertEqual(said, [
-            "Couldn't change that note — this Mac can no longer answer notes in this piece."])
+            "Couldn't change that note — this Mac can no longer answer notes here."])
         XCTAssertEqual(h.doc._opLogMirror.count, before)
         XCTAssertEqual(h.doc.displayText, accepted, "the accepted words stay")
         XCTAssertEqual(annotation(h.doc, suggestion)?.status, .accepted)
@@ -379,7 +379,7 @@ final class PostureSurfaceTests: XCTestCase {
     /// permanent, so it has a sentence of its own (neither the note door's nor
     /// the restore door's).
     private static let yieldRefusal =
-        "Couldn't undo the suggestion — this Mac can't change this piece's text right now."
+        "Couldn't undo the suggestion — this Mac can't change this text right now."
 
     private func aSuggestion(_ h: Harness) async throws -> String {
         try await h.doc.addAnnotation(
@@ -884,7 +884,7 @@ final class PostureSurfaceTests: XCTestCase {
 
         func mount(_ verbs: Bool) -> NSWindow {
             let window = TestWindow.mount(AnyView(PassOrderNudgeRow(
-                pass: ReviewPass(id: "structural", name: "Structural"),
+                pass: ReviewPass(id: "structural", name: "Structural"), noun: .chapter,
                 onMarkDone: verbs ? {} : nil, onSkip: verbs ? {} : nil)),
                 size: CGSize(width: 360, height: 80))
             windows.append(window)
@@ -1701,7 +1701,7 @@ final class PostureSurfaceTests: XCTestCase {
         XCTAssertEqual(doc._opLogMirror.count, ops, "nothing appended")
         XCTAssertEqual(doc.displayText, text, "the inline archive spliced nothing")
         XCTAssertEqual(said, [
-            "Couldn't change 3 to-dos — this Mac can no longer file to-dos in this piece."])
+            "Couldn't change 3 to-dos — this Mac can no longer file to-dos here."])
 
         doc.stamp(localWritePermit: .unrestricted)
         doc.setTaskStatus(id: pane.id, status: .done)

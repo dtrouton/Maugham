@@ -617,9 +617,11 @@ extension ResolvePane {
                 return "To resolve gathers what has been raised about a piece, a Part or the Book: "
                     + "notes, checks, to-dos and questions. Choose one in the binder."
             case .elsewhere:
-                return "This piece belongs to another project. Open that project to see what it raises."
+                return "This belongs to another project. Open that project to see what it raises."
             case .coldStart:
-                return CheckNarrative.coldStartOfferSentence
+                // Never drawn: a cold start draws `DiagnosticsColdStartOffer`,
+                // which says the piece's own word.
+                return CheckNarrative.coldStartOfferSentence(.piece)
             case .nothing:
                 return "Nothing to resolve."
             case .filteredOut:

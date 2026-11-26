@@ -114,7 +114,7 @@ enum TreeDropIntent {
             case .unknownId: return "the payload is in neither tree"
             case .structureOntoResearch: return "a manuscript row is not research"
             case .sameRow: return "dropped on itself"
-            case .sharedOnly: return "this project keeps all research shared"
+            case .sharedOnly: return "this project keeps all research whole-book"
             case .notAResearchTarget: return "not a research scope target"
             case .alreadyThere: return "already there — the drop changes nothing"
             case .readThrough: return "the text that holds it is in read-through"

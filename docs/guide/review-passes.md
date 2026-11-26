@@ -89,7 +89,7 @@ jumps, **Accept as To-Do**, **Add to intent** and **Keep this letter**. See
 
 **A quiet nudge, not a gate.** Work a chapter through a later pass while an
 earlier one is still open, and the head says so — *"Structural still open on
-this piece"* — without disabling anything. **Mark done** and **Skip** sit
+this chapter"* — without disabling anything. **Mark done** and **Skip** sit
 beside it, so you can close the earlier pass there. The passes are an order,
 not a workflow the app enforces.
 

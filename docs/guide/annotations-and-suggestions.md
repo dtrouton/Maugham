@@ -83,13 +83,13 @@ A batch works on the chapter open in the centre. In a Part's or the Book's list 
 
 Reject, archive, and the other non-text-mutating annotation actions are undoable the same way as anywhere else in Maugham: **⌘Z** reverses the most recent one, and each ⌘Z you press walks one step further back, exactly like undoing typed edits. **⌘⇧Z** redoes forward again, and redoing re-arms the action so you can keep cycling ⌘Z ⟷ ⌘⇧Z.
 
-- **Edit → Undo Reject Annotation** — reopens a rejected suggestion.
+- **Edit → Undo Reject Note** — reopens a rejected suggestion.
 - **Edit → Undo Accept Note** — reopens a comment, query, or craft note you accepted (the **Got it** button, or **Reply…** with your answer). Nothing was applied to your words, so nothing has to be put back — the note simply returns to **Open**. Accepting a *suggestion* is the different case, with its own **Undo Accept Suggestion**, above.
-- **Edit → Undo Stet Annotation** — reopens a note you let stand — and if you had already accepted, rejected or archived it before, puts that back.
-- **Edit → Undo Triage Annotation** — puts back the mark the note carried *before* the one you just applied, rather than clearing it. Marking a note **Do**, changing your mind to **Discuss** and pressing ⌘Z leaves **Do** standing.
-- **Edit → Undo Archive Annotation** — reopens an archived comment, query, craft note, or suggestion.
-- **Edit → Undo Withdraw Annotation** — if you withdrew your own note or suggestion, ⌘Z brings it back.
-- **Edit → Undo Edit Annotation** — if you edited the body (or, for a suggestion, the proposed replacement) of a note you authored, ⌘Z restores the prior wording.
+- **Edit → Undo Stet Note** — reopens a note you let stand — and if you had already accepted, rejected or archived it before, puts that back.
+- **Edit → Undo Triage Note** — puts back the mark the note carried *before* the one you just applied, rather than clearing it. Marking a note **Do**, changing your mind to **Discuss** and pressing ⌘Z leaves **Do** standing.
+- **Edit → Undo Archive Note** — reopens an archived comment, query, craft note, or suggestion.
+- **Edit → Undo Withdraw Note** — if you withdrew your own note or suggestion, ⌘Z brings it back.
+- **Edit → Undo Edit Note** — if you edited the body (or, for a suggestion, the proposed replacement) of a note you authored, ⌘Z restores the prior wording.
 
 Every one of these appends a **compensating** entry to the document's history rather than erasing the original action — open the chapter's **History** (⌃⌘H) and you'll see both the original resolution and its undo listed as separate events. Undo never rewrites history; it only adds to it.
 

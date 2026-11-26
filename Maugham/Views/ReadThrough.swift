@@ -306,9 +306,9 @@ struct ReadThroughOffer: Equatable {
     var pieceTitle: String? = nil
 
     static let postureRefusal =
-        "This Mac may not change this piece’s text, so there is nothing to start."
+        "This Mac may not change this text, so there is nothing to start."
     static let shareRefusal =
-        "This piece is shared with you to view, so there is nothing to start."
+        "This book is shared with you to view, so there is nothing to start."
     static let translationRefusal = "Read Source to start a read-through."
     static let hiddenTextRefusal = "Open the piece’s text to start a read-through."
 

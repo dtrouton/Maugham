@@ -519,7 +519,9 @@ struct ResolveHeadView: View {
                 posture: { documentStore.posture(forDocId: $0) },
                 onSetPassState: onSetPassState) {
                 PassOrderNudgeRow(
-                    pass: nudge.pass, onMarkDone: nudge.onMarkDone, onSkip: nudge.onSkip)
+                    pass: nudge.pass,
+                    noun: PieceNoun.of(TreeWalk.find(id: docId, in: store.manifest.structure), in: store.manifest),
+                    onMarkDone: nudge.onMarkDone, onSkip: nudge.onSkip)
             }
         }
         if let diagnostics {
@@ -968,6 +970,8 @@ struct RunLetterSection: View {
 @MainActor
 struct PassOrderNudgeRow: View {
     let pass: ReviewPass
+    /// What the project calls this piece (`PieceNoun`).
+    let noun: PieceNoun
     /// `nil` where this Mac may not rule on the piece's passes
     /// (`PassLadder.offersRulings(under:)`): the caption draws alone.
     let onMarkDone: (() -> Void)?
@@ -976,7 +980,7 @@ struct PassOrderNudgeRow: View {
     var body: some View {
         HStack(alignment: .top, spacing: 6) {
             Image(systemName: "info.circle").font(.caption2)
-            Text(PassOrderAdvice.caption(for: pass))
+            Text(PassOrderAdvice.caption(for: pass, noun: noun))
                 .font(.caption2)
                 .fixedSize(horizontal: false, vertical: true)
             Spacer(minLength: 4)

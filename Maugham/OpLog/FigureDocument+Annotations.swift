@@ -247,7 +247,7 @@ extension FigureDocument {
         notesChanged()
         let priorStatus = prior.status, priorReason = prior.userResponse
         OpUndoRegistrar.register(
-            undoManager, actionName: "Accept Annotation", target: self,
+            undoManager, actionName: "Accept Note", target: self,
             workTaskSink: { [weak self] in self?._lastUndoWorkTask = $0 },
             undo: { d in
                 guard d.noteStatus(id) == .accepted else { return d.decline(.drifted) }
@@ -291,7 +291,7 @@ extension FigureDocument {
         try await commitNoteOp(FigureAnnotationOps.reject(annotationId: id, reason: reason, stamp: noteStamp), render: false)
         notesChanged()
         registerSettlingUndo(
-            undoManager, actionName: "Reject Annotation", id: id, settled: .rejected, reason: reason,
+            undoManager, actionName: "Reject Note", id: id, settled: .rejected, reason: reason,
             prior: prior.status, priorReason: prior.userResponse)
     }
 
@@ -303,7 +303,7 @@ extension FigureDocument {
         try await commitNoteOp(FigureAnnotationOps.stet(annotationId: id, stamp: noteStamp), render: false)
         notesChanged()
         registerSettlingUndo(
-            undoManager, actionName: "Stet Annotation", id: id, settled: .stetted,
+            undoManager, actionName: "Stet Note", id: id, settled: .stetted,
             prior: prior.status, priorReason: prior.userResponse)
     }
 
@@ -315,7 +315,7 @@ extension FigureDocument {
         try await commitNoteOp(FigureAnnotationOps.archive(annotationId: id, stamp: noteStamp), render: false)
         notesChanged()
         registerSettlingUndo(
-            undoManager, actionName: "Archive Annotation", id: id, settled: .archived,
+            undoManager, actionName: "Archive Note", id: id, settled: .archived,
             prior: prior.status, priorReason: prior.userResponse)
     }
 
@@ -403,7 +403,7 @@ extension FigureDocument {
         try await commitNoteOp(built, render: false)
         notesChanged()
         OpUndoRegistrar.register(
-            undoManager, actionName: "Reopen Annotation", target: self,
+            undoManager, actionName: "Reopen Note", target: self,
             workTaskSink: { [weak self] in self?._lastUndoWorkTask = $0 },
             undo: { d in
                 guard d.noteStatus(id) == .open else { return d.decline(.drifted) }

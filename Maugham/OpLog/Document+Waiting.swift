@@ -36,11 +36,10 @@ public enum DocumentLoadError: Error, Equatable {
 extension DocumentLoadError: LocalizedError {
     public var errorDescription: String? {
         switch self {
+        // Claude's and the logs' copy, where the project's kind is not to
+        // hand; the pane says the project's word (`waitingSentence(noun:)`).
         case .waitingForPiece(_, let root):
-            if let root {
-                return "Waiting for this piece to arrive from \(root)."
-            }
-            return "Waiting for this piece to arrive."
+            return Document.arrivalSentence(root: root, noun: .piece)
         }
     }
 }
@@ -98,7 +97,7 @@ extension Document {
     /// nothing.
     @MainActor
     internal static func waitingSentence(
-        _ error: DocumentLoadError, docId: String, in projectURL: URL
+        _ error: DocumentLoadError, docId: String, in projectURL: URL, noun: PieceNoun
     ) -> String {
         guard case .waitingForPiece(_, let root) = error else {
             return error.localizedDescription
@@ -109,7 +108,7 @@ extension Document {
         let permit = opStore.localWritePermit(
             placement: ManifestPlacement(docId: docId, in: projectURL))
         guard permit.permit.mayStartAPieceOfTheirOwn else {
-            return error.localizedDescription
+            return arrivalSentence(root: root, noun: noun)
         }
         // **A piece somebody STARTED is waiting for its ops, not for a person**
         // (P3c plan 2, Option A; fix round 1, M2). Where the starter rule bound
@@ -121,9 +120,9 @@ extension Document {
         // starting is waiting for the ROOT.
         if permit.startedHere == false || permit.permit.namesPiece(docId)
             || permit.writesAsItsStarter {
-            return error.localizedDescription
+            return arrivalSentence(root: root, noun: noun)
         }
-        return Self.waitingToBeToldItIsYours(root: root)
+        return Self.waitingToBeToldItIsYours(root: root, noun: noun)
     }
 
     /// **The label of the Mac that started `docId`, for the waiting sentence**
@@ -159,8 +158,14 @@ extension Document {
     /// Option A): the pane's waiting sentence and her standing line over a
     /// piece she started and nobody has claimed say the same thing, so they
     /// are spelled once. `root` nil names the root by what it is.
-    nonisolated static func waitingToBeToldItIsYours(root: String?) -> String {
-        "Waiting for \(root ?? "the book\u{2019}s author") to say this piece is yours."
+    nonisolated static func waitingToBeToldItIsYours(root: String?, noun: PieceNoun = .piece) -> String {
+        "Waiting for \(root ?? "the book\u{2019}s author") to say this \(noun.singular) is yours."
+    }
+
+    /// "Waiting for this chapter to arrive from Sam." — in the project's word.
+    nonisolated static func arrivalSentence(root: String?, noun: PieceNoun) -> String {
+        guard let root else { return "Waiting for this \(noun.singular) to arrive." }
+        return "Waiting for this \(noun.singular) to arrive from \(root)."
     }
 
     /// The label of the root this device is on, for the waiting sentence — or

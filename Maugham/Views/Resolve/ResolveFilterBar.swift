@@ -91,8 +91,8 @@ struct ResolveFilterBar: View {
                     Image(systemName: "plus")
                 }
                 .buttonStyle(.borderless)
-                .help("New To-do")
-                .accessibilityLabel("New To-do")
+                .help(NewTaskSheet.title)
+                .accessibilityLabel(NewTaskSheet.title)
             }
         }
     }

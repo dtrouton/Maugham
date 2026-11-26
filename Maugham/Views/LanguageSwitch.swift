@@ -53,7 +53,7 @@ enum LanguageSwitch {
 
     static let sourceTitle = "Source"
     static let symbol = "character.book.closed"
-    static let help = "Read this piece in Source or in one of its translations"
+    static let help = "Read the open text in Source or in one of its translations"
     static let readInMenuTitle = "Read In"
     static let nextMenuTitle = "Read In Next Language"
     /// ⌃⌘L — Source, then each language, then Source again.

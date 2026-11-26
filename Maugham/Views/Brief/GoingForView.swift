@@ -72,7 +72,7 @@ struct GoingForView: View {
     static let silentHelp = "Nothing in this draft touches it"
     static let heading = "Going for"
     static let inTheCentreLine = "Open in the centre"
-    static let emptyPrompt = "What is this piece going for? Write it here."
+    static func emptyPrompt(_ noun: PieceNoun) -> String { "What is this \(noun.singular) going for? Write it here." }
     static let bookEmptyPrompt = "What is this book going for? Write it here."
     static let noIntentLine = "No intent yet."
     static let unreadableLine = "This intent can\u{2019}t be read."
@@ -112,8 +112,10 @@ struct GoingForView: View {
     }
 
     /// The prompt over an empty intent's editor, by whose intent it is.
-    static func emptyPrompt(for scope: Statement.Scope) -> String {
-        if case .document = scope { return emptyPrompt }
+    static func emptyPrompt(for scope: Statement.Scope, in manifest: ProjectManifest) -> String {
+        if case .document(let docId) = scope {
+            return emptyPrompt(PieceNoun.of(TreeWalk.find(id: docId, in: manifest.structure), in: manifest))
+        }
         return bookEmptyPrompt
     }
 
@@ -227,7 +229,7 @@ struct GoingForView: View {
             reading
         }
         if face.editor {
-            if !hasIntent { quiet(Self.emptyPrompt(for: scope)) }
+            if !hasIntent { quiet(Self.emptyPrompt(for: scope, in: store.manifest)) }
             StatementEditorHost(
                 store: store, documentStore: documentStore,
                 kind: .intent, scope: scope, posture: posture)

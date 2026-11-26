@@ -2,7 +2,7 @@
 
 Maugham can read what you have just written and check it two ways at once — as a continuity editor, against what you've declared and what the manuscript has already established, and as a reader, reporting what happens in the reading itself. Press **⌘R** — **File ▸ Check Writing** — and the chapter's reader does the reading. Who that is is yours to choose: **Le Guin**, the coach; **your own first reader**, one person you name and describe; or nobody in particular, in which case a check's notes are signed *Claude*.
 
-What comes back is in [To resolve](right-column.md#to-resolve-1) (⌘1): the letter at its head, and what the check found listed under **Checks** (⌘⌥D). The head also names who reads this chapter — *"Le Guin reads this piece"*, which is itself the picker — beside **Reread**. A capsule flashes **Checking…**, the same register as ⌘S's; press ⌘R again while one is running and it flashes **Still checking…** instead of starting a second.
+What comes back is in [To resolve](right-column.md#to-resolve-1) (⌘1): the letter at its head, and what the check found listed under **Checks** (⌘⌥D). The head also names who reads this chapter — *"Le Guin reads this chapter"* (in the project's word for a piece), which is itself the picker — beside **Reread**. A capsule flashes **Checking…**, the same register as ⌘S's; press ⌘R again while one is running and it flashes **Still checking…** instead of starting a second.
 
 The report arrives in parts: your clauses come back first, while the reader's report is still being written, and the head keeps saying **Checking…** until the whole check is done. A check you cancel takes its half-finished report with it and puts the last completed one back.
 
@@ -42,7 +42,7 @@ Name her in **Project Settings…**, in the **First reader** row beneath the coa
 
 ### Choosing between them
 
-The line *"Le Guin reads this piece"* in To resolve's head is a **picker**. Open it to hand your checks to the coach, to your own first reader, or to nobody in particular. Only readers the project has are offered; if you have not named a first reader, the menu ends with **Define a first reader…**.
+The line *"Le Guin reads this chapter"* (in the project's word for a piece) in To resolve's head is a **picker**. Open it to hand your checks to the coach, to your own first reader, or to nobody in particular. Only readers the project has are offered; if you have not named a first reader, the menu ends with **Define a first reader…**.
 
 The choice is remembered on this Mac and applies to the whole project. If you later take away what it rests on — vacate the seat, clear the name — checks fall back to the default rather than to a reader who isn't there. A chapter you have never checked says who will read it before you press anything: *"Press ⌘R and Nadia reads what you've written."*
 
@@ -117,7 +117,7 @@ Rounds are their own commands: **File ▸ Run Gould's Round** (⌃⌘R, titled w
 
 ## Reading a chapter for the first time
 
-The first time you check a chapter with some real prose in it, To resolve offers before it runs anything: *"I haven't read this piece. Read it whole and take notes?"* — **Read** starts the same check ⌘R would, and **Not now** declines. Say no once and Maugham doesn't ask again for that chapter; a stub — a title and a line — isn't offered at all.
+The first time you check a chapter with some real prose in it, To resolve offers before it runs anything: *"I haven't read this chapter. Read it whole and take notes?"* — **Read** starts the same check ⌘R would, and **Not now** declines. Say no once and Maugham doesn't ask again for that chapter; a stub — a title and a line — isn't offered at all.
 
 ## The bible, filling quietly
 

@@ -469,7 +469,7 @@ extension Document {
            writePermit.allows(.op(.typingBurst)) != .yes {
             pendingFailure = .init(
                 name: name,
-                reason: "this Mac can’t write this piece yet",
+                reason: "this Mac can’t write here yet",
                 cause: .notPermitted)
         } else if pendingOnDisk != nil,
                   case .unrecoverable(let name, let reason, let raw) =

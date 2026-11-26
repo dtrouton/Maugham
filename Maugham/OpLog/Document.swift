@@ -559,7 +559,7 @@ public final class Document {
             guard count > 1 else { return singular }
             return switch self {
             case .annotationEdit:
-                "Couldn't undo \(count) annotation edits — they changed on another device."
+                "Couldn't undo \(count) note edits — they changed on another device."
             case .acceptNote:
                 "Couldn't undo accepting \(count) notes — they changed on another device."
             case .stet:
@@ -575,20 +575,20 @@ public final class Document {
             case .putBack:
                 "Couldn't put back \(count) notes' earlier resolutions — they're open again."
             case .notPermitted:
-                "Couldn't change \(count) notes — this Mac can no longer answer notes in this piece."
+                "Couldn't change \(count) notes — this Mac can no longer answer notes here."
             case .taskNotPermitted:
-                "Couldn't change \(count) to-dos — this Mac can no longer file to-dos in this piece."
+                "Couldn't change \(count) to-dos — this Mac can no longer file to-dos here."
             case .restoreNotPermitted:
-                "Couldn't undo \(count) restores — this Mac can no longer change this piece's text."
+                "Couldn't undo \(count) restores — this Mac can no longer change this text."
             case .suggestionNotPermitted:
-                "Couldn't undo \(count) suggestions — this Mac can't change this piece's text right now."
+                "Couldn't undo \(count) suggestions — this Mac can't change this text right now."
             }
         }
 
         private var singular: String {
             switch self {
             case .annotationEdit:
-                "Couldn't undo the annotation edit — it changed on another device."
+                "Couldn't undo the note edit — it changed on another device."
             case .acceptNote:
                 "Couldn't undo accepting the note — it changed on another device."
             case .stet:
@@ -604,13 +604,13 @@ public final class Document {
             case .putBack:
                 "Couldn't put back the note's earlier resolution — it's open again."
             case .notPermitted:
-                "Couldn't change that note — this Mac can no longer answer notes in this piece."
+                "Couldn't change that note — this Mac can no longer answer notes here."
             case .taskNotPermitted:
-                "Couldn't change that to-do — this Mac can no longer file to-dos in this piece."
+                "Couldn't change that to-do — this Mac can no longer file to-dos here."
             case .restoreNotPermitted:
-                "Couldn't undo the restore — this Mac can no longer change this piece's text."
+                "Couldn't undo the restore — this Mac can no longer change this text."
             case .suggestionNotPermitted:
-                "Couldn't undo the suggestion — this Mac can't change this piece's text right now."
+                "Couldn't undo the suggestion — this Mac can't change this text right now."
             }
         }
     }
@@ -1951,7 +1951,7 @@ public final class Document {
             if rePersisted { try? await pending.flushToDisk() }
             closeBurstFlushFailures += 1
             documentLog.error(
-                "close() burst flush failed for doc \(self.docId, privacy: .public); \(rePersisted ? "pending buffer re-flushed to disk for crash recovery" : "pending buffer NOT re-flushed: this device may not write this piece, and the file holds an earlier session's keystrokes", privacy: .public): \(error.localizedDescription, privacy: .public)")
+                "close() burst flush failed for doc \(self.docId, privacy: .public); \(rePersisted ? "pending buffer re-flushed to disk for crash recovery" : "pending buffer NOT re-flushed: this device may not write this document, and the file holds an earlier session's keystrokes", privacy: .public): \(error.localizedDescription, privacy: .public)")
         }
         // Flush any pending autosave so the .md reflects the final state, then
         // wait for every run already queued (a scheduler-fired one has no
@@ -2095,7 +2095,7 @@ public final class Document {
     internal func rejectTextWriteIfNotPermitted(_ site: StaticString) -> Bool {
         guard !mayWriteItsText else { return false }
         documentLog.error(
-            "\(site, privacy: .public) refused on \(self.docId, privacy: .public): this device may not write this piece's text; no-op")
+            "\(site, privacy: .public) refused on \(self.docId, privacy: .public): this device may not write this document's text; no-op")
         return true
     }
 

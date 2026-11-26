@@ -325,7 +325,7 @@ struct ProjectSearchView: View {
     }
 
     /// Why a match in a piece in read-through offers no Replace.
-    static let readThroughRowHelp = "In read-through \u{2014} Resume Writing to replace in this piece."
+    static let readThroughRowHelp = "In read-through \u{2014} Resume Writing to replace here."
 
     /// **What this Mac may replace, one posture question per DOCUMENT** (P3c
     /// plan 2 Task 9) — built once per body pass over a result set, so a

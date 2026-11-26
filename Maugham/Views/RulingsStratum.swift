@@ -545,7 +545,7 @@ struct RulingsStratumView: View {
                             .multilineTextAlignment(.leading)
                     }
                     .buttonStyle(.plain)
-                    .help(RulingOrigin.openHelp)
+                    .help(origin?.openHelp ?? "")
                 } else {
                     Text(caption)
                         .font(.caption2)
@@ -641,5 +641,6 @@ struct RulingOrigin {
     let title: String
     let open: (() -> Void)?
 
-    static let openHelp = "Open this piece's Brief"
+    /// "Open “Arrival”’s Brief" — the origin by its own title.
+    var openHelp: String { "Open \u{201C}\(title)\u{201D}\u{2019}s Brief" }
 }

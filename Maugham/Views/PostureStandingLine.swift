@@ -55,6 +55,9 @@ enum PostureStandingLine {
         /// reason — a reviewer's own earlier prose, and a promoted author's
         /// lines from while she was demoted, are both still there.
         var keptInHistory: Bool = false
+        /// What the project calls the document (`PieceNoun`) — "piece" where
+        /// the caller does not say.
+        var noun: PieceNoun = .piece
 
         /// Only the root's cooperative yield can be lifted from here; every
         /// other reason is a permit, and a permit is the root's to change.
@@ -79,12 +82,12 @@ enum PostureStandingLine {
             case .yielding(let name):
                 return "This is \(name)’s piece."
             case .yieldingToItsStarter(let name):
-                return PostureStandingLine.startedByUnsettled(name)
+                return PostureStandingLine.startedByUnsettled(name, noun: noun)
             case .cannotJudge:
                 return "This Mac can’t read the permission it was given — "
                     + "update Maugham to write here."
             case .waitingToBeClaimed:
-                return Document.waitingToBeToldItIsYours(root: root)
+                return Document.waitingToBeToldItIsYours(root: root, noun: noun)
             }
         }
     }
@@ -95,7 +98,7 @@ enum PostureStandingLine {
     /// count (`Document.ownLinesKeptInHistory`), zero where it is not open.
     static func line(
         for posture: Posture, title: String, docId: String,
-        ownLinesKeptInHistory: Int = 0
+        ownLinesKeptInHistory: Int = 0, noun: PieceNoun = .piece
     ) -> Line? {
         let kind: Line.Kind?
         switch posture.reason {
@@ -113,13 +116,13 @@ enum PostureStandingLine {
         }
         let kept = ownLinesKeptInHistory > 0
         guard kind != nil || kept else { return nil }
-        return Line(kind: kind, docId: docId, keptInHistory: kept)
+        return Line(kind: kind, docId: docId, keptInHistory: kept, noun: noun)
     }
 
     /// **Ruling U's sentence**: whose piece this may become is still open,
     /// and this Mac is standing back from it.
-    static func startedByUnsettled(_ name: String) -> String {
-        "\(name) started this piece — it isn’t settled whose it is yet."
+    static func startedByUnsettled(_ name: String, noun: PieceNoun = .piece) -> String {
+        "\(name) started this \(noun.singular) — it isn’t settled whose it is yet."
     }
 
     /// The clause for `Line.keptInHistory`; the view pairs it with a History

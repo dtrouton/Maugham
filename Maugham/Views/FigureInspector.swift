@@ -619,7 +619,7 @@ struct FigureInspector: View {
             if offered.contains(.sendToResearch) {
                 SwiftUI.Menu(FigureTableMenu.sendToResearchTitle) {
                     ForEach(actions.sendDestinations(for: row), id: \.self) { destination in
-                        Button(destination.title) { actions.sendToResearch(row, to: destination) }
+                        Button(actions.sendTitle(destination, for: row)) { actions.sendToResearch(row, to: destination) }
                     }
                 }
                 .fixedSize()
@@ -627,7 +627,7 @@ struct FigureInspector: View {
             if offered.contains(.importCSV) {
                 // Shown while no grid can take it, disabled, with the reason;
                 // a grid in another window: pressed, that window comes front.
-                Button(FigureTableCommand.importCSV.title) { actions.importFromCSV(figureId) }
+                Button(FigureTableCommand.importCSV.title(.piece)) { actions.importFromCSV(figureId) }
                     .disabled(reach == .none)
                 if let importRefusal {
                     Text(importRefusal).font(.caption).foregroundStyle(.secondary)

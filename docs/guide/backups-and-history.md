@@ -25,7 +25,7 @@ A chapter's History is its story, newest first: your typing, Claude's and your o
 - **All** — everything.
 - **Checkpoints** — just the checkpoints.
 - **Edits** — your writing, grouped into bursts. A new burst appears about every 30 seconds while you work.
-- **Annotations** — every note and suggestion, and every answer you gave one.
+- **Notes** — every note and suggestion, and every answer you gave one.
 
 Each filter has its own empty state, such as *No checkpoints* or *No edits*, so an empty list never leaves you guessing which one you're looking at. Edits made to the `.md` file outside Maugham aren't kept, so History has nothing to show for them.
 

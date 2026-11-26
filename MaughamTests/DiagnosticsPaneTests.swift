@@ -862,13 +862,13 @@ final class DiagnosticsPaneTests: XCTestCase {
     /// has ever seen (`ReviewPass.laneDisplayName`'s own rule); the coach
     /// reads as an introduction exactly as her round-cockpit line does.
     func test_readerCopy_coachReadsAsAnIntroductionNeverHerPassName() {
-        let line = CheckNarrative.readerCopy(for: .coach(ReviewPass.coachPreset))
-        XCTAssertEqual(line, "Le Guin reads this piece")
+        let line = CheckNarrative.readerCopy(for: .coach(ReviewPass.coachPreset), noun: .chapter)
+        XCTAssertEqual(line, "Le Guin reads this chapter")
         XCTAssertFalse(line.contains("Workshop"), "got: \(line)")
     }
 
     func test_readerCopy_nobodyIsSignedClaude() {
-        XCTAssertEqual(CheckNarrative.readerCopy(for: .nobody), "Claude reads this piece")
+        XCTAssertEqual(CheckNarrative.readerCopy(for: .nobody, noun: .story), "Claude reads this story")
     }
 
     /// **One input, two readers.** A test constructing the pane with a coach
@@ -877,7 +877,7 @@ final class DiagnosticsPaneTests: XCTestCase {
     /// other arm and must agree with itself the same way.
     func test_theHeaderLineAndTheEmptyStatePromiseNameTheSameReader_coach() {
         let reader = AuthorReader.coach(ReviewPass.coachPreset)
-        let header = CheckNarrative.readerCopy(for: reader)
+        let header = CheckNarrative.readerCopy(for: reader, noun: .chapter)
         let empty = CheckNarrative.emptyState(for: .neverRun, readerName: reader.editorName, annotations: [], passes: [])
         XCTAssertTrue(header.contains("Le Guin"), "got: \(header)")
         XCTAssertTrue(empty.description.contains("Le Guin"), "got: \(empty.description)")
@@ -885,7 +885,7 @@ final class DiagnosticsPaneTests: XCTestCase {
 
     func test_theHeaderLineAndTheEmptyStatePromiseNameTheSameReader_nobody() {
         let reader = AuthorReader.nobody
-        let header = CheckNarrative.readerCopy(for: reader)
+        let header = CheckNarrative.readerCopy(for: reader, noun: .chapter)
         let empty = CheckNarrative.emptyState(for: .neverRun, readerName: reader.editorName, annotations: [], passes: [])
         XCTAssertTrue(header.contains("Claude"), "got: \(header)")
         XCTAssertTrue(empty.description.contains("Claude"), "got: \(empty.description)")
@@ -2058,17 +2058,17 @@ final class DiagnosticsPaneTests: XCTestCase {
     }
 
     /// CONTROL for the census above: the HEADER line is deliberately NOT
-    /// guarded. "Le Guin reads this piece" and the empty state's "Press ⌘R
+    /// guarded. "Le Guin reads this chapter" and the empty state's "Press ⌘R
     /// and … reads what you've written." are promises about the NEXT run, so
     /// they must move the moment the writer changes the roster — which is the
     /// opposite of the rule for a letter that has already been written.
     func test_control_theHeaderLineStaysOnTheLiveReader() throws {
         let source = try readSource("Maugham/Views/DiagnosticsPaneHeader.swift")
         XCTAssertTrue(
-            source.contains(#"static func readerCopy(for reader: AuthorReader) -> String {"#),
+            source.contains(#"static func readerCopy(for reader: AuthorReader, noun: PieceNoun) -> String {"#),
             "find the header's copy by name if it moved")
         XCTAssertTrue(
-            source.contains(#""\(reader.editorName) reads this piece""#),
+            source.contains(#""\(reader.editorName) reads this \(noun.singular)""#),
             "the header names who WILL read, so it reads the live reader")
     }
 
@@ -2926,9 +2926,9 @@ final class DiagnosticsPaneTests: XCTestCase {
         let window = mount(checkHeader(store: store, diagnostics: diagnostics,
                                        docId: "doc-picker", reader: .coach(ReviewPass.coachPreset)))
         pump(0.2)
-        XCTAssertTrue(allLabels(in: window).contains("Le Guin reads this piece"),
+        XCTAssertTrue(allLabels(in: window).contains("Le Guin reads this chapter"),
                       "got \(allLabels(in: window))")
-        XCTAssertTrue(roles(labelled: "Le Guin reads this piece", in: window)
+        XCTAssertTrue(roles(labelled: "Le Guin reads this chapter", in: window)
                         .contains { $0 != "AXStaticText" },
                       "the reader line must be a control the writer can open")
     }
@@ -2979,11 +2979,11 @@ final class DiagnosticsPaneTests: XCTestCase {
         let diagnostics = DiagnosticsStore(
             projectRoot: temp.url, device: DeviceSlug.make(from: "test-mac"))
         let window = mount(AnyView(DiagnosticsColdStartOffer(
-            docId: "doc-cold", diagnostics: diagnostics, otherLoopLine: nil)))
+            docId: "doc-cold", diagnostics: diagnostics, otherLoopLine: nil, noun: .chapter)))
         pump(0.2)
         XCTAssertNotNil(findButton(labelled: "Read", in: window))
         XCTAssertNotNil(findButton(labelled: "Not now", in: window))
-        XCTAssertTrue(allLabels(in: window).contains(CheckNarrative.coldStartOfferSentence))
+        XCTAssertTrue(allLabels(in: window).contains(CheckNarrative.coldStartOfferSentence(.chapter)))
         // Not now's act, called (tripwire 33): the refusal is recorded, so
         // the offer never stands again for this piece.
         diagnostics.refuseColdStart(docId: "doc-cold")

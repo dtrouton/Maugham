@@ -78,7 +78,7 @@ enum PassOrderAdvice {
     }
 
     /// The caption itself, so the pane and the test agree on the sentence.
-    static func caption(for pass: ReviewPass) -> String {
-        "\(pass.name) still open on this piece"
+    static func caption(for pass: ReviewPass, noun: PieceNoun) -> String {
+        "\(pass.name) still open on this \(noun.singular)"
     }
 }

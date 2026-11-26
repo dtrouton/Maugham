@@ -353,9 +353,9 @@ extension EditorCoordinator {
             return
         }
         let alert = NSAlert()
-        alert.messageText = "Delete your annotation"
+        alert.messageText = "Delete your note"
         alert.informativeText =
-            "This removes your annotation. The history is preserved, but the annotation will no longer appear here or in the editor."
+            "This removes your note. The history is preserved, but the note will no longer appear here or in the editor."
         alert.addButton(withTitle: "Delete")
         alert.addButton(withTitle: "Cancel")
         alert.alertStyle = .warning

@@ -730,12 +730,12 @@ struct AnnotationRow: View {
             Image(systemName: "pencil")
         }
         .buttonStyle(.bordered)
-        .help("Edit your annotation")
+        .help("Edit your note")
         Button(action: onWithdraw) {
             Image(systemName: "trash")
         }
         .buttonStyle(.bordered)
-        .help("Delete your annotation")
+        .help("Delete your note")
     }
 
     private var kindColor: Color {

@@ -576,7 +576,7 @@ final class ResolvePieceInLanguageTests: XCTestCase {
         func state(_ status: TranslationPipeline.Status, queued: [String] = []) -> TranslationRunState {
             let relation = ResolvePieceInLanguage.pieceRun(status: status, queued: queued,
                                                            docId: "doc-3", language: "es")
-            return TranslationRunState.resolve(noun: .chapter, 
+            return TranslationRunState.resolve(noun: .chapter,
                 language: "es", target: .ready(docId: "doc-3", title: "Three"),
                 session: TranslationRunSession.read(runState: .idle, isRunning: false, pipeline: status),
                 runState: .idle, lastRun: nil,

@@ -789,7 +789,7 @@ enum ReviewBoardOpenNotes {
             return Cell(
                 kind: .unreadable,
                 text: "\u{2014}",
-                label: "\(piece) — notes unknown: this piece\u{2019}s op log "
+                label: "\(piece) — notes unknown: its op log "
                     + "could not be read.")
         }
         guard let summary, summary.total > 0 else {
@@ -893,7 +893,7 @@ enum ReviewBoardOpenToDos {
         if isUnreadable {
             return ReviewBoardOpenNotes.Cell(
                 kind: .unreadable, text: "\u{2014}",
-                label: "\(piece) — to-dos unknown: this piece\u{2019}s op log "
+                label: "\(piece) — to-dos unknown: its op log "
                     + "could not be read.")
         }
         guard let count, count > 0 else {
