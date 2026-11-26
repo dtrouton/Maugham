@@ -77,24 +77,45 @@ struct ResolveFilterBar: View {
             if includesTriage, let triage {
                 triageMenu(triage)
             }
-            if showsSelectionMode {
-                Button(action: onToggleSelectionMode) {
-                    Image(systemName: selectionModeOn
-                          ? "checkmark.circle.fill" : "checkmark.circle")
-                }
-                .buttonStyle(.borderless)
-                .help(selectionModeOn ? "Done selecting" : "Select notes")
-                .accessibilityLabel(selectionModeOn ? "Done selecting" : "Select notes")
-            }
-            if showsNewTodo {
-                Button(action: onNewTodo) {
-                    Image(systemName: "plus")
-                }
-                .buttonStyle(.borderless)
-                .help(NewTaskSheet.title)
-                .accessibilityLabel(NewTaskSheet.title)
+            // **One menu, so the bar stays one row** (fix round 1, B2):
+            // New To-Do and the selection toggle, behind one icon.
+            if showsSelectionMode || showsNewTodo {
+                actionsMenu
             }
         }
+    }
+
+    /// The overflow menu's items, in order — its VoiceOver label names them.
+    static func actionTitles(showsNewTodo: Bool, showsSelectionMode: Bool, selectionModeOn: Bool) -> [String] {
+        var titles: [String] = []
+        if showsNewTodo { titles.append(NewTaskSheet.title) }
+        if showsSelectionMode { titles.append(selectionModeOn ? doneSelectingTitle : selectNotesTitle) }
+        return titles
+    }
+
+    static let selectNotesTitle = "Select Notes"
+    static let doneSelectingTitle = "Done Selecting"
+
+    private var actionsMenu: some View {
+        let label = Self.actionTitles(showsNewTodo: showsNewTodo, showsSelectionMode: showsSelectionMode,
+                                      selectionModeOn: selectionModeOn).joined(separator: ", ")
+        return Menu {
+            if showsNewTodo {
+                Button(NewTaskSheet.title, action: onNewTodo)
+            }
+            if showsSelectionMode {
+                Button(selectionModeOn ? Self.doneSelectingTitle : Self.selectNotesTitle,
+                       action: onToggleSelectionMode)
+            }
+        } label: {
+            Image(systemName: selectionModeOn ? "ellipsis.circle.fill" : "ellipsis.circle")
+        }
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .fixedSize()
+        .help(label)
+        .accessibilityLabel(label)
+        .accessibilityIdentifier("resolve.filterBar.actions")
     }
 
     private func chipButton(_ chip: ResolveSource) -> some View {

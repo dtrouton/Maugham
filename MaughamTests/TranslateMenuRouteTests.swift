@@ -80,7 +80,7 @@ final class TranslateMenuRouteTests: XCTestCase {
                 .map { $0.trimmingCharacters(in: .whitespaces) }.joined(separator: " ")
         }
         let pane = try flat("Maugham/Views/Resolve/ResolvePane.swift")
-        XCTAssertTrue(pane.contains("if case .translate(let ask) = pending { if ask.lands(in: scope) { if ResolveHeadFold.opensTheHead(pending) { documentStore.setResolveHeadOpen(true) } translateAsk = ask } else { filedNotice = FiledNotice.after( .filed(FiledNotice.Filing(sentence: ask.notHereLine, brief: nil)), current: filedNotice) } return }"))
+        XCTAssertTrue(pane.contains("if case .translate(let ask) = pending { if ask.lands(in: scope) { translateAsk = ask } else { filedNotice = FiledNotice.after( .filed(FiledNotice.Filing(sentence: ask.notHereLine, brief: nil)), current: filedNotice) } return }"))
         XCTAssertTrue(pane.contains("translateAsk = nil pendingRequest = Self.pendingSurvivingScopeChange(pendingRequest)"))
         // The heads ask the one answer, and say every refusal.
         let piece = try flat("Maugham/Views/Resolve/ResolvePieceInLanguage.swift")

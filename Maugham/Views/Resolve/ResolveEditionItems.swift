@@ -1121,6 +1121,7 @@ struct EditionHeadView: View {
             } else {
                 ResolveHeadFoldBar(
                     title: ResolveEditionItems.foldTitle(language: language),
+                    spokenTitle: ResolveEditionItems.foldTitle(language: language),
                     summary: translatorName,
                     isOpen: headOpen.wrappedValue,
                     onToggle: { headOpen.wrappedValue.toggle() })
@@ -1202,8 +1203,8 @@ struct EditionHeadView: View {
             notice: notice,
             letter: head.letter.flatMap { round in
                 ResolveEditionItems.letter(of: round).map { _ in
-                    ResolveHeadFold.letterLine(voice: round.signedBy(liveName: translatorName),
-                                               at: round.startedAt, now: Date())
+                    ResolveHeadFold.LetterMark(voice: round.signedBy(liveName: translatorName),
+                                               at: round.startedAt)
                 }
             }) {
             ResolveHeadFoldedLine(line: line, onOpen: { headOpen.wrappedValue = true })

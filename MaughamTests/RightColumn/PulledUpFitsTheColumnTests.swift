@@ -287,6 +287,74 @@ final class PulledUpFitsTheColumnTests: XCTestCase {
             "To resolve runs past the \(width)pt column:\n" + offenders.joined(separator: "\n"))
     }
 
+    // MARK: - The filter bar, one row (fix round 1, B2)
+
+    /// **To resolve's filter bar is one row at the narrowest column**, with
+    /// every chip, the triage control in each state and the overflow menu,
+    /// at both scales: its height is the bare chips row's.
+    func test_theFilterBarIsOneRowAtTheNarrowestColumnWithTriage() async throws {
+        let width = Self.narrowest
+        let chips: [ResolveSource] = [.pass("structural"), .pass("line"), .mine, .checks, .others, .questions]
+        func bar(triage: ResolveTriageChoice?, actions: Bool) -> some View {
+            ResolveFilterBar(
+                chips: chips, selection: [], passes: ReviewPass.presets,
+                showsSelectionMode: actions, selectionModeOn: false, showsNewTodo: actions,
+                triage: triage, onToggle: { _ in }, onToggleSelectionMode: {}, onNewTodo: {})
+                .frame(width: width)
+        }
+        for scale in Scale.allCases {
+            let bare = mount(bar(triage: nil, actions: false), width: width, scale: scale)
+            await waitOut(0.2)
+            let oneRow = try XCTUnwrap(bare.contentView).fittingSize.height
+            for choice in ResolveTriageChoice.allCases {
+                let window = mount(bar(triage: choice, actions: true), width: width, scale: scale)
+                await waitOut(0.2)
+                let height = try XCTUnwrap(window.contentView).fittingSize.height
+                XCTAssertEqual(height, oneRow, accuracy: 0.5,
+                               "\(scale) with triage \(choice): the bar is \(height)pt, one row is \(oneRow)pt")
+                window.contentView = NSView(frame: .zero)
+            }
+            bare.contentView = NSView(frame: .zero)
+        }
+    }
+
+    // MARK: - New To-Do's sheet (fix round 1, B5)
+
+    /// **New To-Do's buttons show their whole titles** — a novel's and a
+    /// Collection's noun, both scopes offered, at both scales: no button is
+    /// laid out narrower than its title asks.
+    func test_newToDosButtonsShowTheirWholeTitles() async throws {
+        var offenders: [String] = []
+        for noun in [PieceNoun.chapter, PieceNoun.piece] {
+            for scale in Scale.allCases {
+                let sheet = NewTaskSheet(taskBody: .constant("Fix the fog"), scope: .constant(.document),
+                                         canPickDocumentScope: true, canPickProjectScope: true,
+                                         noun: noun, onCommit: {}, onCancel: {})
+                let window = mount(sheet, width: 380, scale: scale)
+                await waitOut(0.3)
+                try requireAssistiveClient()
+                // Each button's own width, alone and unconstrained, in the
+                // sheet's styles: what its whole title asks.
+                let wants: [String: CGFloat] = [
+                    "Cancel": NSHostingView(rootView: Button("Cancel", role: .cancel) {}.fixedSize()).fittingSize.width,
+                    "Add": NSHostingView(rootView: Button("Add") {}.buttonStyle(.borderedProminent)
+                        .fixedSize()).fittingSize.width,
+                ]
+                for (title, want) in wants {
+                    let found = try axButtons(labelled: title, in: window)
+                    XCTAssertEqual(found.count, 1, "premise: one \(title) (\(scale), \(noun.singular))")
+                    guard let rect = found.first.flatMap({ (axAttribute($0, "accessibilityFrame") as? NSValue)?.rectValue })
+                    else { continue }
+                    if rect.width + 1 < want {
+                        offenders.append("\(noun.singular), \(scale): \(title) is \(rect.width)pt of \(want)pt")
+                    }
+                }
+                window.contentView = NSView(frame: .zero)
+            }
+        }
+        XCTAssertEqual(offenders, [], offenders.joined(separator: "\n"))
+    }
+
     // MARK: - An edition's Brief, in every state (shell p4 Task 7)
 
     /// **An edition's Brief fits the narrowest column in every state**: a

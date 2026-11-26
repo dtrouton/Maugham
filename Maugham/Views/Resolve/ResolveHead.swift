@@ -486,16 +486,20 @@ struct ResolveHeadView: View {
         let item = TreeWalk.find(id: docId, in: store.manifest.structure)
         let isOpen = headOpen.wrappedValue
         VStack(alignment: .leading, spacing: 0) {
-            // **The head folds** (`ResolveHeadFold`): the name, where it
-            // stands and the chevron, open and folded alike.
+            // **The head folds** (`ResolveHeadFold`): where it stands and
+            // the chevron; the name only where it is information.
+            let summary = item.map {
+                ResolveHeadFold.summary(
+                    status: ReviewStatus.derived(passStates: $0.passStates, passes: passes,
+                                                 legacyStatus: $0.status),
+                    passes: passes, passStates: $0.passStates)
+            }
             ResolveHeadFoldBar(
-                title: item?.title ?? "",
-                summary: item.map {
-                    ResolveHeadFold.summary(
-                        status: ReviewStatus.derived(passStates: $0.passStates, passes: passes,
-                                                     legacyStatus: $0.status),
-                        passes: passes, passStates: $0.passStates)
-                },
+                title: ResolveHeadFold.namesThePiece(docId: docId, openDocId: openDocId) ? item?.title : nil,
+                spokenTitle: item?.title ?? "",
+                // Open, the ladder says it (its own Status row).
+                summary: isOpen ? nil : summary,
+                spokenSummary: summary,
                 isOpen: isOpen,
                 onToggle: { headOpen.wrappedValue.toggle() })
             if isOpen {
@@ -528,12 +532,13 @@ struct ResolveHeadView: View {
     // MARK: Folded
 
     /// **The folded head's rows two and three** — the same offers, refusals
-    /// and tooltips the open head draws, over the same values.
+    /// and tooltips the open head draws, over the same values. On a piece
+    /// that is not open, row 2 is the line that opens it (and Cancel while a
+    /// run holds the session), and row 3 still says what stands (fix round
+    /// 1, A3).
     @ViewBuilder
     private func folded(_ docId: String, item: StructureItem?, offers: ResolveHeadOffers) -> some View {
-        if offers.opensThePiece {
-            openThePiece(docId)
-        } else if let orchestrator, let diagnostics {
+        if let orchestrator, let diagnostics {
             let _ = diagnostics.version
             let phase = ReviewRoundCockpit.phase(
                 runState: orchestrator.runState, docId: docId,
@@ -546,44 +551,58 @@ struct ResolveHeadView: View {
                 runState: orchestrator.runState, docId: docId,
                 titleOf: { RoundNarrative.pieceTitle(of: $0, in: store.manifest.structure) })
             let pass = activePass(docId)
-            HStack(spacing: 6) {
-                if offers.runRound {
-                    Button(ReviewRoundCockpit.runTitle) { MaughamEvent.postRun(.runRound) }
-                        .buttonStyle(.borderedProminent)
-                        .disabled(ReviewRoundCockpit.runButtonRefuses(phase: phase, hasPass: pass != nil))
-                        .help(ReviewRoundCockpit.runButtonHelp(
-                            phase: phase, hasPass: pass != nil,
-                            offer: ReviewRoundCockpit.runHelp(
-                                pass: pass,
-                                round: diagnostics.latestRound(forPass: pass?.id, docId: docId))))
+            let roundAsk = diagnostics.askThatWouldBrief(docId: docId, kind: .round)
+            let checkAsk = diagnostics.askThatWouldBrief(docId: docId, kind: .check)
+            let offersCancel = ReviewRoundCockpit.offersCancel(phase: phase)
+                || CheckNarrative.offersCancel(state: checkState, otherLoopLine: checkOtherLoop)
+            if offers.opensThePiece {
+                openThePiece(docId)
+                if offersCancel { cancelRow(orchestrator) }
+            } else {
+                let check = ResolveHeadFold.checkCommand(checkState)
+                HStack(spacing: 6) {
+                    if offers.runRound {
+                        Button(ReviewRoundCockpit.runTitle) { MaughamEvent.postRun(.runRound) }
+                            .buttonStyle(.borderedProminent)
+                            .disabled(ReviewRoundCockpit.runButtonRefuses(phase: phase, hasPass: pass != nil))
+                            .help(ResolveHeadFold.help(ReviewRoundCockpit.runButtonHelp(
+                                phase: phase, hasPass: pass != nil,
+                                offer: ReviewRoundCockpit.runHelp(
+                                    pass: pass,
+                                    round: diagnostics.latestRound(forPass: pass?.id, docId: docId))),
+                                ask: roundAsk))
+                    }
+                    if offers.runCheck {
+                        Button(check.title) { MaughamEvent.postRun(check) }
+                            .buttonStyle(.bordered)
+                            .disabled(CheckNarrative.rereadRefuses(state: checkState, otherLoopLine: checkOtherLoop))
+                            .help(ResolveHeadFold.help(
+                                checkOtherLoop ?? (check == .reread
+                                    ? CheckNarrative.rereadHelp
+                                    : "\(check.title) (\(check.keyLabel))"),
+                                ask: checkAsk))
+                    }
+                    // Not the posture's, as open: a run in flight is the
+                    // writer's to stop, folded or not.
+                    if offersCancel {
+                        Button(ReviewRoundCockpit.cancelTitle) { orchestrator.cancel() }
+                            .buttonStyle(.bordered)
+                    }
+                    Spacer(minLength: 0)
                 }
-                if offers.runCheck {
-                    Button(CheckNarrative.rereadTitle) { MaughamEvent.postRun(.reread) }
-                        .buttonStyle(.bordered)
-                        .disabled(CheckNarrative.rereadRefuses(state: checkState, otherLoopLine: checkOtherLoop))
-                        .help(checkOtherLoop ?? CheckNarrative.rereadHelp)
-                }
-                // Not the posture's, as open: a run in flight is the writer's
-                // to stop, folded or not.
-                if ReviewRoundCockpit.offersCancel(phase: phase)
-                    || CheckNarrative.offersCancel(state: checkState, otherLoopLine: checkOtherLoop) {
-                    Button(ReviewRoundCockpit.cancelTitle) { orchestrator.cancel() }
-                        .buttonStyle(.bordered)
-                }
-                Spacer(minLength: 0)
+                .controlSize(.small)
+                .padding(.horizontal, 12).padding(.bottom, 6)
             }
-            .controlSize(.small)
-            .padding(.horizontal, 12).padding(.bottom, 6)
             let latest = ResolveHead.latestLetter(check: diagnostics.lastCheck(docId: docId),
                                                   round: diagnostics.lastRound(docId: docId))
             if let line = ResolveHeadFold.pieceLine(
                 roundPhase: phase, checkState: checkState,
                 nudge: nudgeCaption(docId, item: item),
                 letter: latest.map {
-                    ResolveHeadFold.letterLine(
-                        voice: ResolveHead.letterVoice(run: $0, reader: reader, passes: passes),
-                        at: $0.at, now: Date())
-                }) {
+                    ResolveHeadFold.LetterMark(
+                        voice: ResolveHead.letterVoice(run: $0, reader: reader, passes: passes), at: $0.at)
+                },
+                ask: roundAsk ?? checkAsk) {
                 ResolveHeadFoldedLine(
                     line: line,
                     runningText: { now in
@@ -599,9 +618,23 @@ struct ResolveHeadView: View {
                     },
                     onOpen: { headOpen.wrappedValue = true })
             }
-        } else if let line = nudgeCaption(docId, item: item).map(ResolveHeadFold.Line.nudge) {
-            ResolveHeadFoldedLine(line: line, onOpen: { headOpen.wrappedValue = true })
+        } else {
+            if offers.opensThePiece { openThePiece(docId) }
+            if let line = nudgeCaption(docId, item: item).map(ResolveHeadFold.Line.nudge) {
+                ResolveHeadFoldedLine(line: line, onOpen: { headOpen.wrappedValue = true })
+            }
         }
+    }
+
+    /// Cancel alone, under the line that opens a piece not open.
+    private func cancelRow(_ orchestrator: CompilerOrchestrator) -> some View {
+        HStack {
+            Button(ReviewRoundCockpit.cancelTitle) { orchestrator.cancel() }
+                .buttonStyle(.bordered)
+            Spacer(minLength: 0)
+        }
+        .controlSize(.small)
+        .padding(.horizontal, 12).padding(.bottom, 6)
     }
 
     /// The pass-order nudge's caption, as the open head decides it.

@@ -32,4 +32,4 @@ Start a line with `- [ ]` and it becomes a checkbox. Every checkbox in the book 
 
 - [ ] Press ⌘⌥T and find this list
 - [ ] Tick this box, and watch it move to Settled at the foot of the list
-- [ ] Add a to-do of your own with the + at the top of To resolve
+- [ ] Add a to-do of your own with New To-Do, in the … menu at the top of To resolve

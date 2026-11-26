@@ -50,11 +50,15 @@ enum ResolveHeadFold {
     /// "four", not "4", up to twelve; digits past it.
     static func countWord(_ count: Int) -> String {
         guard (0...12).contains(count) else { return String(count) }
+        return spellOut.string(from: NSNumber(value: count)) ?? String(count)
+    }
+
+    private static let spellOut: NumberFormatter = {
         let formatter = NumberFormatter()
         formatter.numberStyle = .spellOut
         formatter.locale = Locale(identifier: "en")
-        return formatter.string(from: NSNumber(value: count)) ?? String(count)
-    }
+        return formatter
+    }()
 
     /// **The folded head's summary**: the derived Status (`StatusSwatch`'s
     /// word, the ladder's own first row) and the ladder phrase —
@@ -85,17 +89,22 @@ enum ResolveHeadFold {
         case checkRunning
         /// A translation round on this piece or edition, its leg.
         case running(String)
-        /// The last run here failed or stopped — red when it failed.
+        /// The last run here failed (red) or stopped.
         case failed(String)
         case stopped(String)
         /// A run elsewhere holds the window's one session, so Run waits.
         case otherRun(String)
+        /// The last check here found nothing new to read.
+        case nothingNew(String)
         /// What the head said after a press (a translation head's notice).
         case notice(String)
+        /// The latest letter: "Letter from Lish · 2 hours ago", its time
+        /// redrawn once a minute while the line shows.
+        case letter(voice: String, at: Date)
         /// `PassOrderAdvice`'s caption; its verbs are in the open head.
         case nudge(String)
-        /// "Letter from Perkins · 2 hours ago".
-        case letter(String)
+        /// The ask the next run is briefed with, though its field is folded.
+        case ask(String)
 
         /// Whether the line is drawn red.
         var isFailure: Bool {
@@ -104,13 +113,24 @@ enum ResolveHeadFold {
         }
     }
 
+    /// A letter's voice and time, for the third row.
+    struct LetterMark: Equatable {
+        let voice: String
+        let at: Date
+    }
+
     /// **A piece's third row**, first of: its round running, its check
     /// running, its round failed, its check failed, a run elsewhere holding
-    /// the session, the pass-order nudge, the latest letter. A run's progress
-    /// is never hidden while it runs (`test_aRunningRoundIsNeverHiddenFolded`).
+    /// the session, a check that found nothing new, the latest letter, the
+    /// pass-order nudge, the standing ask. A run's progress is never hidden
+    /// while it runs (`test_aRunningRoundIsNeverHiddenFolded`). **The letter
+    /// outranks the nudge** (fix round 1, A2): a nudge stands for as long as
+    /// a later pass is worked over an open earlier one — exactly while rounds
+    /// are run — and a letter under it would never be seen. The nudge shows
+    /// when there is no letter, and open.
     static func pieceLine(roundPhase: ReviewRoundCockpit.RunPhase,
                           checkState: CheckNarrative.HeaderState,
-                          nudge: String?, letter: String?) -> Line? {
+                          nudge: String?, letter: LetterMark?, ask: String? = nil) -> Line? {
         if case .running = roundPhase { return .roundRunning }
         if case .running = checkState { return .checkRunning }
         if case .failed(let failure, _) = roundPhase { return .failed(RoundNarrative.failureCopy(failure)) }
@@ -118,8 +138,12 @@ enum ResolveHeadFold {
             return .failed(CheckNarrative.headerCopy(for: checkState, annotations: nil, passes: []))
         }
         if let other = ReviewRoundCockpit.otherLoopLine(phase: roundPhase) { return .otherRun(other) }
+        if case .nothingNew = checkState {
+            return .nothingNew(CheckNarrative.headerCopy(for: checkState, annotations: nil, passes: []))
+        }
+        if let letter { return .letter(voice: letter.voice, at: letter.at) }
         if let nudge { return .nudge(nudge) }
-        if let letter { return .letter(letter) }
+        if let ask { return .ask(askLine(ask)) }
         return nil
     }
 
@@ -128,36 +152,65 @@ enum ResolveHeadFold {
     /// failure, a stopped round, the head's notice, the latest letter.
     static func translationLine(running: String?, elsewhere: String?, failure: String?,
                                 stopped: (line: String, failed: Bool)?, notice: String?,
-                                letter: String?) -> Line? {
+                                letter: LetterMark?) -> Line? {
         if let running { return .running(running) }
         if let elsewhere { return .otherRun(elsewhere) }
         if let failure { return .failed(failure) }
         if let stopped { return stopped.failed ? .failed(stopped.line) : .stopped(stopped.line) }
         if let notice { return .notice(notice) }
-        if let letter { return .letter(letter) }
+        if let letter { return .letter(voice: letter.voice, at: letter.at) }
         return nil
     }
 
-    /// "Letter from <voice> · <when>", the latest letter in one line.
-    static func letterLine(voice: String, at: Date, now: Date) -> String {
+    private static let relativeFormatter: RelativeDateTimeFormatter = {
         let formatter = RelativeDateTimeFormatter()
         formatter.unitsStyle = .full
-        return "Letter from \(voice) \u{00B7} \(formatter.localizedString(for: at, relativeTo: now))"
+        return formatter
+    }()
+
+    /// "Letter from <voice> · <when>", the latest letter in one line.
+    static func letterLine(voice: String, at: Date, now: Date) -> String {
+        "Letter from \(voice) \u{00B7} \(relativeFormatter.localizedString(for: at, relativeTo: now))"
     }
 
-    // MARK: The routes
+    /// How long a standing ask may run in a line or a tooltip.
+    static let askPreviewLength = 60
 
-    /// **Which of To resolve's requests open the head first**: File ▸
-    /// Translate…, which presses a language head's Run and answers in that
-    /// head. The others address the list (a filter, a group, a finding, a
-    /// paragraph) and leave the head as it is. Every other way to a head
-    /// control is a press inside the head itself — a folded line's click
-    /// opens it — and ⌘R, ⌃⌘R and ⌘⇧R run through the window, folded or not.
-    static func opensTheHead(_ request: ResolveRequest) -> Bool {
-        switch request {
-        case .translate: return true
-        case .filter, .focus, .focusFinding, .showParagraph: return false
-        }
+    /// "Asking about: …", the ask cut to a line.
+    static func askLine(_ ask: String) -> String {
+        let trimmed = ask.trimmingCharacters(in: .whitespacesAndNewlines)
+        let cut = trimmed.count > askPreviewLength
+            ? String(trimmed.prefix(askPreviewLength)).trimmingCharacters(in: .whitespaces) + "\u{2026}"
+            : trimmed
+        return "Asking about: \(cut)"
+    }
+
+    /// A folded button's tooltip with the ask it would brief, when one
+    /// stands.
+    static func help(_ help: String, ask: String?) -> String {
+        guard let ask else { return help }
+        return "\(help)\n\(askLine(ask))"
+    }
+
+    /// **The folded head's check button** (fix round 1, A4): the menu's
+    /// own Check Writing (⌘R) on a piece never checked, Reread once there is
+    /// a check to reread.
+    static func checkCommand(_ state: CheckNarrative.HeaderState) -> RunCommand {
+        if case .neverRun = state { return .checkWriting }
+        return .reread
+    }
+
+    /// The first row's drawn words, as its tooltip says them.
+    static func drawnWords(title: String?, summary: String?) -> String {
+        [title, summary].compactMap { $0 }.joined(separator: " \u{00B7} ")
+    }
+
+    /// **Whether the first row names the piece** (owner, 2026-11-26: "the
+    /// name line is sort of pointless when I have that chapter selected
+    /// already"): only when the faces' piece is not the one open in the
+    /// centre — then it is information.
+    static func namesThePiece(docId: String, openDocId: String?) -> Bool {
+        openDocId != docId
     }
 
     // MARK: Words
@@ -177,35 +230,45 @@ enum ResolveHeadFold {
 
 // MARK: - Row 1
 
-/// **The head's first row**: the name and where it stands, and the chevron
-/// that opens or folds the head. Drawn open and folded alike, so the chevron
-/// never scrolls away. A `Button`, never a tap gesture.
+/// **The head's first row**: where the piece stands, the piece's name only
+/// where it is information (`ResolveHeadFold.namesThePiece`), and the
+/// chevron that opens or folds the head. Drawn open and folded alike, so the
+/// chevron never scrolls away. VoiceOver reads one sentence that always names
+/// the piece. A `Button`, never a tap gesture.
 struct ResolveHeadFoldBar: View {
-    let title: String
+    /// The name drawn, or nil where the faces' piece is the open one.
+    let title: String?
+    /// The name VoiceOver reads, always.
+    let spokenTitle: String
+    /// The summary drawn (folded), or nil (open: the ladder says it).
     let summary: String?
+    /// The summary VoiceOver reads.
+    var spokenSummary: String? = nil
     let isOpen: Bool
     let onToggle: () -> Void
 
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: 6) {
             HStack(alignment: .firstTextBaseline, spacing: 6) {
-                Text(title)
-                    .font(.callout.weight(.medium))
-                    .lineLimit(1)
-                    .truncationMode(.tail)
+                if let title {
+                    Text(title)
+                        .font(.callout.weight(.medium))
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                }
                 if let summary {
                     Text(summary)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                        .font(title == nil ? .callout : .caption)
+                        .foregroundStyle(title == nil ? Color.primary : Color.secondary)
                         .lineLimit(1)
                         .truncationMode(.tail)
                         .layoutPriority(1)
                 }
             }
-            .help(summary.map { "\(title) \u{00B7} \($0)" } ?? title)
             .accessibilityElement(children: .ignore)
-            .accessibilityLabel(ResolveHeadFold.sentence(title: title, summary: summary))
+            .accessibilityLabel(ResolveHeadFold.sentence(title: spokenTitle, summary: spokenSummary ?? summary))
             .accessibilityIdentifier("resolve.head.summary")
+            .help(ResolveHeadFold.drawnWords(title: title, summary: summary))
             Spacer(minLength: 4)
             Button(action: onToggle) {
                 Image(systemName: "chevron.down")
@@ -245,8 +308,14 @@ struct ResolveHeadFoldedLine: View {
                     TimelineView(.periodic(from: .now, by: 1)) { context in
                         text(runningText(context.date))
                     }
+                case .letter(let voice, let at):
+                    // A coarse clock, and only while the line shows: "2
+                    // hours ago" never goes stale on screen.
+                    TimelineView(.periodic(from: .now, by: 60)) { context in
+                        text(ResolveHeadFold.letterLine(voice: voice, at: at, now: context.date))
+                    }
                 case .running(let s), .failed(let s), .stopped(let s), .otherRun(let s),
-                     .notice(let s), .nudge(let s), .letter(let s):
+                     .nothingNew(let s), .notice(let s), .nudge(let s), .ask(let s):
                     text(s)
                 }
             }
@@ -282,27 +351,42 @@ struct ResolveHeadFoldedLine: View {
 struct ResolveHeadRoomLayout: Layout {
     var listFloor: CGFloat = ResolveHeadFold.listFloor
 
+    /// **Any number of subviews, never a zero size and never one unplaced**
+    /// (fix round 1, A1: a head whose body is two views arrived as two
+    /// subviews and the layout drew nothing). Two is the head and the rest;
+    /// otherwise each but the last takes its own height and the last the
+    /// rest — one subview takes the whole bounds.
     func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout Void) -> CGSize {
-        guard subviews.count == 2 else { return .zero }
-        let head = subviews[0].sizeThatFits(ProposedViewSize(width: proposal.width, height: nil))
-        let rest = subviews[1].sizeThatFits(ProposedViewSize(width: proposal.width, height: nil))
-        return CGSize(width: proposal.width ?? max(head.width, rest.width),
-                      height: proposal.height ?? (head.height + rest.height))
+        let ideals = subviews.map { $0.sizeThatFits(ProposedViewSize(width: proposal.width, height: nil)) }
+        return CGSize(width: proposal.width ?? ideals.map(\.width).max() ?? 0,
+                      height: proposal.height ?? ideals.map(\.height).reduce(0, +))
     }
 
     func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout Void) {
-        guard subviews.count == 2 else { return }
-        let headHeight = Self.headHeight(
-            total: bounds.height,
-            headIdeal: subviews[0].sizeThatFits(ProposedViewSize(width: bounds.width, height: nil)).height,
-            headMinimum: subviews[0].sizeThatFits(ProposedViewSize(width: bounds.width, height: 0)).height,
-            restMinimum: subviews[1].sizeThatFits(ProposedViewSize(width: bounds.width, height: 0)).height,
-            listFloor: listFloor)
-        subviews[0].place(at: CGPoint(x: bounds.minX, y: bounds.minY), anchor: .topLeading,
-                          proposal: ProposedViewSize(width: bounds.width, height: headHeight))
-        subviews[1].place(at: CGPoint(x: bounds.minX, y: bounds.minY + headHeight), anchor: .topLeading,
-                          proposal: ProposedViewSize(width: bounds.width,
-                                                     height: max(0, bounds.height - headHeight)))
+        guard !subviews.isEmpty else { return }
+        let heights: [CGFloat]
+        if subviews.count == 2 {
+            let head = Self.headHeight(
+                total: bounds.height,
+                headIdeal: subviews[0].sizeThatFits(ProposedViewSize(width: bounds.width, height: nil)).height,
+                headMinimum: subviews[0].sizeThatFits(ProposedViewSize(width: bounds.width, height: 0)).height,
+                restMinimum: subviews[1].sizeThatFits(ProposedViewSize(width: bounds.width, height: 0)).height,
+                listFloor: listFloor)
+            heights = [head, max(0, bounds.height - head)]
+        } else {
+            var leading = subviews.dropLast().map {
+                $0.sizeThatFits(ProposedViewSize(width: bounds.width, height: nil)).height
+            }
+            let used = leading.reduce(0, +)
+            leading.append(max(0, bounds.height - used))
+            heights = leading
+        }
+        var y = bounds.minY
+        for (subview, height) in zip(subviews, heights) {
+            subview.place(at: CGPoint(x: bounds.minX, y: y), anchor: .topLeading,
+                          proposal: ProposedViewSize(width: bounds.width, height: height))
+            y += height
+        }
     }
 
     /// The head's height: its own, unless that would leave the list less

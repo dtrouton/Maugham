@@ -507,27 +507,33 @@ struct ResolvePane: View {
         // **The list keeps its room** (`ResolveHeadRoomLayout`): an open head
         // past what the pane affords scrolls within itself.
         ResolveHeadRoomLayout {
-            ResolveHeadView(
-                scope: scope, snapshot: held, openDocId: openDocId,
-                store: store, documentStore: documentStore,
-                orchestrator: orchestrator, diagnostics: diagnostics, world: world,
-                reader: store.manifest.authorReader(
-                    choice: documentStore.uiState.authorReaderChoice,
-                    statementText: { _ in nil }),
-                compilerModel: compilerModel,
-                onCompilerModelChange: onCompilerModelChange,
-                onChooseReader: { documentStore.setAuthorReaderChoice($0) },
-                onOpenProjectSettings: onOpenProjectSettings,
-                onSetActivePass: onSetActivePass,
-                onSetPassState: onSetPassState,
-                onFiledUnder: { filed($0) },
-                editionRead: editionReadIsCurrent ? editionRead : .empty,
-                onShowRound: { publishCentre?.show(round: $0) },
-                onShowProposal: { publishCentre?.show(proposal: $0) },
-                mayDecideDesign: editionVerbs?.mayDecideDesign ?? false,
-                editorControl: editorControl,
-                translationHeard: translationHeard,
-                translateAsk: $translateAsk)
+            // ONE subview, whatever the head's body is (fix round 1, A1): an
+            // edition's head is two views, a figure's none.
+            VStack(spacing: 0) {
+                ResolveHeadView(
+                    scope: scope, snapshot: held, openDocId: openDocId,
+                    store: store, documentStore: documentStore,
+                    orchestrator: orchestrator, diagnostics: diagnostics, world: world,
+                    reader: store.manifest.authorReader(
+                        choice: documentStore.uiState.authorReaderChoice,
+                        statementText: { _ in nil }),
+                    compilerModel: compilerModel,
+                    onCompilerModelChange: onCompilerModelChange,
+                    onChooseReader: { documentStore.setAuthorReaderChoice($0) },
+                    onOpenProjectSettings: onOpenProjectSettings,
+                    onSetActivePass: onSetActivePass,
+                    onSetPassState: onSetPassState,
+                    onFiledUnder: { filed($0) },
+                    editionRead: editionReadIsCurrent ? editionRead : .empty,
+                    onShowRound: { publishCentre?.show(round: $0) },
+                    onShowProposal: { publishCentre?.show(proposal: $0) },
+                    mayDecideDesign: editionVerbs?.mayDecideDesign ?? false,
+                    editorControl: editorControl,
+                    translationHeard: translationHeard,
+                    translateAsk: $translateAsk)
+            }
+            .accessibilityElement(children: .contain)
+            .accessibilityIdentifier(Self.headIdentifier)
             VStack(spacing: 0) {
                 if filedNotice != nil {
                     FiledNotice(filing: $filedNotice, onOpenBrief: onOpenBrief, lingers: false)
@@ -563,6 +569,8 @@ struct ResolvePane: View {
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+            .accessibilityElement(children: .contain)
+            .accessibilityIdentifier(Self.restIdentifier)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .task(id: listKey) { refresh(listKey) }
@@ -714,6 +722,11 @@ struct ResolvePane: View {
         .doesNotRaiseTheWindowFloor()
     }
 
+    /// The head's and the rest's accessibility identifiers — what a mounted
+    /// test reads their frames by.
+    static let headIdentifier = "resolve.head"
+    static let restIdentifier = "resolve.rest"
+
     // MARK: - The filter bar
 
     private var filterBar: some View {
@@ -758,11 +771,15 @@ struct ResolvePane: View {
                                     editionClear: editionClear,
                                     showsOnlyQuestions: shownSelection == [.questions])
         let opensItsPiece = openThePieceLines(shown)
+        let headers = Self.drawsGroupHeaders(shown)
         return VStack(spacing: 0) {
             ScrollViewReader { proxy in
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 0) {
-                        if let incomplete {
+                        // The may-be-incomplete notice rides the first
+                        // group's line (fix round 1, B4); its own row only
+                        // over a list with no group to carry it.
+                        if let incomplete, shown.isEmpty {
                             Text(incomplete)
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
@@ -772,21 +789,43 @@ struct ResolvePane: View {
                         }
                         emptyLine(empty)
                         ForEach(shown) { group in
-                            groupHeader(group, isOpen: open.contains(group.key))
-                                .id(group.key)
-                            // A piece not open: why its rows have no verbs,
-                            // and the way to them (appraisal 1).
-                            if let (docId, line) = opensItsPiece[group.key] {
-                                ResolveOpenThePieceButton(
-                                    line: line,
-                                    open: { ResolveNavigation.goInsideTheFaces(toDocId: docId, paragraphId: nil) })
-                                .padding(.leading, 26).padding(.trailing, 12).padding(.bottom, 6)
-                            }
-                            if open.contains(group.key) {
-                                ForEach(group.items) { item in
-                                    row(item, acting: acting, bulk: bulk, wiring: wiring, reorders: reorders)
-                                    Divider()
+                            let notice = group.id == shown.first?.id ? incomplete : nil
+                            if headers {
+                                groupHeader(group, isOpen: open.contains(group.key), notice: notice)
+                                    .id(group.key)
+                                // A piece not open: why its rows have no verbs,
+                                // and the way to them (appraisal 1).
+                                if let (docId, line) = opensItsPiece[group.key] {
+                                    ResolveOpenThePieceButton(
+                                        line: line,
+                                        open: { ResolveNavigation.goInsideTheFaces(toDocId: docId, paragraphId: nil) })
+                                    .padding(.leading, 26).padding(.trailing, 12).padding(.bottom, 6)
                                 }
+                                if open.contains(group.key) {
+                                    ForEach(group.items) { item in
+                                        row(item, acting: acting, bulk: bulk, wiring: wiring, reorders: reorders)
+                                        Divider()
+                                    }
+                                }
+                            } else {
+                                // **A short list draws no headers** (fix round
+                                // 1, B3): every group is open, and each row
+                                // says what its header would have.
+                                VStack(alignment: .leading, spacing: 0) {
+                                    if let (docId, line) = opensItsPiece[group.key] {
+                                        ResolveOpenThePieceButton(
+                                            line: line,
+                                            open: { ResolveNavigation.goInsideTheFaces(toDocId: docId, paragraphId: nil) })
+                                        .padding(.horizontal, 12).padding(.top, 6)
+                                    }
+                                    ForEach(group.items) { item in
+                                        row(item, acting: acting, bulk: bulk, wiring: wiring, reorders: reorders,
+                                            groupCaption: group.title,
+                                            captionNotice: item.id == group.items.first?.id ? notice : nil)
+                                        Divider()
+                                    }
+                                }
+                                .id(group.key)
                             }
                         }
                         if ResolveSettled.offered(scope: scope, mayAct: mayActOnFaces),
@@ -909,7 +948,7 @@ struct ResolvePane: View {
         return lines
     }
 
-    private func groupHeader(_ group: ResolveGroup, isOpen: Bool) -> some View {
+    private func groupHeader(_ group: ResolveGroup, isOpen: Bool, notice: String? = nil) -> some View {
         let atCaret = group.key == caretGroup
         return Button {
             choices[group.key] = !isOpen
@@ -918,11 +957,22 @@ struct ResolvePane: View {
                 Image(systemName: isOpen ? "chevron.down" : "chevron.right")
                     .font(.caption2)
                     .foregroundStyle(.secondary)
-                Text(group.title)
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(atCaret ? Color.primary : Color.secondary)
-                    .lineLimit(2)
-                    .multilineTextAlignment(.leading)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(group.title)
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(atCaret ? Color.primary : Color.secondary)
+                        .lineLimit(2)
+                        .multilineTextAlignment(.leading)
+                    // The may-be-incomplete notice, on the first group's
+                    // line rather than a row of its own (B4).
+                    if let notice {
+                        Text(notice)
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .multilineTextAlignment(.leading)
+                    }
+                }
                 Spacer(minLength: 4)
                 Text("\(group.items.count)")
                     .font(.caption2.monospacedDigit())
@@ -944,10 +994,38 @@ struct ResolvePane: View {
 
     // MARK: - A row
 
+    /// **Fewer items than this, and the list draws no group headers**
+    /// (fix round 1, B3): each row is captioned with its group's title.
+    static let groupHeadersFrom = 5
+
+    /// Whether `shown` draws its group headers. Pure.
+    static func drawsGroupHeaders(_ shown: [ResolveGroup]) -> Bool {
+        shown.reduce(0) { $0 + $1.items.count } >= groupHeadersFrom
+    }
+
     @ViewBuilder
     private func row(_ item: ResolveItem, acting: Document?, bulk: String?,
-                     wiring: AnnotationRowWiring, reorders: Bool) -> some View {
+                     wiring: AnnotationRowWiring, reorders: Bool, groupCaption: String? = nil,
+                     captionNotice: String? = nil) -> some View {
         VStack(alignment: .leading, spacing: 0) {
+            // A headerless row's caption (B3): its group's title, one line;
+            // on the first row, the may-be-incomplete notice under it (B4).
+            if let groupCaption {
+                Text(groupCaption)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .padding(.horizontal, 12).padding(.top, 6)
+                    .accessibilityIdentifier("resolve.row.groupCaption")
+            }
+            if let captionNotice {
+                Text(captionNotice)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.horizontal, 12)
+            }
             if let caption = Self.caption(for: item, localName: localName) {
                 Text(caption)
                     .font(.caption2)
@@ -1224,8 +1302,6 @@ struct ResolvePane: View {
         // where it offers Run, and the ask is spent either way.
         if case .translate(let ask) = pending {
             if ask.lands(in: scope) {
-                // The head answers it, so it opens first (`ResolveHeadFold`).
-                if ResolveHeadFold.opensTheHead(pending) { documentStore.setResolveHeadOpen(true) }
                 translateAsk = ask
             } else {
                 filedNotice = FiledNotice.after(

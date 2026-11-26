@@ -677,8 +677,13 @@ struct PieceInLanguageHeadView: View {
     private var content: some View {
         reads(VStack(alignment: .leading, spacing: 0) {
             ResolveHeadFoldBar(
-                title: TreeWalk.find(id: docId, in: store.manifest.structure)?.title ?? "",
-                summary: ResolvePieceInLanguage.headerLine(language: language),
+                // The name only where it is information: the piece is not
+                // the one open in the centre (owner, 2026-11-26).
+                title: isOpen ? nil : TreeWalk.find(id: docId, in: store.manifest.structure)?.title,
+                spokenTitle: TreeWalk.find(id: docId, in: store.manifest.structure)?.title ?? "",
+                // Open, the head's own first line says it.
+                summary: headOpen.wrappedValue ? nil : ResolvePieceInLanguage.headerLine(language: language),
+                spokenSummary: ResolvePieceInLanguage.headerLine(language: language),
                 isOpen: headOpen.wrappedValue,
                 onToggle: { headOpen.wrappedValue.toggle() })
             if headOpen.wrappedValue {
@@ -708,8 +713,8 @@ struct PieceInLanguageHeadView: View {
             notice: notice,
             letter: head.letter.flatMap { round in
                 ResolveEditionItems.letter(of: round).map { _ in
-                    ResolveHeadFold.letterLine(voice: round.signedBy(liveName: translatorName),
-                                               at: round.startedAt, now: Date())
+                    ResolveHeadFold.LetterMark(voice: round.signedBy(liveName: translatorName),
+                                               at: round.startedAt)
                 }
             }) {
             ResolveHeadFoldedLine(line: line, onOpen: { headOpen.wrappedValue = true })
