@@ -17,14 +17,15 @@ import XCTest
 final class HelpWordsCensusTests: XCTestCase {
     /// The bundled corpus: directories walked whole, and single files.
     static let corpusDirectories = ["docs/guide", "docs/skills", "Maugham/Resources/Samples"]
-    static let corpusFiles = ["Maugham/Resources/markdown-syntax.md", "Maugham/Resources/fountain-syntax.md"]
+    /// The syntax sheets: every `*-syntax.md` directly in this directory.
+    static let syntaxSheetDirectory = "Maugham/Resources"
     static let textExtensions: Set<String> = ["md", "json", "fountain", "txt"]
 
     /// Each retired word, by the name a report uses, with its pattern.
     static let retired: [(name: String, pattern: String)] = [
         ("persona", #"[Pp]ersona(?!l|t)"#),
         ("mode by persona name", #"\b(Plan|Author|Review|Publish) ([Pp]ersona|[Mm]ode)\b"#),
-        ("in a persona", #"\bin (Plan|Author|Publish)\b"#),
+        ("in a persona", #"\bin (Plan|Author|Review|Publish)\b"#),
         ("Inspector", #"[Ii]nspector"#),
         ("Department", #"\bDepartment\b"#),
         ("desk", #"\b[Dd]esks?\b"#),
@@ -36,7 +37,7 @@ final class HelpWordsCensusTests: XCTestCase {
         ("segment", #"\b[Ss]egment(s|ed)?\b"#),
         ("Pull Up Previous", #"Pull Up Previous"#),
         ("Lock Research", #"Lock Research"#),
-        ("Toggle Review Mode", #"Toggle Review Mode"#),
+        ("Toggle Review Mode", #"Toggle Review Mode|\b[Rr]eview [Mm]ode\b"#),
     ]
 
     /// The key that allows a whole file.
@@ -56,6 +57,7 @@ final class HelpWordsCensusTests: XCTestCase {
         ],
         "docs/skills/editing-pass/SKILL.md": [
             "**⌘R in Author": "until Task 9: the skills are Task 9's to rewrite",
+            "**Run Round in Review": "until Task 9: the skills are Task 9's to rewrite",
         ],
         "docs/skills/maugham-bootstrap/SKILL.md": [
             "note's inspector": "until Task 9: the skills are Task 9's to rewrite",
@@ -91,8 +93,9 @@ final class HelpWordsCensusTests: XCTestCase {
                 paths.append(dir + "/" + path.dropFirst(root.path.count + 1))
             }
         }
-        for file in corpusFiles where fm.fileExists(atPath: base.appendingPathComponent(file).path) {
-            paths.append(file)
+        let sheets = base.appendingPathComponent(syntaxSheetDirectory, isDirectory: true)
+        for name in (try? fm.contentsOfDirectory(atPath: sheets.path)) ?? [] where name.hasSuffix("-syntax.md") {
+            paths.append(syntaxSheetDirectory + "/" + name)
         }
         guard !paths.isEmpty else {
             throw SourceTree.LookupError(description: "the help corpus under \(base.path) is empty")
@@ -149,8 +152,10 @@ final class HelpWordsCensusTests: XCTestCase {
             "Choose View ▸ Pull Up Previous.",
             "Choose Lock Research and Figures.",
             "Choose Toggle Review Mode.",
+            "A desk lamp.",
         ]
-        XCTAssertEqual(planted.count, Self.retired.count, "one planted line per retired word")
+        XCTAssertEqual(planted.count, Self.retired.count + 1,
+                       "one planted line per retired word, and a second desk line for the allow-list control")
         let control = """
         # Writing with Claude
         Claude Desktop reads your book. The History of a chapter is pulled up with ⌃⌘H.
@@ -166,6 +171,7 @@ final class HelpWordsCensusTests: XCTestCase {
             "Maugham/Resources/Samples/novel/ch1.md": "She sat at her desk.",
             "Maugham/Resources/markdown-syntax.md": "Use the Tasks pane.",
             "Maugham/Resources/fountain-syntax.md": "INT. HOUSE — DAY",
+            "Maugham/Resources/screenplay-syntax.md": "Open the review mode.",
         ])
         let found = try Self.offenders(base: base, allowed: [:])
         for (index, entry) in Self.retired.enumerated() {
@@ -180,6 +186,8 @@ final class HelpWordsCensusTests: XCTestCase {
                       "the samples are in the corpus")
         XCTAssertTrue(found.contains { $0.hasPrefix("Maugham/Resources/markdown-syntax.md:1: [retired pane]") },
                       "the syntax sheets are in the corpus")
+        XCTAssertTrue(found.contains { $0.hasPrefix("Maugham/Resources/screenplay-syntax.md:1: [Toggle Review Mode]") },
+                      "every *-syntax.md sheet is in the corpus, and lower-case review mode is caught")
 
         // An allowed phrase covers its own match only; a whole-file entry covers the file.
         let narrowed = try Self.offenders(base: base, allowed: [
@@ -191,7 +199,7 @@ final class HelpWordsCensusTests: XCTestCase {
         XCTAssertFalse(narrowed.contains { $0.hasPrefix("docs/skills/") })
         XCTAssertFalse(narrowed.contains { $0.hasPrefix("docs/guide/rogue.md:6:") },
                        "the allowed phrase covers its match")
-        XCTAssertTrue(narrowed.contains { $0.hasPrefix("docs/guide/rogue.md:5:") },
-                      "an allowed phrase covers no other line")
+        XCTAssertTrue(narrowed.contains { $0.hasPrefix("docs/guide/rogue.md:\(planted.count): [desk]") },
+                      "an allowed phrase covers no other line holding the same word")
     }
 }

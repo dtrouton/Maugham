@@ -99,7 +99,7 @@ My Novel/
 ├── canvas.md               # the words on your planning canvas
 ├── canvas_assets/          # photographs you put on the canvas
 ├── Exports/                # the PDFs and EPUBs you compile
-├── notes/                  # made with every project; nothing is kept here today
+├── notes/                  # made with every project; Maugham keeps nothing in it
 ├── .trash/                 # what you deleted, kept for 30 days
 └── .maugham/               # Maugham's own working files
     ├── ops/                # each document's history — what your manuscript is made from

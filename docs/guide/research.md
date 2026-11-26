@@ -31,7 +31,7 @@ A note linked to two chapters shows in both folds. One that no chapter holds is 
 - **Move to Chapter ▸** gives it to a chapter (a submenu per Part, in book order).
 - **Make Whole-Book** gives a chapter's note back to the book: it moves to the Research section and its chapter links go.
 - **Remove from “Three”** appears where another chapter holds the note too, and takes it from this one only.
-- **Move to ▸** puts a note in a group. Each target says whose it is: *Ships — Chapter One* is a group of Chapter One's; *Places — whole book* is the book's. Moving into a chapter's group makes the note that chapter's; moving into the Research section or a whole-book group makes it the book's, and takes away its chapter links.
+- **Move to ▸** puts a note in a group. From a chapter's fold, each target says whose it is: *Ships — Chapter One* is a group of Chapter One's; *Places — whole book* is the book's. Moving into a chapter's group makes the note that chapter's; moving into the Research section or a whole-book group makes it the book's, and takes away its chapter links.
 
 Dragging works the same way: onto a chapter's row or into its fold, onto the Research section, or onto a group. Where the note lands opens and scrolls into view.
 

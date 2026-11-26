@@ -1,12 +1,12 @@
 # Getting Started
 
-When you launch Maugham, you'll see the Welcome window with two options: **New Project…** and **Open Recent**. Click **New Project…**.
+When you launch Maugham, the Welcome window offers **New project…** and **Open project…**, with your recent projects beside them. Click **New project…**.
 
 You'll be asked to pick a project type:
 
 - **Short Story** — a single `.md` file. Simplest shape; best for one-sitting drafts.
-- **Novel** — multi-file: parts → chapters → scenes. The binder navigates the structure.
-- **Screenplay** — `.fountain` files. Maugham parses Fountain syntax (slug lines, character names, dialogue, parentheticals) and shows them in the scene navigator.
+- **Novel** — chapters, which you can gather into Parts.
+- **Screenplay** — `.fountain` files. Maugham parses Fountain syntax (slug lines, character names, dialogue, parentheticals) and lists your scenes in the binder.
 - **Collection** — a project that references other projects. Useful for short-fiction collections.
 - **Report** — a business or technical report. Choose **Single document** (one `report.md`) or **Sections** (a binder of sections, starting with an Introduction). Its publish template prints a title page and a table of contents, numbers its headings, lists its figures and tables, and publishes to PDF and Word.
 
@@ -55,7 +55,7 @@ On the canvas itself (these work while the canvas holds the keyboard):
 - With a chapter clicked in the binder, a card left selected from another chapter (dimmed) counts as nothing selected: **↩** makes a new scrap for your chapter instead of opening that card, and **⇥** and **⌘↩** act as if nothing were selected. The arrow keys still move from it.
 - **⌫** deletes, as before.
 
-With the canvas in the centre, **⇥ in the binder moves the keyboard to the canvas**, and **⇧⇥ on the canvas moves it back** whenever the binder is showing. This works in a novel's or short story's binder; in a screenplay's scene navigator or a collection's pieces tree, click the canvas instead.
+With the canvas in the centre, **⇥ in the binder moves the keyboard to the canvas**, and **⇧⇥ on the canvas moves it back** whenever the binder is showing. This works in a novel's or short story's binder; in a screenplay or a Collection, click the canvas instead.
 
 **Click a chapter in the binder first, and new scraps belong to it.** A scrap made inside an unbound region is bound to the chapter; inside a region already bound to that chapter it follows the region; inside a region bound to another chapter it stays unbound and follows the region. A scrap made from the keyboard keeps out of other chapters' regions, so it lands outside them. With the Book clicked, scraps stay unbound.
 
@@ -108,7 +108,7 @@ Everything above is scratch. **Promoting** is the one step that turns a piece of
 
 **Where a note goes is what the Piece picker decides.** A region has one, and so does a card — both in their details. Promote something associated with a piece and the note lands in that piece's research. A card with no piece of its own **follows the region it lives in** — not one it merely appears in — and a card in no region goes to the project's research, which is the ordinary case and not a fallback. **Setting a region's piece never reaches inside it**: if you've given a card its own piece, that one wins. The card's details always say which you're getting, and marks the answer *(from its region)* when it's inherited.
 
-What that means on disk depends on the project, and **the sheet says which before you commit**. In a **Collection**, a piece keeps its own research folder, so the note is filed there and travels with the piece. In a **novel**, research is shared across the book: the note goes to the project's research and is **linked** to that chapter. In a **short story or a screenplay** there's only one document, so everything in research already belongs to it — the note goes there and needs no link. A **palette card** is never filed under a piece, because the palette belongs to the whole project; where a link would be written, the card gets one.
+What that means on disk depends on the project, and **the sheet says which before you commit**. In a **Collection**, a piece keeps its own research folder, so the note is filed there and travels with the piece. In a **novel**, the note becomes that chapter's: it appears in the chapter's fold (the file sits in the project's `research/` folder and the chapter links to it). In a **short story or a screenplay** there's only one document, so everything in research already belongs to it — the note goes there and needs no link. A **palette card** is never filed under a piece, because the palette belongs to the whole project; where a link would be written, the card gets one.
 
 **If the piece has gone** — deleted, or turned into a reference to another project — the sheet refuses instead of quietly filing the note somewhere else. If the association came from the region rather than the card, it says so, because that's the picker you'd have to fix it in.
 
@@ -165,7 +165,7 @@ It is never automatic: you want the binder open while you are dragging research 
 
 #### Sending a capture from the Inbox to the canvas
 
-A note, voice memo or photograph captured on your phone lands in the **Inbox** (its row in the binder, or ⌘⌥B). Until now the only way out of it was promoting it into research, which makes the durable thing *before* you have decided what it is. There is now a shorter road: **Inbox → canvas → research**, with promoting as the second step whenever you are ready for it.
+A note, voice memo or photograph captured on your phone lands in the **Inbox** (its row in the binder, or ⌘⌥B). A capture doesn't have to become research straight away. Send it to the canvas first, and promote it later, when you know what it is.
 
 Two ways, and they do the same thing:
 
@@ -176,7 +176,7 @@ A typed note and a voice memo become an ordinary **scrap** carrying their words 
 
 **The capture leaves the Inbox.** It is one move rather than a copy, and the row is gone from triage afterwards. A voice memo with no transcript yet is refused and stays put: transcribe it first (Edit Transcript…, or Transcribe Again) and send it then. If anything goes wrong part-way, the capture stays in the Inbox and nothing is lost.
 
-**Failing-loudly:** if the project's canvas is read-only (see *When the canvas is read-only*), **Send to Canvas** is refused rather than saving over your layout, with an alert that says why in the same words as the canvas's notice; a capture dragged onto it springs back. The capture stays in the Inbox, unsent and untouched, ready to try again once you've updated Maugham or started a fresh layout.
+**If the canvas is read-only** (see *When the canvas is read-only*), **Send to Canvas** is refused rather than saving over your layout, with an alert that says why in the same words as the canvas's notice; a capture dragged onto it springs back. The capture stays in the Inbox, unsent and untouched, ready to try again once you've updated Maugham or started a fresh layout.
 
 **One ⌘Z takes the send back** — the card and its words together — but only while the canvas is the thing you are looking at. Send with the canvas closed and there is nothing on screen to undo on; the card is simply there when you next open the canvas. Either way the Inbox row does not come back: delete the card and the capture is gone.
 
@@ -255,7 +255,7 @@ is that it shows this in **two shapes, and they mean different things**:
 - **Banners at the top are facts that hold right now.** *"14 notes from iPhone
   are waiting for admission"*, beside an **Admit…** button — those notes are not
   in your draft, they have not been deleted, and admitting the phone brings them
-  in. *"This Mac is on Denver's chain"* — where this machine stands in the book,
+  in. *"This Mac is on Denver's chain"* — where this machine stands in the book (the line names the person whose Macs sign it),
   absent in the ordinary one-Mac project.
 - **Dated entries, under a **Project** heading above the timeline, are things
   that happened.** Admitted on 3 June. Revoked on 9 September. This book claimed.

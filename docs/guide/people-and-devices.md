@@ -3,8 +3,8 @@
 Maugham marks the history it writes. Every stretch of changes your Mac appends
 carries a mark made by a key that lives in this machine's secure hardware and
 never leaves it, so a change made by your Mac can be told apart from one made by
-something else. That was true before this page existed. What's new is that a book now
-knows **who else** may write in it, and you are the one who says so.
+something else. A book also knows **who else** may write in it, and you are
+the one who says so.
 
 Open **Project Settings** and look for **People & Devices**. It is the whole of
 this feature: one list, and a small number of verbs.
@@ -184,9 +184,9 @@ person row.
 
 Every person carries **Rename…**, and so do you — on the person row for a
 person with one machine, and on each machine's row inside a group. The name in this
-book is your word for whoever is at that keyboard, and until now you could only
-choose it once — at the panel, or, for the Mac that started the book, by
-whatever that machine happened to be called. Renaming changes the name and
+book is your word for whoever is at that keyboard, first chosen at the panel
+(or, for the Mac that started the book, taken from that machine's name).
+Renaming changes the name and
 nothing else: it lets nobody in, shuts nobody out, and leaves untouched when
 they were admitted and what they wrote. Every machine on the book sees the new
 name. You can rename anybody this Mac admitted, and yourself; somebody another
@@ -377,7 +377,7 @@ later from **People & Devices** → **Change…**:
   may not change a word of the manuscript.
 - **Author of some pieces.** Pick the chapters. They write those as fully as you
   do, and everything else in the book is a reviewer's to them.
-- **Author of the whole book.** What every admission meant before this existed.
+- **Author of the whole book.** They write everything, as you do.
 
 **A change never reaches backwards.** Make somebody a reviewer today and every
 chapter they wrote yesterday stays exactly where it is. Widen their access
@@ -488,24 +488,24 @@ writing in it straight away. The book remembers which Mac started each piece,
 and that is what the rest of this section turns on.
 
 - **On their Mac**, the piece is theirs to write while the book's author
-  decides. The line over it reads *Waiting for Denver to say this piece is
-  yours.* They can type, leave notes, accept or reject a suggestion, set its
+  decides. In a novel the line over it reads *Waiting for Denver to say this chapter is
+  yours.* (a Report says *section*, a Collection *piece*). They can type, leave notes, accept or reject a suggestion, set its
   review pass, rename or move it, and run a round on it. Stet, archive and
   reopen, ⌘S's checkpoint, to-dos and translating wait until Denver has
   answered. So does the piece's own intent, which is Denver's to write until
   then. Anything they accept or reject there counts as their words: it shows
   on their Mac and waits on Denver's, like their typing.
 - **On their other Macs**, the piece waits for the first Mac's words to arrive
-  (*Waiting for this piece to arrive.*), then shows them as theirs.
+  (*Waiting for this chapter to arrive.*), then shows them as theirs.
 - **On the book author's Mac**, the piece waits for their words to arrive —
-  *Waiting for this piece to arrive from Sam.* — rather than starting a copy of
+  *Waiting for this chapter to arrive from Sam.* — rather than starting a copy of
   its own in front of them. Then Maugham asks: *Sam started “The Orchard” — is
   it theirs?* **Theirs** adds the piece to what Sam may write, their words come
   in on every Mac, and the waiting line on Sam's Mac goes, with no reopening.
   **Not now** writes nothing and sets nothing aside, and you can answer later
   from People & Devices.
 - **Until you answer, your Mac keeps out of the piece.** Opening it shows *Sam
-  started this piece — it isn't settled whose it is yet.*, and the editor
+  started this chapter — it isn’t settled whose it is yet.*, and the editor
   doesn't take typing. That holds even when the piece arrived before any of
   Sam's words did. **Edit Anyway** lets you write in it (in that window, until
   you close it), but read the next point first.
@@ -534,8 +534,8 @@ let them write there, add the piece to what they may write in People &
 Devices. (If you already answered **Theirs** for such a piece, that answer
 stands.)
 
-Pieces made before this version remember no starter, and behave as they always
-did: writing in one is still a question.
+A piece made by an older Maugham remembers no starter, and writing in one is
+still a question.
 
 **A piece waiting for a Mac that is gone.** In a book where somebody may write
 less than the whole of it, only the Mac that started a piece can create its

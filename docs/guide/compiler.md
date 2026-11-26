@@ -53,7 +53,7 @@ Rounds are the other loop, with an editor of their own: see [Review Passes](revi
 - **Your intent** — the chapter's **Going for** in its [Brief](right-column.md#brief-2), or the book's if the chapter has none — read as checkable clauses, your own sentences quoted back exactly. With no intent at all the check still runs; it simply has no clauses to hold you to.
 - **What has already been established** — facts, who knows what, voices — read off your manuscript by earlier checks and kept in Brief under **What Claude has read** (see "The bible, filling quietly" below).
 - **What has changed since the last check.** Not the whole chapter: the first check reads everything, and each one after picks up where the last left off, so a check mid-session is about the paragraphs you just wrote.
-- **What the chapter's fold holds** — its research and canvas cards, named by title, alongside the tool that would look closer. A photograph you own has no such tool yet, and the run says so.
+- **What the chapter's fold holds** — its research and canvas cards, named by title, alongside the tool that would look closer. Claude can't look into a photograph of yours this way, and the check says so.
 
 The head tells you when it last ran and how much it looked at ("3 new, 2 revised ¶").
 
@@ -95,7 +95,7 @@ Two verbs belong to a cold read (a Reread, or a round with Fresh Eyes), because 
 
 **Findings.** A clause of your intent that the draft pulls against is a finding, listed under **Checks** at the paragraph it is about: your clause quoted back, and one sentence on what pulled against it, never a fix. [Brief](right-column.md#brief-2) marks the same sentences in Going for — a solid underline where the draft pulls against one, a dotted one where the draft says nothing about it — and a solid mark's click comes back here.
 
-**Notes from the check.** A continuity question and a reader's report arrive as ordinary notes, captioned *From the check*. A continuity question ends as a question rather than a verdict — *"Is the dock standing again by this scene?"* rather than *"Contradiction: the dock burned"*. A reader's report is one of four things — where the **dream broke**, what the reader now **believes**, where the reading **dragged**, or where they were **lost** — quoting the words, and **at most the sharpest three**. They stay until you settle them.
+**Notes from the check.** A continuity question and a reader's report arrive as ordinary notes, captioned *From the check*. A continuity question ends as a question rather than a verdict — *"Is the dock standing again by this scene?"* rather than *"Contradiction: the dock burned"*. A reader's report is one of four things — where the **dream broke**, what the reader now **believes**, where the reading **dragged**, or where they were **lost** — quoting the words, and **at most the sharpest three**; continuity questions have no cap. They stay until you settle them.
 
 **Two lifetimes.** Findings are replaced by your next check. Notes stay until you answer them. To resolve draws the two differently so you can tell them apart. A dot on To resolve's button and on the Checks chip means a check's notes you haven't seen yet.
 

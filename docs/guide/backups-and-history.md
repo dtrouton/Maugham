@@ -54,7 +54,7 @@ The Rewind window is headed **REWINDING**. Drag the scrubber to go back through 
 - **Snapshot here…** — make a named checkpoint at that moment, so you can find it again.
 - **Restore here…** — put the document back as it was then. It asks first: *Restore <document> to this point?* → **Restore**.
 
-Press ⌘Z straight after a restore and the whole thing is undone, including any suggestions it reopened. See [Annotations & Suggestions → Rewinding with suggestions](annotations-and-suggestions.md#rewinding-with-suggestions).
+Press ⌘Z straight after a restore and the whole thing is undone, including any suggestions it reopened. See [Notes & Suggestions → Rewinding with suggestions](annotations-and-suggestions.md#rewinding-with-suggestions).
 
 **Rewinding is for the chapter open in the centre.** History pulled up for another chapter is there to read, and says *Open this chapter to rewind it*, which opens it and keeps its History up.
 

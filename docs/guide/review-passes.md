@@ -14,7 +14,7 @@ pass a writer would normally reach for next, never which one they're allowed
 to touch. Working Copyedit before Structural is a legitimate thing to do, and
 Maugham never refuses it — see "A quiet nudge, not a gate" below.
 
-Each of the four starting passes carries a **named editor voice** — Structural is **Perkins**, Line is **Lish**, Copyedit is **Gould**, Proof is **Argus** — and a **brief**: doctrine for what that pass's rounds attend to, and what they deliberately leave alone (Perkins reads for shape and never touches a sentence; Argus reads the surface only, and advises its rounds be run as Fresh Eyes). A round's notes carry that pass's editor as their author, so a list spanning several passes still tells you who's speaking. Renaming a pass in **Project Settings…** doesn't move its editor or its brief — both are tied to the pass's identity, not what you call it. A pass you add yourself starts with neither: its rounds are signed with the pass's own name instead of an editor's, and there's no brief behind them — nothing here yet lets you write one in, so a custom pass runs on general editorial judgment until that changes.
+Each of the four starting passes carries a **named editor voice** — Structural is **Perkins**, Line is **Lish**, Copyedit is **Gould**, Proof is **Argus** — and a **brief**: doctrine for what that pass's rounds attend to, and what they deliberately leave alone (Perkins reads for shape and never touches a sentence; Argus reads the surface only, and advises its rounds be run as Fresh Eyes). A round's notes carry that pass's editor as their author, so a list spanning several passes still tells you who's speaking. Renaming a pass in **Project Settings…** doesn't move its editor or its brief — both are tied to the pass's identity, not what you call it. A pass you add yourself starts with neither: its rounds are signed with the pass's own name, and with no brief they read with general editorial judgment.
 
 The coach, **Le Guin**, is not on this ladder and never was: she reads your
 *checks*, and a check is filed in no pass at all. Neither is the
@@ -32,7 +32,7 @@ derived **status**: **Draft** while nothing's touched, **Revising** while any
 pass is in progress or the chapter is partway up the ladder, **Final** once
 every pass reads Done or Skip. Skipping every pass counts as final — skipping
 is a decision, not an omission. Status isn't something you set; it's read off
-the passes. It shows as the coloured dot on the chapter's row in the binder.
+the passes. It shows as the coloured dot on the chapter's row in the binder (see [the marks on a row](structure-and-binder.md#the-marks-on-a-row)).
 
 ## Status
 

@@ -56,15 +56,21 @@ A chapter's row opens to a **fold** holding what the chapter draws on: its resea
 
 A short story keeps its fold too, on its one row.
 
-### The dots
+### The marks on a row
 
-A row shows one small dot when [To resolve](right-column.md#to-resolve-1) has something for it — never a number. A Part has one when a chapter inside does, and the Book has one for anything in the book. In a screenplay, a scene gets the dot when something falls in it. A hollow ring means a chapter Maugham couldn't read. An edition with a brief Claude proposed reads **Proposed**.
+A chapter's row can carry three small marks at its right end, in this order:
+
+1. **A coloured dot** — its stage: grey while a draft, orange while revising, green when final, read off its [review passes](review-passes.md#passes-and-the-ladder). It appears once you have set any pass.
+2. **A padlock** — the chapter is in [read-through](annotations-and-suggestions.md#read-through).
+3. **The last dot** — [To resolve](right-column.md#to-resolve-1) has something for it. Never a number. A hollow ring in its place means a chapter Maugham couldn't read.
+
+A Part has the last dot when a chapter inside it does, and the Book has one for anything in the book. In a screenplay, a scene gets it when something falls in it. An edition with a brief Claude proposed reads **Proposed**.
 
 ### Adding items
 
 Right-click a row, or use **File**:
 
-- **New Chapter** — a chapter beside the one you clicked; type its name. (The menus use the project's own word: in a Report, **New Section**; in a Collection, **New Prose Piece**, **New Script** and **Link Existing Project…**.)
+- **New Chapter** — right-click a Part, or empty space in the binder; type its name. (The menus use the project's own word: in a Report, **New Section**; in a Collection, **New Prose Piece**, **New Script** and **Link Existing Project…**.)
 - **New Part** — a group of chapters ("Part One"). Drag chapters into it.
 - **Duplicate** — a copy of the chapter or Part.
 - **Delete** — to Maugham's own Trash (below).

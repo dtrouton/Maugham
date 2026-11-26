@@ -373,6 +373,10 @@ final class WordingCensusTests: XCTestCase {
         "New to-do.", "**Document** (this chapter)", "Undo Reject Annotation", "Undo Stet Annotation",
         "Undo Triage Annotation", "Undo Archive Annotation", "Undo Withdraw Annotation",
         "Undo Edit Annotation", "- **Annotations** \u{2014}",
+        // Task 8 fix round 1: the waiting and standing lines name the piece
+        // by the project's word, and the undo refusal says "here".
+        "answer notes in this piece", "to say this piece is yours",
+        "Waiting for this piece to arrive", "started this piece \u{2014} it isn",
     ]
 
     func test_theGuideQuotesNoReplacedAppString() throws {

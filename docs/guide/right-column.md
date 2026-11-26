@@ -1,10 +1,6 @@
 # To Resolve, Brief & Pulled Up
 
-The right column has three places, and shows one at a time. Choose with the three buttons at its top, or the keys:
-
-- **To resolve** (⌘1) — what has been raised about what you picked in the binder, and is waiting on you.
-- **Brief** (⌘2) — what it is held to, in your own words.
-- **Pulled up** (⌘3) — one thing you brought up to read beside your text.
+The right column shows one of three places at a time — **To resolve** (⌘1), **Brief** (⌘2) and **Pulled up** (⌘3) — chosen with the three buttons at its top or the keys. [Getting Started](getting-started.md) says in a line what each is for; this page is the whole of it.
 
 **What the column is about follows the binder.** Click a chapter and To resolve and Brief are that chapter's. Click a Part and they gather that Part's chapters. Click the Book and they gather the whole book. Click an edition and they are that edition's. A quiet line at the top names what you are looking at: *Chapter Three*, *The Lighthouse*, *Spanish edition*. When the centre is the canvas or an edition's book, clicking a chapter in the binder turns the column to that chapter and leaves the centre where it is.
 
@@ -44,7 +40,7 @@ For a chapter: **Whole chapter** first, for items about the chapter as a whole, 
 
 ### Acting on an item
 
-A row on the chapter open in the centre offers its verbs: on a note, **Accept** (on a suggestion or craft note), **Got it** (on a comment) or **Reply…** (on a question), and **Stet** and **Archive**; on a finding, **Answer**, **Make a To-Do** and **Not this**; on a to-do, its checkbox. What each does is in [Annotations & Suggestions](annotations-and-suggestions.md), [Checking Your Writing](compiler.md#what-you-can-do-with-a-finding-or-a-note) and [To-Dos](tasks.md).
+A row on the chapter open in the centre offers its verbs: on a suggestion, **Accept** and **Reject…**; on a craft note, **Accept**; on a comment, **Got it**; on a question, **Reply…**; on all of them, **Stet** and **Archive**; on a finding, **Answer**, **Make a To-Do** and **Not this**; on a to-do, its checkbox. What each does is in [Notes & Suggestions](annotations-and-suggestions.md), [Checking Your Writing](compiler.md#what-you-can-do-with-a-finding-or-a-note) and [To-Dos](tasks.md).
 
 **You act on a chapter you are looking at.** In a Part's or the Book's list, a chapter that isn't open reads but offers no verbs, and its group says *Open this chapter to answer its notes*. Click a row and that chapter opens on the paragraph, with the list staying where it was.
 
@@ -52,15 +48,15 @@ A row on the chapter open in the centre offers its verbs: on a note, **Accept** 
 
 **Settled** sits at the foot, folded. Open it for notes you resolved (with **Reopen** and **Revert**), notes you deleted (**Restore**), and done and archived to-dos.
 
-**Where an answer goes is said.** When an answer files something into a Brief — **Answer**, **Add to intent**, **Keep as lesson**, **This is a choice**, **Make it a rule** — a line under the head says where, *Filed in Brief*, and clicking it shows it there.
+**Where an answer goes is said.** When an answer files something into a Brief — **Answer**, **Add to intent**, **Keep as lesson**, **This is a choice**, **Make it a rule** — a line under the head says where — *Filed in Brief*, *Filed under What I've Learned* — and clicking it shows it there.
 
 ### The binder's dots
 
-A row in the binder carries one small dot when To resolve would list anything for it: a chapter with an open note, to-do or finding; a Part when a chapter inside it does; the Book for anything in the book. Never a number: the numbers are in the Book's [Status](structure-and-binder.md#the-book-and-its-views). A hollow ring means a chapter Maugham couldn't read.
+The last of a binder row's [marks](structure-and-binder.md#the-marks-on-a-row) is a small dot, there when To resolve would list anything for the row: a chapter with an open note, to-do or finding; a Part when a chapter inside it does; the Book for anything in the book. Never a number: the numbers are in the Book's [Status](structure-and-binder.md#the-book-and-its-views). A hollow ring means a chapter Maugham couldn't read.
 
 ## Brief (⌘2)
 
-What the thing you picked is held to — only what you wrote about it.
+What you've said this chapter — or Part, or book — is meant to do, in your own words and no one else's.
 
 **For a chapter**, in this order:
 
