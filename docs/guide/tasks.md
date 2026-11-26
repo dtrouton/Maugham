@@ -1,46 +1,31 @@
-# Tasks & To-Dos
+# To-Dos
 
-Maugham has a lightweight task system built into your writing: inline checkboxes in any document, plus a pane that aggregates them project-wide.
+Maugham's to-dos live in your writing: checkboxes you type in a chapter, and to-dos of the chapter or the book that sit in no paragraph. All of them are listed in [To resolve](right-column.md#to-resolve-1), under **Mine** (⌘⌥T).
 
 ### Inline checkboxes
 
-Start a line with `- [ ]` to create an open task, or `- [x]` to create one already checked off. Any paragraph in any manuscript document can hold a checkbox — put them anywhere it makes sense: a to-do at the top of a chapter draft, a reminder in a research note, a list of scenes still to write.
+Start a line with `- [ ]` for an open to-do, or `- [x]` for one already done. Any paragraph in any chapter can hold one: a to-do at the top of a draft, a list of scenes still to write.
 
-Click the bracket to toggle between open and done. The underlying text flips between `- [ ]` and `- [x]`.
+Click the bracket to tick it, and click again to untick it. The text flips between `- [ ]` and `- [x]`.
 
-Screenplays support a second syntax: `[[todo: ...]]` boneyards inside Fountain notes.
+Screenplays have a second form: `[[todo: ...]]` inside a Fountain note.
 
-### The Tasks pane (⌘⌥T)
+### In To resolve
 
-Press **⌘⌥T** to open the Tasks pane in the right column (or click the checklist icon in the pane picker).
+Each to-do is listed under its paragraph, with the chapter's notes. Click it to go to its paragraph. Tick its box there to mark it done. Click the Book and you see every to-do in the book, the Book's own first, then each chapter's.
 
-The pane has two scopes, toggled by the **Doc / Project** picker at the top:
+**New to-do.** The **+** at the top of To resolve adds a to-do that sits in no paragraph. Type it, choose **Document** (this chapter) or **Project** (the whole book), and press **Add**.
 
-- **Doc** — tasks derived from the currently open manuscript document only.
-- **Project** — every task across the project, including closed documents and standalone project tasks.
+**Nesting and order.** Drag a to-do to reorder it. Drop it on the middle of another to nest it one level under it; on the top or bottom third of a row to put it beside it.
 
-Filter by status using the **Open / Done / Archive** chips. The default view shows open tasks.
+**Done and archived** to-dos move to **Settled** at the foot of the list, with **Archive all done**. An archived to-do comes back with **Unarchive**, except an archived checkbox, whose words have left the text.
 
-### Jump to a task's paragraph
-
-Click a task's source icon, or double-click its row (or select it and press **Return**), to jump to the paragraph that holds it. Standalone tasks have no paragraph, so they don't jump.
-
-### Standalone project tasks
-
-Click the **+** button in the Tasks pane toolbar to add a task that isn't tied to any paragraph. A small sheet appears; type the task body and choose **Document** or **Project** scope, then press **Add**. Project-scope tasks live in `.maugham/ops/__project__.jsonl` rather than in a manuscript file.
-
-### Nesting and reorder
-
-Drag a task row to reorder it. Drop onto the **middle** of another top-level task to nest it one level deep — Maugham supports a single level of nesting. Drop onto the **top or bottom third** of a row to reorder as a sibling.
-
-### Archiving
-
-Completed tasks can be archived via the row's context menu. The **⋯** menu in the toolbar offers **Archive all done** to sweep the current scope in one action.
+A to-do's verbs work on the chapter open in the centre. In a Part's or the Book's list, open the chapter first; the Book's own to-dos work anywhere.
 
 ### Undo
 
-Every task and checkbox action — create, toggle, reprioritize, re-nest, edit, archive — is undoable with **⌘Z** and redoable with **⌘⇧Z**. See [Annotations & Suggestions → Undoing tasks and checkboxes](annotations-and-suggestions.md#undoing-tasks-and-checkboxes) for the full behavior.
+Every to-do and checkbox action — creating, ticking, re-nesting, editing, archiving — undoes with **⌘Z** and redoes with **⌘⇧Z**.
 
-### Claude reads your tasks
+### Claude reads your to-dos
 
-If you use Claude Desktop with the Maugham integration, Claude can read your task list via the `list_tasks` and `get_task` tools — across the whole project or for a single document, filtered by status. Task management stays with you: Claude can read and reference your tasks, but only you can create, check off, or archive them.
+With Claude Desktop connected, Claude can read your to-dos through its `list_tasks` and `get_task` tools, for the whole book or one chapter. Only you can make, tick or archive them.

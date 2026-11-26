@@ -6,7 +6,7 @@ import MaughamCore
 /// EMISSION.md already applies to the publish contract). These three docs
 /// claims are cheap to derive from source at test time; deriving them means
 /// the doc can no longer silently drift out from under the code the way the
-/// Task-15 audit found (tool count, keybinding table, right-pane mode list).
+/// Task-15 audit found (tool count, keybinding table, right-column position list).
 /// Each check has a companion self-check proving the parser WOULD fail on a
 /// planted offender — the house pattern from `TripwireGrepTests`.
 final class DocSyncTests: XCTestCase {
@@ -458,7 +458,7 @@ final class DocSyncTests: XCTestCase {
         "⌘⌥L", "⌘⌥N", "⌘⌥G", "⌘⌥Y", "⌘⌥V", "⌘⌥D", "⌘⌥E", "⌘⌥K",
     ]
 
-    // MARK: - Test 3: the right column's positions mentioned in right-pane.md
+    // MARK: - Test 3: the right column's positions mentioned in right-column.md
 
     /// Enumerates `case <name>` lines from an enum's source.
     static func extractEnumCaseNames(from sourceText: String) -> [String] {
@@ -473,7 +473,7 @@ final class DocSyncTests: XCTestCase {
     /// **or**, for a camelCase name, its spelled-out form ("pulledUp" →
     /// "pulled up").
     ///
-    /// The second spelling exists because `right-pane.md` is the writer's help,
+    /// The second spelling exists because `right-column.md` is the writer's help,
     /// not a symbol index: requiring the literal `pulledUp` in user-facing
     /// prose would document the identifier rather than the position. The
     /// guard's job — a position that ships with no mention at all goes red —
@@ -498,15 +498,13 @@ final class DocSyncTests: XCTestCase {
         return out
     }
 
-    /// **The positions the guide does not name yet.** `docs/guide/` is
-    /// rewritten for the three positions in a later plan (shell plan 5); until
-    /// then the pulled-up position has no mention in `right-pane.md`. The test
-    /// below asserts this list is EXACTLY what the guide lacks — so it goes
-    /// red when the guide gains the position (delete the entry then), and red
-    /// when a new position ships that the guide does not name.
-    static let positionsTheGuideDoesNotNameYet = ["pulledUp"]
+    /// **The positions the guide does not name yet** — none since shell p5
+    /// Task 8 rewrote the guide for the three positions. The test below
+    /// asserts this list is EXACTLY what the guide lacks, so a new position
+    /// that ships unnamed in `right-column.md` goes red.
+    static let positionsTheGuideDoesNotNameYet: [String] = []
 
-    func test_detailSegmentCasesDocumentedInRightPaneMd() throws {
+    func test_rightColumnPositionsDocumentedInRightColumnMd() throws {
         // The cases are the compiled enum's, and the source file is read too
         // so a case added there is seen even before `allCases` is asked.
         let caseNames = RightColumnPosition.allCases.map(\.rawValue)
@@ -517,16 +515,16 @@ final class DocSyncTests: XCTestCase {
         }
         XCTAssertEqual(caseNames, ["resolve", "brief", "pulledUp"])
 
-        let rightPaneMd = try readFile("docs/guide/right-pane.md")
-        let missing = Self.missingCaseMentions(caseNames, in: rightPaneMd)
+        let rightColumnMd = try readFile("docs/guide/right-column.md")
+        let missing = Self.missingCaseMentions(caseNames, in: rightColumnMd)
         XCTAssertEqual(missing, Self.positionsTheGuideDoesNotNameYet,
-            "The right-column positions with no mention in docs/guide/right-pane.md are "
+            "The right-column positions with no mention in docs/guide/right-column.md are "
             + "\(missing); the named pending list is \(Self.positionsTheGuideDoesNotNameYet). "
             + "A position the guide now names leaves the pending list; a new one the guide "
             + "lacks must be documented. All positions: \(caseNames).")
     }
 
-    /// Self-check: a doctored right-pane.md with the "brief" mention removed
+    /// Self-check: a doctored right-column.md with the "brief" mention removed
     /// causes the real "brief" position to be reported missing — proving the
     /// check above would fire on real drift (e.g. a position added without a
     /// doc mention).
@@ -540,12 +538,14 @@ final class DocSyncTests: XCTestCase {
         let missing = Self.missingCaseMentions(caseNames, in: doctoredDoc)
         XCTAssertEqual(missing, ["brief"],
             "Self-check expected exactly the omitted \"brief\" position to be reported missing. Got: \(missing).")
-        // And the pending list itself is checked both ways: a guide that
-        // names every position makes the pending list wrong.
+        // And the empty pending list is checked both ways: a guide naming
+        // every position matches it, and one that loses a position does not.
         let complete = doctoredDoc + " Brief."
-        XCTAssertNotEqual(Self.missingCaseMentions(caseNames, in: complete),
-                          Self.positionsTheGuideDoesNotNameYet,
-                          "a guide naming the pulled-up position must turn the pending list red")
+        XCTAssertEqual(Self.missingCaseMentions(caseNames, in: complete),
+                       Self.positionsTheGuideDoesNotNameYet,
+                       "a guide naming every position must match the empty pending list")
+        XCTAssertNotEqual(missing, Self.positionsTheGuideDoesNotNameYet,
+                          "a guide that loses a position must turn the check red")
     }
 
     /// Self-check for the spelled-out alternative: a multi-word case is

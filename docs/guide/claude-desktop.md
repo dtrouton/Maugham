@@ -25,7 +25,7 @@ skill as out of date; click **Update**.
 
 Read:
 
-- List open projects, outlines, and chapters
+- List open projects, their outlines and their text
 - Read documents (live in-memory — Claude sees text you haven't saved yet)
 - Search across manuscript
 - Discover research items by enumeration or title
@@ -39,28 +39,27 @@ Read:
 Write:
 
 - Create research notes ("Claude, write me a character sheet for Sarah based on what you see in Chapter 1")
-- Rewrite one of your research notes ("tighten my notes on the harbour"). Claude replaces the note's whole text, and the text it replaced — including anything you typed and had not yet saved — is kept as a version marked **Before the assistant’s change**, so **Versions** in the note's inspector puts it back. If the note is open, the editor shows Claude's text. Claude can rewrite research notes only: never your manuscript, a palette card or a table, and not under a view-only share
-- Link research notes to chapters
-- Unlink as needed
+- Rewrite one of your research notes ("tighten my notes on the harbour"). Claude replaces the note's whole text, and the text it replaced — including anything you typed and had not yet saved — is kept as a version marked **Before the assistant’s change**, so **Versions** in the note's details puts it back. If the note is open, the editor shows Claude's text. Claude can rewrite research notes only: never your manuscript, a palette card or a table, and not under a view-only share
+- Link research notes to chapters, and unlink them — a note a chapter links is that chapter's
 - Promote a capture-inbox entry into research — unscoped, or scoped to a chapter/piece
 - Propose an edition brief or a visual language — a draft staged for you, shown as a diff against your own text with Adopt / Discard; Claude never writes a statement for you
-- Set or remove a research source's citation details (the key a manuscript cites it by, authors, title, year…) — the same rules as the inspector's Citation section
-- Move research items (including whole groups) between shared research, a group, and a collection piece's research folder — link associations update automatically
-- Add notes, questions, craft notes and suggested changes to the Annotations pane (non-destructive proposals you review, accept, reject, or undo with ⌘Z)
-- Make a Research table, write values, formulas and formats into one, and read one back with its computed values. Claude can grow a table past its edge but never deletes a row or column, and it refuses to grow below a total row unless it says the total row moves. Each write keeps the state before it as a version, marked **Before the assistant’s change**, so **Restore previous version** in the table's inspector right after Claude writes undoes it; a version holding values Claude wrote is marked **Written by assistant**. A view-only share refuses the two table-writing tools (Claude can still read a table). A `research:` reference inside a Research table computes only through a figure's pins, and Claude is told so
+- Set or remove a research source's citation details (the key a manuscript cites it by, authors, title, year…) — the same rules as its Citation details
+- Move research items (including whole groups) between the book's research, a group, and a chapter — the same rule as your own moves: where a note lands is whose it is, and Claude is told every chapter a move took it from
+- Add notes, questions, craft notes and suggested changes, which wait in To resolve (proposals you accept, reject, or undo with ⌘Z)
+- Make a Research table, write values, formulas and formats into one, and read one back with its computed values. Claude can grow a table past its edge but never deletes a row or column, and it refuses to grow below a total row unless it says the total row moves. Each write keeps the state before it as a version, marked **Before the assistant’s change**, so **Restore previous version** in the table's details right after Claude writes undoes it; a version holding values Claude wrote is marked **Written by assistant**. A view-only share refuses the two table-writing tools (Claude can still read a table). A `research:` reference inside a Research table computes only through a figure's pins, and Claude is told so
 - Leave a note on a table or picture in the book: a comment, a question or a craft note on a whole figure, and a comment or question on one cell or a range of cells (`tbl:sales!C3`, `tbl:sales!C3:E3`, or the figure's name). Claude can also suggest a new value or formula for one table cell. It writes only the note; the cell stays as you left it
 - Add cards to your **planning canvas** — the case it is built for is a page you wrote on paper and photographed. Claude cannot choose where a card goes: everything it adds lands together in one labelled region, placed clear of your own work, with the page it read at the top of it. Its cards are drawn perfectly straight where yours lean, so a card that leans is one of yours, and one ⌘Z takes back a whole batch. See [Getting Started → What Claude can put on the canvas](getting-started.md#what-claude-can-put-on-the-canvas)
 
-- Set up and edit your book's design and publishing settings, and compile it to PDF or EPUB — see [Publishing to PDF & EPUB](publishing.md)
-- Write a translation of a chapter for you to review — see [Translating Your Manuscript](translation-review.md)
+- Set up and edit your book's design and publishing settings, and compile it to PDF, EPUB or Word — see [Publishing](publishing.md)
+- Write a translation of a chapter for you to read and settle — see [Translating Your Book](translation.md)
 
-Claude doesn't modify your manuscript text directly — proposals appear as annotations you control. See [Annotations & Suggestions](annotations-and-suggestions.md) for how to accept, reject, or undo changes.
+Claude doesn't modify your manuscript text directly — proposals appear as annotations you control. See [Notes & Suggestions](annotations-and-suggestions.md) for how to accept, reject, or undo changes.
 
 For an intent-first revision audit of sensory groundedness, see [The Sense Pass](sense-pass.md).
 
 ### When Claude adds a research note
 
-A small banner appears at the top of the editor pane: *"Claude added 'Sarah Voice' to research."* Click **Show** to jump to the note — it opens whatever the tree needs to (the Research section, and a piece's own fold when the note belongs to one) and scrolls to it. The banner auto-dismisses after 8 seconds.
+A small banner appears at the top of the editor: *"Claude added 'Sarah Voice' to research."* Click **Show** to jump to the note — it opens whatever the binder needs to (the Research section, or the fold of the chapter the note belongs to) and scrolls to it. The banner auto-dismisses after 8 seconds.
 
 ### Turning it off
 

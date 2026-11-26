@@ -88,7 +88,7 @@ be you, and Maugham then treats them as one person rather than two.
 
 You can press **Not now**. Nothing is written, nothing is lost, and Maugham
 won't raise the panel again until you next open the project. You can always ask
-for it deliberately: the History pane's waiting line has an **Admit…** button,
+for it deliberately: History's waiting line (⌃⌘H) has an **Admit…** button,
 and so does the Inbox banner, and so does People & Devices itself.
 
 ## Recognised devices
@@ -212,7 +212,7 @@ Beneath the people you may also see:
 
 - **Older history from before this book signed its lines** — one quiet row,
   with a disclosure listing what it holds in plain words: a Mac under the name
-  it had then, edits made through MCP, the task rebalance, what a phone wrote
+  it had then, edits made through MCP, the reordering of to-dos, what a phone wrote
   before it signed its lines, and the book's oldest history from before each
   device kept its own. This is almost always your own earlier work. In a book
   where everybody writes the whole of it, the row says nothing already in it
@@ -419,15 +419,15 @@ comments, suggestions and questions work as they do for you. What isn't drawn:
 Accept, Reject, Stet and the other ways of settling a note; setting a review
 pass's state; Run for a review round (a check still runs — it only leaves
 notes); editing an intent or any other statement; new documents, renaming,
-moving and deleting in the tree; tasks; translating; History's **Rewind to
+moving and deleting in the binder; to-dos; translating; History's **Rewind to
 before this…**, the rewind window's **Restore here…** and **Snapshot here…**,
 and a checkpoint's **Revert here…** (History itself is all there to read); and
 Find in Project's **Replace** and **Replace All** for chapters that aren't
 yours (a research note's matches still replace). **⌘S** still flashes,
 because your fingers expect it, but makes no checkpoint — a checkpoint of text
 you can't change would mark nothing of yours (your backups still run) — and **⇧⌘S** says so instead of
-asking for a label (your backups still run then too). In a collection, the File menu's **New Prose Story**,
-**New Screenplay** and **Link Existing Project…** are greyed (they add a
+asking for a label (your backups still run then too). In a collection, the File menu's **New Prose Piece**,
+**New Script** and **Link Existing Project…** are greyed (they add a
 collection's pieces, so no other kind of book greys them).
 
 An **author of some pieces** has all of that in their own chapters. Everywhere
@@ -459,7 +459,7 @@ the same book, or the next time you open it, asks again.
 
 What this is not:
 
-- **It doesn't lock the book's structure.** Keeping somebody out of the tree's
+- **It doesn't lock the book's structure.** Keeping somebody out of the binder's
   verbs is a courtesy their Mac pays, not something the book can enforce:
   adding, renaming, moving and trashing documents aren't signed, so a
   determined machine could still change the binder. Permissions guard the
@@ -482,8 +482,8 @@ book is decided here, when their Mac first asks to be let in.
 
 ## Starting a piece of your own
 
-An **author of some pieces** can add a piece to the book — **New Document**,
-**Duplicate**, or, in a collection, the File menu's piece items — and start
+An **author of some pieces** can add a piece to the book — **New Chapter**,
+**Duplicate**, or, in a collection, **New Prose Piece** and **New Script** — and start
 writing in it straight away. The book remembers which Mac started each piece,
 and that is what the rest of this section turns on.
 
@@ -491,7 +491,7 @@ and that is what the rest of this section turns on.
   decides. The line over it reads *Waiting for Denver to say this piece is
   yours.* They can type, leave notes, accept or reject a suggestion, set its
   review pass, rename or move it, and run a round on it. Stet, archive and
-  reopen, ⌘S's checkpoint, tasks and translating wait until Denver has
+  reopen, ⌘S's checkpoint, to-dos and translating wait until Denver has
   answered. So does the piece's own intent, which is Denver's to write until
   then. Anything they accept or reject there counts as their words: it shows
   on their Mac and waits on Denver's, like their typing.
@@ -551,8 +551,8 @@ some piece is actually waiting.
 ## Restoring your own note
 
 Deleting a note you wrote can be undone. **⌘Z** straight after brings it back,
-and so does **Restore** in the annotations queue's **Deleted** section (show
-resolved notes with the tray button in the queue's toolbar to see it).
+and so does **Restore** under **Deleted**, in the **Settled** section at the
+foot of To resolve.
 
 A **reviewer** can restore a note of their own that they deleted themselves,
 and it comes back on every Mac and on the iPhone. These stay the book author's:
@@ -582,7 +582,7 @@ until you tell each of them.
 
 ## What History tells you
 
-The History pane (⌘⌥H) shows trust in two shapes, and the difference is
+History (⌃⌘H) shows trust in two shapes, and the difference is
 deliberate.
 
 - **A banner is something that is true now** — *this book was started on this

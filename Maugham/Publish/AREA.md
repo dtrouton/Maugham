@@ -153,7 +153,7 @@ Start at the Core guide's recipe "Add a block kind to the text model" (`Packages
 
 ## Pointers
 - ADRs: 0013 (the pipeline), 0015 (schema evolution), 0022 (the grammar ledger), 0024 (the translation layer), 0030 (the cast; directives as rulings), 0038 (an edition's book and page jump).
-- `docs/guide/publishing.md` (Tables, figures, footnotes, citations and cross-references; Imprints; Bilingual editions) and `docs/guide/publish-department.md`.
+- `docs/guide/publishing.md` (Tables, figures, footnotes, citations and cross-references; Imprints; Bilingual editions) and `docs/guide/translation.md`.
 - `docs/tripwires.md` rows 13, 17, 20, 54.
 - Tests: `MaughamTests/Publish/` (notably `EmissionContractTests`, `PublishResolutionTests`, `PublishProblemGateTests`, `FigureImageResolverTests`, `ReportPDFCompileTests`, `ReportEPUBTests`, `PublishMintGateTests`, `PublishConfigImprintResolutionTests`, `BilingualPDFTests`, `TranslationCoverageGateTests`, `PublishFormatToleranceTests`), `PublishOrchestratorTests`, `RepublisherTests`.
 - Neighbouring guides: `Maugham/Compiler/AREA.md` (the translator and designer orchestrators, the round's state machine and briefings), `Maugham/Views/AREA.md` (an edition's surfaces, the gate, the round report), `Maugham/MCP/AREA.md` (the publishing tools), `Packages/MaughamCore/Sources/MaughamCore/AREA.md` (the block parser, `ProductionRole`).

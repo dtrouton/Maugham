@@ -1,6 +1,6 @@
 # Publishing to PDF, EPUB & Word
 
-Maugham can publish your project to PDF, EPUB and Word (.docx) directly from Claude Desktop. The PDF pipeline uses a bundled copy of tectonic (an XeTeX-based LaTeX engine) so there's nothing to install — just ask Claude to set up publishing for your project.
+Maugham publishes your project to PDF, EPUB and Word (.docx), from its own **Compile…** or by asking Claude in Claude Desktop. The PDF pipeline uses a bundled copy of tectonic (an XeTeX-based LaTeX engine), so there's nothing to install.
 
 ### A deeply personal PDF
 
@@ -12,15 +12,45 @@ The EPUB output produces a structurally clean file with one `<section>` per piec
 
 ### Where outputs land
 
-Compiled PDFs, EPUBs and Word files appear in the project's `Exports/` folder, which is shown as a footer beneath the binder tree in Author, Review, and Publish (Plan's centre column is the planning canvas, so it doesn't carry this footer). You can open the file from there or find it in Finder alongside your manuscript folder.
+Compiled PDFs, EPUBs and Word files go in the project's `Exports/` folder, listed in a footer beneath the binder. Open one from there, or find it in Finder beside your manuscript folder.
 
-### The Publish persona's centre column
+### Editions and their pages
 
-Switch to Publish (⌘4) and the centre column shows your compiled book — full-width, scrollable, the real PDF. It shows at *project* level: the project row, a group, or nothing selected. Select a chapter and the editor opens on it exactly as it does in Author, because a proof you're reading is a proof you're about to fix — a line to re-break, a heading to shorten. Click back up to the project row and the book is there again, on the same open document underneath.
+Each language of the book is an edition, a row under **Editions** in the binder: the book's own language (**Source**) first, then each translation. Click one and the centre shows that edition's **Book** — the compiled PDF in its language, full width — with **Status** beside it in the toolbar. Click a chapter in the binder and the book scrolls to the page it starts on. A book compiled before this version says *Compile again to jump from the binder to the page*. Nothing compiled yet? The centre says *No compiled book yet*, with Compile… above it. If the list of publications can't be read, the centre says so and names the file: a book that can't be read is never reported as one you never made.
 
-Where there's more than one compiled PDF, the header carries a picker: version, language and compile time, newest first, and choosing one puts that file on screen. It's for comparing a proof against the last one, or a translated edition against its source. EPUBs aren't listed — they're not pages this column can draw, and they're in the Exports footer. The choice lasts as long as the window: a new compile snaps the preview back to the book you just made, and so does reopening the project.
+Where there's more than one compiled PDF of the edition, the header carries a picker: version and compile time, newest first, for comparing a proof against the last one. A new compile snaps back to the book you just made. EPUBs aren't listed — they're not pages the centre can draw — and they're in the Exports footer.
 
-Nothing compiled yet? Publish shows the project at altitude — the same corkboard/table Author shows for the project row (see [Structure & the Binder → The project row](structure-and-binder.md#the-project-row)) — with a standing note saying there's no compiled book yet. If the publications catalog is there but can't be read, you get the corkboard and a different notice, one that names the file and says what went wrong: a book that can't be read from disk is never reported as a book you never made. Selecting a research note or palette card in Publish leaves the centre column on the book (or on the corkboard and its notice) — Publish has no rendering of its own for research material.
+**The edition's Status** has a column for each chapter's publishing settings — whether it's in the table of contents, which page it starts on, its title override. Set them per chapter with **Publishing…** in the chapter's row menu.
+
+### Compiling an edition
+
+**Compile…**, in the header of an edition's Book, makes the book. It is the same compile Claude runs, asked for by you. The sheet asks:
+
+- **Format** — PDF, EPUB or Word (.docx).
+- **Editions** — this edition is checked to begin with, and every other edition gets a checkbox. Check more than one and you get a single volume with each body in it, in the order the sheet lists them ([Bilingual editions](#bilingual-editions)).
+- **Allow stale translations** — off by default, which is what stops a paragraph whose source changed shipping unnoticed.
+
+The **imprint picker** beside Compile… chooses which book: **Book**, or one of the imprints the project declares ([Imprints](#imprints)). It's remembered per project.
+
+One compile runs at a time. While it does, the header says so with **Cancel Compile**; a cancelled compile publishes nothing. When one lands, the line says the version, the imprint and the edition, and where the file is. Nothing already published is touched: every compile makes its own version.
+
+**The problems list.** When a compile finds publish problems, its line says so — *"Couldn't publish: 3 problems in the manuscript"* for a Report it refused, or *"Compiled v1.0 · 20 Oct 2026 at 15:04 — in Exports, with 2 warnings"* — and a compile that was stopped shows the list over the centre at once; one that only warned offers **Show Problems**. Each row says Error or Warning, names its chapter and says what's wrong; **Show in Manuscript** opens that chapter at the paragraph, in a translated edition too. **Back** returns to the book. A compile that stopped is also listed in every edition's To resolve until the next one succeeds.
+
+### The designer
+
+Every project has a designer from the moment it exists, **Tschichold**, named on the Source edition's Brief (with **Change…**). The designer reads the book and proposes its typesetting, and nothing reaches your live templates until you approve it.
+
+**Run Design** sits at the head of the Source edition's To resolve, with a field for **direction** — a sentence or two about what this round should attend to. It's optional: a bare run briefs the designer on your [Visual Language](right-column.md#visual-language-v) alone. The designer proposes a spec and a complete set of templates, and compiles a few sample pages showing every kind of element your manuscript actually uses — a verse passage, a block quote, a footnote, whatever is really there.
+
+**The gate.** A design waiting for your answer is listed in every edition's To resolve; **Show** opens it over the centre: the spec on one side, the sample pages on the other. A round is always for the whole book.
+
+- **Approve** puts the round's templates onto your live publish templates. Your current ones are backed up first.
+- **Request Changes** sends your words back to the session that made the proposal, and starts its next round.
+- **Revert** takes an approved round back, restoring the templates it replaced.
+- **Finalize** keeps an approved round for good and lets the backup go. It is the one step that can't be undone, and it asks first.
+- **Discard** turns the proposal down.
+
+Only the verbs that make sense for where a round stands are offered, and a reviewer is offered none. When a verb can't go through — another proposal holds the backup, a compile is running — it says why.
 
 ### The publish configuration
 
@@ -95,7 +125,7 @@ A claim.[^1]
 
 Notes are numbered continuously through the whole book, whatever you call them — `[^1]` in two chapters is two different notes. In the EPUB a note is a pop-up footnote.
 
-**A citation** names a research source by its citation key: `[@smith2026]`, with a page or other locator after a comma, `[@smith2026, p. 12]`, or several sources at once, `[@smith2026; @jones2025]`. It prints author–date — *(Smith 2026, p. 12)* — from the citation details the research source carries (its key, authors, title and year — set in the research inspector's **Citation** section), and the book ends with a **References** list of the sources it actually cites, sorted by author.
+**A citation** names a research source by its citation key: `[@smith2026]`, with a page or other locator after a comma, `[@smith2026, p. 12]`, or several sources at once, `[@smith2026; @jones2025]`. It prints author–date — *(Smith 2026, p. 12)* — from the citation details the research source carries (its key, authors, title and year — set in its **Citation** details), and the book ends with a **References** list of the sources it actually cites, sorted by author.
 
 **A cross-reference** points at a label. Give a figure, a table or a heading a label in braces — `{#fig:map}`, `{#tbl:sales}`, `## Method {#sec:method}` — and write `@fig:map`, `@tbl:sales` or `@sec:method` anywhere in the book. It prints "Figure 1", "Table 2" or "Section 1.2", and in both the PDF and the EPUB it's a link. These words — and "References" and the lists' titles — follow the edition's language (a Serbian edition prints "Slika 1"), and you can change any of them under `element_words` in the publish config's `metadata`, or a translated edition's `language_overrides`. A label's name is letters, digits, `-` and `_`, starting with a letter or digit, and each label is used once in the book.
 
@@ -104,8 +134,6 @@ Notes are numbered continuously through the whole book, whatever you call them �
 **In a Report**, headings are numbered too — 1, 1.1, 1.1.1, counted from the shallowest heading level the book uses, so a report whose sections are `##` headings reads 1, 2, 3 — and a reference to a heading reads "Section 1.2". A Report's PDF also opens with a list of figures and a list of tables, when it has any; its EPUB carries the same lists in its navigation. Piece titles are never numbered. In other books headings aren't numbered, and a reference to a heading prints the heading's own words.
 
 **When something doesn't resolve** — a key no research source carries, a reference to a label that doesn't exist, a footnote with no definition, an image that can't be used — it prints as you typed it, never as "??", and it's reported as a publish problem (see **Publish problems** under [Language editions and version families](#language-editions-and-version-families)). A Report refuses to compile until its errors are fixed; every other book compiles and lists them as warnings.
-
-**The problems list.** When a compile from the desk (⌘⌥K, see [The Publish Department](publish-department.md)) finds publish problems, its status line says so — *"Couldn't publish: 3 problems in the manuscript"* for a Report it refused, or *"Compiled v1.0 · 20 Oct 2026 at 15:04 — in Exports, with 2 warnings"* for a book that compiled — and **Show Problems** beside it opens the list in the centre column. Each row says Error or Warning, names its piece and says what's wrong; **Show in Manuscript** opens that piece and scrolls to the very paragraph, including a paragraph in a translated edition. **Back** returns to the book.
 
 ### Language editions and version families
 
@@ -154,7 +182,7 @@ Declare one under `imprints` in `.maugham/publish/config.json` (via `set_publish
 
 **Identity gains a fourth dimension.** A publication is keyed on `(imprint, version, language, format)` — the book's `1.0/en/pdf` and the special edition's `0.1/en/pdf` are independent publications with independent version counters, and compiling one never blocks or races the other. `list_publications`, `read_publication_page`, `compile` and `preview_compile` all take an `imprint` parameter (exact name match); the sentinel `"book"` selects the publications no imprint compiled, mirroring `"source"` for the untagged source language. Output filenames carry a `{imprint}` token with the same strip-one-dangling-separator behavior as `{language}`; if your `filename_template` doesn't mention `{imprint}`, the imprint name is inserted before the extension automatically, so an imprint compile never overwrites the book's file.
 
-**From the app, not just MCP.** The Publish persona's desk (⌘⌥K) carries this same choice in its header: **Book**, then one row per declared imprint. Pick one and it's what the whole desk — the language rows, their counts, **Compile…** — is about, remembered per project so you don't have to re-pick it every session. See [The Publish Department](publish-department.md#which-book-the-desk-is-about).
+**From the app.** The imprint picker beside **Compile…** carries the same choice: **Book**, then one row per declared imprint. An imprint that names its own `sections` is a subset of the book, and an edition's coverage is counted over exactly that subset: the same Spanish edition can be short of the novel and complete for the pamphlet cut from it.
 
 ### Bilingual editions
 
@@ -180,7 +208,7 @@ The document-level title page, running heads and PDF metadata are always the **f
 
 **Every paragraph carries its own place.** A compiled document — bilingual or not — anchors every paragraph invisibly, so a template (or a reader's PDF viewer following a link) can address any paragraph directly. In a multi-language compile, that anchor is what lets a **scene heading link across the halves**: tap a slugline in one language's half and you land on the same scene in the other. In the EPUB, the same tap crosses from one language's section file into the other's. Only sluglines cross-link today — it's the case a bilingual screenplay reader reaches for first — everything else anchors but doesn't yet link anywhere.
 
-**From the app, not just MCP.** The Publish persona's desk (⌘⌥K) is where you make one of these documents without asking Claude for it: **Compile…** at the foot of the Languages section opens a sheet with a checkbox per edition — the book's own language plus every language on the desk — and compiling more than one gives you a single volume with every body you checked, in the order the sheet lists them. And every surface that names a compiled book — the desk's own status line, the Publish persona's compiled-book preview, the Exports footer — says the joined identity plainly (`EN+SR`), never a single tag standing in for a document that holds two. See [The Publish Department](publish-department.md#compiling-from-the-desk) for the sheet itself.
+**From the app.** In the **Compile…** sheet, check more than one edition and you get one volume holding every body you checked. Everywhere a compiled book is named — the compile line, the edition's pages, the Exports footer — the joined identity is said plainly (`EN+SR`).
 
 ### Iterating on a subset of a book
 

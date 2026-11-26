@@ -17,7 +17,7 @@ The ones you'll use most:
 | `⌘⌃R` | **Run the round** — a numbered round in the piece's pass; File names whose ("Run Gould's Round") |
 | `⌘⌃⇧R` | **The round with fresh eyes** — the round read cold |
 | `⌘⇧↩` | Promote Canvas Selection… — turn the canvas selection into a durable artifact |
-| `⌘Z` | Undo (text, annotation action, task, checkbox, or History Rewind) |
+| `⌘Z` | Undo (text, a note's answer, a to-do, a checkbox, or a History Rewind) |
 | `⌘⇧Z` | Redo |
 | `⌘,` | Settings |
 | `⌘⇧,` | Project Settings |
@@ -45,7 +45,7 @@ The ones you'll use most:
 | `⌘⌥0` | View ▸ Show or Hide Right Column |
 | `⌘⌃L` | View ▸ Read In Next Language — Source, then each translation, then Source again |
 | `⌘⌃⇧L` | View ▸ Show Source Under Translation |
-| `⌘1` | To Resolve — what has been raised about what the right column faces |
+| `⌘1` | To Resolve — what has been raised about what you picked in the binder |
 | `⌘⌥D` | To Resolve: Checks — the check's findings |
 | `⌘⌥A` | To Resolve: Rounds — the rounds' notes |
 | `⌘⌥T` | To Resolve: Mine — your own notes and to-dos |
@@ -72,7 +72,7 @@ The ones you'll use most:
 | `⌘/` | Syntax & Keyboard Shortcuts |
 | `⌘?` | Maugham Help — this guide |
 
-**Two different things are called "review", and only the shortcut tells them apart.** `⌘3` is the **Review persona** — a window layout that leads with the Annotations pane. `⌘⌥⇧R` is **Toggle Review Mode** — a posture of the *editor* that makes your manuscript read-only and puts you in the reviewer's seat. They're independent: you can turn Review Mode on in any persona, and the Review persona doesn't turn it on for you.
+**⌘1, ⌘2 and ⌘3 are the right column's three places**, wherever you are; the ⌘⌥ keys open one of them on something particular. **⌃⌘1–3 are the centre's views.** **⌘⌥⇧R is per chapter**: it starts or ends the open chapter's [read-through](annotations-and-suggestions.md#read-through), and the toolbar's padlock does the same.
 
 ## On-disk layout
 
@@ -129,7 +129,7 @@ The on-disk filenames have a numeric prefix (`01-chapter-1.md`) so manuscripts s
 
 **My project won't open.** The window says *Couldn't open project* and gives the reason. If it says the project was made by a newer version of Maugham, update Maugham (**Maugham → Check for Updates…**). Otherwise fix what it names if you can and open the project again. **File → Restore from Backup…** works from that window. If the project's settings file is the problem, Maugham finds its backups through its safety copy; if it still finds none, press **Show All Backups** to pick from every backup by title. See [Backups & History → Restoring from a backup](backups-and-history.md#restoring-from-a-backup).
 
-**How do I get an older version back?** For a chapter, open the History pane (⌘⌥H) and use **Revert here…** on a checkpoint, or **Rewind** to any moment. For the whole project, restore a copy from a backup. Both are explained in [Backups & History](backups-and-history.md).
+**How do I get an older version back?** For a chapter, pull up its History (⌃⌘H) and use **Revert here…** on a checkpoint, or **Rewind** to any moment. For the whole project, restore a copy from a backup. Both are explained in [Backups & History](backups-and-history.md).
 
 **A document I had open is now showing different text.** iCloud detected an outside change (e.g., from another Mac). A banner offers Keep mine / Use cloud. The losing version is archived under `.maugham/conflicts/`.
 
@@ -143,7 +143,7 @@ The on-disk filenames have a numeric prefix (`01-chapter-1.md`) so manuscripts s
 
 **My screenplay's page count looks off.** Maugham uses Final Draft's wrap heuristic. If you're using a non-monospace screen font, the on-screen layout may not match the printed page count.
 
-**A binder item I deleted is gone forever.** Try ⌘⌥Z — it restores the most-recent deletion. If you've moved on since, open **Trash** at the very foot of the tree and right-click the item → **Restore**; deleted items stay there for 30 days (on disk, they're in the project's `.trash/` folder). If you didn't delete it and it isn't in Trash — another Mac saved an older outline over it — look under **Removed Elsewhere** at the foot of the binder.
+**A binder item I deleted is gone forever.** Try ⌘⌥Z — it restores the most-recent deletion. If you've moved on since, open **Trash** at the foot of the binder and right-click the item → **Restore**; deleted items stay there for 30 days (on disk, they're in the project's `.trash/` folder). If you didn't delete it and it isn't in Trash — another Mac saved an older outline over it — look under **Removed Elsewhere** at the foot of the binder.
 
 ## Updates
 
