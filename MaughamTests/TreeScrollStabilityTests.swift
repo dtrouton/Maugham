@@ -463,6 +463,9 @@ final class TreeScrollStabilityTests: XCTestCase {
         let orchestrator = CompilerOrchestrator()
         let diagnostics = DiagnosticsStore(
             projectRoot: store.url, device: DeviceSlug.make(from: "test-mac"))
+        // The head open, as it always was here: its ideal is what sets the
+        // column's minimum this test measures against the tree's.
+        documentStore.setResolveHeadOpen(true)
 
         // **The band, measured rather than guessed.** The pane's IDEAL height
         // is what its minimum used to be: every strip in its non-scrolling

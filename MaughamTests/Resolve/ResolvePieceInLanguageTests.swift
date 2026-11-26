@@ -824,7 +824,8 @@ final class ResolvePieceInLanguageTests: XCTestCase {
         }
         let head = try code("PieceInLanguageHeadView")
         for token in [
-            "if ResolvePieceInLanguage.offersRun(docId: docId, isOpen: isOpen, mayTranslate: {",
+            "ResolvePieceInLanguage.offersRun(docId: docId, isOpen: isOpen, mayTranslate: {",
+            "if offersRunHere {",
             "let slot = ResolvePieceInLanguage.openSlot(isOpen: isOpen, isOpening: isOpening,",
             "TranslationRunStart.postureOfTheTranslator(forPiece: $0, in: documentStore).allows(.translate)",
             "Button(TranslationRunState.runTitle(pieceWord)) { runThisPiece() }",
@@ -836,9 +837,10 @@ final class ResolvePieceInLanguageTests: XCTestCase {
             "isOpen: isOpen, authorPosture: documentStore.posture(forDocId: docId)) {",
             "confirmingClear = translation.leftOvers",
             "switch ResolvePieceInLanguage.clearDecision(shown: shown, now: now.leftOvers) {",
-            "if let elsewhere = ResolvePieceInLanguage.elsewhereLine(relation, noun: noun, titleOf: {",
+            "ResolvePieceInLanguage.elsewhereLine(relation, noun: noun, titleOf: {",
+            "if let elsewhere = elsewhereLine {",
             "pipeline: ResolvePieceInLanguage.pipelineStatus(pipeline, relation: relation),",
-            "}, relation: relation) {",
+            "}, relation: relation)",
             "notice = await ResolvePieceInLanguage.clearAndAnnounce(ids, docId: docId, language: language,",
             "Button(ResolveEditionItems.openTheReportTitle) { onShowRound(stopped) }",
             "Button(ResolveEditionItems.openTheReportTitle) { onShowRound(round) }",

@@ -527,8 +527,6 @@ struct ReviewRoundCockpit: View {
         activePassId.flatMap { id in passes.first { $0.id == id } }
     }
 
-    private var isRunning: Bool { Self.refusesRun(phase: phase) }
-
     private var isFailure: Bool {
         if case .failed = phase { return true }
         return false
@@ -825,10 +823,22 @@ struct ReviewRoundCockpit: View {
     /// missing pass: it is the state the writer just caused, and the piece's
     /// lane is not what stands between them and a second turn.
     private func runButtonHelp(offer: String) -> String {
-        if let other = Self.otherLoopLine(phase: phase) { return other }
-        if isRunning { return Self.busyReason }
-        if activePass == nil { return Self.noEditorReason }
+        Self.runButtonHelp(phase: phase, hasPass: activePass != nil, offer: offer)
+    }
+
+    /// `runButtonHelp`'s rule over its values — To resolve's folded head
+    /// draws Run Round with the same tooltip (`ResolveHeadFold`).
+    static func runButtonHelp(phase: RunPhase, hasPass: Bool, offer: String) -> String {
+        if let other = otherLoopLine(phase: phase) { return other }
+        if refusesRun(phase: phase) { return busyReason }
+        if !hasPass { return noEditorReason }
         return offer
+    }
+
+    /// Whether Run and Fresh Eyes are drawn disabled: a run holds the
+    /// session, or the piece has no pass. The folded head asks the same.
+    static func runButtonRefuses(phase: RunPhase, hasPass: Bool) -> Bool {
+        refusesRun(phase: phase) || !hasPass
     }
 
     @ViewBuilder
@@ -837,12 +847,12 @@ struct ReviewRoundCockpit: View {
             if onRun != nil {
                 Button(Self.runTitle) { run(freshEyes: false) }
                     .buttonStyle(.borderedProminent)
-                    .disabled(isRunning || activePass == nil)
+                    .disabled(Self.runButtonRefuses(phase: phase, hasPass: activePass != nil))
                     .help(runButtonHelp(
                         offer: Self.runHelp(pass: activePass, round: round)))
                 Button(Self.freshEyesTitle) { run(freshEyes: true) }
                     .buttonStyle(.bordered)
-                    .disabled(isRunning || activePass == nil)
+                    .disabled(Self.runButtonRefuses(phase: phase, hasPass: activePass != nil))
                     .help(runButtonHelp(offer: Self.freshEyesHelp))
             }
             // Cancel is not the posture's: a round already in flight when a

@@ -686,6 +686,7 @@ final class ResolveEditionTests: XCTestCase {
         fixtures.append(f)
         try TranslationRoundStore(projectURL: f.store.url).append(
             round(2, on: f.documentItemId, departures: [departure("d1")], summary: "I kept the fog."))
+        f.documentStore.setResolveHeadOpen(true)   // the letter is in the open head
         let probe = RightColumnFixture.Probe(
             position: .resolve,
             subject: WindowSubject(open: .edition(language: "es"), faces: .edition(language: "es")))

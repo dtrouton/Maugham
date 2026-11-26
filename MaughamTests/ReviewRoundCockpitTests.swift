@@ -1734,6 +1734,8 @@ final class ReviewRoundCockpitTests: XCTestCase {
         orchestrator: CompilerOrchestrator?, width: CGFloat = 320
     ) -> NSWindow {
         let piece = BinderSubject.item(fx.document.docId)
+        // The cockpit is in To resolve's head, which folds: open it.
+        fx.documentStore.setResolveHeadOpen(true)
         let faces: BinderSubject
         switch scope {
         case .document: faces = piece

@@ -504,7 +504,9 @@ struct ResolvePane: View {
     // MARK: - Body
 
     var body: some View {
-        VStack(spacing: 0) {
+        // **The list keeps its room** (`ResolveHeadRoomLayout`): an open head
+        // past what the pane affords scrolls within itself.
+        ResolveHeadRoomLayout {
             ResolveHeadView(
                 scope: scope, snapshot: held, openDocId: openDocId,
                 store: store, documentStore: documentStore,
@@ -526,38 +528,41 @@ struct ResolvePane: View {
                 editorControl: editorControl,
                 translationHeard: translationHeard,
                 translateAsk: $translateAsk)
-            if filedNotice != nil {
-                FiledNotice(filing: $filedNotice, onOpenBrief: onOpenBrief, lingers: false)
-                    .padding(.horizontal, 12).padding(.vertical, 4)
-            }
-            if hasList {
-                VStack(spacing: 0) {
-                    filterBar
-                    Divider()
-                    list
+            VStack(spacing: 0) {
+                if filedNotice != nil {
+                    FiledNotice(filing: $filedNotice, onOpenBrief: onOpenBrief, lingers: false)
+                        .padding(.horizontal, 12).padding(.vertical, 4)
                 }
-                // The filed line stands until the writer's next act here —
-                // never a timer (Task 6a). Simultaneous: every control in
-                // the list still takes its own press.
-                .simultaneousGesture(DragGesture(minimumDistance: 0)
-                    .onChanged { _ in
-                        if filedLineAtPress == nil { filedLineAtPress = .some(filedNotice?.id) }
+                if hasList {
+                    VStack(spacing: 0) {
+                        filterBar
+                        Divider()
+                        list
                     }
-                    .onEnded { _ in
-                        filedNotice = FiledNotice.after(
-                            .listPressed(over: filedLineAtPress ?? nil), current: filedNotice)
-                        filedLineAtPress = nil
-                    })
-            } else {
-                ContentUnavailableView {
-                    Label("To resolve", systemImage: "checklist")
-                } description: {
-                    Text((Self.emptyState(scope: scope, hasItems: false, hasVisible: false,
-                                          offersColdStart: false, editionClear: editionClear)
-                          ?? .outside).sentence)
+                    // The filed line stands until the writer's next act here —
+                    // never a timer (Task 6a). Simultaneous: every control in
+                    // the list still takes its own press.
+                    .simultaneousGesture(DragGesture(minimumDistance: 0)
+                        .onChanged { _ in
+                            if filedLineAtPress == nil { filedLineAtPress = .some(filedNotice?.id) }
+                        }
+                        .onEnded { _ in
+                            filedNotice = FiledNotice.after(
+                                .listPressed(over: filedLineAtPress ?? nil), current: filedNotice)
+                            filedLineAtPress = nil
+                        })
+                } else {
+                    ContentUnavailableView {
+                        Label("To resolve", systemImage: "checklist")
+                    } description: {
+                        Text((Self.emptyState(scope: scope, hasItems: false, hasVisible: false,
+                                              offersColdStart: false, editionClear: editionClear)
+                              ?? .outside).sentence)
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .task(id: listKey) { refresh(listKey) }
@@ -1219,6 +1224,8 @@ struct ResolvePane: View {
         // where it offers Run, and the ask is spent either way.
         if case .translate(let ask) = pending {
             if ask.lands(in: scope) {
+                // The head answers it, so it opens first (`ResolveHeadFold`).
+                if ResolveHeadFold.opensTheHead(pending) { documentStore.setResolveHeadOpen(true) }
                 translateAsk = ask
             } else {
                 filedNotice = FiledNotice.after(

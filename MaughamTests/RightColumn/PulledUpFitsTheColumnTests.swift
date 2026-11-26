@@ -234,6 +234,59 @@ final class PulledUpFitsTheColumnTests: XCTestCase {
             + offenders.joined(separator: "\n"))
     }
 
+    // MARK: - To resolve's head, folded and open (2026-11-26)
+
+    /// **To resolve fits the narrowest column with its head folded and
+    /// open** — every To resolve arm, and a piece's head with a compiler
+    /// behind it (the round cockpit, the check's header, both Ask fields),
+    /// at both scales.
+    func test_toResolvesHeadFitsTheNarrowestColumnFoldedAndOpen() async throws {
+        let f = try await makeFixture()
+        let width = Self.narrowest
+        let arms = RightColumnFixture.arms(docId: f.docId, partId: f.partId, noteId: f.noteId)
+            .filter { $0.position == .resolve }
+        let root = f.store.url
+        var offenders: [String] = []
+        for open in [false, true] {
+            f.documentStore.setResolveHeadOpen(open)
+            let state = open ? "open" : "folded"
+            for arm in arms {
+                let control = EditorControl()
+                control.translationLanguage = arm.translationLanguage
+                let probe = RightColumnFixture.Probe(position: arm.position, subject: arm.subject)
+                let (overflow, _) = try await overflowOnceSettled(
+                    RightColumnFixture.column(store: f.store, documentStore: f.documentStore,
+                                              probe: probe, editorControl: control, width: width)
+                        .environment(f.preferences),
+                    width: width)
+                if !overflow.isEmpty {
+                    offenders.append("\(arm.name), \(state): " + overflow.prefix(3).joined(separator: "; "))
+                }
+                for window in windows { window.contentView = NSView(frame: .zero) }
+                windows.removeAll()
+            }
+            let head = ResolveHeadView(
+                scope: .piece(docId: f.docId, includesBookLevel: false), snapshot: .empty,
+                openDocId: f.docId, store: f.store, documentStore: f.documentStore,
+                orchestrator: CompilerOrchestrator(),
+                diagnostics: DiagnosticsStore(projectRoot: root, device: DeviceSlug.make(from: "fit-mac")),
+                world: nil, reader: .nobody, compilerModel: .standard,
+                onCompilerModelChange: { _ in }, onChooseReader: { _ in }, onOpenProjectSettings: {},
+                onSetActivePass: { _, _ in }, onSetPassState: { _, _, _ in })
+                .frame(width: width, alignment: .top)
+                .environment(f.preferences)
+            let (overflow, _) = try await overflowOnceSettled(head, width: width)
+            if !overflow.isEmpty {
+                offenders.append("a piece's head with a compiler, \(state): "
+                                 + overflow.prefix(3).joined(separator: "; "))
+            }
+            for window in windows { window.contentView = NSView(frame: .zero) }
+            windows.removeAll()
+        }
+        XCTAssertEqual(offenders, [],
+            "To resolve runs past the \(width)pt column:\n" + offenders.joined(separator: "\n"))
+    }
+
     // MARK: - An edition's Brief, in every state (shell p4 Task 7)
 
     /// **An edition's Brief fits the narrowest column in every state**: a
