@@ -180,6 +180,29 @@ final class ResolveHeadFoldTests: XCTestCase {
         XCTAssertNil(line())
     }
 
+    // MARK: - The list's headers (B3)
+
+    private func todo(_ id: String) -> ResolveItem {
+        .todo(WriterTask(id: id, kind: .paneCreated, anchor: TaskAnchor(docId: "ch-1", paragraphId: nil),
+                         body: id, status: .open, priority: 0, parentTaskId: nil,
+                         createdAt: at, createdBySession: nil))
+    }
+
+    /// **Fewer than five items in all, no group headers**; five or more,
+    /// headers as before. One named threshold.
+    func test_aShortListDrawsNoGroupHeaders() {
+        func groups(_ counts: [Int]) -> [ResolveGroup] {
+            counts.enumerated().map { index, count in
+                ResolveGroup(key: .paragraph(docId: "ch-1", paragraphId: "aa1\(index)"), title: "P\(index)",
+                             items: (0..<count).map { todo("t\(index)-\($0)") })
+            }
+        }
+        XCTAssertEqual(ResolvePane.groupHeadersFrom, 5)
+        XCTAssertFalse(ResolvePane.drawsGroupHeaders(groups([2, 2])), "four items: no headers")
+        XCTAssertTrue(ResolvePane.drawsGroupHeaders(groups([2, 3])), "five items: headers")
+        XCTAssertFalse(ResolvePane.drawsGroupHeaders([]))
+    }
+
     // MARK: - The list's room
 
     func test_anOpenHeadLeavesTheListItsFloor() {
