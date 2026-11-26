@@ -76,8 +76,9 @@ struct RightColumn: View {
     /// To resolve's shown selection, published to the window for View ▸
     /// Margin's ticks (`ResolvePane.onSelectionShown`).
     let onResolveSelectionShown: (ResolveShownSelection) -> Void
-    /// The window's parsed screenplay, for To resolve's scene grouping.
-    let lastParsedScript: FountainScript?
+    /// The window's parsed screenplay and its piece, for To resolve's scene
+    /// grouping (`WindowScript`).
+    let windowScript: WindowScript?
     @Binding var compilerModel: CompilerModelChoice
 
     // The window's verbs.
@@ -372,7 +373,7 @@ struct RightColumn: View {
             store: store,
             documentStore: documentStore,
             subject: subject,
-            script: lastParsedScript,
+            script: windowScript,
             // The roster's compiler and its own store, the pair the head
             // reads the check and the round from.
             diagnostics: roster.compiler.diagnostics,

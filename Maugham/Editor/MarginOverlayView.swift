@@ -149,6 +149,12 @@ final class MarginOverlayView: NSView {
                     return ""
                 }.joined(separator: ",")
         }
+        /// The note a one-note dot stands for (its click shows that note);
+        /// nil for a tick or a dot of several notes.
+        var soleNoteId: String? {
+            guard places.count == 1, case .dot(let id, _) = places[0].mark else { return nil }
+            return id
+        }
         /// The dots' writers, for their one fixed label.
         var names: [String] {
             places.compactMap { place in
@@ -287,7 +293,7 @@ final class MarginOverlayView: NSView {
     override func mouseDown(with event: NSEvent) {
         let point = convert(event.locationInWindow, from: nil)
         guard let drawn = mark(at: point) else { return }
-        coordinator?.marginMarkPressed(paragraphId: drawn.paragraphId)
+        coordinator?.marginMarkPressed(paragraphId: drawn.paragraphId, annotationId: drawn.soleNoteId)
     }
 
     // MARK: - VoiceOver
@@ -302,7 +308,8 @@ final class MarginOverlayView: NSView {
         var kept: [String: MarginMarkElement] = [:]
         let children: [MarginMarkElement] = marks.map { drawn in
             let element = elements[drawn.id]
-                ?? MarginMarkElement(paragraphId: drawn.paragraphId, isTick: drawn.isTick,
+                ?? MarginMarkElement(paragraphId: drawn.paragraphId, soleNoteId: drawn.soleNoteId,
+                                     isTick: drawn.isTick,
                                      names: drawn.names, coordinator: coordinator)
             element.setAccessibilityParent(self)
             let screen = textView.window?.convertToScreen(textView.convert(drawn.rect, to: nil)) ?? drawn.rect
@@ -319,10 +326,14 @@ final class MarginOverlayView: NSView {
 /// fixed labels (a person's name at most) and whose press is the click.
 final class MarginMarkElement: NSAccessibilityElement {
     let paragraphId: String
+    /// The note a one-note dot stands for (`Drawn.soleNoteId`).
+    let soleNoteId: String?
     weak var coordinator: EditorCoordinator?
 
-    init(paragraphId: String, isTick: Bool, names: [String], coordinator: EditorCoordinator?) {
+    init(paragraphId: String, soleNoteId: String? = nil, isTick: Bool, names: [String],
+         coordinator: EditorCoordinator?) {
         self.paragraphId = paragraphId
+        self.soleNoteId = soleNoteId
         self.coordinator = coordinator
         super.init()
         setAccessibilityRole(.button)
@@ -332,7 +343,7 @@ final class MarginMarkElement: NSAccessibilityElement {
 
     override func accessibilityPerformPress() -> Bool {
         MainActor.assumeIsolated {
-            coordinator?.marginMarkPressed(paragraphId: paragraphId)
+            coordinator?.marginMarkPressed(paragraphId: paragraphId, annotationId: soleNoteId)
             return coordinator != nil
         }
     }
@@ -438,8 +449,10 @@ extension EditorCoordinator {
 
     /// **A mark was clicked or pressed**: To resolve shows that paragraph's
     /// group. The editor's caret and scroll are not touched.
-    func marginMarkPressed(paragraphId: String) {
+    /// `annotationId`: the note, when the mark is one note's dot.
+    func marginMarkPressed(paragraphId: String, annotationId: String? = nil) {
         guard let documentId else { return }
-        MaughamEvent.postShowParagraphInResolve(docId: documentId, paragraphId: paragraphId)
+        MaughamEvent.postShowParagraphInResolve(docId: documentId, paragraphId: paragraphId,
+                                                annotationId: annotationId)
     }
 }

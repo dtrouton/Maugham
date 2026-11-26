@@ -52,7 +52,7 @@ enum ResolvePresence {
     /// - Parameters:
     ///   - figureOwners: `ProjectStore.figureNoteOwners(manifest.figures)`.
     ///   - sceneIndex: `ParagraphOffsets.sceneIndex` of the screenplay's one
-    ///     script (`sceneIndex(_:scope:structure:)`), nil elsewhere.
+    ///     script (`sceneIndex(_:scope:structure:windowScript:)`), nil elsewhere.
     @MainActor
     static func marks(_ snapshot: ResolveSnapshot, structure: [StructureItem],
                       figureOwners: [String: String?], sceneIndex: [String: Int]?) -> Marks {
@@ -238,14 +238,15 @@ enum ResolvePresence {
     }
 
     /// The screenplay's paragraph → scene map, To resolve's own rule
-    /// (`ResolvePane.scenes`, over the script's own text): only where the
-    /// scope is the one script.
+    /// (`ResolvePane.scenes`): only where the scope is the one script; the
+    /// window's parse where it is that script's, else the shared memo.
     @MainActor
     static func sceneIndex(_ snapshot: ResolveSnapshot, scope: ResolveScope,
-                           structure: [StructureItem]) -> [String: Int]? {
+                           structure: [StructureItem], windowScript: WindowScript?) -> [String: Int]? {
         ResolvePane.scenes(snapshot, scope: scope,
                            groupsByScene: ResolvePane.groupsByScene(scope, structure: structure,
-                                                                    openDocId: nil)).index
+                                                                    openDocId: nil),
+                           windowScript: windowScript).index
     }
 }
 
@@ -319,8 +320,8 @@ struct ResolvePresenceWiring: ViewModifier {
     let window: NSWindow?
     let state: BinderTreeSectionsState
     let diagnostics: DiagnosticsStore?
-    /// The window's `lastParsedScript`.
-    let script: FountainScript?
+    /// The window's parsed screenplay and its piece (`WindowScript`).
+    let script: WindowScript?
     /// Whether the window's last compile was stopped by problems
     /// (`ResolveEditionItems.stoppingProblems`, the list's own predicate) —
     /// in every edition's list, so every edition row's mark.
@@ -379,7 +380,7 @@ final class ResolvePresenceReader {
         /// To resolve's read key at the Book's scope, with no open pieces in
         /// it: opening and closing a piece is not a read.
         let read: ResolveReadKey
-        let script: FountainScript?
+        let script: WindowScript?
         /// The open in-scope pieces and their live versions.
         let open: [String: LiveVersion]
         let structure: [StructureItem]
@@ -398,7 +399,7 @@ final class ResolvePresenceReader {
     ///   walked; no default, so the watch cannot drop them unseen.
     static func key(store: ProjectStore, documentStore: DocumentStore,
                     diagnostics: DiagnosticsStore?, annotationsToken: Int,
-                    script: FountainScript?, figureChanges: [ResolveFigureChange]) -> Key {
+                    script: WindowScript?, figureChanges: [ResolveFigureChange]) -> Key {
         let structure = store.manifest.structure
         let scope = ResolveScope.of(.project, readIn: nil,
                                     sourceLanguage: PublishConfig.Metadata().language,
@@ -757,7 +758,8 @@ final class ResolvePresenceReader {
         guard let key = last else { return false }
         let marks = ResolvePresence.marks(
             snapshot, structure: key.structure, figureOwners: key.figureOwners,
-            sceneIndex: ResolvePresence.sceneIndex(snapshot, scope: key.read.scope, structure: key.structure))
+            sceneIndex: ResolvePresence.sceneIndex(snapshot, scope: key.read.scope, structure: key.structure,
+                                                   windowScript: key.script))
         let toDos = ResolvePresence.openToDos(snapshot.items, figureOwners: key.figureOwners)
         let changed = marks != self.marks || toDos != openToDos
         self.marks = marks
@@ -782,7 +784,7 @@ struct ResolvePresenceWatch: View {
     let window: NSWindow?
     let state: BinderTreeSectionsState
     let diagnostics: DiagnosticsStore?
-    let script: FountainScript?
+    let script: WindowScript?
     var compileProblems: Bool = false
 
     @State private var reader = ResolvePresenceReader()

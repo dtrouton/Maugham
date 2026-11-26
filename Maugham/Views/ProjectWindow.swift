@@ -99,7 +99,10 @@ struct ProjectWindow: View {
     @State private var containerWidth: Double?
     @State private var showingTidyAllConfirmation: Bool = false
     @State private var sessionLog: SessionLog = .empty
-    @State private var lastParsedScript: FountainScript? = nil
+    /// The window's parsed screenplay and the piece it parses (`WindowScript`):
+    /// the editor's post, or the op-log derivation. One value.
+    @State private var windowScript: WindowScript? = nil
+    private var lastParsedScript: FountainScript? { windowScript?.script }
     @State private var showingSyntaxHelp: Bool = false
     @State private var researchPreviewVisible: Bool = false
     /// **Find in Project, as an overlay of the left column.** Window state
@@ -427,7 +430,7 @@ struct ProjectWindow: View {
                 treeState.detachFigureCards()
                 store = nil
                 documentStore = nil
-                lastParsedScript = nil
+                windowScript = nil
             }
         }
         .modifier(CompilerRunModifier(roster: roster,
@@ -546,8 +549,8 @@ struct ProjectWindow: View {
             // clobbers this window's scene-navigator payload. NOT a key-window
             // guard — a background window's own MCP-driven re-parse still lands
             // here (it's live and on this project) and updates the navigator.
-            if let script = note.object as? FountainScript {
-                self.lastParsedScript = script
+            if let parsed = WindowScript.of(note) {
+                self.windowScript = parsed
             }
         }
         // **The centre item lives exactly as long as `open` holds** — the
@@ -720,7 +723,7 @@ struct ProjectWindow: View {
         // tree hidden too. Load-bearing: without it no row is ever marked.
         .modifier(ResolvePresenceWiring(
             store: store, documentStore: documentStore, url: url, window: window,
-            state: treeState, diagnostics: compiler.diagnostics, script: lastParsedScript,
+            state: treeState, diagnostics: compiler.diagnostics, script: windowScript,
             compileProblems: !ResolveEditionItems.stoppingProblems(publishCentre.compileRunner.state).isEmpty))
         // The compiled book the Publish centre draws, kept current by a compile
         // finishing, a window opening and an arrival into Publish. Load-bearing
@@ -1488,8 +1491,8 @@ struct ProjectWindow: View {
                     subject: subject,
                     projectType: store.manifest.type,
                     existing: lastParsedScript) else { return }
-                let derived = ScreenplayScriptSource.derive(store: store)
-                if lastParsedScript == nil { lastParsedScript = derived }
+                let derived = ScreenplayScriptSource.deriveWindowScript(store: store)
+                if windowScript == nil { windowScript = derived }
             }
     }
 
@@ -2109,7 +2112,7 @@ struct ProjectWindow: View {
             position: $rightColumnPosition,
             resolveRequest: $resolveRequest,
             onResolveSelectionShown: { resolveSelections = Self.recordingSelection($0, into: resolveSelections) },
-            lastParsedScript: lastParsedScript,
+            windowScript: windowScript,
             compilerModel: $compilerModel,
             recordActivePass: { recordActivePass(forPiece: $0, passId: $1) },
             openProjectSettings: openProjectSettings,

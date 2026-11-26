@@ -70,7 +70,7 @@ enum RightColumnFixture {
         canvasModel: CanvasModel? = nil,
         width: Double = UIState.defaultDetailColumnWidth,
         readThrough: ReadThroughGate = .writing, centreItem: CentreItem? = nil,
-        script: FountainScript? = nil,
+        script: WindowScript? = nil,
         compilerModel: Binding<CompilerModelChoice> = .constant(.standard),
         recordActivePass: @escaping (String, String) -> Void = { _, _ in },
         openProjectSettings: @escaping () -> Void = {},
@@ -106,7 +106,7 @@ enum RightColumnFixture {
             // The window's `resolveSelection` writer; a fixture has no
             // window state to publish into.
             onResolveSelectionShown: { _ in },
-            lastParsedScript: script,
+            windowScript: script,
             compilerModel: compilerModel,
             recordActivePass: recordActivePass,
             openProjectSettings: openProjectSettings,
@@ -139,7 +139,7 @@ enum RightColumnFixture {
         canvasModel: CanvasModel? = nil,
         width: Double = UIState.defaultDetailColumnWidth,
         readThrough: ReadThroughGate = .writing, centreItem: CentreItem? = nil,
-        script: FountainScript? = nil,
+        script: WindowScript? = nil,
         compilerModel: Binding<CompilerModelChoice> = .constant(.standard),
         recordActivePass: @escaping (String, String) -> Void = { _, _ in },
         openProjectSettings: @escaping () -> Void = {}
@@ -182,7 +182,7 @@ enum RightColumnFixture {
         canvasModel: CanvasModel? = nil,
         width: Double = UIState.defaultDetailColumnWidth,
         centreItem: CentreItem? = nil,
-        script: FountainScript? = nil,
+        script: WindowScript? = nil,
         compilerModel: Binding<CompilerModelChoice> = .constant(.standard),
         recordActivePass: @escaping (String, String) -> Void = { _, _ in },
         openProjectSettings: @escaping () -> Void = {}

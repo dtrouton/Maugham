@@ -17,7 +17,9 @@ enum ResolveRequest: Equatable {
     case filter(ResolveKeyFilter)
     case focus(groupOwnerId: String)
     case focusFinding(docId: String, itemId: String?)
-    case showParagraph(docId: String, paragraphId: String)
+    /// `annotationId`: the note whose dot was clicked, when the mark is one
+    /// note's (closing round B, M5) — the row the click shows and marks.
+    case showParagraph(docId: String, paragraphId: String, annotationId: String? = nil)
 }
 
 /// What one refresh does (`ResolvePane.refreshStep`).
@@ -144,7 +146,7 @@ struct ResolvePane: View {
     let documentStore: DocumentStore
     let subject: WindowSubject
     /// The window's parsed screenplay (`lastParsedScript`).
-    let script: FountainScript?
+    let script: WindowScript?
     let diagnostics: DiagnosticsStore?
     let orchestrator: CompilerOrchestrator?
     let world: DeclaredWorldStore?
@@ -1139,7 +1141,8 @@ struct ResolvePane: View {
         }
         let (index, titles) = Self.scenes(
             held, scope: scope,
-            groupsByScene: Self.groupsByScene(scope, structure: structure, openDocId: openDocId))
+            groupsByScene: Self.groupsByScene(scope, structure: structure, openDocId: openDocId),
+            windowScript: script)
         figureNames = names
         sceneIndex = index
         groups = ResolveGrouping.groups(held, scope: scope, structure: structure,

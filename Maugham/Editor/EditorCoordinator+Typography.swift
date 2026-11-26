@@ -398,18 +398,22 @@ extension EditorCoordinator {
             scriptUpdateNotifyTask = nil
             if let projectId {
                 MaughamEvent.post(
-                    .maughamScriptDidUpdate, to: .project(id: projectId), object: script)
+                    .maughamScriptDidUpdate, to: .project(id: projectId), object: script,
+                    payload: WindowScript.payload(docId: documentId))
             }
             return
         }
         scriptUpdateNotifyTask?.cancel()
+        // The piece parsed, as of the parse (a switch mid-debounce cancels).
+        let parsedDocId = documentId
         scriptUpdateNotifyTask = Task { @MainActor [weak self] in
             try? await Task.sleep(for: .milliseconds(350))
             guard !Task.isCancelled else { return }
             self?.scriptUpdateNotifyTask = nil
             if let projectId {
                 MaughamEvent.post(
-                    .maughamScriptDidUpdate, to: .project(id: projectId), object: script)
+                    .maughamScriptDidUpdate, to: .project(id: projectId), object: script,
+                    payload: WindowScript.payload(docId: parsedDocId))
             }
         }
     }

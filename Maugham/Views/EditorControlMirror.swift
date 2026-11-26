@@ -227,7 +227,9 @@ struct MarginMirrorModifier: ViewModifier {
         guard let asked = MaughamEvent.paragraphInResolve(of: userInfo) else { return nil }
         return ParagraphJump(
             subject: RightColumnContent.facesForTheStrip(subject, structure: structure),
-            jump: ProjectWindow.strainJump(.showParagraph(docId: asked.docId, paragraphId: asked.paragraphId)))
+            jump: ProjectWindow.strainJump(.showParagraph(
+                docId: asked.docId, paragraphId: asked.paragraphId,
+                annotationId: MaughamEvent.marginAnnotationId(of: userInfo))))
     }
 
     /// **The key, from what the window holds** — read in the modifier's body,

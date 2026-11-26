@@ -54,3 +54,40 @@ enum ParagraphOffsets {
         return index
     }
 }
+
+/// **A screenplay piece's scene parse, remembered on (docId, text)**
+/// (shell p5a closing round B): the one parse To resolve's list and the
+/// tree's presence read share for a piece the window's own parse is not
+/// (`ResolvePane.scenes`). The text is the display text `starts` counts in.
+/// A few entries — the scope's piece and a Book's script — never a cache
+/// that grows with the book.
+@MainActor
+enum SceneParseMemo {
+    private struct Entry {
+        let docId: String
+        let text: String
+        let summaries: [FountainScript.SceneSummary]
+    }
+    private static var entries: [Entry] = []
+    private static let capacity = 4
+
+    /// Test seam: Fountain parses run here so far.
+    private(set) static var parseCount = 0
+
+    static func summaries(docId: String, sequence: [String],
+                          paragraphs: [String: String]) -> [FountainScript.SceneSummary] {
+        let text = sequence.compactMap { paragraphs[$0] }
+            .map(RenderFilter.stripTaskAnchorsInline)
+            .joined(separator: "\n\n")
+        if let hit = entries.firstIndex(where: { $0.docId == docId && $0.text == text }) {
+            let entry = entries.remove(at: hit)
+            entries.append(entry)
+            return entry.summaries
+        }
+        parseCount += 1
+        let summaries = FountainTokenizer().parse(text).sceneSummaries()
+        entries.append(Entry(docId: docId, text: text, summaries: summaries))
+        if entries.count > capacity { entries.removeFirst(entries.count - capacity) }
+        return summaries
+    }
+}

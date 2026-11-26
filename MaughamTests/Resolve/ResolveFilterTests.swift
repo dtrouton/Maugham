@@ -474,8 +474,10 @@ final class ResolveFilterTests: XCTestCase {
     /// Controller ruling: a new screenplay parse regroups (and re-reads the
     /// open piece's paragraph state) but never re-runs the project walks.
     func test_aScriptOnlyChangeMovesTheRegroupKeyAndNotTheReadKey() {
-        let sluglines = FountainTokenizer().parse("INT. KITCHEN - DAY\n\nShe waits.\n\nEXT. YARD - NIGHT\n\nRain.")
-        let edited = FountainTokenizer().parse("INT. KITCHEN - DAY\n\nShe waits.\n\nINT. HALL - NIGHT\n\nRain.")
+        let sluglines = WindowScript(docId: "doc-a", script: FountainTokenizer().parse(
+            "INT. KITCHEN - DAY\n\nShe waits.\n\nEXT. YARD - NIGHT\n\nRain."))
+        let edited = WindowScript(docId: "doc-a", script: FountainTokenizer().parse(
+            "INT. KITCHEN - DAY\n\nShe waits.\n\nINT. HALL - NIGHT\n\nRain."))
         XCTAssertNotEqual(sluglines, edited)
 
         let before = ResolveRegroupKey(read: readKey(), script: sluglines)

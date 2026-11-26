@@ -160,7 +160,8 @@ final class ResolvePieceInLanguageTests: XCTestCase {
         let script = FountainTokenizer().parse("A cold open.\n\nINT. KITCHEN - DAY\n\nShe pours.")
         let read = ResolveScope.pieceInLanguage(docId: "doc-s", language: "sr")
         let source = ResolveScope.piece(docId: "doc-s", includesBookLevel: false)
-        let held = ResolvePane.script(for: read, structure: scripts, openDocId: "doc-s", script: script)
+        let held = ResolvePane.script(for: read, structure: scripts, openDocId: "doc-s",
+                                      script: WindowScript(docId: "doc-s", script: script))
         XCTAssertNotNil(held, "the open script read in Serbian groups by scene")
         XCTAssertTrue(ResolvePane.groupsByScene(source, structure: scripts, openDocId: "doc-s"),
                       "control: its source scope does")
@@ -173,9 +174,10 @@ final class ResolvePieceInLanguageTests: XCTestCase {
             sequences: ["doc-s": ["aa11", "bb22", "cc33"]],
             paragraphText: ["aa11": "A cold open.", "bb22": "INT. KITCHEN - DAY", "cc33": "She pours."],
             unreadableDocIds: [])
-        let scenes = ResolvePane.scenes(snapshot, scope: read, groupsByScene: held != nil)
+        let scenes = ResolvePane.scenes(snapshot, scope: read, groupsByScene: held != nil, windowScript: held)
         XCTAssertEqual(scenes.index, ["bb22": 0, "cc33": 0])
-        XCTAssertEqual(scenes.index, ResolvePane.scenes(snapshot, scope: source, groupsByScene: true).index,
+        XCTAssertEqual(scenes.index, ResolvePane.scenes(snapshot, scope: source, groupsByScene: true,
+                                                        windowScript: held).index,
                        "the same scenes as its source")
         let groups = ResolveGrouping.groups(snapshot, scope: read, structure: scripts,
                                             sceneIndex: scenes.index, sceneTitles: scenes.titles,
@@ -203,11 +205,13 @@ final class ResolvePieceInLanguageTests: XCTestCase {
         for scope in [ResolveScope.pieceInLanguage(docId: "doc-b", language: "sr"),
                       .piece(docId: "doc-b", includesBookLevel: false)] {
             // The window holds A's parse; it is a refresh trigger, never grouped by.
-            XCTAssertTrue(ResolvePane.script(for: scope, structure: scriptsAB, openDocId: "doc-b",
-                                             script: windowHoldsA) != nil, "premise: \(scope)")
+            let held = ResolvePane.script(for: scope, structure: scriptsAB, openDocId: "doc-b",
+                                          script: WindowScript(docId: "doc-a", script: windowHoldsA))
+            XCTAssertNotNil(held, "premise: \(scope)")
             let scenes = ResolvePane.scenes(
                 snapshot, scope: scope,
-                groupsByScene: ResolvePane.groupsByScene(scope, structure: scriptsAB, openDocId: "doc-b"))
+                groupsByScene: ResolvePane.groupsByScene(scope, structure: scriptsAB, openDocId: "doc-b"),
+                windowScript: held)
             XCTAssertEqual(scenes.titles, ["INT. KITCHEN - DAY", "EXT. GARDEN - DUSK"], "\(scope)")
             XCTAssertEqual(scenes.index, ["aa11": 0, "bb22": 0, "cc33": 1, "dd44": 1], "\(scope)")
             let groups = ResolveGrouping.groups(snapshot, scope: scope, structure: scriptsAB,
@@ -216,6 +220,48 @@ final class ResolvePieceInLanguageTests: XCTestCase {
             XCTAssertEqual(groups.map(\.key), [.scene(docId: "doc-b", headingParagraphId: "cc33")], "\(scope)")
             XCTAssertEqual(groups.map(\.title), ["EXT. GARDEN - DUSK"], "\(scope)")
         }
+    }
+
+    /// **Typing in the open screenplay costs no second parse** (shell p5a
+    /// closing round B): each ~350 ms edge posts the editor's parse, naming
+    /// its piece, and both the list and the tree's presence read take their
+    /// scenes from it — zero parses of their own. The control: the same piece
+    /// read in a language parses once per text, the list and presence
+    /// sharing that one parse.
+    func test_typingInTheOpenScreenplayCostsNoSecondParse() {
+        let scripts = [StructureItem(id: "doc-s", title: "Script", type: .document, path: "script.fountain")]
+        let list = ResolveScope.piece(docId: "doc-s", includesBookLevel: false)
+        let presence = ResolveScope.piece(docId: "doc-s", includesBookLevel: true)
+        let parses = SceneParseMemo.parseCount
+        for typed in ["She pours.", "She pours tea.", "She pours tea.\n\nEXT. GARDEN - DUSK"] {
+            let paragraphs = ["aa11": "INT. KITCHEN - DAY", "bb22": typed]
+            let snapshot = ResolveSnapshot(items: [], sequences: ["doc-s": ["aa11", "bb22"]],
+                                           paragraphText: paragraphs, unreadableDocIds: [])
+            let edge = WindowScript(docId: "doc-s",
+                                    script: FountainTokenizer().parse("INT. KITCHEN - DAY\n\n" + typed))
+            let listed = ResolvePane.scenes(
+                snapshot, scope: list,
+                groupsByScene: ResolvePane.groupsByScene(list, structure: scripts, openDocId: "doc-s"),
+                windowScript: ResolvePane.script(for: list, structure: scripts, openDocId: "doc-s", script: edge))
+            let marked = ResolvePresence.sceneIndex(
+                snapshot, scope: presence, structure: scripts,
+                windowScript: ResolvePane.script(for: presence, structure: scripts, openDocId: nil, script: edge))
+            XCTAssertEqual(listed.titles.first, "INT. KITCHEN - DAY")
+            XCTAssertEqual(listed.index, marked)
+        }
+        XCTAssertEqual(SceneParseMemo.parseCount, parses, "typing parsed nothing beyond the editor's own parse")
+
+        // The control: read in Serbian, the piece is parsed — once per text,
+        // shared by the list and presence.
+        let snapshot = ResolveSnapshot(items: [], sequences: ["doc-s": ["aa11", "bb22"]],
+                                       paragraphText: ["aa11": "INT. KITCHEN - DAY", "bb22": "Once."],
+                                       unreadableDocIds: [])
+        let read = ResolveScope.pieceInLanguage(docId: "doc-s", language: "sr")
+        let edge = WindowScript(docId: "doc-s", script: FountainTokenizer().parse("INT. KITCHEN - DAY\n\nOnce."))
+        for _ in 0..<2 {
+            _ = ResolvePane.scenes(snapshot, scope: read, groupsByScene: true, windowScript: edge)
+        }
+        XCTAssertEqual(SceneParseMemo.parseCount, parses + 1, "a piece read in a language parses its source once")
     }
 
     /// **An edition open with a chapter faced is that chapter in that

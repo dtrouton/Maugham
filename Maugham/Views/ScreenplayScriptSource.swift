@@ -121,3 +121,38 @@ enum ScreenplayScriptSource {
         return FountainTokenizer().parse(text)
     }
 }
+
+/// **The window's parsed screenplay, with the piece it parses** (shell p5a
+/// closing round B). `ProjectWindow`'s one value (`lastParsedScript` reads
+/// its `script`): the editor's post says which document it parsed
+/// (`payload`), the op-log derivation names its one script. To resolve uses
+/// the parse only for that piece (`ResolvePane.scenes`) — a parse is never
+/// read as another piece's, whatever the window heard last.
+struct WindowScript: Equatable {
+    /// The piece parsed; nil where the producer could not say (never matched).
+    let docId: String?
+    let script: FountainScript
+
+    static let docIdKey = "document_id"
+
+    /// What the editor's `.maughamScriptDidUpdate` post carries.
+    static func payload(docId: String?) -> [AnyHashable: Any] {
+        docId.map { [docIdKey: $0] } ?? [:]
+    }
+
+    /// The window's value from a post: its object, and the piece it names.
+    static func of(_ note: Notification) -> WindowScript? {
+        guard let script = note.object as? FountainScript else { return nil }
+        return WindowScript(docId: note.userInfo?[docIdKey] as? String, script: script)
+    }
+}
+
+extension ScreenplayScriptSource {
+    /// `derive`, naming the one script it parsed.
+    @MainActor
+    static func deriveWindowScript(store: ProjectStore) -> WindowScript? {
+        guard let script = derive(store: store) else { return nil }
+        let docId = TreeWalk.first(in: store.manifest.structure, where: { $0.type == .document })?.id
+        return WindowScript(docId: docId, script: script)
+    }
+}

@@ -129,7 +129,7 @@ struct ResolveWalkHold {
 /// buffers compare line by line (equal copies of one buffer short-circuit).
 struct ResolveRegroupKey: Equatable {
     let read: ResolveReadKey
-    let script: FountainScript?
+    let script: WindowScript?
 }
 
 /// **"This list may be incomplete"** — what the view shows whenever the

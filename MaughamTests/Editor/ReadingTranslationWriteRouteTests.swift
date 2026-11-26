@@ -345,12 +345,15 @@ final class ReadingTranslationWriteRouteTests: XCTestCase {
             theme: .light, typography: .screenplayDefaults,
             typewriterScroll: false, sentenceFocus: false, paragraphFocus: false)
         coordinator.scriptOriginProjectId = "proj-mount"
+        coordinator.documentId = "doc-house"
         var words: [Int] = []
         coordinator.onMetricsChanged = { words.append($0.wordCount) }
         var scripts: [FountainScript] = []
+        var parsed: [WindowScript] = []
         let token = NotificationCenter.default.addObserver( // adr-0021-ok: capture-only observer counting the scoped script posts
             forName: .maughamScriptDidUpdate, object: nil, queue: nil) { note in
             if let script = note.object as? FountainScript { scripts.append(script) }
+            if let window = WindowScript.of(note) { parsed.append(window) }
         }
         defer { NotificationCenter.default.removeObserver(token) }
         let tv = NSTextView(frame: NSRect(x: 0, y: 0, width: 600, height: 600))
@@ -368,6 +371,8 @@ final class ReadingTranslationWriteRouteTests: XCTestCase {
                                           text: sourceText, undoCoherentApply: false, textIsTranslation: false)
         XCTAssertEqual(scripts.count, 1, "the source's script, once it has landed")
         XCTAssertEqual(scripts.last?.sceneSummaries().count, 1)
+        XCTAssertEqual(parsed.last?.docId, "doc-house",
+                       "the post names the piece it parsed, so To resolve never reads it as another's")
         XCTAssertEqual(words.last, 7, "and its counts")
     }
 

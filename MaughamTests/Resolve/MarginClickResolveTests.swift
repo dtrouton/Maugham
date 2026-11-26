@@ -48,7 +48,8 @@ final class MarginClickResolveTests: XCTestCase {
 
     /// A chapter of forty paragraphs, a note on each, open in the editor
     /// (registered) with the caret in the first.
-    private func openChapter() async throws -> (ProjectStore, DocumentStore, Document) {
+    private func openChapter(author: (Int) -> String = { _ in "Denver" })
+        async throws -> (ProjectStore, DocumentStore, Document) {
         let path = "manuscript/c1.md"
         try (1...Self.count).map(Self.words).joined(separator: "\n\n")
             .write(to: projectURL.appendingPathComponent(path), atomically: true, encoding: .utf8)
@@ -64,9 +65,9 @@ final class MarginClickResolveTests: XCTestCase {
             url: projectURL.appendingPathComponent(path), actor: .author, session: "s", presenter: nil,
             burstIdle: .seconds(3600), burstMax: .seconds(3600))
         documentStore.register(document: doc, for: path)
-        for pid in doc.sequence {
+        for (index, pid) in doc.sequence.enumerated() {
             _ = try await doc.addReviewerAnnotation(kind: .comment, paragraphId: pid, span: nil,
-                                                    body: "a note", authorName: "Denver")
+                                                    body: "note \(index + 1) here", authorName: author(index))
         }
         await documentStore.postureSettled()
         doc.cursorLocation = 0
@@ -178,6 +179,64 @@ final class MarginClickResolveTests: XCTestCase {
         }
         XCTAssertTrue(back, "the caret moved: its group is the list's again")
         await doc.close()
+    }
+
+    // MARK: - Closing round B, M5
+
+    /// **A clicked mark always shows its note** — through the column as the
+    /// window hands the click over: a dense list filtered to Mine hides
+    /// Ada's note on ¶36, whose group is collapsed (dense: nothing opens by
+    /// default). The click naming that note gives way to its source, opens
+    /// the group, scrolls there and marks the note's row.
+    func test_aClickedMarkShowsItsNoteThroughAHidingFilterAndACollapsedGroup() async throws {
+        try requireAssistiveClient()
+        let (store, documentStore, doc) = try await openChapter(author: { $0 % 2 == 0 ? "Denver" : "Ada" })
+        let prefs = UserPreferences(defaults: UserDefaults(suiteName: "MarginClick-\(UUID())")!)
+        prefs.collaboratorDisplayName = "Denver"
+        let probe = RightColumnFixture.Probe(
+            position: .resolve, subject: WindowSubject(open: .item(Self.docId), faces: .item(Self.docId)))
+        probe.resolveRequest = .filter(.mine)
+        let window = TestWindow.mount(
+            RightColumnFixture.pane(store: store, documentStore: documentStore, probe: probe).environment(prefs),
+            size: CGSize(width: 340, height: 600))
+        windows.append(window)
+        let filtered = await pumpUntil(deadline: 5) {
+            probe.resolveRequest == nil && !(((try? self.headers(in: window)) ?? []).isEmpty)
+        }
+        XCTAssertTrue(filtered, "premise: the list read, filtered to Mine")
+        let target = doc.sequence[35]
+        let note = try XCTUnwrap(doc.annotations(filter: AnnotationFilter(statuses: [.open]))
+            .first { $0.paragraphId == target })
+        XCTAssertFalse(try labels(in: window).contains { $0.contains("note 36 here") },
+                       "premise: Ada's note on ¶36 is hidden by Mine")
+
+        probe.resolveRequest = .showParagraph(docId: Self.docId, paragraphId: target, annotationId: note.id)
+        let shown = await pumpUntil(deadline: 5) {
+            ((try? self.selectedLabels(in: window)) ?? []).contains { $0.contains("note 36 here") }
+        }
+        XCTAssertTrue(shown, "the note's row is shown and marked; selected: "
+                      + "\((try? selectedLabels(in: window)) ?? [])")
+        XCTAssertTrue(try selectedHeaders(in: window).contains { $0.contains("number 36 ") },
+                      "its group is the caret group, opened")
+        await doc.close()
+    }
+
+    private func labels(in window: NSWindow) throws -> [String] {
+        try axElements(in: window).compactMap { axAttribute($0, "accessibilityLabel") as? String }
+    }
+
+    /// Every element VoiceOver reads as selected.
+    private func selectedLabels(in window: NSWindow) throws -> [String] {
+        try axElements(in: window).compactMap { element -> String? in
+            guard let object = element as? NSObject,
+                  object.responds(to: NSSelectorFromString("isAccessibilitySelected")),
+                  (object.value(forKey: "isAccessibilitySelected") as? NSNumber)?.boolValue == true
+            else { return nil }
+            let label = axAttribute(element, "accessibilityLabel") as? String ?? ""
+            let children = (axAttribute(element, "accessibilityChildren") as? [AnyObject] ?? [])
+                .compactMap { axAttribute($0, "accessibilityLabel") as? String ?? axAttribute($0, "accessibilityValue") as? String }
+            return ([label] + children).joined(separator: " | ")
+        }
     }
 
     // MARK: - Fix round 2

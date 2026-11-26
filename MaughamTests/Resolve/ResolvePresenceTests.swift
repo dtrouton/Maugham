@@ -199,9 +199,9 @@ final class ResolvePresenceTests: XCTestCase {
                                        unreadableDocIds: [])
         let scripts = [StructureItem(id: "doc-s", title: "Scene 1", type: .document, path: "script.fountain")]
         let index = ResolvePresence.sceneIndex(snapshot, scope: .piece(docId: "doc-s", includesBookLevel: true),
-                                               structure: scripts)
+                                               structure: scripts, windowScript: nil)
         XCTAssertEqual(index, ["bb22": 0])
-        XCTAssertNil(ResolvePresence.sceneIndex(snapshot, scope: book, structure: structure),
+        XCTAssertNil(ResolvePresence.sceneIndex(snapshot, scope: book, structure: structure, windowScript: nil),
                      "a Book of chapters has no scenes")
     }
 

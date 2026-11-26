@@ -192,10 +192,12 @@ final class MarginMountedTests: XCTestCase {
                      "the text keeps every other click")
 
         var heard: [(String, String)] = []
+        var notes: [String?] = []
         let token = NotificationCenter.default.addObserver(  // adr-0021-ok: a test observing the post, not a production receiver
             forName: .maughamShowParagraphInResolve, object: nil, queue: nil) { note in
                 if let asked = MaughamEvent.paragraphInResolve(of: note.userInfo) {
                     heard.append((asked.docId, asked.paragraphId))
+                    notes.append(MaughamEvent.marginAnnotationId(of: note.userInfo))
                 }
             }
         defer { NotificationCenter.default.removeObserver(token) }
@@ -206,6 +208,12 @@ final class MarginMountedTests: XCTestCase {
         XCTAssertTrue(elements[0].accessibilityPerformPress())
         XCTAssertEqual(heard.map(\.0), ["doc-a"])
         XCTAssertEqual(heard.map(\.1), ["bb22"])
+        XCTAssertEqual(notes, [nil], "a tick names no note")
+        // The one-note dot's press names its note (closing round B, M5), so
+        // To resolve shows THAT note whatever its filter.
+        XCTAssertTrue(elements[1].accessibilityPerformPress())
+        XCTAssertEqual(heard.map(\.1), ["bb22", "cc33"])
+        XCTAssertEqual(notes, [nil, "n1"])
         XCTAssertEqual(s.textView.selectedRange(), NSRange(location: 3, length: 0), "the caret did not move")
         XCTAssertEqual(s.textView.enclosingScrollView?.contentView.bounds.origin, origin, "nor the scroll")
     }
@@ -347,6 +355,13 @@ final class MarginMountedTests: XCTestCase {
         XCTAssertEqual(spoken.filter(isBadge).count, 2, "the badges: \(spoken)")
         XCTAssertTrue(spoken.contains("The text view's own"), "kept: \(spoken)")
         XCTAssertTrue(spoken.filter(marginLabels.contains).isEmpty, "no margin over a translation: \(spoken)")
+        // The same badge elements answer every read (closing round B), so
+        // VoiceOver's cursor survives a re-read.
+        let badgeOverlay = try XCTUnwrap(s.coordinator.translationBadgeOverlay)
+        let firstRead = try XCTUnwrap(badgeOverlay.accessibilityChildren() as? [NSObject])
+        let secondRead = try XCTUnwrap(badgeOverlay.accessibilityChildren() as? [NSObject])
+        XCTAssertEqual(firstRead.count, 2)
+        XCTAssertTrue(zip(firstRead, secondRead).allSatisfy { $0 === $1 }, "the same elements, not new ones")
 
         // Both at once (forced — production empties the margin while a
         // translation holds the buffer): the rule unions, never replaces.
@@ -358,6 +373,15 @@ final class MarginMountedTests: XCTestCase {
         spoken = spokenFromTheTextView(s.textView)
         XCTAssertEqual(spoken.filter(isBadge).count, 2, "both: \(spoken)")
         XCTAssertFalse(spoken.filter(marginLabels.contains).isEmpty, "both: \(spoken)")
+        XCTAssertTrue(spoken.contains("The text view's own"), "kept: \(spoken)")
+
+        // Back to Source: no badge is spoken any more (closing round B).
+        EditorSurface.reconcileTextBuffer(textView: s.textView, coordinator: s.coordinator,
+                                          translationLanguage: nil, text: Self.text,
+                                          undoCoherentApply: false)
+        s.coordinator.setTranslationBadges(.empty)
+        spoken = spokenFromTheTextView(s.textView)
+        XCTAssertFalse(spoken.contains(where: isBadge), "back in Source, no badge: \(spoken)")
         XCTAssertTrue(spoken.contains("The text view's own"), "kept: \(spoken)")
     }
 

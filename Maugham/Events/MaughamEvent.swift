@@ -252,9 +252,19 @@ enum MaughamEvent {
     /// **A margin mark was clicked** (shell p5 Task 2): the key window's To
     /// resolve shows `paragraphId`'s group, revealing a hidden right column —
     /// a click is a deliberate act. The editor receives nothing.
-    static func postShowParagraphInResolve(docId: String, paragraphId: String) {
-        post(.maughamShowParagraphInResolve, to: .keyWindow,
-             payload: [annotationDocIdKey: docId, marginParagraphIdKey: paragraphId])
+    static func postShowParagraphInResolve(docId: String, paragraphId: String, annotationId: String? = nil) {
+        var payload: [AnyHashable: Any] = [annotationDocIdKey: docId, marginParagraphIdKey: paragraphId]
+        if let annotationId { payload[marginAnnotationIdKey] = annotationId }
+        post(.maughamShowParagraphInResolve, to: .keyWindow, payload: payload)
+    }
+
+    /// Payload key for `.maughamShowParagraphInResolve`: the note whose dot
+    /// was clicked, when the mark is one note's.
+    static let marginAnnotationIdKey = "annotation_id"
+
+    /// The note a margin click names, or nil (a tick, or several notes' dot).
+    static func marginAnnotationId(of userInfo: [AnyHashable: Any]?) -> String? {
+        userInfo?[marginAnnotationIdKey] as? String
     }
 
     /// What a `.maughamShowParagraphInResolve` asks, or nil.

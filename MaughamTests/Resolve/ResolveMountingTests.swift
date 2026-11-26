@@ -189,7 +189,7 @@ final class ResolveMountingTests: XCTestCase {
         let right = try SourceTree.sourceOfType("RightColumn", under: ["Maugham"])
         XCTAssertTrue(right.contains("onShowNotes: { _ in position = .resolve }"),
                       "a figure's Show notes selects To resolve")
-        XCTAssertTrue(right.contains("script: lastParsedScript"),
+        XCTAssertTrue(right.contains("script: windowScript"),
                       "the window's parse reaches the list for scene grouping")
         for wired in ["onTravel:", "drawsFigure: drawsFigure", "revealFigure: revealFigure",
                       "revealFigureCell:", "request: $resolveRequest",

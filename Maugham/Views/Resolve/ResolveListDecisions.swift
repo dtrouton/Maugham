@@ -98,7 +98,7 @@ extension ResolvePane {
     /// The whole key the view's `.task(id:)` runs on.
     static func listKey(scope: ResolveScope, annotationsToken: Int, store: ProjectStore,
                         documentStore: DocumentStore, diagnostics: DiagnosticsStore?,
-                        localName: String, script: FountainScript?,
+                        localName: String, script: WindowScript?,
                         presence: ResolvePresence.BookReading? = nil,
                         figureChanges: [ResolveFigureChange]) -> ResolveListKey {
         ResolveListKey(
@@ -275,38 +275,47 @@ extension ResolvePane {
         return isBook || docId == openDocId || isTheOnlyDocument
     }
 
-    /// The window's script where the scope groups by scene — a refresh
-    /// trigger only (an open script's parse arriving re-reads the list).
-    /// Its CONTENT is never grouped by: it is whatever the window parsed
-    /// last, which can be another script's (`scenes`).
+    /// The window's script where the scope groups by scene — the list's and
+    /// the presence read's refresh trigger, and the parse `scenes` reuses
+    /// when it is the scope piece's own.
     static func script(for scope: ResolveScope, structure: [StructureItem], openDocId: String?,
-                       script: FountainScript?) -> FountainScript? {
+                       script: WindowScript?) -> WindowScript? {
         groupsByScene(scope, structure: structure, openDocId: openDocId) ? script : nil
     }
 
     /// **A screenplay's scenes in To resolve**: each paragraph's scene and
-    /// the sluglines, parsed from the scope's OWN piece as the snapshot holds
-    /// it — its source sequence and text, live for the open piece, from the
-    /// op log for a closed one — never from the window's last parse, which a
-    /// piece opened straight into a language never replaces (shell p5 Task 5
-    /// fix round 1). The same display text `ParagraphOffsets.starts` counts
-    /// in, so both sides share one coordinate system. One parse per regroup,
-    /// never per row (tripwire 4). The one rule `regroup` and
-    /// `ResolvePresence.sceneIndex` both read.
-    nonisolated static func scenes(_ snapshot: ResolveSnapshot, scope: ResolveScope,
-                                   groupsByScene: Bool) -> (index: [String: Int]?, titles: [String]) {
+    /// the sluglines of the scope's OWN piece (shell p5 Task 5 fix round 1;
+    /// closing round B).
+    ///
+    /// - The window's parse, when it names the scope piece and the piece is
+    ///   read in Source: the editor's own parse, so typing pays no second one.
+    /// - Otherwise — a closed piece, a piece read in a language, or a parse
+    ///   of another piece (a script opened straight into a language posts
+    ///   none, so the window can hold another's) — the piece parsed from the
+    ///   snapshot's source sequence and text (`ParagraphOffsets.starts`'
+    ///   coordinate system), memoized on (docId, text) for the list and the
+    ///   presence read alike (`SceneParseMemo`).
+    ///
+    /// Once per regroup or remark, never per row (tripwire 4). The one rule
+    /// `regroup` and `ResolvePresence.sceneIndex` both read.
+    static func scenes(_ snapshot: ResolveSnapshot, scope: ResolveScope, groupsByScene: Bool,
+                       windowScript: WindowScript?) -> (index: [String: Int]?, titles: [String]) {
         guard groupsByScene else { return (nil, []) }
-        let docId: String
+        let docId: String, inSource: Bool
         switch scope {
-        case .piece(let id, _), .pieceInLanguage(let id, _): docId = id
+        case .piece(let id, _): (docId, inSource) = (id, true)
+        case .pieceInLanguage(let id, _): (docId, inSource) = (id, false)
         case .pieces, .figure, .edition, .elsewhere, .outside: return (nil, [])
         }
         let sequence = snapshot.sequences[docId] ?? []
         let starts = ParagraphOffsets.starts(sequence: sequence, paragraphs: snapshot.paragraphText)
-        let text = sequence.compactMap { snapshot.paragraphText[$0] }
-            .map(RenderFilter.stripTaskAnchorsInline)
-            .joined(separator: "\n\n")
-        let summaries = FountainTokenizer().parse(text).sceneSummaries()
+        let summaries: [FountainScript.SceneSummary]
+        if inSource, let windowScript, windowScript.docId == docId {
+            summaries = windowScript.script.sceneSummaries()
+        } else {
+            summaries = SceneParseMemo.summaries(docId: docId, sequence: sequence,
+                                                 paragraphs: snapshot.paragraphText)
+        }
         return (ParagraphOffsets.sceneIndex(starts: starts,
                                             sceneStarts: summaries.map(\.line.range.location)),
                 summaries.map(\.line.content))
@@ -361,20 +370,26 @@ extension ResolvePane {
             return focusFinding(docId: docId, itemId: itemId, groups: groups, chips: chips,
                                 activePassId: activePassId, dense: dense, selection: selection,
                                 choices: choices, figureOwners: figureOwners, localName: localName)
-        case .showParagraph(let docId, let paragraphId):
-            return showParagraph(docId: docId, paragraphId: paragraphId, groups: groups,
+        case .showParagraph(let docId, let paragraphId, let annotationId):
+            return showParagraph(docId: docId, paragraphId: paragraphId, annotationId: annotationId,
+                                 groups: groups,
                                  sceneIndex: sceneIndex, chips: chips, dense: dense,
                                  selection: selection, choices: choices, localName: localName)
         }
     }
 
-    /// **A margin mark's click** (shell p5 Task 2): the paragraph's group —
-    /// found by the caret's own rule (`ResolveFilter.cursorGroup`), so a
-    /// screenplay's is its scene's — opens, the list scrolls to it, and it
-    /// becomes the caret group until the caret itself moves. A filter that
-    /// hides every item of it gives way as a focus's does. A paragraph the
-    /// list has nothing on changes nothing.
-    static func showParagraph(docId: String, paragraphId: String, groups: [ResolveGroup],
+    /// **A margin mark's click** (shell p5 Task 2; closing round B, M5): the
+    /// paragraph's group — found by the caret's own rule
+    /// (`ResolveFilter.cursorGroup`), so a screenplay's is its scene's —
+    /// opens (a collapsed group too), the list scrolls to it, it becomes the
+    /// caret group until the caret itself moves, and the clicked mark's item
+    /// is marked: the dot's own note (`annotationId`), else the paragraph's
+    /// first item. **A clicked mark always shows its item**: a filter that
+    /// hides it gives way to everything — in a dense list, which always has
+    /// one chip, to that item's own source, never another item's. A
+    /// paragraph the list has nothing on changes nothing.
+    static func showParagraph(docId: String, paragraphId: String, annotationId: String? = nil,
+                              groups: [ResolveGroup],
                               sceneIndex: [String: Int]?, chips: [ResolveSource], dense: Bool,
                               selection: Set<ResolveSource>, choices: [ResolveGroup.Key: Bool],
                               localName: String) -> ResolveRequestOutcome {
@@ -385,14 +400,25 @@ extension ResolvePane {
         }
         var opened = choices
         opened[key] = true
+        let target = clickedItem(in: group, paragraphId: paragraphId, annotationId: annotationId)
         var shown = selection
         let standing = ResolveFilter.normalized(selection, chips: chips, dense: dense)
-        if ResolveFilter.visible(group.items, selection: standing, localName: localName).isEmpty {
-            shown = dense
-                ? group.items.first.map { [ResolveFilter.source(of: $0, localName: localName)] } ?? []
-                : []
+        if let target, ResolveFilter.visible([target], selection: standing, localName: localName).isEmpty {
+            shown = dense ? [ResolveFilter.source(of: target, localName: localName)] : []
         }
-        return ResolveRequestOutcome(selection: shown, choices: opened, scrollTo: key)
+        return ResolveRequestOutcome(selection: shown, choices: opened, scrollTo: key, marked: target?.id)
+    }
+
+    /// The item a margin mark stands for in its group: the clicked dot's
+    /// note, else the first item anchored to that paragraph, else (a
+    /// paragraph whose items are all elsewhere in its scene) the group's first.
+    static func clickedItem(in group: ResolveGroup, paragraphId: String,
+                            annotationId: String?) -> ResolveItem? {
+        if let annotationId, let note = group.items.first(where: { item in
+            if case .note(let note) = item { return note.annotation.id == annotationId }
+            return false
+        }) { return note }
+        return group.items.first { $0.paragraphId == paragraphId } ?? group.items.first
     }
 
     /// The line a mark's jump says when its finding is no longer listed:

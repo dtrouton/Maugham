@@ -238,7 +238,7 @@ final class ResolvePaneTests: XCTestCase {
         let moved = ResolveReadKey(scope: .piece(docId: "doc-a", includesBookLevel: false),
                                    annotationsToken: 1, openPieces: [], projectTasksVersion: 0,
                                    diagnosticsVersion: 0, passes: [], localName: "Me", figureChanges: [])
-        let script = FountainTokenizer().parse("INT. KITCHEN - DAY\n\nShe waits.")
+        let script = WindowScript(docId: "doc-a", script: FountainTokenizer().parse("INT. KITCHEN - DAY\n\nShe waits."))
         let key = ResolveListKey(regroup: ResolveRegroupKey(read: read, script: nil), openTodos: 0)
         XCTAssertEqual(ResolvePane.refreshStep(key, last: nil), .read, "the first build reads")
         XCTAssertEqual(ResolvePane.refreshStep(
@@ -549,6 +549,70 @@ final class ResolvePaneTests: XCTestCase {
             selection: [.checks], choices: [:])
         XCTAssertNil(nothing.scrollTo)
         XCTAssertEqual(nothing.selection, [.checks])
+    }
+
+    /// **M5 (closing round B) — a clicked mark always shows its note.** A
+    /// dense list filtered to Mine hides both notes on ¶bb22; the dot
+    /// clicked is the one that is NOT the group's first. The filter gives
+    /// way to that note's own source (a dense list always has one chip —
+    /// never the group's first item's), its collapsed group opens, and its
+    /// row is the marked one. Small, the filter gives way to everything.
+    func test_aClickedMarkAlwaysShowsItsNote() throws {
+        let piece = ResolveScope.piece(docId: "doc-a", includesBookLevel: false)
+        let items = (0..<14).map { todo("t\($0)") }
+            + [note("n-check", pid: "bb22", runId: "run-1"), note("n-other", pid: "bb22")]
+        let built = groups(items, piece)
+        let paragraph = ResolveGroup.Key.paragraph(docId: "doc-a", paragraphId: "bb22")
+        let group = try XCTUnwrap(built.first { $0.key == paragraph })
+        let first = try XCTUnwrap(group.items.first)
+        let clicked = try XCTUnwrap(group.items.first { $0.id != first.id })
+        guard case .note(let clickedNote) = clicked else { return XCTFail("premise: a note") }
+        let chips: [ResolveSource] = [.mine, .checks, .others]
+        XCTAssertNotEqual(ResolveFilter.source(of: first, localName: ""),
+                          ResolveFilter.source(of: clicked, localName: ""),
+                          "premise: the group's first item is of another source")
+
+        let dense = ResolvePane.apply(
+            .showParagraph(docId: "doc-a", paragraphId: "bb22", annotationId: clickedNote.annotation.id),
+            groups: built, sceneIndex: nil, chips: chips, activePassId: nil, dense: true,
+            selection: [.mine], choices: [paragraph: false])
+        XCTAssertEqual(dense.selection, [ResolveFilter.source(of: clicked, localName: "")],
+                       "the filter gives way to the clicked note's source")
+        XCTAssertFalse(ResolveFilter.visible([clicked], selection: dense.selection, localName: "").isEmpty)
+        XCTAssertEqual(dense.choices[paragraph], true, "a collapsed group opens")
+        XCTAssertEqual(dense.scrollTo, paragraph)
+        XCTAssertEqual(dense.marked, clicked.id, "its row is the marked one")
+
+        let small = ResolvePane.apply(
+            .showParagraph(docId: "doc-a", paragraphId: "bb22", annotationId: clickedNote.annotation.id),
+            groups: built, sceneIndex: nil, chips: chips, activePassId: nil, dense: false,
+            selection: [.mine], choices: [:])
+        XCTAssertEqual(small.selection, [], "small: the filter gives way to everything")
+        XCTAssertEqual(small.marked, clicked.id)
+
+        // A tick (no note named) marks the paragraph's first item; a filter
+        // that already shows it stands.
+        let tick = ResolvePane.apply(
+            .showParagraph(docId: "doc-a", paragraphId: "bb22"), groups: built, sceneIndex: nil,
+            chips: chips, activePassId: nil, dense: true,
+            selection: [ResolveFilter.source(of: first, localName: "")], choices: [:])
+        XCTAssertEqual(tick.marked, first.id)
+        XCTAssertEqual(tick.selection, [ResolveFilter.source(of: first, localName: "")])
+    }
+
+    /// **M5 — the click's delivery carries the dot's note**: the event the
+    /// overlay posts names it, and the window's answer reveals the column on
+    /// To resolve with the note in the request.
+    func test_theClicksDeliveryCarriesTheDotsNote() throws {
+        let payload: [AnyHashable: Any] = [MaughamEvent.annotationDocIdKey: "doc-a",
+                                           MaughamEvent.marginParagraphIdKey: "bb22",
+                                           MaughamEvent.marginAnnotationIdKey: "n-other"]
+        let answer = try XCTUnwrap(MarginMirrorModifier.paragraphJump(
+            payload, subject: WindowSubject(open: .item("doc-a"), faces: .item("doc-a")), structure: structure))
+        XCTAssertEqual(answer.jump, ProjectWindow.StrainJump(
+            showInspector: true, position: .resolve,
+            request: .showParagraph(docId: "doc-a", paragraphId: "bb22", annotationId: "n-other")),
+            "a hidden column is revealed on To resolve, holding the note")
     }
 
     /// **I2** — a click's group holds as the caret group while the caret
