@@ -17,7 +17,7 @@ struct WelcomeSlide: Identifiable, Equatable {
         .init(id: .focus,      symbol: "scope",               heading: "Disappear into the page",
               body: "Typewriter scrolling, sentence focus, smart dashes and quotes. ⌘\\ clears the chrome away from the page."),
         .init(id: .organize,   symbol: "rectangle.3.group",   heading: "Keep the threads",
-              body: "Beside the draft sit two places. To resolve holds everything waiting on you. Brief holds what the piece in front of you is for, in your own words."),
+              body: "Beside the draft: To resolve holds everything waiting on you, Brief holds what the piece in front of you is for, in your own words, and Pulled up holds one thing you read beside it."),
         .init(id: .collaborate,symbol: "bubble.left.and.text.bubble.right", heading: "A reader who never rewrites you",
               body: "Claude can read your book, leave notes and do research, but it never edits your manuscript. That stays yours."),
         .init(id: .publish,    symbol: "books.vertical",      heading: "Publish, beautifully",

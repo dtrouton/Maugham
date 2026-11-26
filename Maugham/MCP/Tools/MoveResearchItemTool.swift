@@ -15,7 +15,7 @@ public enum MoveResearchItemTool: MCPTool {
     public static let description =
         "Move research items between the whole book's research (target=\"shared\": " +
         "the binder's Research section), a research group, and a Collection piece's " +
-        "research folder (target_document_id; in a novel, give a note to a piece with " +
+        "research folder (target_document_id; outside a Collection, give a note to a piece with " +
         "link_research instead). research_ids accepts a batch. " +
         "Give exactly one of: target=\"shared\", target_group_id, or " +
         "target_document_id (a loose piece). Whole groups move with their contents. " +

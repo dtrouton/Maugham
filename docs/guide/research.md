@@ -7,6 +7,8 @@ Research is everything that isn't manuscript: character sheets, location photos,
 
 A note linked to two chapters shows in both folds. One that no chapter holds is the book's.
 
+**In an older project, notes you linked to a chapter are now in that chapter's fold**, not the Research section. The section says how many went, in one quiet line at its foot: *12 notes are with their chapters — open a chapter’s fold to see them.* (In a Collection, "pieces".) With none of the book's own left, it reads *No whole-book research.* followed by the same line.
+
 ### Making research
 
 - **New Note** — right-click the Research section, a group in it, or a chapter's fold, and choose **New Note**. Rename it inline; the file on disk renames with it.

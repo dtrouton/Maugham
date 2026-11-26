@@ -57,6 +57,9 @@ final class HelpWordsCensusTests: XCTestCase {
         "Maugham/Resources/fountain-syntax.md": [
             "Marlowe sits at his desk.": "a scene's action line in the syntax example, not the retired desk",
         ],
+        "docs/guide/reference.md": [
+            "⌘4 does nothing": "Keys that moved names the retired key to say it is gone (shell closing B2)",
+        ],
     ]
 
     func test_noBundledHelpUsesARetiredWord() throws {

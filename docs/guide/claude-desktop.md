@@ -5,7 +5,7 @@ Maugham ships a local MCP server. Once configured, Claude Desktop can read your 
 ### One-time setup
 
 1. Install Claude Desktop (claude.ai/download).
-2. Open Maugham. **Help → Set up Claude Desktop…**
+2. Open Maugham — no project needs to be open — and choose **Help → Set up Claude Desktop…**
 3. Click **Configure**. Maugham writes a small entry into Claude Desktop's config.
 4. Restart Claude Desktop.
 

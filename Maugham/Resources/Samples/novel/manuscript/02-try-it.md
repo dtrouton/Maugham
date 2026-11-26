@@ -12,7 +12,7 @@ What a chapter is going for is yours alone to say. When Claude reads your draft,
 
 ## The fold
 
-Look at this chapter's row in the binder. Clicking it opened its fold, which shows what the chapter draws on: a research note of its own, "The Rain and the Room", and a link to the last chapter. That is the chapter's fold.
+Look at this chapter's row in the binder. Clicking it opened its fold (if you came here by the arrow keys, which never open one, click its chevron), which shows what the chapter draws on: a research note of its own, "The Rain and the Room", and a link to the last chapter. That is the chapter's fold.
 
 Click the note. It opens on the right, in Pulled up, so you can read it and write in it while this chapter stays where it is. Click its row again to put it away.
 

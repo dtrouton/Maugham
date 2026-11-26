@@ -4,6 +4,8 @@
 
 The full list lives in the in-app cheatsheet: **⌘/** → Keyboard tab.
 
+**Keys that moved.** Coming from the last release, four keys do something else now. ⌘⌥H is macOS's own **Hide Others**, so pressing it for History hides your other apps: History is ⌃⌘H. ⌘R is always a check, of the piece you're typing in (with the Canvas or an edition in the centre, of the piece the right column is about); a round is ⌘⌃R (**Run the round**). ⌘⇧R is **Reread**, the check read cold. ⌘4 does nothing: editions are rows under **Editions** in the binder.
+
 The ones you'll use most:
 
 | Shortcut | Action |

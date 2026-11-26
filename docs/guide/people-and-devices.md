@@ -183,7 +183,7 @@ description of it has reached the book yet — and that a current Maugham adds o
 by the next time that device writes in the book. It doesn't guess whether it is a Mac or an
 iPhone.
 
-A person with a single machine is drawn exactly as before: every verb on the
+A person with a single machine is drawn as one row: every verb is on the
 person row.
 
 Every person carries **Rename…**, and so do you — on the person row for a

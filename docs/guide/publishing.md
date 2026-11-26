@@ -4,11 +4,11 @@ Maugham publishes your project to PDF, EPUB and Word (.docx), from its own **Com
 
 ### A deeply personal PDF
 
-The real power of the PDF output is the template. Claude co-authors a bespoke LaTeX template tuned to your typographic taste: your preferred font (from a `.otf` or `.ttf` you provide, or a system font via fontspec), your chapter-head styling, your drop caps, your ornaments. Ask Claude what you want — *"I'd like a classic serif feel with small-caps chapter titles and a fleuron between scenes"* — and it iterates on `preamble.tex` and `template.tex` until the rendered page looks right. PDF output is closed-loop: Claude edits the template, compiles, and reads the resulting page image directly, so it can see what changed.
+The real power of the PDF output is the template. Claude co-authors a bespoke LaTeX template tuned to your typographic taste: your preferred font (from a `.otf` or `.ttf` you provide, or one already on your Mac), your chapter-head styling, your drop caps, your ornaments. Ask Claude what you want — *"I'd like a classic serif feel with small-caps chapter titles and a fleuron between scenes"* — and it iterates on `preamble.tex` and `template.tex` until the rendered page looks right. PDF output is closed-loop: Claude edits the template, compiles, and reads the resulting page image directly, so it can see what changed.
 
 ### Clean EPUB
 
-The EPUB output produces a structurally clean file with one `<section>` per piece, embedded fonts, and a `styles.css` you can tune. Because EPUB rendering varies by reading application (Books, Kindle, Calibre), EPUB iteration is open-loop: Claude proposes a CSS change, compiles, and then you load the new `.epub` in your reader and describe what you see. Claude iterates from your description.
+The EPUB output produces a structurally clean file with each piece in its own section, embedded fonts, and a `styles.css` you can tune. Because EPUB rendering varies by reading application (Books, Kindle, Calibre), EPUB iteration is open-loop: Claude proposes a CSS change, compiles, and then you load the new `.epub` in your reader and describe what you see. Claude iterates from your description.
 
 ### Where outputs land
 
@@ -16,7 +16,7 @@ Compiled PDFs, EPUBs and Word files go in the project's `Exports/` folder, liste
 
 ### Editions and their pages
 
-Each language of the book is an edition, a row under **Editions** in the binder: the book's own language (**Source**) first, then each translation. Click one and the centre shows that edition's **Book** — the compiled PDF in its language, full width — with **Status** beside it in the toolbar. Click a chapter in the binder and the book scrolls to the page it starts on. A book compiled before this version says *Compile again to jump from the binder to the page*. Nothing compiled yet? The centre says *No compiled book yet*, with Compile… above it. If the list of publications can't be read, the centre says so and names the file: a book that can't be read is never reported as one you never made.
+Each language of the book is an edition, a row under **Editions** in the binder: the book's own language (**Source**) first, then each translation. Click one and the centre shows that edition's **Book** — the compiled PDF in its language, full width — with **Status** beside it in the toolbar. Click a chapter in the binder and the book scrolls to the page it starts on. A book that doesn't record where its chapters start says *Compile again to jump from the binder to the page*, beside **Compile…**. Nothing compiled yet? The centre says *No compiled book yet*, with Compile… above it. If the list of publications can't be read, the centre says so and names the file: a book that can't be read is never reported as one you never made.
 
 Where there's more than one compiled PDF of the edition, the header carries a picker: version and compile time, newest first, for comparing a proof against the last one. A new compile snaps back to the book you just made. EPUBs aren't listed — they're not pages the centre can draw — and they're in the Exports footer.
 
@@ -93,7 +93,7 @@ Every table is numbered — "Table 1", "Table 2" — across the whole book, capt
 
 **A table figure** (a table made with Insert ▸ Table, or converted from a pipe table, whose line reads `![Caption](../figures/cash.csv){#tbl:cash}`) is numbered "Table n" like a pipe table, and publishes its computed cells: every formula is worked out, and numbers and dates are formatted in the edition's language (a Spanish or Serbian edition prints its own decimal comma). Money keeps the book's currency in every edition: a report in pounds prints pounds in its Spanish edition too, with Spanish separators. The PDF repeats the header row on each page and rules the total row above; the EPUB and Word draw the same table, Word with a repeating header row. A table with no header row simply has none. A table figure that nothing in the book names isn't published, and pipe tables are unchanged. Column widths aren't published.
 
-**Table figure problems.** In a Report these stop a `compile` or `republish`; the book is not made until you fix them:
+**Table figure problems.** In a Report these stop a compile or a republish; the book is not made until you fix them:
 
 - *A formula error in a table* ("Table “cash” has an error in B4"): fix the cell in the table, then publish.
 - *A table reads a Research source that is gone*: bring the source back into Research, or change the cells that read it.

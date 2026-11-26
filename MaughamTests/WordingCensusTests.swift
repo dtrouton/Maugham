@@ -384,6 +384,10 @@ final class WordingCensusTests: XCTestCase {
         // by the project's word, and the undo refusal says "here".
         "answer notes in this piece", "to say this piece is yours",
         "Waiting for this piece to arrive", "started this piece \u{2014} it isn",
+        // The shell's closing round (A7, A9, B5): the strings it replaced.
+        "This belongs to another project", "\u{201D}\u{2019}s Brief", "Promote to Research for \u{201C}",
+        "Link to Another Script", "the task rebalance", "writes only task order", "a task written",
+        "Beside the draft sit two places",
     ]
 
     func test_theGuideQuotesNoReplacedAppString() throws {

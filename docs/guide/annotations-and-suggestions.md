@@ -51,7 +51,7 @@ A suggestion for part of a paragraph that you typed in yourself, and never accep
 
 Claude can leave the same kinds of note on a figure: a comment, a question or a craft note on the whole figure (a picture too), and a comment or question on one cell or a range of cells in a table. It can also suggest a new number or formula for one table cell. The note anchors to the cell's row and column, not to a position, so it follows the cell when rows or columns are inserted. If the cell's row or column is deleted the note is marked orphaned, and it comes back if you undo the delete.
 
-These notes appear in To resolve like any other, and the figure's details list each one with its address (*C3*, *C3:E3*). From To resolve you can **Reject**, **Stet**, **Archive**, **Reopen**, and reply or **Got it**. A suggested value to a cell shows its proposed value.
+These notes appear in To resolve like any other, and the figure's details list each one with its address (*C3*, *C3:E3*). From To resolve each answers as its kind does: **Got it** on a comment, **Reply…** on a question, **Accept** or **Reject…** on a craft note, **Reject…** on a suggested value; and **Stet** or **Archive** on any of them. A settled one comes back with **Reopen**. A suggested value to a cell shows its proposed value.
 
 There, **Accept** opens the table and selects the cell (a table already open selects it there); accept it there in the suggestion strip, which writes the value into the cell as you, with the suggestion's attribution recorded. A table kept in Research shows Accept greyed out with "In Research — bring it back to accept", and a deleted cell greys it with its reason. Clicking a figure note's row, or its line in the figure's details, opens the table and selects the cell the same way.
 
