@@ -79,7 +79,16 @@ struct ResolveFilterBar: View {
             }
             // **One menu, so the bar stays one row** (fix round 1, B2):
             // New To-Do and the selection toggle, behind one icon.
-            if showsSelectionMode || showsNewTodo {
+            // While selecting, the way out is on the bar itself, in the
+            // menu's place (re-review N6); the menu returns with Done.
+            if showsSelectionMode, selectionModeOn {
+                Button(Self.doneTitle, action: onToggleSelectionMode)
+                    .buttonStyle(.borderless)
+                    .font(.caption)
+                    .fixedSize()
+                    .help(Self.doneSelectingTitle)
+                    .accessibilityLabel(Self.doneSelectingTitle)
+            } else if showsSelectionMode || showsNewTodo {
                 actionsMenu
             }
         }
@@ -95,6 +104,8 @@ struct ResolveFilterBar: View {
 
     static let selectNotesTitle = "Select Notes"
     static let doneSelectingTitle = "Done Selecting"
+    /// The bar's own way out of selection mode.
+    static let doneTitle = "Done"
 
     private var actionsMenu: some View {
         let label = Self.actionTitles(showsNewTodo: showsNewTodo, showsSelectionMode: showsSelectionMode,

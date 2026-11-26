@@ -295,10 +295,10 @@ final class PulledUpFitsTheColumnTests: XCTestCase {
     func test_theFilterBarIsOneRowAtTheNarrowestColumnWithTriage() async throws {
         let width = Self.narrowest
         let chips: [ResolveSource] = [.pass("structural"), .pass("line"), .mine, .checks, .others, .questions]
-        func bar(triage: ResolveTriageChoice?, actions: Bool) -> some View {
+        func bar(triage: ResolveTriageChoice?, actions: Bool, selecting: Bool = false) -> some View {
             ResolveFilterBar(
                 chips: chips, selection: [], passes: ReviewPass.presets,
-                showsSelectionMode: actions, selectionModeOn: false, showsNewTodo: actions,
+                showsSelectionMode: actions, selectionModeOn: selecting, showsNewTodo: actions,
                 triage: triage, onToggle: { _ in }, onToggleSelectionMode: {}, onNewTodo: {})
                 .frame(width: width)
         }
@@ -307,12 +307,21 @@ final class PulledUpFitsTheColumnTests: XCTestCase {
             await waitOut(0.2)
             let oneRow = try XCTUnwrap(bare.contentView).fittingSize.height
             for choice in ResolveTriageChoice.allCases {
-                let window = mount(bar(triage: choice, actions: true), width: width, scale: scale)
-                await waitOut(0.2)
-                let height = try XCTUnwrap(window.contentView).fittingSize.height
-                XCTAssertEqual(height, oneRow, accuracy: 0.5,
-                               "\(scale) with triage \(choice): the bar is \(height)pt, one row is \(oneRow)pt")
-                window.contentView = NSView(frame: .zero)
+                for selecting in [false, true] {
+                    let window = mount(bar(triage: choice, actions: true, selecting: selecting),
+                                       width: width, scale: scale)
+                    await waitOut(0.2)
+                    let height = try XCTUnwrap(window.contentView).fittingSize.height
+                    XCTAssertEqual(height, oneRow, accuracy: 0.5,
+                                   "\(scale) with triage \(choice)\(selecting ? ", selecting" : ""): "
+                                   + "the bar is \(height)pt, one row is \(oneRow)pt")
+                    if selecting {
+                        try requireAssistiveClient()
+                        XCTAssertEqual(try axButtons(labelled: ResolveFilterBar.doneSelectingTitle, in: window).count, 1,
+                                       "while selecting, Done is on the bar itself")
+                    }
+                    window.contentView = NSView(frame: .zero)
+                }
             }
             bare.contentView = NSView(frame: .zero)
         }

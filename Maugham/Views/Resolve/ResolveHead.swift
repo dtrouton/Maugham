@@ -466,7 +466,7 @@ struct ResolveHeadView: View {
                 onShowRound: onShowRound, translationHeard: translationHeard,
                 isOpening: openDocId == docId && documentStore.document(forDocId: docId) == nil,
                 hasItemsToAnswer: ResolveHead.hasItemsToAnswer(snapshot.items, docId: docId),
-                translateAsk: translateAsk, headOpen: headOpen)
+                translateAsk: translateAsk, headOpen: headOpen, openDocId: openDocId)
         case .nothing:
             EmptyView()
         }
@@ -494,17 +494,25 @@ struct ResolveHeadView: View {
                                                  legacyStatus: $0.status),
                     passes: passes, passStates: $0.passStates)
             }
+            let names = ResolveHeadFold.namesThePiece(docId: docId, openDocId: openDocId)
+            let status = item.map {
+                ReviewStatus.derived(passStates: $0.passStates, passes: passes, legacyStatus: $0.status)
+            }
+            // Open with no name to show, the ladder's Status row is the first
+            // row and carries the chevron — never a row of a chevron alone.
+            let statusInBar = isOpen && !names && status != nil
             ResolveHeadFoldBar(
-                title: ResolveHeadFold.namesThePiece(docId: docId, openDocId: openDocId) ? item?.title : nil,
+                title: names ? item?.title : nil,
                 spokenTitle: item?.title ?? "",
                 // Open, the ladder says it (its own Status row).
                 summary: isOpen ? nil : summary,
                 spokenSummary: summary,
+                status: statusInBar ? status : nil,
                 isOpen: isOpen,
                 onToggle: { headOpen.wrappedValue.toggle() })
             if isOpen {
                 ResolveHeadOpenBody {
-                    standing(docId, offers: offers)
+                    standing(docId, offers: offers, ladderShowsStatus: !statusInBar)
                     if let diagnostics {
                         latestLetter(docId, offers: offers, diagnostics: diagnostics)
                     }
@@ -651,14 +659,16 @@ struct ResolveHeadView: View {
     // MARK: Where it stands
 
     @ViewBuilder
-    private func standing(_ docId: String, offers: ResolveHeadOffers) -> some View {
+    private func standing(_ docId: String, offers: ResolveHeadOffers,
+                          ladderShowsStatus: Bool = true) -> some View {
         if let item = TreeWalk.find(id: docId, in: store.manifest.structure) {
             VStack(alignment: .leading, spacing: 4) {
                 PassLadder(
                     item: item, passes: passes,
                     onSet: offers.rulesOnPasses
                         ? { passId, state in onSetPassState(docId, passId, state) }
-                        : nil)
+                        : nil,
+                    showsStatus: ladderShowsStatus)
                 // **Whose piece this is**, under the ladder (shell p3 Task 8,
                 // from the old Inspector) — only where `PieceWriters` draws a
                 // sentence: a book whose permits name pieces.

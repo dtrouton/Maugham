@@ -203,6 +203,41 @@ final class ResolveHeadFoldTests: XCTestCase {
         XCTAssertFalse(ResolvePane.drawsGroupHeaders([]))
     }
 
+    /// **Where the may-be-incomplete notice goes** (B4): under the first
+    /// header, under the first row's caption, or its own row with no group.
+    func test_theIncompleteNoticeHasAPlaceInEveryState() {
+        XCTAssertEqual(ResolvePane.incompletePlacement(groups: 3, headers: true), .firstHeader)
+        XCTAssertEqual(ResolvePane.incompletePlacement(groups: 2, headers: false), .firstRow)
+        XCTAssertEqual(ResolvePane.incompletePlacement(groups: 0, headers: false), .ownRow)
+        XCTAssertEqual(ResolvePane.incompletePlacement(groups: 0, headers: true), .ownRow)
+    }
+
+    /// **The caret's mark below the threshold** (re-review): the caret
+    /// group's rows carry it; with headers, the header does and no row.
+    func test_belowTheThresholdTheCaretGroupsRowsCarryTheMark() {
+        let a = ResolveGroup(key: .paragraph(docId: "ch-1", paragraphId: "aa10"), title: "A",
+                             items: [todo("a1"), todo("a2")])
+        let b = ResolveGroup(key: .paragraph(docId: "ch-1", paragraphId: "aa11"), title: "B", items: [todo("b1")])
+        XCTAssertEqual(ResolvePane.caretMarkedItems([a, b], caretGroup: a.key, headers: false),
+                       Set(a.items.map(\.id)))
+        XCTAssertEqual(ResolvePane.caretMarkedItems([a, b], caretGroup: a.key, headers: true), [])
+        XCTAssertEqual(ResolvePane.caretMarkedItems([a, b], caretGroup: nil, headers: false), [])
+    }
+
+    /// **The folded line never claims an ask that will not be sent** (N3):
+    /// a draft over the limit is refused at the run, so the stored ask is
+    /// what is said.
+    func test_aDraftOverTheLimitSaysTheStoredAsk() async throws {
+        let f = try await makeFixture()
+        f.diagnostics.setAsk("the middle sags", docId: f.docId, kind: .round)
+        f.diagnostics.notePendingAsk(String(repeating: "x", count: DiagnosticsStore.askLimit + 1),
+                                     docId: f.docId, kind: .round)
+        XCTAssertEqual(f.diagnostics.askThatWouldBrief(docId: f.docId, kind: .round), "the middle sags")
+        f.diagnostics.notePendingAsk("the ending", docId: f.docId, kind: .round)
+        XCTAssertEqual(f.diagnostics.askThatWouldBrief(docId: f.docId, kind: .round), "the ending",
+                       "control: a draft within the limit is what is said")
+    }
+
     // MARK: - The list's room
 
     func test_anOpenHeadLeavesTheListItsFloor() {
@@ -255,8 +290,11 @@ final class ResolveHeadFoldTests: XCTestCase {
         XCTAssertEqual(chevrons.first.flatMap { axAttribute($0, "accessibilityValue") as? String }, "Expanded")
         XCTAssertFalse(try axButtons(labelled: ReviewRoundCockpit.freshEyesTitle, in: open).isEmpty,
                        "open, Fresh Eyes is drawn")
-        XCTAssertEqual(summaryHelp(in: open), "",
-                       "open, the first row repeats nothing above the ladder (B1)")
+        XCTAssertNil(summaryHelp(in: open),
+                     "open on the open piece, the first row is the ladder's Status row, no words (B1, N4)")
+        let openTexts = try axTexts(in: open)
+        XCTAssertEqual(openTexts.filter { $0 == "Status" }.count, 1,
+                       "the Status row is drawn once, beside the chevron: " + openTexts.joined(separator: " | "))
     }
 
     /// Folded on the open, never-checked piece: Run Round and Check Writing

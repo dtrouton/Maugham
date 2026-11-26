@@ -811,7 +811,7 @@ final class PostureSurfaceTests: XCTestCase {
             .components(separatedBy: .whitespaces).filter { !$0.isEmpty }.joined(separator: " ")
         XCTAssertTrue(flat.contains(
             "PassLadder( item: item, passes: passes, onSet: offers.rulesOnPasses "
-            + "? { passId, state in onSetPassState(docId, passId, state) } : nil)"),
+            + "? { passId, state in onSetPassState(docId, passId, state) } : nil,"),
             "the ladder's write is the posture's offer, else nil: \(flat.prefix(400))")
         XCTAssertEqual(try SourceTree.codeOccurrences(of: "PassLadder(").values.reduce(0, +), 1,
                        "one host for the ladder: To resolve's head")

@@ -928,6 +928,9 @@ final class DiagnosticsStore {
         let key = Self.askKey(docId: docId, kind: kind)
         if let pending = pendingAsks[key] {
             let trimmed = pending.trimmingCharacters(in: .whitespacesAndNewlines)
+            // Over the limit `setAsk` refuses it, and the stored ask is what
+            // the run is briefed with — so that is what is said.
+            if trimmed.count > Self.askLimit { return asks[key] }
             return trimmed.isEmpty ? nil : trimmed
         }
         return asks[key]

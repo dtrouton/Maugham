@@ -166,7 +166,7 @@ final class PassOrderAdviceTests: XCTestCase {
         // To resolve's head draws the nudge (shell plan 2 Task 7).
         let text = try AnnotationsPaneSource.source(of: "Resolve/ResolveHead.swift")
         let nudge = try XCTUnwrap(
-            text.range(of: "private func standing(_ docId: String, offers: ResolveHeadOffers) -> some View {"))
+            text.range(of: "private func standing(_ docId: String, offers: ResolveHeadOffers,"))
         let body = try XCTUnwrap(
             text.range(of: "// MARK:", range: nudge.upperBound..<text.endIndex))
         // The mount, and the windowless decision it draws, read as one:

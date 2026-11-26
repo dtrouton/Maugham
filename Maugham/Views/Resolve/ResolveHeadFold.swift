@@ -244,11 +244,38 @@ struct ResolveHeadFoldBar: View {
     let summary: String?
     /// The summary VoiceOver reads.
     var spokenSummary: String? = nil
+    /// The ladder's Status row, drawn here in place of the words when the
+    /// open head has no name to show (the ladder then draws none).
+    var status: ReviewStatus? = nil
     let isOpen: Bool
     let onToggle: () -> Void
 
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: 6) {
+            if let status, title == nil, summary == nil {
+                PassLadder.statusRow(status)
+            } else {
+                words
+            }
+            Spacer(minLength: 4)
+            Button(action: onToggle) {
+                Image(systemName: "chevron.down")
+                    .rotationEffect(.degrees(isOpen ? 180 : 0))
+                    .font(.caption.weight(.semibold))
+                    .frame(width: 18, height: 18)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.borderless)
+            .help(ResolveHeadFold.chevronHelp(isOpen: isOpen))
+            .accessibilityLabel(ResolveHeadFold.chevronLabel)
+            .accessibilityValue(ResolveHeadFold.chevronValue(isOpen: isOpen))
+            .accessibilityIdentifier("resolve.head.chevron")
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 12).padding(.top, 6).padding(.bottom, 4)
+    }
+
+    private var words: some View {
             HStack(alignment: .firstTextBaseline, spacing: 6) {
                 if let title {
                     Text(title)
@@ -269,22 +296,6 @@ struct ResolveHeadFoldBar: View {
             .accessibilityLabel(ResolveHeadFold.sentence(title: spokenTitle, summary: spokenSummary ?? summary))
             .accessibilityIdentifier("resolve.head.summary")
             .help(ResolveHeadFold.drawnWords(title: title, summary: summary))
-            Spacer(minLength: 4)
-            Button(action: onToggle) {
-                Image(systemName: "chevron.down")
-                    .rotationEffect(.degrees(isOpen ? 180 : 0))
-                    .font(.caption.weight(.semibold))
-                    .frame(width: 18, height: 18)
-                    .contentShape(Rectangle())
-            }
-            .buttonStyle(.borderless)
-            .help(ResolveHeadFold.chevronHelp(isOpen: isOpen))
-            .accessibilityLabel(ResolveHeadFold.chevronLabel)
-            .accessibilityValue(ResolveHeadFold.chevronValue(isOpen: isOpen))
-            .accessibilityIdentifier("resolve.head.chevron")
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.horizontal, 12).padding(.top, 6).padding(.bottom, 4)
     }
 }
 

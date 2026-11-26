@@ -583,6 +583,9 @@ struct PieceInLanguageHeadView: View {
     /// Whether To resolve's head is open (`UIState.resolveHeadOpen`): this
     /// head folds (`ResolveHeadFold`).
     var headOpen: Binding<Bool> = .constant(true)
+    /// The piece open in the window's centre — the name rule's one input,
+    /// as the piece head's (`ResolveHeadFold.namesThePiece`).
+    var openDocId: String? = nil
 
     @Environment(AgentRoster.self) private var roster: AgentRoster?
     @State private var notice: String?
@@ -679,7 +682,8 @@ struct PieceInLanguageHeadView: View {
             ResolveHeadFoldBar(
                 // The name only where it is information: the piece is not
                 // the one open in the centre (owner, 2026-11-26).
-                title: isOpen ? nil : TreeWalk.find(id: docId, in: store.manifest.structure)?.title,
+                title: ResolveHeadFold.namesThePiece(docId: docId, openDocId: openDocId)
+                    ? TreeWalk.find(id: docId, in: store.manifest.structure)?.title : nil,
                 spokenTitle: TreeWalk.find(id: docId, in: store.manifest.structure)?.title ?? "",
                 // Open, the head's own first line says it.
                 summary: headOpen.wrappedValue ? nil : ResolvePieceInLanguage.headerLine(language: language),

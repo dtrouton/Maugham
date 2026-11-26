@@ -772,6 +772,8 @@ struct ResolvePane: View {
                                     showsOnlyQuestions: shownSelection == [.questions])
         let opensItsPiece = openThePieceLines(shown)
         let headers = Self.drawsGroupHeaders(shown)
+        let placement = Self.incompletePlacement(groups: shown.count, headers: headers)
+        let caretMarked = Self.caretMarkedItems(shown, caretGroup: caretGroup, headers: headers)
         return VStack(spacing: 0) {
             ScrollViewReader { proxy in
                 ScrollView {
@@ -779,7 +781,7 @@ struct ResolvePane: View {
                         // The may-be-incomplete notice rides the first
                         // group's line (fix round 1, B4); its own row only
                         // over a list with no group to carry it.
-                        if let incomplete, shown.isEmpty {
+                        if let incomplete, placement == .ownRow {
                             Text(incomplete)
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
@@ -789,7 +791,7 @@ struct ResolvePane: View {
                         }
                         emptyLine(empty)
                         ForEach(shown) { group in
-                            let notice = group.id == shown.first?.id ? incomplete : nil
+                            let notice = group.id == shown.first?.id && placement != .ownRow ? incomplete : nil
                             if headers {
                                 groupHeader(group, isOpen: open.contains(group.key), notice: notice)
                                     .id(group.key)
@@ -821,7 +823,8 @@ struct ResolvePane: View {
                                     ForEach(group.items) { item in
                                         row(item, acting: acting, bulk: bulk, wiring: wiring, reorders: reorders,
                                             groupCaption: group.title,
-                                            captionNotice: item.id == group.items.first?.id ? notice : nil)
+                                            captionNotice: item.id == group.items.first?.id ? notice : nil,
+                                            atCaret: caretMarked.contains(item.id))
                                         Divider()
                                     }
                                 }
@@ -950,46 +953,49 @@ struct ResolvePane: View {
 
     private func groupHeader(_ group: ResolveGroup, isOpen: Bool, notice: String? = nil) -> some View {
         let atCaret = group.key == caretGroup
-        return Button {
-            choices[group.key] = !isOpen
-        } label: {
-            HStack(alignment: .firstTextBaseline, spacing: 6) {
-                Image(systemName: isOpen ? "chevron.down" : "chevron.right")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-                VStack(alignment: .leading, spacing: 1) {
+        return VStack(alignment: .leading, spacing: 0) {
+            Button {
+                choices[group.key] = !isOpen
+            } label: {
+                HStack(alignment: .firstTextBaseline, spacing: 6) {
+                    Image(systemName: isOpen ? "chevron.down" : "chevron.right")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
                     Text(group.title)
                         .font(.caption.weight(.semibold))
                         .foregroundStyle(atCaret ? Color.primary : Color.secondary)
                         .lineLimit(2)
                         .multilineTextAlignment(.leading)
-                    // The may-be-incomplete notice, on the first group's
-                    // line rather than a row of its own (B4).
-                    if let notice {
-                        Text(notice)
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
-                            .fixedSize(horizontal: false, vertical: true)
-                            .multilineTextAlignment(.leading)
+                    Spacer(minLength: 4)
+                    Text("\(group.items.count)")
+                        .font(.caption2.monospacedDigit())
+                        .foregroundStyle(.secondary)
+                }
+                .padding(.horizontal, 12).padding(.vertical, 6)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(alignment: .leading) {
+                    if atCaret {
+                        Rectangle().fill(Color.accentColor).frame(width: 3)
                     }
                 }
-                Spacer(minLength: 4)
-                Text("\(group.items.count)")
-                    .font(.caption2.monospacedDigit())
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("\(group.title), \(group.items.count)")
+            .accessibilityAddTraits(atCaret ? .isSelected : [])
+            // The may-be-incomplete notice, under the first group's header — a
+            // sibling of its button, so VoiceOver reads it and a click on it
+            // folds nothing (B4, re-review N2).
+            if let notice {
+                Text(notice)
+                    .font(.caption2)
                     .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.leading, 26).padding(.trailing, 12).padding(.bottom, 4)
+                    .accessibilityIdentifier("resolve.incomplete")
             }
-            .padding(.horizontal, 12).padding(.vertical, 6)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(alignment: .leading) {
-                if atCaret {
-                    Rectangle().fill(Color.accentColor).frame(width: 3)
-                }
-            }
-            .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
-        .accessibilityLabel("\(group.title), \(group.items.count)")
-        .accessibilityAddTraits(atCaret ? .isSelected : [])
     }
 
     // MARK: - A row
@@ -1003,21 +1009,46 @@ struct ResolvePane: View {
         shown.reduce(0) { $0 + $1.items.count } >= groupHeadersFrom
     }
 
+    /// Where the may-be-incomplete notice is drawn (B4): under the first
+    /// group's header, under the first row's caption without headers, or a
+    /// row of its own over a list with no group. Pure.
+    enum IncompletePlacement: Equatable { case ownRow, firstHeader, firstRow }
+
+    static func incompletePlacement(groups: Int, headers: Bool) -> IncompletePlacement {
+        guard groups > 0 else { return .ownRow }
+        return headers ? .firstHeader : .firstRow
+    }
+
+    /// **The rows that carry the caret's mark** — below the header
+    /// threshold, the caret group's rows (with headers, its header carries
+    /// it). Once per list render, never per row. Pure.
+    static func caretMarkedItems(_ shown: [ResolveGroup], caretGroup: ResolveGroup.Key?,
+                                 headers: Bool) -> Set<ResolveItem.ID> {
+        guard !headers, let caretGroup, let group = shown.first(where: { $0.key == caretGroup }) else { return [] }
+        return Set(group.items.map(\.id))
+    }
+
     @ViewBuilder
     private func row(_ item: ResolveItem, acting: Document?, bulk: String?,
                      wiring: AnnotationRowWiring, reorders: Bool, groupCaption: String? = nil,
-                     captionNotice: String? = nil) -> some View {
+                     captionNotice: String? = nil, atCaret: Bool = false) -> some View {
         VStack(alignment: .leading, spacing: 0) {
             // A headerless row's caption (B3): its group's title, one line;
             // on the first row, the may-be-incomplete notice under it (B4).
+            // The caret's group's rows carry the header's accent beside it.
             if let groupCaption {
                 Text(groupCaption)
                     .font(.caption2)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(atCaret ? Color.primary : Color.secondary)
                     .lineLimit(1)
                     .truncationMode(.tail)
                     .padding(.horizontal, 12).padding(.top, 6)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(alignment: .leading) {
+                        if atCaret { Rectangle().fill(Color.accentColor).frame(width: 3) }
+                    }
                     .accessibilityIdentifier("resolve.row.groupCaption")
+                    .accessibilityAddTraits(atCaret ? .isSelected : [])
             }
             if let captionNotice {
                 Text(captionNotice)

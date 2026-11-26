@@ -32,6 +32,10 @@ struct PassLadder: View {
     /// reviewer still sees where the piece stands; she is offered no way to
     /// move it. Hidden rather than disabled: a greyed menu reads as broken.
     let onSet: ((String, PassState?) -> Void)?
+    /// Whether the ladder draws its own Status row. To resolve's open head
+    /// draws it in its first row, beside the chevron, where there is no name
+    /// to show (`ResolveHeadFoldBar`).
+    var showsStatus = true
 
     /// The row titles. `.skipped` reads as "Skip" because the writer is making
     /// a decision, not describing a past one — it is an adjudication ("this
@@ -79,14 +83,8 @@ struct PassLadder: View {
     }
 
     var body: some View {
-        LabeledContent("Status") {
-            HStack(spacing: 5) {
-                Circle()
-                    .fill(StatusSwatch.color(for: derivedStatus))
-                    .frame(width: 6, height: 6)
-                Text(StatusSwatch.label(for: derivedStatus))
-                    .foregroundStyle(.secondary)
-            }
+        if showsStatus {
+            Self.statusRow(derivedStatus)
         }
         ForEach(passes) { pass in
             if let onSet {
@@ -98,6 +96,19 @@ struct PassLadder: View {
                         .foregroundStyle(.secondary)
                 }
                 .accessibilityIdentifier(Self.identifier(forPass: pass.id))
+            }
+        }
+    }
+
+    /// The Status row: the derived status's dot and word.
+    static func statusRow(_ status: ReviewStatus) -> some View {
+        LabeledContent("Status") {
+            HStack(spacing: 5) {
+                Circle()
+                    .fill(StatusSwatch.color(for: status))
+                    .frame(width: 6, height: 6)
+                Text(StatusSwatch.label(for: status))
+                    .foregroundStyle(.secondary)
             }
         }
     }
