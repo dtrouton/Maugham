@@ -96,4 +96,54 @@ final class TranslateMenuRouteTests: XCTestCase {
         XCTAssertTrue(window.contains("translate: translateMenuOffer)"), "the item's title reads the same cached offer")
         XCTAssertTrue(window.contains("translateOffer: translateMenuOffer,"))
     }
+
+    // MARK: - Fix round 2
+
+    /// **N1: the cached offer re-reads when the open piece finishes
+    /// loading.** The `Document` registers after an async load, after the
+    /// key's other terms moved: the key must change with it, and the offer
+    /// differs on it.
+    func test_theOffersKeyChangesWhenTheOpenPieceRegisters() throws {
+        let scope = ResolveScope.pieceInLanguage(docId: "c1", language: "sr")
+        let loading = ProjectWindow.TranslateOfferKey(scope: scope, openDocId: "c1", openIsRegistered: false,
+                                                      modified: nil, postureEpoch: 0)
+        let loaded = ProjectWindow.TranslateOfferKey(scope: scope, openDocId: "c1", openIsRegistered: true,
+                                                     modified: nil, postureEpoch: 0)
+        XCTAssertNotEqual(loading, loaded, "the load landing is a change of key")
+        func offer(registered: Bool) -> TranslateMenuOffer? {
+            TranslateMenuOffer.of(scope: scope, isOpen: { $0 == "c1" && registered }, structure: structure,
+                                  book: novel, mayTranslate: { _ in true }, mayTranslateAny: true)
+        }
+        XCTAssertNil(offer(registered: false))
+        XCTAssertNotNil(offer(registered: true), "so the re-read offers it")
+        let window = SourceScan.codeLines(of: try SourceTree.sourceOfType("ProjectWindow", under: ["Maugham"]))
+            .map { $0.trimmingCharacters(in: .whitespaces) }.joined(separator: " ")
+        XCTAssertTrue(window.contains("openIsRegistered: documentStore?.document(forDocId: open) != nil,"))
+        XCTAssertTrue(window.contains("isOpen: { $0 == open && documentStore.document(forDocId: $0) != nil }"),
+                      "the key's term is the offer's own test")
+    }
+
+    /// **N3: the menu's scope is the pane's**, by one function and one
+    /// reading language, so C1 cannot quietly come back.
+    func test_theMenusScopeAndThePanesAreOneFunction() throws {
+        func flat(_ text: String) -> String {
+            SourceScan.codeLines(of: text).map { $0.trimmingCharacters(in: .whitespaces) }.joined(separator: " ")
+        }
+        let window = flat(try SourceTree.sourceOfType("ProjectWindow", under: ["Maugham"]))
+        let pane = flat(try SourceTree.read("Maugham/Views/Resolve/ResolvePane.swift"))
+        let column = flat(try SourceTree.read("Maugham/Views/RightColumn.swift"))
+        XCTAssertTrue(window.contains("scope: ResolveScope.shown(faces: subject.faces, readIn: facesReadingLanguage,"))
+        XCTAssertTrue(pane.contains("ResolveScope.shown(faces: subject.faces, readIn: readIn,"))
+        XCTAssertFalse(pane.contains("ResolveScope.of("), "the pane builds its scope only through `shown`")
+        XCTAssertTrue(column.contains("readIn: readingLanguage,"), "the pane's readIn is the column's reading language")
+        let reading = "ReadingLanguage.of(subject: subject, switched: editorControl.translationLanguage, sourceLanguage: publishCentre.sourceLanguage)"
+        XCTAssertTrue(window.contains(reading), "the window's reading language")
+        XCTAssertTrue(column.contains(reading), "the column's, by the same call")
+        XCTAssertEqual(ResolveScope.shown(faces: .edition(language: "sr"), readIn: nil, sourceLanguage: nil,
+                                          manifest: nil),
+                       ResolveScope.of(.edition(language: "sr"), readIn: nil,
+                                       sourceLanguage: PublishConfig.Metadata().language,
+                                       structure: [], projectType: .novel),
+                       "no source tag: the book's default, as the pane always fell back")
+    }
 }

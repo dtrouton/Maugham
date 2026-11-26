@@ -80,7 +80,7 @@ public enum KeyboardShortcuts {
             Entry(label: "To Resolve: rounds' notes", shortcut: "⌘⌥A"),
             Entry(label: "To Resolve: your own notes and to-dos", shortcut: "⌘⌥T"),
             Entry(label: "To Resolve: a translator's questions", shortcut: "⌘⌥L"),
-            Entry(label: "The edition you are reading's To Resolve (else the Source's)", shortcut: "⌘⌥K"),
+            Entry(label: "To Resolve: the edition you are reading (else the Source)", shortcut: "⌘⌥K"),
             Entry(label: "Brief",                   shortcut: "⌘2"),
             Entry(label: "Write the line",          shortcut: "⌘⌥I"),
             Entry(label: "Write what the piece is going for", shortcut: "⌘⌥N"),

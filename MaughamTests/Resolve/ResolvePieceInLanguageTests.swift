@@ -864,7 +864,7 @@ final class ResolvePieceInLanguageTests: XCTestCase {
             "ReadingLanguage.of(subject: subject, switched: editorControl.translationLanguage, sourceLanguage: publishCentre.sourceLanguage)"))
         XCTAssertTrue(column.contains("readIn: readingLanguage,"))
         let pane = try code("ResolvePane")
-        XCTAssertTrue(pane.contains("ResolveScope.of(subject.faces, readIn: readIn, sourceLanguage: sourceLanguage,"))
+        XCTAssertTrue(pane.contains("ResolveScope.shown(faces: subject.faces, readIn: readIn,"))
         XCTAssertTrue(pane.contains("read = await ResolveEditionItems.readPiece("))
         // A reply's refusal is said on every row path.
         let noteVerbs = try code("ResolveNoteVerbs")

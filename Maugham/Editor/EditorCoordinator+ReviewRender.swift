@@ -265,6 +265,9 @@ extension EditorCoordinator {
     func updateReviewCardVerbs(for posture: Posture?) {
         guard posture != reviewCardPosture else { return }
         reviewCardPosture = posture
+        // The selection's offers follow the posture (fix round 2, N2): the
+        // toolbar never shows a set the press would refuse.
+        if let textView { updateSelectionToolbar(in: textView) }
         marginRail?.reloadCardSelection()
     }
 

@@ -3139,17 +3139,22 @@ struct ProjectWindow: View {
     struct TranslateOfferKey: Equatable {
         let scope: ResolveScope
         let openDocId: String
+        let openIsRegistered: Bool
         let modified: Date?
         let postureEpoch: Int
     }
 
     private var translateOfferKey: TranslateOfferKey {
-        TranslateOfferKey(
-            scope: ResolveScope.of(subject.faces, readIn: facesReadingLanguage,
-                                   sourceLanguage: publishCentre.sourceLanguage,
-                                   structure: store?.manifest.structure ?? [],
-                                   projectType: store?.manifest.type ?? .novel),
-            openDocId: TranslationReveal.openDocId(subject),
+        let open = TranslationReveal.openDocId(subject)
+        return TranslateOfferKey(
+            scope: ResolveScope.shown(faces: subject.faces, readIn: facesReadingLanguage,
+                                      sourceLanguage: publishCentre.sourceLanguage, manifest: store?.manifest),
+            openDocId: open,
+            // The open piece's `Document` registers after an async load
+            // (`EditorHost`), after the key's other terms moved: without this
+            // the offer stays grey over a chapter it should offer (fix round
+            // 2, N1). `openDocuments` is observed, so reading it here keys on it.
+            openIsRegistered: documentStore?.document(forDocId: open) != nil,
             modified: store?.manifest.modified, postureEpoch: documentStore?.postureEpoch ?? 0)
     }
 

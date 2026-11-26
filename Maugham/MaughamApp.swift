@@ -907,7 +907,8 @@ private struct ViewMenuItems: View {
             .keyboardShortcut("l", modifiers: [.command, .option])
             .disabled(!enabled())
         // ⌘⌥K (row 35): the edition the window reads in, else the
-        // Source's — it moves the faces, so it is no filter's colon title.
+        // Source's — "To Resolve: Spanish Edition", its siblings' shape
+        // (the lead's ruling, fix round 2).
         FocusedEditionResolveButton(inFront: inFront)
         Divider()
         Button("Brief") { MaughamEvent.postPosition(.brief) }

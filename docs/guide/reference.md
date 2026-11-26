@@ -50,7 +50,7 @@ The ones you'll use most:
 | `⌘⌥A` | To Resolve: Rounds — the rounds' notes |
 | `⌘⌥T` | To Resolve: Mine — your own notes and to-dos |
 | `⌘⌥L` | To Resolve: Questions — a translator's questions; where there are none, it says so |
-| `⌘⌥K` | The To Resolve of the edition you are reading, else the Source's |
+| `⌘⌥K` | To Resolve: Spanish Edition — the To resolve of the edition you are reading, else the Source's |
 | `⌘2` | Brief |
 | `⌘⌥I` | Write the Line — Brief, with the cursor in the piece's line |
 | `⌘⌥N` | Write Going For — Brief, with the cursor in what the piece is going for |

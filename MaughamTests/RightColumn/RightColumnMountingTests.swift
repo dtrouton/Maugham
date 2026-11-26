@@ -832,9 +832,9 @@ final class RightColumnMountingTests: XCTestCase {
         for subject in Self.subjects {
             XCTAssertNil(key(subject, []), "\(subject): no editions, nothing to show")
         }
-        XCTAssertEqual(EditionWiring.keyTitle(editions[1]), "Serbian Edition\u{2019}s To Resolve",
-                       "row 35: it moves the faces, so no filter's colon title")
-        XCTAssertEqual(EditionWiring.keyTitleWithNoEdition, "An Edition\u{2019}s To Resolve")
+        XCTAssertEqual(EditionWiring.keyTitle(editions[1]), "To Resolve: Serbian Edition",
+                       "the lead's ruling (fix round 2): the shape of its siblings, To Resolve: Checks")
+        XCTAssertEqual(EditionWiring.keyTitleWithNoEdition, "To Resolve: An Edition")
         XCTAssertNil(EditionWiring.keyTitle(nil), "with no edition the item is disabled")
 
         // The receiver: the faces move to that edition and To resolve shows.

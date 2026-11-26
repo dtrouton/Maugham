@@ -334,13 +334,8 @@ struct ResolvePane: View {
     // MARK: - Derived per render (no walk)
 
     private var scope: ResolveScope {
-        ResolveScope.of(subject.faces, readIn: readIn, sourceLanguage: sourceLanguage,
-                        structure: store.manifest.structure, projectType: store.manifest.type)
-    }
-
-    /// The book's own tag — which edition is the Source.
-    private var sourceLanguage: String {
-        publishCentre?.sourceLanguage ?? PublishConfig.Metadata().language
+        ResolveScope.shown(faces: subject.faces, readIn: readIn, sourceLanguage: publishCentre?.sourceLanguage,
+                           manifest: store.manifest)
     }
 
     /// What an edition's own read — or a piece read in a language's — is

@@ -47,6 +47,15 @@ enum ResolveScope: Hashable {
     /// chapter clicked while its edition is open — is `.pieceInLanguage`.
     /// Every other subject ignores it: an edition's language is the faces'
     /// own, and a Book or Part has no one language to be read in.
+    /// **The scope a window's To resolve shows** — the pane's own, and File ▸
+    /// Translate…'s offer's (shell p5 Task 7 fix round 2, N3): one function,
+    /// so the menu's title and the list that runs it cannot come to differ.
+    static func shown(faces: BinderSubject, readIn: String?, sourceLanguage: String?,
+                      manifest: ProjectManifest?) -> ResolveScope {
+        of(faces, readIn: readIn, sourceLanguage: sourceLanguage ?? PublishConfig.Metadata().language,
+           structure: manifest?.structure ?? [], projectType: manifest?.type ?? .novel)
+    }
+
     static func of(_ faces: BinderSubject, readIn: String?, sourceLanguage: String,
                    structure: [StructureItem], projectType: ProjectType) -> ResolveScope {
         switch faces {

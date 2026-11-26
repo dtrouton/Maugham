@@ -11,7 +11,7 @@ The binder's **Editions** section lists the book's own language first, labelled 
 - **Book** (⌃⌘1) — the edition's typeset pages, in its language. Click a chapter in the binder and the book scrolls to where it starts: *Chapter Three starts on page 41*. Compile… and the imprint picker sit in its header ([Publishing](publishing.md#compiling-an-edition)).
 - **Status** (⌃⌘3) — per chapter: how much is translated, the latest round, open questions, what the last round left **to look at**, the trend, and the chapter's publishing settings. Click a row to open the chapter read in this language. The Source's Status shows the publishing settings, with a line to the Book's Status for the rest.
 
-The right column follows the edition: its **To resolve** gathers the edition's questions and what its rounds left, by chapter; its **Brief** is the edition brief and its cast. ⌘⌥K (View ▸ Spanish Edition's To Resolve) takes you to the To resolve of the edition you are reading in, else the Source's.
+The right column follows the edition: its **To resolve** gathers the edition's questions and what its rounds left, by chapter; its **Brief** is the edition brief and its cast. ⌘⌥K (View ▸ To Resolve: Spanish Edition) takes you to the To resolve of the edition you are reading in, else the Source's.
 
 A dot on an edition's row means its To resolve has something; **Proposed** means Claude drafted a brief for it.
 
