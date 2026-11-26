@@ -102,4 +102,4 @@ Decisions the build left to him; each is built as described above until he says 
 22. **⌘R checks the open piece** when one is open (section 9; the agent's, amending plan 1's preference for the faces).
 23. **The Research section's "where they went" line** (section 9; the agent's).
 24. **The Inbox's fast "Promote to Research for “…”" is removed** (the agent's): it was reachable only after a Brief link with the Inbox open, and filed into a piece the writer only glanced at. Promote to Whole-Book Research and Promote to Research for… stay.
-25. **The phone's wording** ("Annotations", "This piece") waits for the next paired release (the owner's ruling); until then the two devices name the same things differently.
+25. **The phone's wording** ("Annotations", "This piece") waits for the next paired release (the agent's ruling, the owner's to overrule); until then the two devices name the same things differently.
