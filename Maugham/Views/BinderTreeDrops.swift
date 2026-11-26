@@ -69,9 +69,11 @@ extension BinderTreeVerbs {
         let intent = classify(draggedId, on: treeTarget)
         if case .researchReorder = intent {
             let moving = batchIds(for: intent, draggedId: draggedId, on: treeTarget)
+            // Where each row was taken from, read before the record goes.
+            let sources = sources(of: moving, fold: nil)
             state.researchDragSource = nil
             return reorder(draggedId: draggedId, movingIds: moving,
-                           position: position, target: target)
+                           position: position, target: target, sources: sources)
         }
         // A cross-scope drop still lands WHERE it was aimed: the index is
         // computed against the destination the classifier chose, so an item
@@ -415,11 +417,13 @@ extension BinderTreeVerbs {
         _ intent: TreeDropIntent.Intent, movingIds batch: [String],
         payload: String, site: String, landing: HeldResearchAct.Landing = .end
     ) -> Bool {
-        // The drag is over: its record goes (M9).
+        // Where each row was taken from (closing round A2), then the drag is
+        // over: its record goes (M9).
+        let sources = sources(of: batch.isEmpty ? [payload] : batch, fold: nil)
         state.researchDragSource = nil
         switch intent {
         case .rescope(let ids, let target):
-            return requestMove(batch.isEmpty ? ids : batch, to: target, landing: landing)
+            return requestMove(batch.isEmpty ? ids : batch, to: target, landing: landing, sources: sources)
         case .link(let researchId, let documentId):
             let batch = batch.isEmpty ? [researchId] : batch
             land(batch, inFoldOf: documentId)
@@ -442,7 +446,7 @@ extension BinderTreeVerbs {
             land(batch, inFoldOf: documentId)
             perform {
                 try await Self.performMove(batch, to: .sharedRoot, landing: .end, lifts: [],
-                                           afterLift: "", store: store)
+                                           afterLift: "", unlinks: [:], store: store)
                 try await relink(batch, from: [], to: documentId)
             }
             return true
@@ -481,7 +485,7 @@ extension BinderTreeVerbs {
     /// restated.
     private func reorder(
         draggedId: String, movingIds: [String],
-        position: DropIntent.Position, target: ResearchItem
+        position: DropIntent.Position, target: ResearchItem, sources: [String: String]
     ) -> Bool {
         // The hover's answer at this position, asked here too, so the two
         // cannot disagree about a refusal (review Minor 3).
@@ -517,7 +521,7 @@ extension BinderTreeVerbs {
             : TreeDropIntent.container(ofRow: target.id,
                                        structure: store.manifest.structure,
                                        research: store.manifest.research)
-        return requestMove(movingIds, to: destination, landing: landing)
+        return requestMove(movingIds, to: destination, landing: landing, sources: sources)
     }
 
     /// Where a cross-scope drop lands within its new container: beside the row

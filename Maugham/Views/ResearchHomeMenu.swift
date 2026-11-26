@@ -214,13 +214,52 @@ struct HeldResearchAct: Equatable {
     /// What a Move that lifted, then failed to move the rows, has done —
     /// the alert's first words (fix round 2, NB3).
     let afterLift: String
+    /// The direct links a Move to the book takes away, by row (closing round
+    /// A2: a drop on Research means whole-book).
+    var unlinks: [String: [String]] = [:]
+    /// The fold each row was taken from, as asked (asked again with them).
+    var sources: [String: String] = [:]
+
+    /// **The links a move to `target` takes away**: every direct link of
+    /// each row, where the destination is the book's — the Research root or
+    /// a whole-book group. A move that stays among a chapter's things keeps
+    /// them. Pure.
+    static func unlinks(_ ids: [String], to target: ResearchMoveTarget,
+                        homes: ResearchHomes) -> [String: [String]] {
+        guard homes.homes(at: target).isEmpty else { return [:] }
+        var out: [String: [String]] = [:]
+        for id in ids {
+            let links = homes.links(of: id)
+            if !links.isEmpty { out[id] = links }
+        }
+        return out
+    }
 
     /// `noun`: the project's word for a piece ("chapter").
+    /// `sources`: the fold each row was taken from, where known — a link to
+    /// it going is what the writer asked; one to any other chapter is asked
+    /// about first.
     static func of(_ verb: Verb, ids: [String], homes: ResearchHomes,
                    research: [ResearchItem], structure: [StructureItem],
-                   noun: String) -> HeldResearchAct? {
+                   noun: String, sources: [String: String]) -> HeldResearchAct? {
         func parent(of id: String) -> String? {
             TreeWalk.first(in: research, where: { ($0.children ?? []).contains { $0.id == id } })?.id
+        }
+        // **A drop on Research means whole-book** (closing round A2): a row's
+        // direct links go with a move to the book; a chapter the row was not
+        // taken from losing it is asked about first.
+        var unlinks: [String: [String]] = [:]
+        var asking: [String] = []
+        if case .move(let target, _) = verb {
+            unlinks = Self.unlinks(ids, to: target, homes: homes)
+            // Taken from a known fold: any other chapter is asked about. Taken
+            // from nowhere known (the section, another window): a single
+            // link is the one the writer means; several are asked about.
+            asking = ids.filter { id in
+                guard let links = unlinks[id] else { return false }
+                guard let source = sources[id] else { return links.count > 1 }
+                return links.contains { $0 != source }
+            }
         }
         // **A move asks only for Research-section rows, and only when they
         // change parent** (fix round 3, a + e). A fold row's move is the
@@ -228,7 +267,7 @@ struct HeldResearchAct: Equatable {
         // changes which chapters hold what is in it. A same-parent reorder of
         // a section group changes nothing about the chapters' notes either.
         // Delete keeps the "beyond the row's own pieces" rule for every row.
-        let acted: [String]
+        var acted: [String]
         switch verb {
         case .delete:
             acted = ids
@@ -241,10 +280,10 @@ struct HeldResearchAct: Equatable {
                 case .piece: return false
                 }
             }
-            if stays { return nil }
+            if stays { acted = [] }
         }
         let take = homes.take(acted, in: research)
-        guard !take.held.isEmpty else { return nil }
+        guard !take.held.isEmpty || !asking.isEmpty else { return nil }
         func title(_ id: String) -> String { TreeWalk.find(id: id, in: research)?.title ?? id }
         // Lifted to where the row stood — its group, a Collection piece's
         // own folder, or the Research root — for a Move and (no ghost group,
@@ -271,7 +310,9 @@ struct HeldResearchAct: Equatable {
         // with its chapter; several, up to three named with theirs, then
         // "and N more".
         let stays: String
-        if take.held.count == 1, let id = take.held.first {
+        if take.held.isEmpty {
+            stays = ""
+        } else if take.held.count == 1, let id = take.held.first {
             stays = "“\(title(id))” stays with \(chapters(of: id))"
         } else {
             let shown = take.held.prefix(3).map { "“\(title($0))” (\(chapters(of: $0)))" }
@@ -295,12 +336,31 @@ struct HeldResearchAct: Equatable {
             case .group(let id): to = "“\(title(id))”"
             case .piece(let id): to = "“\(TreeWalk.find(id: id, in: structure)?.title ?? id)”"
             }
-            return HeldResearchAct(
+            // The links that go which the writer was not looking at, named.
+            func others(_ id: String) -> [String] {
+                (unlinks[id] ?? []).filter { $0 != sources[id] }.map { homes.pieceTitles[$0] ?? $0 }
+            }
+            // A row taken from nowhere known names every chapter it leaves.
+            func and(_ names: [String]) -> String {
+                names.count < 2 ? names.joined() : names.dropLast().joined(separator: ", ") + " and " + names.last!
+            }
+            var sentences: [String] = []
+            if !stays.isEmpty { sentences.append("\(stays); the rest of \(named) moves to \(to).") }
+            if asking.count == 1, let id = asking.first {
+                sentences.append("“\(title(id))” is also \(and(others(id)))’s; moving it to \(to) takes it from \(and(others(id))).")
+            } else if !asking.isEmpty {
+                let list = asking.map { "“\(title($0))” (\(and(others($0))))" }
+                sentences.append("\(and(list)) are also other \(noun)s’; moving them to \(to) takes them from those \(noun)s.")
+            }
+            var act = HeldResearchAct(
                 verb: verb, ids: ids, take: take, lifts: lifts,
                 title: "Move \(named) to \(to)?",
-                message: "\(stays); the rest of \(named) moves to \(to).",
+                message: sentences.joined(separator: " "),
                 confirmTitle: "Move",
                 afterLift: "The \(noun)s’ notes were lifted out of \(named), but \(named) couldn’t be moved: ")
+            act.unlinks = unlinks
+            act.sources = sources
+            return act
         }
     }
 }

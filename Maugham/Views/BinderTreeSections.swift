@@ -725,7 +725,9 @@ struct BinderTreeVerbs {
                 return ResearchSelectionSync.moveTargets(forIds: ids, manifest: store.manifest)
                     .map { Self.labelled($0, homes: homes) }
             },
-            move: { ids, target in requestMove(ids, to: target, landing: .end) },
+            move: { ids, target, fold in
+                requestMove(ids, to: target, landing: .end, sources: sources(of: ids, fold: fold))
+            },
             deleteMany: { ids in requestDelete(ids) },
             // A drag out of a fold is an act in it (`TreeFoldAutoOpen`).
             dragStarted: { [state] id, fold in
@@ -766,18 +768,28 @@ struct BinderTreeVerbs {
 
     /// The question a group's verb asks first, when a piece holds something
     /// beneath it; nil where the verb is the plain one.
-    func heldAct(_ verb: HeldResearchAct.Verb, ids: [String]) -> HeldResearchAct? {
-        Self.heldAct(verb, ids: ids, store: store, state: state)
+    func heldAct(_ verb: HeldResearchAct.Verb, ids: [String],
+                 sources: [String: String]) -> HeldResearchAct? {
+        Self.heldAct(verb, ids: ids, sources: sources, store: store, state: state)
     }
 
     @MainActor
-    static func heldAct(_ verb: HeldResearchAct.Verb, ids: [String], store: ProjectStore,
-                        state: BinderTreeSectionsState) -> HeldResearchAct? {
+    static func heldAct(_ verb: HeldResearchAct.Verb, ids: [String], sources: [String: String],
+                        store: ProjectStore, state: BinderTreeSectionsState) -> HeldResearchAct? {
         HeldResearchAct.of(verb, ids: ids, homes: state.researchHomes(in: store.manifest),
                            research: store.manifest.research,
                            structure: store.manifest.structure,
                            noun: ResolveGrouping.pieceNoun(isScript: false,
-                                                           projectType: store.manifest.type))
+                                                           projectType: store.manifest.type),
+                           sources: sources)
+    }
+
+    /// The fold each of `ids` was taken from: the menu's row's fold, else
+    /// the drag's record (`dragSource`).
+    func sources(of ids: [String], fold: String?) -> [String: String] {
+        var out: [String: String] = [:]
+        for id in ids { if let source = fold ?? state.dragSource(of: id) { out[id] = source } }
+        return out
     }
 
     /// **Why the tree may not change research rows `ids`**, named, or nil
@@ -805,7 +817,7 @@ struct BinderTreeVerbs {
     /// `test_everyTreeResearchDeleteGoesThroughTheHeldDoor`).
     func requestDelete(_ ids: [String]) {
         if let refusal = readThroughRefusal(ids) { state.pendingError = refusal; return }
-        if let act = heldAct(.delete, ids: ids) {
+        if let act = heldAct(.delete, ids: ids, sources: [:]) {
             state.pendingAlert = .confirmHeld(act)
             return
         }
@@ -837,8 +849,9 @@ struct BinderTreeVerbs {
         if let refusal = readThroughRefusal(ids, store: store, state: state) { return refusal }
         let homes = state.researchHomes(in: store.manifest)
         let arriving = Set(homes.homes(at: target).filter(homes.takesLinks))
+        let unlinks = HeldResearchAct.unlinks(ids, to: target, homes: homes)
         for id in ids {
-            let leaving = Set(homes.chaptersThroughGroup(of: id))
+            let leaving = Set(homes.chaptersThroughGroup(of: id)).union(unlinks[id] ?? [])
             for piece in leaving.symmetricDifference(arriving) where !mayEditLinks(piece) {
                 let title = TreeWalk.find(id: id, in: research)?.title ?? id
                 let name = homes.pieceTitles[piece] ?? piece
@@ -860,23 +873,25 @@ struct BinderTreeVerbs {
     /// landing is shown (`showMoveLanding`). Counted: no other tree site calls
     /// the store's mover (`test_everyTreeResearchMoveGoesThroughTheHeldDoor`).
     @discardableResult
+    /// `sources`: the fold each row was taken from, where known (`sources(of:fold:)`).
     func requestMove(_ ids: [String], to target: ResearchMoveTarget,
-                     landing: HeldResearchAct.Landing) -> Bool {
+                     landing: HeldResearchAct.Landing, sources: [String: String]) -> Bool {
         if let refusal = Self.moveRefusal(ids, to: target, store: store, state: state,
                                           mayEditLinks: { mayEditResearchLinks(of: $0) }) {
             state.pendingError = refusal
             return false
         }
-        if let act = heldAct(.move(target, landing: landing), ids: ids) {
+        if let act = heldAct(.move(target, landing: landing), ids: ids, sources: sources) {
             state.pendingAlert = .confirmHeld(act)
             return true
         }
+        let homes = state.researchHomes(in: store.manifest)
         state.showMoveLanding(of: ids, to: target, structure: store.manifest.structure,
-                              research: store.manifest.research,
-                              homes: state.researchHomes(in: store.manifest))
+                              research: store.manifest.research, homes: homes)
+        let unlinks = HeldResearchAct.unlinks(ids, to: target, homes: homes)
         perform {
             try await Self.performMove(ids, to: target, landing: landing, lifts: [], afterLift: "",
-                                       store: store)
+                                       unlinks: unlinks, store: store)
         }
         return true
     }
@@ -902,8 +917,8 @@ struct BinderTreeVerbs {
                 return
             }
         }
-        let live = heldAct(act.verb, ids: ids, store: store, state: state)
-        if let live, live.take.held != act.take.held {
+        let live = heldAct(act.verb, ids: ids, sources: act.sources, store: store, state: state)
+        if let live, live.take.held != act.take.held || live.unlinks != act.unlinks {
             state.pendingAlert = .confirmHeld(live)
             return
         }
@@ -921,7 +936,10 @@ struct BinderTreeVerbs {
                     case .delete: try await performDelete(ids, store: store)
                     case .move(let target, let landing):
                         try await performMove(ids, to: target, landing: landing, lifts: [],
-                                              afterLift: "", store: store)
+                                              afterLift: "",
+                                              unlinks: HeldResearchAct.unlinks(
+                                                ids, to: target, homes: state.researchHomes(in: store.manifest)),
+                                              store: store)
                     }
                 }
             } catch { state.pendingError = error.localizedDescription }
@@ -940,7 +958,7 @@ struct BinderTreeVerbs {
             try await performDelete(act.ids, store: store)
         case .move(let target, let landing):
             try await performMove(act.ids, to: target, landing: landing, lifts: act.lifts,
-                                  afterLift: act.afterLift, store: store)
+                                  afterLift: act.afterLift, unlinks: act.unlinks, store: store)
         }
     }
 
@@ -962,8 +980,9 @@ struct BinderTreeVerbs {
     /// then the rows, at the landing as the tree stands after the lifts.
     @MainActor
     static func performMove(_ ids: [String], to target: ResearchMoveTarget,
-                                    landing: HeldResearchAct.Landing, lifts: [HeldResearchAct.Lift],
-                                    afterLift: String, store: ProjectStore) async throws {
+                            landing: HeldResearchAct.Landing, lifts: [HeldResearchAct.Lift],
+                            afterLift: String, unlinks: [String: [String]],
+                            store: ProjectStore) async throws {
         try await performLifts(lifts, store: store)
         let index = landing.index(movingIds: ids, to: target, in: store.manifest.research)
         do {
@@ -972,6 +991,18 @@ struct BinderTreeVerbs {
             // The lift stands: say so, then why the rest did not happen.
             throw TreeLinkError(message: afterLift + error.localizedDescription)
         }
+        // **To the book, whole-book** (closing round A2): its own links go,
+        // the refusals asked before (`moveRefusal`).
+        for (id, pieces) in unlinks.sorted(by: { $0.key < $1.key }) {
+            try await performRelink([id], from: pieces, to: nil, store: store)
+        }
+    }
+
+    /// The tree's one call of the store's link edit (`relinkResearch`).
+    @MainActor
+    static func performRelink(_ ids: [String], from: [String], to: String?,
+                              store: ProjectStore) async throws {
+        try await store.relinkResearch(ids: ids, from: from, to: to)
     }
 
     // MARK: - Where research belongs (shell p5 Task 4a)
@@ -998,7 +1029,7 @@ struct BinderTreeVerbs {
                                 + TreeDropIntent.Reason.linksNotPermitted.explanation + ".")
         }
         do {
-            try await store.relinkResearch(ids: ids, from: from, to: to)
+            try await Self.performRelink(ids, from: from, to: to, store: store)
         } catch {
             throw TreeLinkError(message: "Couldn’t \(what): \(error.localizedDescription)")
         }
@@ -1322,8 +1353,9 @@ final class BinderTreeSectionsState {
             expandedResearchGroups.insert(group)
             openAncestorGroups(of: group, in: research)
         }
+        // To the book the row's links go too (closing round A2): the section.
         let arriving = homes.homes(at: target)
-        let piece = ids.lazy.flatMap { homes.links(of: $0) }.first ?? arriving.first
+        let piece = arriving.isEmpty ? nil : (ids.lazy.flatMap { homes.links(of: $0) }.first ?? arriving.first)
         land(ids, inFoldOf: piece, structure: structure)
     }
 

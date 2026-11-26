@@ -231,10 +231,11 @@ final class BinderTreeDropRoutingTests: XCTestCase {
         await settle(store) { store.linkedResearchIds(forDocumentId: chapter.id).isEmpty }
     }
 
-    /// **Linked to two chapters, dragged out of the second one's fold**: the
-    /// drag recorded its fold as it began (`researchDragSource`), and the drop
-    /// unlinks that chapter alone.
-    func test_aNoteDraggedOutOfOneOfItsTwoFoldsLeavesThatChapterOnly() async throws {
+    /// **Linked to two chapters, dragged out of the second one's fold onto
+    /// Research** (closing round A2): a drop on Research means whole-book, so
+    /// it asks first about the chapter the writer isn't looking at — and
+    /// nothing changes until the answer. Yes: the book's, in the section.
+    func test_aNoteDraggedOutOfOneOfItsTwoFoldsAsksAboutTheOther() async throws {
         let store = try await novel(notes: ["Ships"])
         let note = try XCTUnwrap(research(named: "Ships", in: store))
         let one = try XCTUnwrap(store.manifest.structure.first)
@@ -244,11 +245,18 @@ final class BinderTreeDropRoutingTests: XCTestCase {
         try await store.linkResearch(researchId: note.id, toDocumentId: two.id)
 
         let verbs = verbs(store)
+        let state = state(for: store)
         verbs.bundle.dragStarted(note.id, two.id)
         XCTAssertTrue(verbs.routeSharedSectionDrop(draggedId: note.id))
-        await settle(store) { store.linkedResearchIds(forDocumentId: two.id).isEmpty }
-        XCTAssertEqual(store.linkedResearchIds(forDocumentId: one.id), [note.id],
-                       "chapter one keeps it")
+        guard case .confirmHeld(let act)? = state.pendingAlert else { return XCTFail("it asks") }
+        XCTAssertEqual(act.message, "“Ships” is also \(one.title)’s; moving it to Research takes it from \(one.title).")
+        XCTAssertEqual(store.linkedResearchIds(forDocumentId: one.id), [note.id], "nothing yet")
+        BinderTreeVerbs.confirmHeld(act, store: store, state: state)
+        await settle(store) {
+            store.linkedResearchIds(forDocumentId: one.id).isEmpty
+                && store.linkedResearchIds(forDocumentId: two.id).isEmpty
+        }
+        XCTAssertTrue(state.researchHomes(in: store.manifest).isWholeBook(note.id))
     }
 
     /// **A link edit asks what linking asks**: with no posture door behind the
@@ -406,7 +414,7 @@ final class BinderTreeDropRoutingTests: XCTestCase {
         let places = try await store.addResearchItem(parentId: nil, title: "Places", kind: nil)
         let state = state(for: store)
 
-        verbs(store).bundle.move([world.id], .group(places.id))
+        verbs(store).bundle.move([world.id], .group(places.id), nil)
 
         guard case .confirmHeld(let act)? = state.pendingAlert else {
             return XCTFail("a group over chapters' notes asks first")
@@ -478,7 +486,7 @@ final class BinderTreeDropRoutingTests: XCTestCase {
             let (store, world, _, tides, maps, _) = try await nestedWorld(depth: depth)
             let places = try await store.addResearchItem(parentId: nil, title: "Places", kind: nil)
             let state = state(for: store)
-            verbs(store).bundle.move([world.id], .group(places.id))
+            verbs(store).bundle.move([world.id], .group(places.id), nil)
             guard case .confirmHeld(let act)? = state.pendingAlert else {
                 return XCTFail("depth \(depth): Move asks first")
             }
@@ -530,7 +538,7 @@ final class BinderTreeDropRoutingTests: XCTestCase {
         let inside = try await store.addResearchItem(parentId: world.id, title: "Inside", kind: nil)
         _ = coast
         let act = try XCTUnwrap(verbs(store).heldAct(.move(.group(inside.id), landing: .end),
-                                                     ids: [world.id]))
+                                                     ids: [world.id], sources: [:]))
         do {
             try await BinderTreeVerbs.performHeld(act, store: store)
             XCTFail("a group cannot move into itself")
@@ -585,26 +593,28 @@ final class BinderTreeDropRoutingTests: XCTestCase {
         try await store.linkResearch(researchId: ships.id, toDocumentId: one.id)
         try await store.linkResearch(researchId: hull.id, toDocumentId: two.id)
         let state = state(for: store)
-        XCTAssertNil(verbs(store).heldAct(.move(.group(places.id), landing: .end), ids: [ships.id]),
+        XCTAssertNil(verbs(store).heldAct(.move(.group(places.id), landing: .end), ids: [ships.id], sources: [ships.id: one.id]),
                      "no question from a fold row")
         let fold = TreeHostFixture.foldView(store: store, state: state, subject: .constant(.book),
                                             documentId: one.id, layout: .rows([]))
-        fold.actions.move([ships.id], .group(places.id))
+        fold.actions.move([ships.id], .group(places.id), one.id)
         XCTAssertNil(state.pendingAlert, "nothing asked")
         await settle(store) {
-            TreeWalk.find(id: places.id, in: store.manifest.research)?.children?.contains { $0.id == ships.id } == true
+            store.linkedResearchIds(forDocumentId: one.id).isEmpty
         }
         let moved = try XCTUnwrap(TreeWalk.find(id: ships.id, in: store.manifest.research))
         XCTAssertTrue(TreeWalk.contains(id: hull.id, in: moved.children ?? []), "Ships moved whole")
-        XCTAssertEqual(state.researchHomes(in: store.manifest).homes(of: hull.id), [one.id, two.id],
-                       "Hull is in both folds still")
+        // Places is the book's: Ships' own link to One goes (closing round A2);
+        // Hull keeps its own link to Two.
+        XCTAssertEqual(state.researchHomes(in: store.manifest).homes(of: ships.id), [])
+        XCTAssertEqual(state.researchHomes(in: store.manifest).homes(of: hull.id), [two.id])
     }
 
-    /// **Where a note is, is whose it is** (closing round A): Ships is Chapter
-    /// One's; Hull sits in it, Chapter Two linking it directly too. Move to ▸
-    /// offers Places, and labels Ships' own target with its chapter; moving
-    /// Hull to Places makes it whole-book save its own link (Two's), with no
-    /// question, and its landing is shown — Chapter Two's fold.
+    /// **Where a note is, is whose it is** (closing round A, A2): Ships is
+    /// Chapter One's; Hull sits in it, Chapter Two linking it directly too.
+    /// Move to ▸ offers Places, and labels Ships' own target with its chapter;
+    /// moving Hull from One's fold to Places (the book's) asks once about
+    /// Two, then leaves it whole-book and in the section.
     func test_aNoteMovedOutOfAChaptersGroupTakesItsNewPlacesHome() async throws {
         let store = try await novel(notes: [])
         let ships = try await store.addResearchItem(parentId: nil, title: "Ships", kind: nil)
@@ -624,17 +634,21 @@ final class BinderTreeDropRoutingTests: XCTestCase {
         XCTAssertTrue(verbs.bundle.moveTargets([hull.id]).contains { $0.target == .group(places.id) },
                       "every legal target is offered")
 
-        XCTAssertTrue(verbs.requestMove([hull.id], to: .group(places.id), landing: .end))
-        XCTAssertNil(state.pendingAlert, "nothing asked")
-        XCTAssertEqual(state.scrollRequest, .foldRow(researchId: hull.id, piece: two.id), "its landing shown")
-        await settle(store) {
-            TreeWalk.find(id: places.id, in: store.manifest.research)?.children?.contains { $0.id == hull.id } == true
+        // **To the book from One's fold, Hull also Two's** (closing round A2):
+        // one plain question naming the chapter it would lose, then whole-book
+        // and in the section.
+        XCTAssertTrue(verbs.requestMove([hull.id], to: .group(places.id), landing: .end, sources: [hull.id: one.id]))
+        guard case .confirmHeld(let act)? = state.pendingAlert else {
+            return XCTFail("a hold the writer isn't looking at goes: it asks")
         }
-        XCTAssertEqual(state.researchHomes(in: store.manifest).homes(of: hull.id), [two.id],
-                       "out of Ships it is no longer One's; its own link to Two stays")
+        XCTAssertEqual(act.message, "“Hull” is also Two’s; moving it to “Places” takes it from Two.")
+        BinderTreeVerbs.confirmHeld(act, store: store, state: state)
+        XCTAssertEqual(state.scrollRequest, .row(.research(hull.id)), "landed in the section, in sight")
+        await settle(store) { store.linkedResearchIds(forDocumentId: two.id).isEmpty }
+        XCTAssertTrue(state.researchHomes(in: store.manifest).isWholeBook(hull.id), "whole-book")
 
         // And into a chapter's group: Loose becomes One's, shown in One's fold.
-        XCTAssertTrue(verbs.requestMove([loose.id], to: .group(ships.id), landing: .end))
+        XCTAssertTrue(verbs.requestMove([loose.id], to: .group(ships.id), landing: .end, sources: [:]))
         XCTAssertEqual(state.scrollRequest, .foldRow(researchId: loose.id, piece: one.id))
         XCTAssertTrue(state.folds.isOpen(one.id), "the fold opens for it")
         await settle(store) { state.researchHomes(in: store.manifest).homes(of: loose.id) == [one.id] }
@@ -651,7 +665,7 @@ final class BinderTreeDropRoutingTests: XCTestCase {
         try await store.linkResearch(researchId: ships.id, toDocumentId: one.id)
         store.documentStore = nil
         let state = state(for: store)
-        XCTAssertFalse(verbs(store).requestMove([hull.id], to: .sharedRoot, landing: .end))
+        XCTAssertFalse(verbs(store).requestMove([hull.id], to: .sharedRoot, landing: .end, sources: [:]))
         XCTAssertEqual(state.pendingError, "Couldn’t move “Hull”: this Mac may not change “\(one.title)”’s research.")
     }
 
@@ -695,7 +709,7 @@ final class BinderTreeDropRoutingTests: XCTestCase {
         let (store, world, maps, tides, coast, one, _) = try await worldOverTwoChapters()
         let places = try await store.addResearchItem(parentId: nil, title: "Places", kind: nil)
         let state = state(for: store)
-        verbs(store).bundle.move([world.id], .group(places.id))
+        verbs(store).bundle.move([world.id], .group(places.id), nil)
         guard case .confirmHeld(let asked)? = state.pendingAlert else { return XCTFail("asks") }
         try await store.linkResearch(researchId: coast.id, toDocumentId: one.id)
         BinderTreeVerbs.confirmHeld(asked, store: store, state: state)
@@ -806,7 +820,7 @@ final class BinderTreeDropRoutingTests: XCTestCase {
             perform { try await store.moveResearchItem(id: id, toParentId: nil, atIndex: 0) }
             """), 2)
         XCTAssertEqual(Self.storeMoves(in: """
-            requestMove(ids, to: target, landing: .end)
+            requestMove(ids, to: target, landing: .end, sources: [:])
             // store.moveResearchItems( in a comment
             """), 0)
     }
@@ -888,7 +902,7 @@ final class BinderTreeDropRoutingTests: XCTestCase {
             try await store.linkResearch(researchId: note.id, toDocumentId: one.id)
         }
         _ = try await store.addResearchTextNote(parentId: world.id, title: "Coast")
-        let act = try XCTUnwrap(verbs(store).heldAct(.delete, ids: [world.id]))
+        let act = try XCTUnwrap(verbs(store).heldAct(.delete, ids: [world.id], sources: [:]))
         XCTAssertEqual(act.message,
                        "“A” (\(one.title)), “B” (\(one.title)), “C” (\(one.title)) and 2 more stay with "
                        + "their chapters; the rest of “World” goes to the Trash.")
@@ -902,7 +916,7 @@ final class BinderTreeDropRoutingTests: XCTestCase {
         _ = try await store.addResearchTextNote(parentId: world.id, title: "Coast")
         let state = state(for: store)
         XCTAssertNil(BinderTreeVerbs(store: store, state: state, subject: .constant(.book))
-            .heldAct(.delete, ids: [world.id]))
+            .heldAct(.delete, ids: [world.id], sources: [:]))
     }
 
     // MARK: - Drags and menus out of a fold (fix round 1: I1, I4, I5, M4, M7, M9)
@@ -1101,8 +1115,10 @@ final class BinderTreeDropRoutingTests: XCTestCase {
             "Maugham/Views/ResearchLinkPickerSheet.swift": 2,
             // A new note in a document's scope (`createResearchAsset`).
             "Maugham/Stores/ResearchScope.swift": 1,
-            // The assistant's link tools (its own permission).
+            // The assistant's link tools (its own permission), and its move to
+            // the book taking a note's links (closing round A2).
             "Maugham/MCP/Tools/ResearchLinkTools.swift": 2,
+            "Maugham/MCP/Tools/MoveResearchItemTool.swift": 1,
             // A canvas promotion's link.
             "Maugham/Canvas/PromotionPerformer.swift": 1,
         ])
@@ -1146,7 +1162,7 @@ final class BinderTreeDropRoutingTests: XCTestCase {
         verbs.requestDelete([tides.id])
         XCTAssertEqual(state.pendingError, refusal)
         state.pendingError = nil
-        XCTAssertFalse(verbs.requestMove([tides.id], to: .group(ships.id), landing: .end))
+        XCTAssertFalse(verbs.requestMove([tides.id], to: .group(ships.id), landing: .end, sources: [:]))
         XCTAssertEqual(state.pendingError, refusal)
         state.pendingError = nil
         XCTAssertFalse(verbs.routeSharedSectionDrop(draggedId: tides.id), "a drag out")
@@ -1160,7 +1176,7 @@ final class BinderTreeDropRoutingTests: XCTestCase {
         XCTAssertEqual(store.linkedResearchIds(forDocumentId: one.id), [tides.id, ships.id])
 
         // Into the chapter: allowed.
-        XCTAssertTrue(verbs.requestMove([coast.id], to: .group(ships.id), landing: .end))
+        XCTAssertTrue(verbs.requestMove([coast.id], to: .group(ships.id), landing: .end, sources: [:]))
         XCTAssertNil(state.pendingError)
         await settle(store) { state.researchHomes(in: store.manifest).homes(of: coast.id) == [one.id] }
     }
@@ -1343,16 +1359,24 @@ final class BinderTreeDropRoutingTests: XCTestCase {
         XCTAssertEqual(moved.path?.contains("/research/"), true,
                        "…and the move did happen. Got \(moved.path ?? "nil")")
 
-        // The second half: with a dormant link present, the shared section is
-        // still a SCOPE move and not an unlink.
-        XCTAssertTrue(verbs(store).routeSharedSectionDrop(draggedId: note.id))
+        // The second half (closing round A2): a drop on Research means
+        // whole-book — dragged out of Two's fold, the note's link to One is a
+        // hold the writer isn't looking at, so it asks; yes, and the note is
+        // the book's, out of Two's folder and no longer One's.
+        let verbs = verbs(store)
+        verbs.bundle.dragStarted(note.id, two.id)
+        XCTAssertTrue(verbs.routeSharedSectionDrop(draggedId: note.id))
+        let state = state(for: store)
+        guard case .confirmHeld(let act)? = state.pendingAlert else {
+            return XCTFail("it asks before One loses it")
+        }
+        XCTAssertEqual(act.message, "“Ships” is also One’s; moving it to Research takes it from One.")
+        BinderTreeVerbs.confirmHeld(act, store: store, state: state)
         await settle(store) {
             self.research(named: "Ships", in: store)?.path?.hasPrefix("pieces/") == false
+                && store.linkedResearchIds(forDocumentId: one.id).isEmpty
         }
-        XCTAssertEqual(store.linkedResearchIds(forDocumentId: one.id), [note.id],
-                       "a Collection piece's routing does not use links, so a "
-                       + "link on one must never be what a drop on the shared "
-                       + "section answers")
+        XCTAssertTrue(state.researchHomes(in: store.manifest).isWholeBook(note.id))
     }
 
     func test_aReferencedPieceRefusesTheDropRatherThanSwallowingIt() async throws {

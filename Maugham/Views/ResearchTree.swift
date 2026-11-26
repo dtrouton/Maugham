@@ -45,7 +45,8 @@ struct ResearchTreeActions {
     var selectionForRow: (_ rowId: String) -> [String]
     /// Valid "Move to" destinations for `forIds` (empty ⇒ hide the submenu).
     var moveTargets: (_ forIds: [String]) -> [ResearchMoveMenuTarget]
-    var move: (_ ids: [String], _ target: ResearchMoveTarget) -> Void
+    /// `fold`: the fold the row is drawn in (nil: the Research section).
+    var move: (_ ids: [String], _ target: ResearchMoveTarget, _ fold: String?) -> Void
     var deleteMany: (_ ids: [String]) -> Void
     /// **A drag of a row began** (shell p5 Task 4a): the row's id and the
     /// fold it is drawn in (nil: the Research section) — what lets a drop
@@ -244,7 +245,7 @@ struct ResearchTreeNode: View {
                 if !targets.isEmpty {
                     Menu("Move to") {
                         ForEach(targets) { t in
-                            Button(t.title) { actions.move(acting, t.target) }
+                            Button(t.title) { actions.move(acting, t.target, inFold) }
                         }
                     }
                     Divider()

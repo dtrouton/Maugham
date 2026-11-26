@@ -94,12 +94,6 @@ enum TreeDropIntent {
         /// needs a `linkedResearchIds` reorder the store does not have; that
         /// API is stage 2b's, and until it exists a bounce is what is honest.
         case linkedFoldHasNoOrder
-        /// A note linked to more than one chapter, dragged to the Research
-        /// section from somewhere that is not one of their folds (another
-        /// window, a stale drag): the payload is a bare id, and with no fold
-        /// recorded as the drag's source (`sourcePiece`), unlinking one (or
-        /// all) would delete a link the writer never pointed at.
-        case ambiguousSource
         /// The row is research a chapter in read-through holds: it is not
         /// moved out, reordered or unlinked (closing round A, branch I2).
         case readThrough
@@ -123,7 +117,6 @@ enum TreeDropIntent {
             case .sharedOnly: return "this project keeps all research shared"
             case .notAResearchTarget: return "not a research scope target"
             case .alreadyThere: return "already there — the drop changes nothing"
-            case .ambiguousSource: return "linked to more than one document"
             case .readThrough: return "a chapter that holds it is in read-through"
             case .linksNotPermitted: return "this Mac may not change that piece's research links"
             case .linkedFoldHasNoOrder:
@@ -405,13 +398,13 @@ enum TreeDropIntent {
             guard TreeWalk.find(id: targetId, in: research) != nil else {
                 return .refuse(.unknownId)
             }
-            // **A Research-section row is the book's** (shell p5 Task 4a):
-            // a note a chapter links, dropped on any of the section's rows,
-            // leaves the chapter it was dragged from, as a drop on the header
-            // does. It lands where it lives in the research tree.
-            if homes.owner(of: dragged.id) == nil,
-               let unlinking = leaving(dragged, sourcePiece: sourcePiece, homes: homes) {
-                return unlinking
+            // **A drop on the Research section means whole-book, full stop**
+            // (closing round A2): a note a chapter links, dropped beside a
+            // section row, moves there and its own links go — the tree's
+            // move door unlinks it, asking first where a chapter the drag
+            // did not come from would lose it.
+            if homes.owner(of: dragged.id) == nil, !homes.links(of: dragged.id).isEmpty {
+                return .researchReorder
             }
             let from = owningPieceId(of: dragged.id, structure: structure,
                                      research: research)
@@ -526,9 +519,10 @@ enum TreeDropIntent {
         research: [ResearchItem],
         homes: ResearchHomes
     ) -> Intent {
-        if homes.owner(of: dragged.id) == nil,
-           let unlinking = leaving(dragged, sourcePiece: sourcePiece, homes: homes) {
-            return unlinking
+        // A linked note: to the Research root, its links gone (the move
+        // door's, closing round A2) — whole-book and in the section.
+        if homes.owner(of: dragged.id) == nil, !homes.links(of: dragged.id).isEmpty {
+            return .rescope(ids: [dragged.id], to: .sharedRoot)
         }
         // Unlinked: the section IS the shared root, so the drop lifts the item
         // out of a piece's folder or out of whatever group it was in.
@@ -537,21 +531,6 @@ enum TreeDropIntent {
             && research.contains { $0.id == dragged.id }
         guard !isSharedRoot else { return .refuse(.alreadyThere) }
         return .rescope(ids: [dragged.id], to: .sharedRoot)
-    }
-
-    /// **A linked note leaving a piece for the book**: unlinked from the
-    /// fold it was dragged out of; from its one piece when the drag says
-    /// nothing; refused when it is linked to several and the drag does not
-    /// say which (`Reason.ambiguousSource`). Nil for a note no piece links.
-    private static func leaving(_ dragged: ResearchItem, sourcePiece: String?,
-                                homes: ResearchHomes) -> Intent? {
-        let links = homes.links(of: dragged.id)
-        guard !links.isEmpty else { return nil }
-        if let sourcePiece, links.contains(sourcePiece) {
-            return .unlink(researchId: dragged.id, fromDocumentId: sourcePiece)
-        }
-        guard links.count == 1 else { return .refuse(.ambiguousSource) }
-        return .unlink(researchId: dragged.id, fromDocumentId: links[0])
     }
 
     // MARK: - Where things live

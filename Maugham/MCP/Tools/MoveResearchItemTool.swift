@@ -18,8 +18,8 @@ public enum MoveResearchItemTool: MCPTool {
         "Give exactly one of: target=\"shared\", target_group_id, or " +
         "target_document_id (a loose piece). Whole groups move with their contents. " +
         "Where a note is, is whose it is: into a group a chapter holds makes it that " +
-        "chapter's, out of one to shared research makes it whole-book; its own links to " +
-        "chapters stay. Each moved item's `home` says which."
+        "chapter's; to shared research or a whole-book group makes it whole-book, its own " +
+        "links to chapters removed (`left` names them). Each moved item's `home` says which."
     public static let inputSchemaJSON =
         #"{"type":"object","properties":{"project_id":{"type":"string"},"research_ids":{"type":"array","items":{"type":"string"}},"target":{"type":"string","enum":["shared"]},"target_group_id":{"type":"string"},"target_document_id":{"type":"string"}},"required":["project_id","research_ids"]}"#
 
@@ -36,6 +36,9 @@ public enum MoveResearchItemTool: MCPTool {
         /// Whose it is now, in words: "whole-book", or "Chapter One's"
         /// (closing round A) — so a move out of a chapter is never unknowing.
         public let home: String
+        /// The chapters a move to the book took it from (its links removed),
+        /// by title; absent when none.
+        public let left: [String]?
     }
     public struct Result: Codable, Equatable {
         public let moved: [MovedItem]
@@ -73,7 +76,16 @@ public enum MoveResearchItemTool: MCPTool {
             throw MCPError.invalidArgument("research_ids must not be empty")
         }
 
+        // **Where a note is, is whose it is** (closing round A2): to the book,
+        // its own links go — the tree's rule, said in the answer.
+        let before = ResearchHomes.derive(structure: store.manifest.structure,
+                                          research: store.manifest.research,
+                                          projectType: store.manifest.type)
+        let unlinks = HeldResearchAct.unlinks(params.research_ids, to: targets[0], homes: before)
         try await store.moveResearchItems(ids: params.research_ids, to: targets[0])
+        for (id, pieces) in unlinks.sorted(by: { $0.key < $1.key }) {
+            try await store.relinkResearch(ids: [id], from: pieces, to: nil)
+        }
 
         let homes = ResearchHomes.derive(structure: store.manifest.structure,
                                          research: store.manifest.research,
@@ -81,7 +93,8 @@ public enum MoveResearchItemTool: MCPTool {
         let moved = params.research_ids.map { id in
             MovedItem(id: id,
                       path: TreeWalk.find(id: id, in: store.manifest.research)?.path,
-                      home: Self.home(of: id, in: homes))
+                      home: Self.home(of: id, in: homes),
+                      left: unlinks[id].map { $0.map { before.pieceTitles[$0] ?? $0 } })
         }
         return try JSONEncoder().encode(Result(moved: moved))
     }

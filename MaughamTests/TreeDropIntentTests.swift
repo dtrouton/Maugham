@@ -179,11 +179,15 @@ final class TreeDropIntentTests: XCTestCase {
     func test_aLinkedNoteDraggedToTheSharedSectionLeavesItsChapter() {
         XCTAssertEqual(
             classify("linked", on: .sharedSection, in: Novel.self),
-            .unlink(researchId: "linked", fromDocumentId: "ch1"),
-            "the reverse of the chapter drop: out of the fold, out of the link")
+            .rescope(ids: ["linked"], to: .sharedRoot),
+            "the reverse of the chapter drop: to the book, its link taken by the move door (A2)")
     }
 
-    func test_aNoteLinkedToTwoChaptersRefusesRatherThanGuess() {
+    /// **A drop on Research is whole-book** (closing round A2): a note two
+    /// chapters link, dropped on the section, goes to the Research root —
+    /// the move door takes its links away, asking first about a chapter the
+    /// drag did not come from. Nothing is guessed: nothing is refused here.
+    func test_aNoteLinkedToTwoChaptersGoesToTheBook() {
         var structure = Novel.structure
         structure[1].linkedResearchIds = ["linked"]
         XCTAssertEqual(
@@ -192,10 +196,7 @@ final class TreeDropIntentTests: XCTestCase {
                 structure: structure, research: Novel.research,
                 figures: [],
                 projectType: .novel),
-            .refuse(.ambiguousSource),
-            "the drag payload is a bare id — nothing in it says which fold the "
-            + "writer dragged FROM, and unlinking the wrong chapter (or all of "
-            + "them) is a link deletion they never asked for")
+            .rescope(ids: ["linked"], to: .sharedRoot))
     }
 
     func test_aSharedRootNoteDroppedOnTheSharedSectionIsRefused() {
@@ -221,8 +222,8 @@ final class TreeDropIntentTests: XCTestCase {
 
     // MARK: - Either/or: the drag's own fold (shell p5 Task 4a)
 
-    /// **Linked to two, dragged out of one fold: it leaves THAT chapter** —
-    /// the fold the drag started in (`sourcePiece`) says which.
+    /// **Linked to two, dragged out of one fold onto Research: to the book**
+    /// (closing round A2) — the move door asks about the other chapter.
     func test_aNoteLinkedToTwoLeavesTheFoldItWasDraggedFrom() {
         var structure = Novel.structure
         structure[1].linkedResearchIds = ["linked"]
@@ -232,15 +233,16 @@ final class TreeDropIntentTests: XCTestCase {
                     payloadId: "linked", target: target, sourcePiece: "ch2",
                     structure: structure, research: Novel.research, figures: [],
                     projectType: .novel),
-                .unlink(researchId: "linked", fromDocumentId: "ch2"), "\(target)")
+                target == .sharedSection ? .rescope(ids: ["linked"], to: .sharedRoot) : .researchReorder,
+                "\(target)")
         }
     }
 
     /// **Any Research-section row is the book's**: a chapter's note dropped
     /// on one leaves the chapter — never a reorder that leaves it in the fold.
     func test_aLinkedNoteDroppedOnASectionRowLeavesItsChapter() {
-        XCTAssertEqual(classify("linked", on: .researchRow("note"), in: Novel.self),
-                       .unlink(researchId: "linked", fromDocumentId: "ch1"))
+        XCTAssertEqual(classify("linked", on: .researchRow("note"), in: Novel.self), .researchReorder,
+                       "beside the row, its link taken by the move door (A2)")
         XCTAssertEqual(TreeDropFeedback.of(.unlink(researchId: "linked", fromDocumentId: "ch1"),
                                            on: .researchRow("note")), .into,
                        "it lands where it lives: the section's look, never an insertion line (M5)")
@@ -283,7 +285,7 @@ final class TreeDropIntentTests: XCTestCase {
                 payloadId: "note", target: .sharedSection, sourcePiece: "pB",
                 structure: structure, research: Collection.research, figures: [],
                 projectType: .collection),
-            .unlink(researchId: "note", fromDocumentId: "pB"))
+            .rescope(ids: ["note"], to: .sharedRoot), "to the book: the move door takes its link")
     }
 
     // MARK: - Inside a group a chapter links (fix round 1, I8 + M8)
@@ -338,8 +340,8 @@ final class TreeDropIntentTests: XCTestCase {
         XCTAssertEqual(TreeDropFeedback.of(.leaveGroup(researchId: "coast", toDocumentId: "ch1"),
                                            on: .pieceRow("ch1")), .into)
         XCTAssertEqual(classifyInWorld("group", on: .sharedSection, from: "ch2"),
-                       .unlink(researchId: "group", fromDocumentId: "ch2"),
-                       "control: the group itself, linked, leaves its chapter by its link")
+                       .rescope(ids: ["group"], to: .sharedRoot),
+                       "control: the group itself, linked, goes to the book (the door unlinks it)")
     }
 
     /// **An unlinking drop on a section row shows the section's look** (M5):

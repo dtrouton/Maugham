@@ -62,6 +62,29 @@ final class MoveResearchItemToolTests: XCTestCase {
         await ds.close()
     }
 
+    /// **To shared research, a note's own links go** (closing round A2): the
+    /// answer says whole-book and names the chapter it left.
+    func test_aMoveToSharedResearchLeavesTheChaptersItWasLinkedTo() async throws {
+        let url = try await ProjectFactory.createNovelProject(named: "MCPMoveLinks", in: temp.url)
+        let store = try await ProjectStore.load(from: url)
+        let ds = try await DocumentStore.open(url: url)
+        store.documentStore = ds
+        let chapter = try XCTUnwrap(store.manifest.structure.first)
+        let group = try await store.addResearchItem(parentId: nil, title: "Harbour", kind: nil)
+        let note = try await store.addResearchTextNote(parentId: group.id, title: "Hull")
+        try await store.linkResearch(researchId: note.id, toDocumentId: chapter.id)
+        let registry = ProjectRegistry()
+        registry.register(url: url, store: store)
+        let projectId = ProjectIdentifier.id(for: url)
+        let out = try JSONDecoder().decode(MoveResearchItemTool.Result.self, from: try await MoveResearchItemTool.handle(
+            paramsJSON: params(["project_id": projectId, "research_ids": [note.id], "target": "shared"]),
+            registry: registry))
+        XCTAssertEqual(out.moved.map(\.home), ["whole-book"])
+        XCTAssertEqual(out.moved.first?.left, [chapter.title])
+        XCTAssertEqual(store.linkedResearchIds(forDocumentId: chapter.id), [])
+        await ds.close()
+    }
+
     func test_moveToPiece_movesFile() async throws {
         let (registry, store, ds, piece, projectId) = try await makeRegistry()
         let note = try await store.addResearchTextNote(parentId: nil, title: "Sarah")
