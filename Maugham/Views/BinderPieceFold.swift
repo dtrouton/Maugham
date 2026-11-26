@@ -136,8 +136,10 @@ struct BinderPieceFold: View {
                     // the first of them, in tree order, and nowhere else. (A
                     // single-document project's fold lists the book's research,
                     // whose row in the Research section renames it.)
-                    offersRename: { [homes = fold.homes, documentId] in
-                        homes.homes(of: $0).first == documentId
+                    // …and not while a piece in read-through holds it
+                    // (closing round A): the field and the menu, one answer.
+                    offersRename: { [homes = fold.homes, documentId, gate = state.figureReadThrough] in
+                        homes.homes(of: $0).first == documentId && !gate.refusesEdits(.research($0))
                     },
                     caption: fold.homes.place(of: id),
                     // **The fold's own groups share the tree's set of open

@@ -662,9 +662,7 @@ struct BinderTreeVerbs {
 
     var bundle: ResearchTreeActions {
         var bundle = ResearchTreeActions(
-            rename: { id, newTitle in
-                perform { try await store.updateResearchItem(id: id, title: newTitle) }
-            },
+            rename: { id, newTitle in renameResearch(id, to: newTitle) },
             // **The tree's rows route by scope** (Task 7): what a drop MEANS is
             // `TreeDropIntent.classify`, what it DOES is `BinderTreeDrops`.
             // `inFoldOf: nil` — these are the shared section's rows;
@@ -720,17 +718,12 @@ struct BinderTreeVerbs {
             // Items", a multi "Move to ▸", a batch drag — are all built on this
             // one closure, so widening it is what carries them across.
             selectionForRow: { rowId in actingIds(forRow: rowId) },
-            // Only where the move keeps every chapter's hold (round 3): a
-            // note a chapter holds through its group moves with the group.
+            // Every legal target (closing round A), a chapter's group named
+            // with its chapter, so going into one is never a surprise.
             moveTargets: { ids in
                 let homes = state.researchHomes(in: store.manifest)
                 return ResearchSelectionSync.moveTargets(forIds: ids, manifest: store.manifest)
-                    .filter { target in
-                        ids.allSatisfy {
-                            homes.chaptersLost(moving: $0, to: target.target,
-                                               in: store.manifest.research).isEmpty
-                        }
-                    }
+                    .map { Self.labelled($0, homes: homes) }
             },
             move: { ids, target in requestMove(ids, to: target, landing: .end) },
             deleteMany: { ids in requestDelete(ids) },
@@ -740,6 +733,10 @@ struct BinderTreeVerbs {
                 if let fold { state.actedInFold(fold) }
             },
             homeMenu: { item, fold in homeMenu(for: item, inFold: fold) },
+            // Research a chapter in read-through holds offers no Rename,
+            // Delete, Move or link verb (closing round A, branch I2): a
+            // lookup in the window's gate per row; the doors refuse behind it.
+            offersChanging: { [state] item in !state.figureReadThrough.refusesEdits(.research(item.id)) },
             performHome: { verb in performHome(verb) },
             // Use in Document / Bring Back to Figures (report plan 8b Task 4):
             // the Figures section's helper, its refusals in this tree's alert.
@@ -755,6 +752,17 @@ struct BinderTreeVerbs {
     var figures: FigureSectionVerbs { FigureSectionVerbs(store: store, state: state) }
 
     // MARK: - A section row's Delete and Move (fix round 1, I2)
+
+    /// A Move to ▸ target whose group a chapter holds, named with it:
+    /// "Ships — Chapter One".
+    static func labelled(_ target: ResearchMoveMenuTarget, homes: ResearchHomes) -> ResearchMoveMenuTarget {
+        guard case .group(let group) = target.target else { return target }
+        let chapters = homes.homes(of: group).filter(homes.takesLinks).map { homes.pieceTitles[$0] ?? $0 }
+        guard !chapters.isEmpty else { return target }
+        return ResearchMoveMenuTarget(id: target.id,
+                                      title: "\(target.title) — \(chapters.joined(separator: ", "))",
+                                      target: target.target)
+    }
 
     /// The question a group's verb asks first, when a piece holds something
     /// beneath it; nil where the verb is the plain one.
@@ -772,9 +780,31 @@ struct BinderTreeVerbs {
                                                            projectType: store.manifest.type))
     }
 
+    /// **Why the tree may not change research rows `ids`**, named, or nil
+    /// (closing round A, branch I2): research a chapter in read-through holds
+    /// is not renamed, deleted, moved out, reordered or unlinked — what the
+    /// inspector and the centre already refuse (`ReadThroughGate`, the
+    /// window's, on the state). Making something in that chapter, or moving
+    /// something into it, is creation and refused by nothing.
+    func readThroughRefusal(_ ids: [String]) -> String? {
+        Self.readThroughRefusal(ids, store: store, state: state)
+    }
+
+    @MainActor
+    static func readThroughRefusal(_ ids: [String], store: ProjectStore,
+                                   state: BinderTreeSectionsState) -> String? {
+        for id in ids {
+            guard let refusal = state.figureReadThrough.refusal(.research(id)) else { continue }
+            let title = TreeWalk.find(id: id, in: store.manifest.research)?.title ?? id
+            return refusal.because("\u{201C}\(title)\u{201D}")
+        }
+        return nil
+    }
+
     /// **The one door a tree research delete goes through** (counted:
     /// `test_everyTreeResearchDeleteGoesThroughTheHeldDoor`).
     func requestDelete(_ ids: [String]) {
+        if let refusal = readThroughRefusal(ids) { state.pendingError = refusal; return }
         if let act = heldAct(.delete, ids: ids) {
             state.pendingAlert = .confirmHeld(act)
             return
@@ -782,39 +812,68 @@ struct BinderTreeVerbs {
         perform { try await Self.performDelete(ids, store: store) }
     }
 
-    /// **The one door a tree research move goes through** (fix rounds 2–3):
-    /// the row menu's Move to ▸, a drag's reorder, a drag into a group or
-    /// across a scope. A move into the moving rows' own group is refused
-    /// first, named, with nothing done (round 3, b). A Research-section group
-    /// moving to another parent over a piece's note asks first and lifts it
-    /// (`HeldResearchAct`); a fold row's move and a same-parent reorder are the
-    /// plain move. Counted: no other tree site calls the store's mover
-    /// (`test_everyTreeResearchMoveGoesThroughTheHeldDoor`).
+    /// **A tree rename, through the read-through question** (closing round A).
+    func renameResearch(_ id: String, to title: String) {
+        if let refusal = readThroughRefusal([id]) { state.pendingError = refusal; return }
+        perform { try await store.updateResearchItem(id: id, title: title) }
+    }
+
+    /// **Why a move of `ids` to `target` is refused, named, or nil** — asked
+    /// when the writer acts and again when they answer a question: a move
+    /// into the moving rows' own group; research a chapter in read-through
+    /// holds; a chapter whose hold the move would change that this Mac may
+    /// not change (the posture's link door).
+    @MainActor
+    static func moveRefusal(_ ids: [String], to target: ResearchMoveTarget, store: ProjectStore,
+                            state: BinderTreeSectionsState,
+                            mayEditLinks: (String) -> Bool) -> String? {
+        let research = store.manifest.research
+        if case .group(let groupId) = target, let mover = ids.compactMap({
+            TreeWalk.find(id: $0, in: research)
+        }).first(where: { $0.id == groupId || TreeWalk.contains(id: groupId, in: $0.children ?? []) }) {
+            let into = TreeWalk.find(id: groupId, in: research)?.title ?? groupId
+            return "Couldn’t move “\(mover.title)” into “\(into)”: a group can’t go inside itself."
+        }
+        if let refusal = readThroughRefusal(ids, store: store, state: state) { return refusal }
+        let homes = state.researchHomes(in: store.manifest)
+        let arriving = Set(homes.homes(at: target).filter(homes.takesLinks))
+        for id in ids {
+            let leaving = Set(homes.chaptersThroughGroup(of: id))
+            for piece in leaving.symmetricDifference(arriving) where !mayEditLinks(piece) {
+                let title = TreeWalk.find(id: id, in: research)?.title ?? id
+                let name = homes.pieceTitles[piece] ?? piece
+                return "Couldn’t move “\(title)”: this Mac may not change “\(name)”’s research."
+            }
+        }
+        return nil
+    }
+
+    /// **The one door a tree research move goes through** (fix rounds 2–3,
+    /// closing round A): the row menu's Move to ▸, a drag's reorder, a drag
+    /// into a group or across a scope. **Where a note is, is whose it is**:
+    /// the row goes where it is sent and takes that place's home — a
+    /// chapter's group makes it the chapter's, a whole-book group or the
+    /// Research root the book's — its own links kept. Refused, named, only by
+    /// `moveRefusal`. A Research-section group moving to another parent over
+    /// a chapter's note it hides asks first and lifts it (`HeldResearchAct`);
+    /// a fold row's move and a same-parent reorder are the plain move. The
+    /// landing is shown (`showMoveLanding`). Counted: no other tree site calls
+    /// the store's mover (`test_everyTreeResearchMoveGoesThroughTheHeldDoor`).
     @discardableResult
     func requestMove(_ ids: [String], to target: ResearchMoveTarget,
                      landing: HeldResearchAct.Landing) -> Bool {
-        if case .group(let groupId) = target, let mover = ids.compactMap({
-            TreeWalk.find(id: $0, in: store.manifest.research)
-        }).first(where: { $0.id == groupId || TreeWalk.contains(id: groupId, in: $0.children ?? []) }) {
-            let into = TreeWalk.find(id: groupId, in: store.manifest.research)?.title ?? groupId
-            state.pendingError = "Couldn’t move “\(mover.title)” into “\(into)”: a group can’t go inside itself."
-            return false
-        }
-        // **A move never takes a note from a chapter** (round 3): one a
-        // chapter holds through the group it stands in moves with that group.
-        let homes = state.researchHomes(in: store.manifest)
-        if let held = ids.first(where: {
-            !homes.chaptersLost(moving: $0, to: target, in: store.manifest.research).isEmpty
-        }) {
-            let title = TreeWalk.find(id: held, in: store.manifest.research)?.title ?? held
-            state.pendingError = "Couldn’t move “\(title)”: "
-                + TreeDropIntent.Reason.movesWithItsGroup.explanation + "."
+        if let refusal = Self.moveRefusal(ids, to: target, store: store, state: state,
+                                          mayEditLinks: { mayEditResearchLinks(of: $0) }) {
+            state.pendingError = refusal
             return false
         }
         if let act = heldAct(.move(target, landing: landing), ids: ids) {
             state.pendingAlert = .confirmHeld(act)
             return true
         }
+        state.showMoveLanding(of: ids, to: target, structure: store.manifest.structure,
+                              research: store.manifest.research,
+                              homes: state.researchHomes(in: store.manifest))
         perform {
             try await Self.performMove(ids, to: target, landing: landing, lifts: [], afterLift: "",
                                        store: store)
@@ -823,21 +882,35 @@ struct BinderTreeVerbs {
     }
 
     /// **The question answered yes — over the manifest as it is now** (fix
-    /// round 3, c): the act is worked out again; where what is held has
-    /// changed since the question, it is asked again with the new names;
-    /// where nothing is held any more, the verb is the plain one. Delete
-    /// trashes only what is taken; Move lifts what pieces hold out, then
-    /// moves the rows, its landing found again after the lift.
+    /// round 3, c; closing round A): the act is worked out again, and a move
+    /// asks `moveRefusal` again; where what is held has changed since the
+    /// question, it is asked again with the new names; where nothing is held
+    /// any more, the verb is the plain one. Delete lifts what chapters hold
+    /// out to where the group stood, then trashes the rows; Move lifts them,
+    /// then moves the rows, its landing found again after the lift.
     @MainActor
     static func confirmHeld(_ act: HeldResearchAct, store: ProjectStore,
                             state: BinderTreeSectionsState) {
         state.dismissAlert(.confirmHeld(act))
         let ids = act.ids.filter { TreeWalk.contains(id: $0, in: store.manifest.research) }
         guard !ids.isEmpty else { return }
+        if case .move(let target, _) = act.verb {
+            let verbs = BinderTreeVerbs(store: store, state: state, subject: .constant(.book))
+            if let refusal = moveRefusal(ids, to: target, store: store, state: state,
+                                         mayEditLinks: { verbs.mayEditResearchLinks(of: $0) }) {
+                state.pendingError = refusal
+                return
+            }
+        }
         let live = heldAct(act.verb, ids: ids, store: store, state: state)
         if let live, live.take.held != act.take.held {
             state.pendingAlert = .confirmHeld(live)
             return
+        }
+        if case .move(let target, _) = act.verb {
+            state.showMoveLanding(of: ids, to: target, structure: store.manifest.structure,
+                                  research: store.manifest.research,
+                                  homes: state.researchHomes(in: store.manifest))
         }
         Task { @MainActor in
             do {
@@ -860,11 +933,22 @@ struct BinderTreeVerbs {
     static func performHeld(_ act: HeldResearchAct, store: ProjectStore) async throws {
         switch act.verb {
         case .delete:
-            guard !act.take.taken.isEmpty else { return }
-            try await performDelete(act.take.taken, store: store)
+            // **No ghost group** (closing round A, branch M1): what chapters
+            // hold is lifted out to where the group stood, keeping its homes
+            // by id, then the rows go whole to the Trash.
+            try await performLifts(act.lifts, store: store)
+            try await performDelete(act.ids, store: store)
         case .move(let target, let landing):
             try await performMove(act.ids, to: target, landing: landing, lifts: act.lifts,
                                   afterLift: act.afterLift, store: store)
+        }
+    }
+
+    /// What chapters hold, lifted out to where each row stood.
+    @MainActor
+    private static func performLifts(_ lifts: [HeldResearchAct.Lift], store: ProjectStore) async throws {
+        for lift in lifts {
+            try await store.moveResearchItems(ids: lift.ids, to: lift.to, atIndex: nil)
         }
     }
 
@@ -877,13 +961,11 @@ struct BinderTreeVerbs {
     /// The tree's one call of the store's research mover: the lifts first,
     /// then the rows, at the landing as the tree stands after the lifts.
     @MainActor
-    private static func performMove(_ ids: [String], to target: ResearchMoveTarget,
+    static func performMove(_ ids: [String], to target: ResearchMoveTarget,
                                     landing: HeldResearchAct.Landing, lifts: [HeldResearchAct.Lift],
                                     afterLift: String, store: ProjectStore) async throws {
-        for lift in lifts {
-            try await store.moveResearchItems(ids: lift.ids, to: lift.to, atIndex: nil)
-        }
-        let index = landing.index(movingIds: ids, in: store.manifest.research)
+        try await performLifts(lifts, store: store)
+        let index = landing.index(movingIds: ids, to: target, in: store.manifest.research)
         do {
             try await store.moveResearchItems(ids: ids, to: target, atIndex: index)
         } catch where !lifts.isEmpty {
@@ -909,6 +991,8 @@ struct BinderTreeVerbs {
         case (false, let to?): what = "move to “\(title(to))”"
         default: what = "remove from “\(from.map(title).joined(separator: "”, “"))”"
         }
+        // Unlinking from a chapter in read-through changes what it holds.
+        if !from.isEmpty, let refusal = readThroughRefusal(ids) { throw TreeLinkError(message: refusal) }
         for piece in from + (to.map { [$0] } ?? []) where !mayEditResearchLinks(of: piece) {
             throw TreeLinkError(message: "Couldn’t \(what): "
                                 + TreeDropIntent.Reason.linksNotPermitted.explanation + ".")
@@ -1225,9 +1309,30 @@ final class BinderTreeSectionsState {
     func showLanding(of ids: [String], inFoldOf piece: String?,
                      structure: [StructureItem], research: [ResearchItem]) {
         for id in ids { openAncestorGroups(of: id, in: research) }
+        land(ids, inFoldOf: piece, structure: structure)
+    }
+
+    /// **Where a move lands, in sight** (closing round A): the destination's
+    /// home — a chapter's fold, opened for a while as a click opens one, or
+    /// the Research section — and the groups down to the destination opened.
+    func showMoveLanding(of ids: [String], to target: ResearchMoveTarget,
+                         structure: [StructureItem], research: [ResearchItem],
+                         homes: ResearchHomes) {
+        if case .group(let group) = target {
+            expandedResearchGroups.insert(group)
+            openAncestorGroups(of: group, in: research)
+        }
+        let arriving = homes.homes(at: target)
+        let piece = ids.lazy.flatMap { homes.links(of: $0) }.first ?? arriving.first
+        land(ids, inFoldOf: piece, structure: structure)
+    }
+
+    private func land(_ ids: [String], inFoldOf piece: String?, structure: [StructureItem]) {
         if let piece {
             openStructureAncestors(of: piece, in: structure)
-            expandedPieceFolds.insert(piece)
+            // Opened for a while, as a click opens one (`TreeFoldAutoOpen`):
+            // the next chapter closes it unless the writer acts in it.
+            if !folds.isOpen(piece) { autoOpenedFold = piece }
             expandedFoldGroups.insert(PieceFoldGroupKey(docId: piece, group: .research))
             for id in ids { researchRowFolds[id] = piece }
             if let first = ids.first { scrollRequest = .foldRow(researchId: first, piece: piece) }

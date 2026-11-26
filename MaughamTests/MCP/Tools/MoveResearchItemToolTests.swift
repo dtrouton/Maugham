@@ -34,6 +34,34 @@ final class MoveResearchItemToolTests: XCTestCase {
         try JSONSerialization.data(withJSONObject: dict)
     }
 
+    /// **The assistant's move says whose the note now is** (closing round A,
+    /// branch I1): out of a chapter's group to shared research it is
+    /// whole-book; into it, that chapter's. Same rule as the tree's.
+    func test_aMoveSaysWhoseTheNoteNowIs() async throws {
+        let url = try await ProjectFactory.createNovelProject(named: "MCPMoveNovel", in: temp.url)
+        let store = try await ProjectStore.load(from: url)
+        let ds = try await DocumentStore.open(url: url)
+        store.documentStore = ds
+        let chapter = try XCTUnwrap(store.manifest.structure.first)
+        let harbour = try await store.addResearchItem(parentId: nil, title: "Harbour", kind: nil)
+        let tides = try await store.addResearchTextNote(parentId: harbour.id, title: "Tide tables")
+        try await store.linkResearch(researchId: harbour.id, toDocumentId: chapter.id)
+        let registry = ProjectRegistry()
+        registry.register(url: url, store: store)
+        let projectId = ProjectIdentifier.id(for: url)
+
+        let out = try JSONDecoder().decode(MoveResearchItemTool.Result.self, from: try await MoveResearchItemTool.handle(
+            paramsJSON: params(["project_id": projectId, "research_ids": [tides.id], "target": "shared"]),
+            registry: registry))
+        XCTAssertEqual(out.moved.map(\.home), ["whole-book"])
+        let back = try JSONDecoder().decode(MoveResearchItemTool.Result.self, from: try await MoveResearchItemTool.handle(
+            paramsJSON: params(["project_id": projectId, "research_ids": [tides.id],
+                                "target_group_id": harbour.id]),
+            registry: registry))
+        XCTAssertEqual(back.moved.map(\.home), ["\u{201C}\(chapter.title)\u{201D}\u{2019}s"])
+        await ds.close()
+    }
+
     func test_moveToPiece_movesFile() async throws {
         let (registry, store, ds, piece, projectId) = try await makeRegistry()
         let note = try await store.addResearchTextNote(parentId: nil, title: "Sarah")

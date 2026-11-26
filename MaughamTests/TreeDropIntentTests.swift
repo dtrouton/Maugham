@@ -320,21 +320,26 @@ final class TreeDropIntentTests: XCTestCase {
                        "control: chapter one's own roots keep the link order")
     }
 
-    /// **A note inside a linked group moves with its group** (M8): dragged to
-    /// the section, to a section row, or to another chapter, it is refused and
-    /// named — what its row menu says (it offers no link verb). It is never a
-    /// file move out of the group, and never a copy into another chapter.
-    func test_aNoteInsideALinkedGroupMovesWithItsGroup() {
-        for target: TreeDropIntent.Target in [.sharedSection, .researchRow("note"),
-                                               .pieceRow("ch1"), .foldRow(rowId: "linked", documentId: "ch1")] {
-            XCTAssertEqual(classifyInWorld("coast", on: target, from: "ch2"), .refuse(.movesWithItsGroup),
-                           "\(target)")
-        }
-        XCTAssertEqual(TreeDropIntent.Reason.movesWithItsGroup.explanation,
-                       "it is in a group a chapter holds, and moves with its group")
+    /// **Where a note is, is whose it is** (closing round A, replacing M8's
+    /// refusal): Coast, chapter two's through the group World, goes where it
+    /// is dropped and takes that place's home — the section (a file move out,
+    /// the book's), a section row (beside it), another chapter (out of World,
+    /// then linked), a row in another chapter's fold (the same). Onto its own
+    /// chapter it is already there.
+    func test_aNoteInAChaptersGroupGoesWhereItIsDropped() {
+        XCTAssertEqual(classifyInWorld("coast", on: .sharedSection, from: "ch2"),
+                       .rescope(ids: ["coast"], to: .sharedRoot))
+        XCTAssertEqual(classifyInWorld("coast", on: .researchRow("note"), from: "ch2"), .researchReorder)
+        XCTAssertEqual(classifyInWorld("coast", on: .pieceRow("ch1"), from: "ch2"),
+                       .leaveGroup(researchId: "coast", toDocumentId: "ch1"))
+        XCTAssertEqual(classifyInWorld("coast", on: .foldRow(rowId: "linked", documentId: "ch1"), from: "ch2"),
+                       .leaveGroup(researchId: "coast", toDocumentId: "ch1"))
+        XCTAssertEqual(classifyInWorld("coast", on: .pieceRow("ch2"), from: "ch2"), .refuse(.alreadyThere))
+        XCTAssertEqual(TreeDropFeedback.of(.leaveGroup(researchId: "coast", toDocumentId: "ch1"),
+                                           on: .pieceRow("ch1")), .into)
         XCTAssertEqual(classifyInWorld("group", on: .sharedSection, from: "ch2"),
                        .unlink(researchId: "group", fromDocumentId: "ch2"),
-                       "control: the group itself leaves its chapter")
+                       "control: the group itself, linked, leaves its chapter by its link")
     }
 
     /// **An unlinking drop on a section row shows the section's look** (M5):

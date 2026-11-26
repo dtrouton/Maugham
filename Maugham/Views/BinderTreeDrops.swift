@@ -344,6 +344,7 @@ extension BinderTreeVerbs {
         case (.link(_, let a), .link(_, let b)): return a == b
         case (.unlink(_, let a), .unlink(_, let b)): return a == b
         case (.moveLink(_, let a, let c), .moveLink(_, let b, let d)): return a == b && c == d
+        case (.leaveGroup(_, let a), .leaveGroup(_, let b)): return a == b
         case (.researchReorder, .researchReorder): return true
         // Everything else disagrees — including a row whose own answer is a
         // refusal or `.alreadyThere`, which is the case this filter exists for.
@@ -356,7 +357,7 @@ extension BinderTreeVerbs {
     private func classify(
         _ payloadId: String, on target: TreeDropIntent.Target
     ) -> TreeDropIntent.Intent {
-        permitted(TreeDropIntent.classify(
+        let intent = permitted(TreeDropIntent.classify(
             payloadId: payloadId, target: target,
             sourcePiece: state.dragSource(of: payloadId),
             structure: store.manifest.structure,
@@ -366,6 +367,15 @@ extension BinderTreeVerbs {
             // The window's homes, derived once per manifest — never once per
             // row of a batch, nor per hover (M3).
             homes: state.researchHomes(in: store.manifest)))
+        // **Read-through holds what a chapter in it holds** (closing round
+        // A, branch I2): such a row is not moved out, reordered or unlinked
+        // by a drag; giving it to another chapter as well is no change to it.
+        switch intent {
+        case .rescope, .unlink, .moveLink, .leaveGroup, .researchReorder:
+            return readThroughRefusal([payloadId]) == nil ? intent : .refuse(.readThrough)
+        default:
+            return intent
+        }
     }
 
     /// **A link edit asks what linking asks** (shell p5 Task 4a): the piece's
@@ -378,6 +388,10 @@ extension BinderTreeVerbs {
             return mayEditResearchLinks(of: piece) ? intent : .refuse(.linksNotPermitted)
         case .moveLink(_, let from, let to):
             return mayEditResearchLinks(of: from) && mayEditResearchLinks(of: to)
+                ? intent : .refuse(.linksNotPermitted)
+        case .leaveGroup(let id, let to):
+            let leaving = state.researchHomes(in: store.manifest).chaptersThroughGroup(of: id)
+            return (leaving + [to]).allSatisfy { mayEditResearchLinks(of: $0) }
                 ? intent : .refuse(.linksNotPermitted)
         default:
             return intent
@@ -421,6 +435,17 @@ extension BinderTreeVerbs {
             land(batch, inFoldOf: to)
             perform { try await relink(batch, from: [from], to: to) }
             return true
+        case .leaveGroup(let researchId, let documentId):
+            // Out of the chapter's group to the Research root, then linked:
+            // the second chapter's (closing round A).
+            let batch = batch.isEmpty ? [researchId] : batch
+            land(batch, inFoldOf: documentId)
+            perform {
+                try await Self.performMove(batch, to: .sharedRoot, landing: .end, lifts: [],
+                                           afterLift: "", store: store)
+                try await relink(batch, from: [], to: documentId)
+            }
+            return true
         case .useInDocument(let researchId):
             return FigureSectionVerbs(store: store, state: state).dropToUse(researchId: researchId) != nil
         case .sendFigureToResearch(let figureId, let scope, let group):
@@ -428,6 +453,10 @@ extension BinderTreeVerbs {
             return FigureSectionVerbs(store: store, state: state)
                 .dropToSend(figureId: figureId, scope: scope, group: group)
         case .refuse(let reason):
+            // A read-through refusal names the piece, as every surface does.
+            if case .readThrough = reason, let refusal = readThroughRefusal([payload]) {
+                state.pendingError = refusal
+            }
             return refuseDrop(site, payload: payload, reason: reason)
         case .researchReorder, .structureReorder:
             // Both belong to a caller that knows the target row and the drop's

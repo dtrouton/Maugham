@@ -88,7 +88,7 @@ enum ReadThroughTarget: Equatable {
 /// windows (`FigureWindows.setReadThrough`). A piece owns itself; **a research
 /// item belongs to every piece whose fold draws it** (`ResearchHomes`): the
 /// Collection piece whose folder holds it, and — since shell p5 Task 4a,
-/// ruling awaiting the owner (ADR 0039 §2) — every chapter that links it, or
+/// confirmed by the owner 2026-11-25 (ADR 0039 §2) — every chapter that links it, or
 /// links the group it is in. Refused while ANY of them is in read-through
 /// (the union rule figures use). The book's research and a book-wide figure
 /// no line places belong to no piece and are refused by nothing.

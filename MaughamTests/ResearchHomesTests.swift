@@ -289,42 +289,71 @@ final class ResearchHomesTests: XCTestCase {
         }
     }
 
-    /// **No Move, from any row, changes any piece's fold membership** (fix
-    /// round 3, a): over generated novels, every group moved — from the
-    /// section with its question's lifts, from a fold as the plain move —
-    /// into a new top-level group leaves every item's homes as they were.
-    func test_noMoveChangesWhoseAnItemIs() {
-        for seed in UInt64(1)...40 {
+    /// **Where a note is, is whose it is — after any move** (closing round A,
+    /// replacing round 3's "no move changes membership"). Over generated
+    /// novels, every row (note or group, section or fold) is moved to the
+    /// Research root and into every group it may enter, as the tree's door
+    /// moves it (a Research group's question lifts what chapters hold first):
+    /// - the moved row's homes are its destination's plus its own links;
+    /// - nothing outside the moved subtree changes whose it is (a lifted note
+    ///   keeps its homes);
+    /// - every item is still drawn in exactly one either/or place (the
+    ///   section, or each of its folds), a container excepted;
+    /// - and moves were made (no vacuous pass).
+    func test_aMovedRowTakesItsDestinationsHome() {
+        var made = 0
+        for seed in UInt64(1)...30 {
             var rng = SplitMix(seed: seed)
             let (structure, research) = generatedNovel(&rng)
             let before = homes(structure, research)
-            let all = TreeWalk.collect(in: research, where: { _ in true })
-            let target = ResearchItem(id: "dest", title: "Dest", type: .group, path: "research/dest",
-                                      children: [])
-            for group in all where group.type == .group && group.role == nil {
-                // A move that would take it from a chapter is refused at the
-                // door (`chaptersLost`, pinned on its own); every other one is
-                // made here.
-                guard before.chaptersLost(moving: group.id, to: .group("dest"), in: research).isEmpty
-                else { continue }
-                var moved = research + [target]
-                let act = HeldResearchAct.of(.move(.group("dest"), landing: .end), ids: [group.id],
-                                             homes: before, research: moved, structure: structure,
-                                             noun: "chapter")
-                for lift in act?.lifts ?? [] {
-                    switch lift.to {
-                    case .group(let parent): moved = Self.moving(lift.ids, into: parent, in: moved)
-                    case .sharedRoot, .piece: moved = Self.moving(lift.ids, toTopIn: moved)
+            let rows = TreeWalk.collect(in: research, where: { $0.role == nil })
+                .filter { row in PaletteLookup.paletteGroup(in: research)
+                    .map { !TreeWalk.contains(id: row.id, in: $0.children ?? []) } ?? true }
+            let groups = rows.filter { $0.type == .group }
+            for row in rows {
+                var destinations: [ResearchMoveTarget] = [.sharedRoot]
+                destinations += groups.filter { $0.id != row.id
+                    && !TreeWalk.contains(id: $0.id, in: row.children ?? []) }.map { .group($0.id) }
+                for target in destinations.prefix(4) {
+                    let act = HeldResearchAct.of(.move(target, landing: .end), ids: [row.id], homes: before,
+                                                 research: research, structure: structure, noun: "chapter")
+                    var moved = research
+                    for lift in act?.lifts ?? [] {
+                        switch lift.to {
+                        case .group(let parent): moved = Self.moving(lift.ids, into: parent, in: moved)
+                        case .sharedRoot, .piece: moved = Self.moving(lift.ids, toTopIn: moved)
+                        }
                     }
-                }
-                moved = Self.moving([group.id], into: "dest", in: moved)
-                let after = homes(structure, moved)
-                for item in all {
-                    XCTAssertEqual(Set(after.homes(of: item.id)), Set(before.homes(of: item.id)),
-                                   "seed \(seed): moving \(group.id) changed \(item.id)'s pieces")
+                    switch target {
+                    case .group(let parent): moved = Self.moving([row.id], into: parent, in: moved)
+                    case .sharedRoot, .piece: moved = Self.moving([row.id], toTopIn: moved)
+                    }
+                    made += 1
+                    let after = homes(structure, moved)
+                    let expected = Set(before.homes(at: target)).union(before.links(of: row.id))
+                    XCTAssertEqual(Set(after.homes(of: row.id)), expected,
+                                   "seed \(seed): \(row.id) → \(target)")
+                    let movedNow = TreeWalk.find(id: row.id, in: moved)
+                    let subtree = Set([row.id] + TreeWalk.collect(in: movedNow?.children ?? [],
+                                                                  where: { _ in true }).map(\.id))
+                    for item in rows where !subtree.contains(item.id) {
+                        XCTAssertEqual(Set(after.homes(of: item.id)), Set(before.homes(of: item.id)),
+                                       "seed \(seed): moving \(row.id) changed \(item.id)")
+                    }
+                    var section = Set<String>()
+                    func walk(_ items: [ResearchItem]) {
+                        for item in items { section.insert(item.id); walk(item.children ?? []) }
+                    }
+                    walk(after.wholeBook)
+                    for item in rows where !after.isContainer(item.id) {
+                        let folded = !after.homes(of: item.id).isEmpty
+                        XCTAssertTrue(section.contains(item.id) != folded,
+                                      "seed \(seed): \(item.id) is drawn nowhere or twice after \(row.id) → \(target)")
+                    }
                 }
             }
         }
+        XCTAssertGreaterThan(made, 0, "moves were made")
     }
 
     private static func removing(_ ids: [String], from items: [ResearchItem])
@@ -653,6 +682,7 @@ final class ResearchHomesTests: XCTestCase {
             "Maugham/Views/PieceFoldContents.swift": 1,       // the index, in its task
             "Maugham/Views/TreeDropIntent.swift": 1,          // per drop
             "Maugham/Views/ReadThrough.swift": 1,             // the gate, per change of the set
+            "Maugham/MCP/Tools/MoveResearchItemTool.swift": 1, // the move's answer, once per call
         ]
         var found: [String: Int] = [:]
         for root in ["Maugham"] {

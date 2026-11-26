@@ -365,6 +365,10 @@ final class ReadThroughResearchSurfaceTests: XCTestCase {
         "Maugham/Stores/ProjectStore+Search.swift": 2,      // Replace's research arm: an item, a file
         "Maugham/Stores/ProjectStore+FigureResearch.swift": 1, // the store's retarget (Move into Figures)
         "Maugham/Views/ProjectSearchView.swift": 1,         // Find's manuscript arm, from its one gate
+        // The tree's research rows (shell p5a closing round A): the one
+        // question and the doors that ask it — rename, delete, move, unlink.
+        "Maugham/Views/BinderTreeSections.swift": 6,
+        "Maugham/Views/BinderTreeDrops.swift": 2,           // a drag out, its named refusal
     ]
 
     /// The ways to ask: a gate's `refusal(.target)`, `refusal(researchPath:)`
@@ -851,6 +855,8 @@ final class ReadThroughResearchSurfaceTests: XCTestCase {
         "Maugham/Editor/EditorSurface.swift": 1,        // the mount
         "Maugham/Editor/EditorCoordinator.swift": 1,    // the mirror
         "Maugham/Editor/EditorControl.swift": 2,        // the review render, the line
+        "Maugham/Views/BinderTreeSections.swift": 1,    // a research row's verbs offered (closing round A)
+        "Maugham/Views/BinderPieceFold.swift": 1,       // a fold row's rename
     ]
 
     static func readThroughCounts(_ text: String) -> Int {

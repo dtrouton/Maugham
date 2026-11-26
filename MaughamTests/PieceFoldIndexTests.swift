@@ -195,7 +195,8 @@ final class PieceFoldIndexTests: XCTestCase {
             window.contentView = NSView(frame: .zero)
             Task { await ds.close() }
         }
-        pump(0.1)
+        // Laid out now: the receivers are attached as the body is.
+        window.contentView?.layoutSubtreeIfNeeded()
         XCTAssertTrue(MaughamEvent.isLive(window), "premise: the receiver's window is live")
         // The Scenes as the fold's `.task` read them, the other struck out.
         state.foldScenes = PieceFoldIndex.scenes(store: store)

@@ -544,14 +544,18 @@ final class BinderTreeSelectionTests: XCTestCase {
         let oneItem = try XCTUnwrap(outline.item(atRow: first))
         XCTAssertTrue(outline.isExpandable(oneItem), "premise: chapter one has a fold")
         outline.expandItem(oneItem)
-        pump(0.2)
+        _ = await pumpUntil(deadline: 5) {
+            outline.numberOfRows > first + 2 && outline.level(forRow: first + 1) > outline.level(forRow: first)
+        }
         let twoItem = try XCTUnwrap(outline.item(atRow: first + 2))
         XCTAssertTrue(outline.isExpandable(twoItem), "premise: chapter two follows one fold row")
         outline.expandItem(twoItem)
-        pump(0.2)
+        _ = await pumpUntil(deadline: 5) {
+            outline.numberOfRows > first + 3 && outline.level(forRow: first + 3) > outline.level(forRow: first + 2)
+        }
 
         outline.selectRowIndexes(IndexSet(integer: first + 3), byExtendingSelection: false)
-        pump(0.2)
+        _ = await pumpUntil(deadline: 5) { state.selectedFoldRow != nil }
         XCTAssertEqual(state.selectedFoldRow,
                        TreeRowTag.FoldRow(pulled: .research(card.id), piece: two),
                        "the row selected is chapter two's")
@@ -596,9 +600,11 @@ final class BinderTreeSelectionTests: XCTestCase {
         let chapter = try XCTUnwrap(outline.item(atRow: first))
         XCTAssertTrue(outline.isExpandable(chapter), "premise: the chapter has a fold")
         outline.expandItem(chapter)
-        pump(0.2)
+        _ = await pumpUntil(deadline: 5) {
+            outline.numberOfRows > first + 1 && outline.level(forRow: first + 1) > outline.level(forRow: first)
+        }
         outline.selectRowIndexes(IndexSet(integer: first), byExtendingSelection: false)
-        pump(0.2)
+        _ = await pumpUntil(deadline: 5) { outline.selectedRow == first }
         XCTAssertTrue(window.makeFirstResponder(outline), "premise: the tree has the keys")
         let tide = first + 1
         XCTAssertNil(state.selectedFoldRow, "premise: the chapter row, not the fold row, is selected")

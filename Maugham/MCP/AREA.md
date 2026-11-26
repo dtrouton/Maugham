@@ -83,7 +83,7 @@ The count is `MCPToolCatalog.all.count`; `DocSyncTests` checks this heading agai
 - `list_research` — research items, each with its citation details when it has some.
 - `link_research` / `unlink_research` — create or remove a research ↔ manuscript link.
 - `list_all_links` — every research–manuscript link, `piece_research` edges included.
-- `move_research_item` — batch-move research items between shared research, a group and a piece's research folder.
+- `move_research_item` — batch-move research between shared, a group and a piece's folder; says each one's new home.
 - `update_research_citation` — set or remove a research item's citation details (a write tool).
 - `write_research_cells` — cells, header and total row into a Research table, growing it past its edge (a write tool).
 - `create_research_table` — a new Research table made with its cells, so no blank first version (a write tool).

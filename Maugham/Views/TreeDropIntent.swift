@@ -100,10 +100,9 @@ enum TreeDropIntent {
         /// recorded as the drag's source (`sourcePiece`), unlinking one (or
         /// all) would delete a link the writer never pointed at.
         case ambiguousSource
-        /// A note inside a group a chapter holds: the group is the
-        /// chapter's, and the note moves with it (fix round 1, M8) — what its
-        /// row menu says by offering no link verb.
-        case movesWithItsGroup
+        /// The row is research a chapter in read-through holds: it is not
+        /// moved out, reordered or unlinked (closing round A, branch I2).
+        case readThrough
         /// A link the posture does not let this Mac change: the chapter's
         /// research links are its structure (`TreeStructureVerbs.linkResearch`).
         case linksNotPermitted
@@ -125,7 +124,7 @@ enum TreeDropIntent {
             case .notAResearchTarget: return "not a research scope target"
             case .alreadyThere: return "already there — the drop changes nothing"
             case .ambiguousSource: return "linked to more than one document"
-            case .movesWithItsGroup: return "it is in a group a chapter holds, and moves with its group"
+            case .readThrough: return "a chapter that holds it is in read-through"
             case .linksNotPermitted: return "this Mac may not change that piece's research links"
             case .linkedFoldHasNoOrder:
                 return "a linked chapter's research has no order of its own to set"
@@ -149,6 +148,10 @@ enum TreeDropIntent {
         /// first link goes, the second comes — a move, as the drag reads
         /// (shell p5 Task 4a).
         case moveLink(researchId: String, fromDocumentId: String, toDocumentId: String)
+        /// A row a chapter holds through its group, dropped on another
+        /// chapter: out of the group to the Research root, then linked
+        /// (closing round A) — the second chapter's, no longer the first's.
+        case leaveGroup(researchId: String, toDocumentId: String)
         /// Same scope: the ordinary research reorder every research surface has
         /// always had. The performer computes the insertion index; this case
         /// carries none, because the index needs the drop's vertical position
@@ -210,22 +213,17 @@ enum TreeDropIntent {
                 }
                 return .useInDocument(researchId: dragged.id)
             }
-            // **A note inside a group a chapter holds moves with its group**
-            // (fix round 1, M8): it is no row of its own to give or take —
-            // not to the section, a section row or another chapter — as its
-            // menu says by offering no link verb. Only a reorder inside the
-            // group, in the fold that draws it, is its own (I8).
-            if heldByItsGroup(dragged.id, homes: homes) {
-                if case .pieceRow(let documentId) = target,
-                   homes.homes(of: dragged.id).contains(documentId) {
-                    return .refuse(.alreadyThere)
-                }
-                if case .foldRow(let rowId, let documentId) = target,
-                   homes.homes(of: dragged.id).contains(documentId) {
-                    return sharesItsGroup(dragged.id, with: rowId, in: research)
-                        ? .researchReorder : .refuse(.movesWithItsGroup)
-                }
-                return .refuse(.movesWithItsGroup)
+            // **Where a note is, is whose it is** (closing round A): a row a
+            // chapter holds through the group it stands in goes where it is
+            // dropped and takes that place's home — into another chapter's
+            // group (a file move), onto a chapter (out of its group, then
+            // linked), onto the Research section (out, the book's). Its own
+            // links stay.
+            let throughGroup = homes.chaptersThroughGroup(of: dragged.id)
+            if !throughGroup.isEmpty,
+               let intent = leavingItsGroup(dragged.id, throughGroup: throughGroup, target: target,
+                                            sourcePiece: sourcePiece, homes: homes) {
+                return intent
             }
             return classifyResearch(
                 dragged: dragged, target: target, sourcePiece: sourcePiece,
@@ -253,21 +251,33 @@ enum TreeDropIntent {
         return .refuse(.unknownId)
     }
 
-    /// A piece's only through the group above it: no link of its own and no
-    /// folder of a Collection piece.
-    private static func heldByItsGroup(_ id: String, homes: ResearchHomes) -> Bool {
-        !homes.homes(of: id).isEmpty && homes.links(of: id).isEmpty && homes.owner(of: id) == nil
-    }
-
-    /// Whether `id` and the row `rowId` sit in the same research group.
-    private static func sharesItsGroup(_ id: String, with rowId: String,
-                                       in research: [ResearchItem]) -> Bool {
-        guard rowId != id else { return false }
-        let parent = { (child: String) in
-            TreeWalk.first(in: research, where: { ($0.children ?? []).contains { $0.id == child } })?.id
+    /// What a drop does with a row a chapter holds through its group, or nil
+    /// where the ordinary rules answer (a Collection piece's row, a link edit
+    /// from the fold of a chapter that links it directly).
+    private static func leavingItsGroup(_ id: String, throughGroup: [String], target: Target,
+                                        sourcePiece: String?, homes: ResearchHomes) -> Intent? {
+        switch target {
+        case .pieceRow(let documentId):
+            guard homes.takesLinks(documentId) else { return nil }
+            if homes.homes(of: id).contains(documentId) { return .refuse(.alreadyThere) }
+            return .leaveGroup(researchId: id, toDocumentId: documentId)
+        case .foldRow(let rowId, let documentId):
+            guard homes.takesLinks(documentId) else { return nil }
+            guard rowId != id else { return .refuse(.sameRow) }
+            // Beside a row inside a group this chapter holds: a file move
+            // there, the chapter's through that group.
+            if homes.chaptersThroughGroup(of: rowId).contains(documentId) { return .researchReorder }
+            if homes.homes(of: id).contains(documentId) { return .refuse(.linkedFoldHasNoOrder) }
+            return .leaveGroup(researchId: id, toDocumentId: documentId)
+        case .sharedSection:
+            guard sourcePiece.map(throughGroup.contains) ?? true else { return nil }
+            return .rescope(ids: [id], to: .sharedRoot)
+        case .researchRow:
+            guard sourcePiece.map(throughGroup.contains) ?? true else { return nil }
+            return .researchReorder
+        case .figuresSection, .figureRow:
+            return nil
         }
-        guard let mine = parent(id) else { return false }
-        return parent(rowId) == mine
     }
 
     private static func isFigures(_ target: Target) -> Bool {
@@ -745,7 +755,7 @@ enum TreeDropFeedback: Equatable {
         switch intent {
         case .refuse:
             return .none
-        case .link, .moveLink, .useInDocument:
+        case .link, .moveLink, .leaveGroup, .useInDocument:
             return .into
         case .unlink:
             // Into the section, wherever on it: it keeps no position (M5).

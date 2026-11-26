@@ -16,7 +16,10 @@ public enum MoveResearchItemTool: MCPTool {
         "Move research items between shared research, a research group, and " +
         "a collection piece's research folder. research_ids accepts a batch. " +
         "Give exactly one of: target=\"shared\", target_group_id, or " +
-        "target_document_id (a loose piece). Whole groups move with their contents."
+        "target_document_id (a loose piece). Whole groups move with their contents. " +
+        "Where a note is, is whose it is: into a group a chapter holds makes it that " +
+        "chapter's, out of one to shared research makes it whole-book; its own links to " +
+        "chapters stay. Each moved item's `home` says which."
     public static let inputSchemaJSON =
         #"{"type":"object","properties":{"project_id":{"type":"string"},"research_ids":{"type":"array","items":{"type":"string"}},"target":{"type":"string","enum":["shared"]},"target_group_id":{"type":"string"},"target_document_id":{"type":"string"}},"required":["project_id","research_ids"]}"#
 
@@ -30,9 +33,21 @@ public enum MoveResearchItemTool: MCPTool {
     public struct MovedItem: Codable, Equatable {
         public let id: String
         public let path: String?
+        /// Whose it is now, in words: "whole-book", or "Chapter One's"
+        /// (closing round A) — so a move out of a chapter is never unknowing.
+        public let home: String
     }
     public struct Result: Codable, Equatable {
         public let moved: [MovedItem]
+    }
+
+    /// "whole-book", or "“Chapter One”’s" / "“One” and “Two”’s".
+    static func home(of id: String, in homes: ResearchHomes) -> String {
+        let pieces = homes.homes(of: id).map { "\u{201C}\(homes.pieceTitles[$0] ?? $0)\u{201D}" }
+        guard !pieces.isEmpty else { return "whole-book" }
+        let named = pieces.count == 1 ? pieces[0]
+            : pieces.dropLast().joined(separator: ", ") + " and " + pieces.last!
+        return named + "\u{2019}s"
     }
 
     @MainActor
@@ -60,9 +75,13 @@ public enum MoveResearchItemTool: MCPTool {
 
         try await store.moveResearchItems(ids: params.research_ids, to: targets[0])
 
+        let homes = ResearchHomes.derive(structure: store.manifest.structure,
+                                         research: store.manifest.research,
+                                         projectType: store.manifest.type)
         let moved = params.research_ids.map { id in
             MovedItem(id: id,
-                      path: TreeWalk.find(id: id, in: store.manifest.research)?.path)
+                      path: TreeWalk.find(id: id, in: store.manifest.research)?.path,
+                      home: Self.home(of: id, in: homes))
         }
         return try JSONEncoder().encode(Result(moved: moved))
     }

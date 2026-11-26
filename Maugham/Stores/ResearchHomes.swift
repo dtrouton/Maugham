@@ -51,6 +51,7 @@ struct ResearchHomes {
     private let ownerById: [String: String]
     private let rootsByPiece: [String: [ResearchItem]]
     private let rootIdsByPiece: [String: Set<String>]
+    private let inheritedById: [String: [String]]
     private let placeById: [String: String]
     private let wholeBookIds: Set<String>
     private let pieceRank: [String: Int]
@@ -63,16 +64,17 @@ struct ResearchHomes {
     static let empty = ResearchHomes(
         wholeBook: [], pieceOrder: [], pieceTitles: [:], visited: 0, homesById: [:],
         linksById: [:], ownerById: [:], rootsByPiece: [:], placeById: [:],
-        wholeBookIds: [], pieceRank: [:], linkingPieces: [], containerIds: [],
+        wholeBookIds: [], pieceRank: [:], linkingPieces: [], containerIds: [], inheritedById: [:],
         partsByPiece: [:])
 
     private init(wholeBook: [ResearchItem], pieceOrder: [String], pieceTitles: [String: String],
                  visited: Int, homesById: [String: [String]], linksById: [String: [String]],
                  ownerById: [String: String], rootsByPiece: [String: [ResearchItem]],
                  placeById: [String: String], wholeBookIds: Set<String>, pieceRank: [String: Int],
-                 linkingPieces: Set<String>, containerIds: Set<String>,
+                 linkingPieces: Set<String>, containerIds: Set<String>, inheritedById: [String: [String]],
                  partsByPiece: [String: [StructureItem]]) {
         self.containerIds = containerIds
+        self.inheritedById = inheritedById
         self.rootIdsByPiece = rootsByPiece.mapValues { Set($0.map(\.id)) }
         self.partsByPiece = partsByPiece
         self.wholeBook = wholeBook
@@ -108,23 +110,21 @@ struct ResearchHomes {
     /// group is not, in research-tree order.
     func foldRoots(of piece: String) -> [ResearchItem] { rootsByPiece[piece] ?? [] }
 
-    /// **The chapters a move of `id` to `target` would take it away from**
-    /// (fix round 3): a chapter that holds it through a group above it, which
-    /// the destination is not inside. A link is held by id, so a note's own
-    /// links never go; only what it inherits from where it stands can. A
-    /// Collection piece's own folder is its file's place, moved on purpose
-    /// (a rescope), so only linking pieces count. Empty: the move changes no
-    /// chapter's hold. Pure.
-    func chaptersLost(moving id: String, to target: ResearchMoveTarget,
-                      in research: [ResearchItem]) -> [String] {
-        guard let parent = TreeWalk.first(in: research, where: {
-            ($0.children ?? []).contains { $0.id == id } }) else { return [] }
-        let keeps: Set<String>
+    /// **The chapters `id` is theirs through the group it stands in** — not
+    /// its own links: what a file move out of that group takes away. Only
+    /// linking pieces (a Collection piece's folder is its file's place).
+    func chaptersThroughGroup(of id: String) -> [String] { inheritedById[id] ?? [] }
+
+    /// **Whose a row becomes where `target` puts it** (closing round A, the
+    /// rule "where a note is, is whose it is"): the homes of the group it
+    /// lands in, a Collection piece for its folder, nobody's at the Research
+    /// root. Its own links come with it on top.
+    func homes(at target: ResearchMoveTarget) -> [String] {
         switch target {
-        case .group(let group): keeps = Set(homes(of: group))
-        case .sharedRoot, .piece: keeps = []
+        case .group(let group): return homes(of: group)
+        case .piece(let piece): return isAHome(piece) ? [piece] : []
+        case .sharedRoot: return []
         }
-        return homes(of: parent.id).filter { takesLinks($0) && !keeps.contains($0) }
     }
 
     /// Whether `id` is a root row of `piece`'s fold — a lookup, for a row.
@@ -261,6 +261,7 @@ struct ResearchHomes {
         var placeById: [String: String] = [:]
         var wholeBookIds = Set<String>()
         var containerIds = Set<String>()
+        var inheritedById: [String: [String]] = [:]
 
         func ranked(_ pieces: Set<String>) -> [String] {
             pieces.sorted { (pieceRank[$0] ?? .max) < (pieceRank[$1] ?? .max) }
@@ -273,6 +274,8 @@ struct ResearchHomes {
             visited += 1
             let links = (linkers[item.id] ?? []).filter { pieceRank[$0] != nil }
             var homes = inherited.union(links)
+            let throughGroup = inherited.filter { linkingPieces.contains($0) }
+            if !throughGroup.isEmpty { inheritedById[item.id] = ranked(throughGroup) }
             if let owner { homes.insert(owner); ownerById[item.id] = owner }
             if !links.isEmpty { linksById[item.id] = links }
             let kept = (item.children ?? []).compactMap {
@@ -324,7 +327,7 @@ struct ResearchHomes {
             visited: visited, homesById: homesById, linksById: linksById,
             ownerById: ownerById, rootsByPiece: rootsByPiece, placeById: placeById,
             wholeBookIds: wholeBookIds, pieceRank: pieceRank, linkingPieces: linkingPieces,
-            containerIds: containerIds, partsByPiece: partsByPiece)
+            containerIds: containerIds, inheritedById: inheritedById, partsByPiece: partsByPiece)
     }
 }
 

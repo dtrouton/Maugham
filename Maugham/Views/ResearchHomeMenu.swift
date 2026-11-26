@@ -173,14 +173,23 @@ struct HeldResearchAct: Equatable {
         /// Above or below the row the drop was aimed beside.
         case beside(rowId: String, position: DropIntent.Position)
 
-        /// The mover's index for `movingIds` in `research` now; nil appends.
-        func index(movingIds: [String], in research: [ResearchItem]) -> Int? {
+        /// The mover's index for `movingIds` landing in `target` in
+        /// `research` now; nil appends — also where the row it was beside has
+        /// gone, or now stands under another parent (closing round A): never
+        /// an index read off one container and applied to another.
+        func index(movingIds: [String], to target: ResearchMoveTarget,
+                   in research: [ResearchItem]) -> Int? {
             switch self {
             case .end: return nil
             case .head: return 0
             case .beside(let rowId, let position):
+                guard TreeWalk.contains(id: rowId, in: research) else { return nil }
                 let parent = TreeWalk.first(in: research, where: {
                     ($0.children ?? []).contains { $0.id == rowId } })
+                switch target {
+                case .group(let group): guard parent?.id == group else { return nil }
+                case .sharedRoot, .piece: guard parent == nil else { return nil }
+                }
                 return ResearchSelectionSync.postRemovalInsertionIndex(
                     targetId: rowId, position: position, movingIds: movingIds,
                     siblings: parent?.children ?? research)
@@ -237,14 +246,17 @@ struct HeldResearchAct: Equatable {
         let take = homes.take(acted, in: research)
         guard !take.held.isEmpty else { return nil }
         func title(_ id: String) -> String { TreeWalk.find(id: id, in: research)?.title ?? id }
+        // Lifted to where the row stood — its group, a Collection piece's
+        // own folder, or the Research root — for a Move and (no ghost group,
+        // closing round A) a Delete alike.
         var lifts: [Lift] = []
-        if case .move = verb {
-            for id in acted where take.staying.contains(id) {
-                guard let row = TreeWalk.find(id: id, in: research) else { continue }
-                let under = take.held.filter { TreeWalk.contains(id: $0, in: row.children ?? []) }
-                guard !under.isEmpty else { continue }
-                lifts.append(Lift(ids: under, to: parent(of: id).map { .group($0) } ?? .sharedRoot))
-            }
+        for id in acted where take.staying.contains(id) {
+            guard let row = TreeWalk.find(id: id, in: research) else { continue }
+            let under = take.held.filter { TreeWalk.contains(id: $0, in: row.children ?? []) }
+            guard !under.isEmpty else { continue }
+            let to: ResearchMoveTarget = parent(of: id).map { .group($0) }
+                ?? homes.owner(of: id).map { .piece($0) } ?? .sharedRoot
+            lifts.append(Lift(ids: under, to: to))
         }
         let named = ids.count == 1 ? "“\(title(ids[0]))”" : "\(ids.count) items"
         // The pieces the rows are drawn under (a fold's row) are not the ones
@@ -260,14 +272,14 @@ struct HeldResearchAct: Equatable {
             : "\(kept.dropLast().joined(separator: ", ")) and \(kept.last!) are \(noun)s’ and stay with them"
         switch verb {
         case .delete:
-            let goes = take.taken.isEmpty
-                ? "Nothing else is under it to delete."
-                : own.isEmpty ? "Its whole-book research goes to the Trash."
-                : "The rest of it goes to the Trash."
+            let list = kept.count == 1
+                ? kept[0] : "\(kept.dropLast().joined(separator: ", ")) and \(kept.last!)"
+            let one = kept.count == 1
             return HeldResearchAct(
                 verb: verb, ids: ids, take: take, lifts: lifts,
                 title: "Delete \(named)?",
-                message: "\(goes) \(keptLine); \(named) stays as \(kept.count == 1 ? "its" : "their") group.",
+                message: "\(list) \(one ? "stays" : "stay") with \(one ? "its" : "their") \(noun)\(one ? "" : "s"), "
+                    + "lifted out to where \(named) stood; the rest of \(named) goes to the Trash.",
                 confirmTitle: "Delete", afterLift: "")
         case .move(let target, _):
             let to: String

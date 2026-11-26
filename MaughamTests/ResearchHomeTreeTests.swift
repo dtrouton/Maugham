@@ -101,7 +101,7 @@ final class ResearchHomeTreeTests: XCTestCase {
     func test_theRowDrawsTheMenuAndTheVerbsPerformIt() throws {
         let node = SourceScan.codeLines(of: try SourceTree.read("Maugham/Views/ResearchTree.swift"))
             .joined(separator: "\n")
-        XCTAssertTrue(node.contains("if acting.count == 1, let home = actions.homeMenu(item, inFold)"))
+        XCTAssertTrue(node.contains("if changes, acting.count == 1, let home = actions.homeMenu(item, inFold)"))
         XCTAssertTrue(node.contains("ResearchHomeMoveItems(nodes: home.moveTree, perform: actions.performHome)"))
         XCTAssertTrue(node.contains("Button(target.title) { perform(target.verb) }"))
         XCTAssertTrue(node.contains("actions.performHome(whole.verb)"))

@@ -53,6 +53,9 @@ struct ResearchTreeActions {
     var dragStarted: (_ id: String, _ fold: String?) -> Void
     /// The row's link verbs (`ResearchHomeMenu`), or nil where it offers none.
     var homeMenu: (_ item: ResearchItem, _ fold: String?) -> ResearchHomeMenu?
+    /// **Whether the row offers Rename, Delete, Move to ▸ and its link verbs**
+    /// (closing round A): not for research a chapter in read-through holds.
+    var offersChanging: (ResearchItem) -> Bool
     /// Performs one of them.
     var performHome: (_ verb: ResearchHomeMenu.Verb) -> Void
     /// **The row's verb toward Figures** (report plan 8b Task 4) — *Use in
@@ -230,12 +233,14 @@ struct ResearchTreeNode: View {
                     Divider()
                 }
                 let acting = actions.selectionForRow(item.id)
+                // Read-through holds it: nothing that changes it is offered.
+                let changes = actions.offersChanging(item)
                 // Where it belongs, in words (shell p5 Task 4a): one row's.
-                if acting.count == 1, let home = actions.homeMenu(item, inFold) {
+                if changes, acting.count == 1, let home = actions.homeMenu(item, inFold) {
                     homeMenuItems(home)
                     Divider()
                 }
-                let targets = actions.moveTargets(acting)
+                let targets = changes ? actions.moveTargets(acting) : []
                 if !targets.isEmpty {
                     Menu("Move to") {
                         ForEach(targets) { t in
@@ -245,8 +250,10 @@ struct ResearchTreeNode: View {
                     Divider()
                 }
                 if acting.count > 1 {
+                    if changes {
                     Button("Delete \(acting.count) Items", role: .destructive) {
                         actions.deleteMany(acting)
+                    }
                     }
                 } else {
                     if let verb = actions.figureVerb(item) {
@@ -264,7 +271,9 @@ struct ResearchTreeNode: View {
                     if offersRename(item.id) {
                         Button("Rename") { renamingItemId = item.id }
                     }
-                    Button("Delete", role: .destructive) { actions.delete(item.id) }
+                    if changes {
+                        Button("Delete", role: .destructive) { actions.delete(item.id) }
+                    }
                 }
             }
     }
