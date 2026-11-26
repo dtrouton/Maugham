@@ -412,6 +412,9 @@ struct RightColumn: View {
             },
             drawsFigure: drawsFigure,
             revealFigure: revealFigure,
+            showFigureInCentre: { figureId in
+                subject = ResolveFigureSourceVerbs.subjectShowingTheTable(figureId, current: subject)
+            },
             revealFigureCell: { [figureWindows] id, cell, pending in
                 figureWindows?.reveal(id, cell: cell, pending: pending) ?? false
             },

@@ -112,6 +112,20 @@ extension ResolvePane {
             openNotes: openNoteVersion(scope: scope, documentStore: documentStore))
     }
 
+    /// **The key a read leaves behind** (shell p5a closing round B): a read
+    /// whose own task walk moved `projectTasksVersion` (the first loads the
+    /// project's log and rebuilds the cache) is keyed on the version it
+    /// left, so the next pass does not read the Book again for its own bump.
+    /// The read is synchronous on the main actor: nothing else moved it.
+    static func keyAfterRead(_ key: ResolveListKey, tasksVersionNow: Int) -> ResolveListKey {
+        let read = key.regroup.read
+        guard read.projectTasksVersion != tasksVersionNow else { return key }
+        return ResolveListKey(
+            regroup: ResolveRegroupKey(read: read.with(projectTasksVersion: tasksVersionNow),
+                                       script: key.regroup.script),
+            openTodos: key.openTodos, openNotes: key.openNotes)
+    }
+
     /// **Read before regroup.** A read key that moved runs the read (which
     /// also reads the piece's text); a script-only change re-reads the text;
     /// an open piece's notes or to-dos alone are the live splice.

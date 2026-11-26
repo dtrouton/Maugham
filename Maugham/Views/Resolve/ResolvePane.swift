@@ -174,6 +174,8 @@ struct ResolvePane: View {
     var onTravel: (BinderSubject) -> Void = { _ in }
     var drawsFigure: (String) -> Bool = { _ in false }
     var revealFigure: (String) -> Void = { _ in }
+    /// The figure's grid in the centre (`ResolveFigureSourceVerbs.subjectShowingTheTable`).
+    var showFigureInCentre: (String) -> Void = { _ in }
     var revealFigureCell: (_ figureId: String, _ cell: CellKey, _ pending: Bool) -> Bool = { _, _, _ in false }
     var onChoiceOfferChanged: (ChoiceOffer?) -> Void = { _ in }
     /// A filed line's link: the faces move to the Brief it names
@@ -651,10 +653,11 @@ struct ResolvePane: View {
                 ResolveFigureCompareSheet(figureId: target.figureId, store: store,
                                           documentStore: documentStore,
                                           actions: { report in figureActions(tree: tree, report: report) },
-                                          // Refresh needs the table here: the row's Open takes it there.
+                                          // Refresh needs the table here: Open the Table puts its
+                                          // grid in this centre, wherever the figure's row lives.
                                           openTheTable: drawsFigure(target.figureId) ? {
-                                              ResolveFigureSourceVerbs.open(target.figureId, reveal: revealFigure,
-                                                                            travel: onTravel)
+                                              ResolveFigureSourceVerbs.openTheTable(
+                                                  target.figureId, reveal: revealFigure, show: showFigureInCentre)
                                           } : nil,
                                           done: { comparing = nil })
             }
@@ -1106,7 +1109,9 @@ struct ResolvePane: View {
                 figureOwners: ProjectStore.figureNoteOwners(store.manifest.figures ?? []))
             ledgerText = LessonLedgerVerbs.ledgerText(store: store)
         }
-        lastKey = key
+        // A read's own task walk may move the Book's to-do version: keyed on
+        // what it left, so one refresh is one read.
+        lastKey = step == .read ? Self.keyAfterRead(key, tasksVersionNow: store.projectTasksVersion) : key
         regroup(scope: readScope)
         applyPendingRequest()
     }

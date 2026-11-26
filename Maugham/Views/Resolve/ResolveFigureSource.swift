@@ -228,8 +228,9 @@ struct ResolveFigureCompareSheet: View {
     /// The window's figure helper, reporting to `report`
     /// (`FigureSectionVerbs.shared(report:windowRefusesWrites:)`).
     let actions: (_ report: @escaping (String) -> Void) -> FigureActions
-    /// The row's Open (the travel to the figure, whose grid then stands in
-    /// this window's centre); nil where the tree draws no row to go to.
+    /// The figure's grid in this window's centre
+    /// (`ResolveFigureSourceVerbs.openTheTable`); nil where the tree draws no
+    /// row for it.
     let openTheTable: (() -> Void)?
     let done: () -> Void
 
@@ -256,12 +257,13 @@ struct ResolveFigureCompareSheet: View {
                                 readThrough: actions.readThroughRefusal(of: figureId))
     }
 
-    /// **Refresh needs the table open in this window** (fix round 1, M5): a
-    /// sheet refused for that alone offers the way there — the row's Open,
-    /// after which Compare… on the figure's own list refreshes. Refused for
-    /// any other reason (who may write), it offers nothing more. Pure.
-    static func offersOpenTheTable(refusal: String?, canOpen: Bool) -> Bool {
-        canOpen && refusal == FigureActions.openTheTableFirst
+    /// **Refresh needs the table open in this window** (fix round 1, M5;
+    /// closing round B): a sheet refused for that alone offers the way there
+    /// — the figure's grid in this centre (`subjectShowingTheTable`), after
+    /// which Refresh acts. Refused for any other reason (who may write), it
+    /// offers nothing more. Pure.
+    static func offersOpenTheTable(refusal: String?) -> Bool {
+        refusal == FigureActions.openTheTableFirst
     }
 
     static let openTheTableTitle = "Open the Table"
@@ -279,7 +281,7 @@ struct ResolveFigureCompareSheet: View {
                     return actions.refreshPins(figureId)
                 },
                 done: done)
-            if let openTheTable, Self.offersOpenTheTable(refusal: refusal, canOpen: true) {
+            if let openTheTable, Self.offersOpenTheTable(refusal: refusal) {
                 Button(Self.openTheTableTitle) {
                     done()
                     openTheTable()
@@ -341,5 +343,25 @@ enum ResolveFigureSourceVerbs {
     static func open(_ figureId: String, reveal: (String) -> Void, travel: (BinderSubject) -> Void) {
         reveal(figureId)
         travel(.figure(figureId))
+    }
+
+    /// **Open the Table** (closing round B): the figure's grid in this
+    /// window's centre, whatever the window showed — from the figure's own
+    /// list too, where a travel to the figure already faced (or pulled up
+    /// beside) changes nothing. The tree reveals its row wherever it now
+    /// lives (a chapter's fold included), so it lands in sight. Pure.
+    static func subjectShowingTheTable(_ figureId: String, current: WindowSubject) -> WindowSubject {
+        var next = current
+        next.open = .figure(figureId)
+        next.faces = .figure(figureId)
+        if next.beside?.treeSubject == .figure(figureId) { next.beside = nil }
+        return next
+    }
+
+    /// Open the Table, as the sheet's button does it.
+    static func openTheTable(_ figureId: String, reveal: (String) -> Void,
+                             show: (_ figureId: String) -> Void) {
+        reveal(figureId)
+        show(figureId)
     }
 }

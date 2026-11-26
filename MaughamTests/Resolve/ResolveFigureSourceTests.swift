@@ -376,6 +376,33 @@ final class ResolveFigureSourceTests: XCTestCase {
         return (store, documentStore, chapter, figures)
     }
 
+    /// **One Book-scope refresh performs one read** (closing round B; the
+    /// ~142 ms carry): the first read's task walk loads the project log and
+    /// moves `projectTasksVersion`; the key that read leaves behind carries
+    /// the version it left, so the next pass splices instead of reading the
+    /// Book again. Control: an append after the read still moves the key.
+    func test_oneBookScopeRefreshPerformsOneRead() async throws {
+        let novel = try await novel(figures: 0)
+        let scope = ResolveScope.of(.project, readIn: nil, sourceLanguage: "en",
+                                    structure: novel.store.manifest.structure, projectType: .novel)
+        func key() -> ResolveListKey {
+            ResolvePane.listKey(scope: scope, annotationsToken: 0, store: novel.store,
+                                documentStore: novel.documentStore, diagnostics: nil, localName: "Me",
+                                script: nil, figureChanges: [])
+        }
+        let first = key()
+        XCTAssertEqual(ResolvePane.refreshStep(first, last: nil), .read, "premise: the first pass reads")
+        let before = novel.store.projectTasksVersion
+        _ = ResolveReader.read(scope: scope, store: novel.store, documentStore: novel.documentStore,
+                               diagnostics: nil, figureChanges: [])
+        XCTAssertNotEqual(novel.store.projectTasksVersion, before, "premise: the read moved the version")
+        let left = ResolvePane.keyAfterRead(first, tasksVersionNow: novel.store.projectTasksVersion)
+        XCTAssertEqual(ResolvePane.refreshStep(key(), last: left), .live, "the next pass reads nothing")
+
+        novel.store.createProjectPaneTask(body: "a Book to-do")
+        XCTAssertEqual(ResolvePane.refreshStep(key(), last: left), .read, "control: a new to-do still reads")
+    }
+
     /// **No read opens a figure per row** (fix round 1, M3): forty changed
     /// figures, three of them REGISTERED — real streams the read could open
     /// or derive — list forty items from the values alone; the store opens
@@ -450,12 +477,67 @@ final class ResolveFigureSourceTests: XCTestCase {
 
         // Refused for want of the table alone, the sheet offers the way there;
         // refused for who may write, it offers nothing more (M5).
-        XCTAssertTrue(ResolveFigureCompareSheet.offersOpenTheTable(refusal: FigureActions.openTheTableFirst,
-                                                                   canOpen: true))
-        XCTAssertFalse(ResolveFigureCompareSheet.offersOpenTheTable(refusal: FigureActions.openTheTableFirst,
-                                                                    canOpen: false), "no row to go to")
-        XCTAssertFalse(ResolveFigureCompareSheet.offersOpenTheTable(refusal: reading, canOpen: true))
-        XCTAssertFalse(ResolveFigureCompareSheet.offersOpenTheTable(refusal: nil, canOpen: true), "Refresh acts")
+        XCTAssertTrue(ResolveFigureCompareSheet.offersOpenTheTable(refusal: FigureActions.openTheTableFirst))
+        XCTAssertFalse(ResolveFigureCompareSheet.offersOpenTheTable(refusal: reading))
+        XCTAssertFalse(ResolveFigureCompareSheet.offersOpenTheTable(refusal: nil), "Refresh acts")
+    }
+
+    /// **Open the Table puts the grid in this centre, from anywhere** (closing
+    /// round B): from the figure's own list — faced, or pulled up beside a
+    /// chapter, where a travel to the figure changes nothing — and from a
+    /// chapter, the figure takes the centre; its row is revealed first.
+    func test_openTheTablePutsTheFigureInTheCentreFromAnywhere() {
+        let fig = "fig-cash"
+        let pulledUp = WindowSubject(open: .item("doc-a"), faces: .item("doc-a"), beside: .figure(fig))
+        let faced = WindowSubject(open: .item("doc-a"), faces: .figure(fig))
+        let chapter = WindowSubject(open: .item("doc-a"), faces: .item("doc-a"))
+        for current in [pulledUp, faced, chapter] {
+            let next = ResolveFigureSourceVerbs.subjectShowingTheTable(fig, current: current)
+            XCTAssertEqual(next.open, .figure(fig), "the figure's grid takes the centre from \(current)")
+            XCTAssertEqual(next.faces, .figure(fig))
+            XCTAssertNil(next.beside?.treeSubject == .figure(fig) ? next.beside : nil, "not also beside")
+        }
+        var steps: [String] = []
+        ResolveFigureSourceVerbs.openTheTable(fig, reveal: { steps.append("reveal \($0)") },
+                                              show: { steps.append("show \($0)") })
+        XCTAssertEqual(steps, ["reveal \(fig)", "show \(fig)"], "the row lands in sight, then the centre")
+    }
+
+    /// **Opening the table enables Refresh**: refused with no grid on the
+    /// figure in this window, Refresh acts once a grid on it stands here.
+    func test_openingTheTableEnablesRefresh() async throws {
+        let novel = try await novel(figures: 1)
+        let figure = novel.figures[0].id
+        let ds = try XCTUnwrap(novel.store.documentStore)
+        let windows = FigureWindows()
+        let thisWindow: NSWindow = TestWindow.make(
+            contentRect: CGRect(x: 0, y: 0, width: 400, height: 300),
+            contentView: NSView(frame: CGRect(x: 0, y: 0, width: 400, height: 300)))
+        addTeardownBlock { @MainActor in thisWindow.close() }
+        func actions() -> FigureActions {
+            var actions = FigureActions(store: novel.store, figureWindows: windows, typography: .defaults,
+                                        windowRefusesWrites: { false }, readThrough: { .writing }, report: { _ in })
+            actions.window = thisWindow
+            return actions
+        }
+        XCTAssertEqual(ResolveFigureCompareSheet.refusal(actions: actions(), figureId: figure),
+                       FigureActions.openTheTableFirst, "premise: no table open here")
+        XCTAssertTrue(ResolveFigureCompareSheet.offersOpenTheTable(
+            refusal: ResolveFigureCompareSheet.refusal(actions: actions(), figureId: figure)))
+
+        // The table opens in this window (the centre's grid).
+        let grid = FigureWindowGrid()
+        let registration = windows.opened(figure, focus: {}, grid: { [weak grid] in
+            grid?.isFinished == false ? grid?.controller : nil
+        }, close: {})
+        grid.open(figureId: figure, store: ds, projectStore: novel.store, windows: windows, close: {})
+        await grid.opening?.value
+        thisWindow.contentView?.addSubview(grid.container)
+        XCTAssertNil(ResolveFigureCompareSheet.refusal(actions: actions(), figureId: figure),
+                     "the table is open here: Refresh acts")
+        grid.finish()
+        windows.closed(registration)
+        await grid.finishing?.value
     }
 
     // MARK: - The row's verbs, without a window (fix round 1, M4)
@@ -543,10 +625,15 @@ final class ResolveFigureSourceTests: XCTestCase {
         ("Maugham/Views/Resolve/ResolveFigureSource.swift",
          "let refusal = Self.refusal(actions: actions, figureId: figureId)", "the sheet draws its refusal"),
         ("Maugham/Views/Resolve/ResolveFigureSource.swift",
-         "if let openTheTable, Self.offersOpenTheTable(refusal: refusal, canOpen: true) {",
+         "if let openTheTable, Self.offersOpenTheTable(refusal: refusal) {",
          "the sheet offers the table"),
         ("Maugham/Views/Resolve/ResolvePane.swift",
-         "openTheTable: drawsFigure(target.figureId) ? {", "the sheet's Open is the row's"),
+         "openTheTable: drawsFigure(target.figureId) ? {", "the sheet offers Open the Table where the tree has a row"),
+        ("Maugham/Views/Resolve/ResolvePane.swift",
+         "target.figureId, reveal: revealFigure, show: showFigureInCentre)", "Open the Table reveals, then shows"),
+        ("Maugham/Views/RightColumn.swift",
+         "subject = ResolveFigureSourceVerbs.subjectShowingTheTable(figureId, current: subject)",
+         "Open the Table puts the figure in the window's centre"),
     ]
 
     private static func codeOnly(_ text: String) -> String {
@@ -574,7 +661,7 @@ final class ResolveFigureSourceTests: XCTestCase {
             "To resolve's key carries them", "each draws its row", "Compare… raises the sheet",
             "the sheet is mounted", "Open travels", "the sentence's fallback finds the line",
             "the sentence goes there", "Refresh reports to the sheet, under the window's share",
-            "the sheet's Open is the row's"])
+            "the sheet offers Open the Table where the tree has a row", "Open the Table reveals, then shows"])
         planted = sources
         planted["Maugham/Views/FigureSection.swift"] = "struct FigureSection {}"
         XCTAssertEqual(Self.missing(in: planted), ["the cards fill the state"])

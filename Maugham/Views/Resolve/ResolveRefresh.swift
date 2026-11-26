@@ -61,6 +61,14 @@ struct ResolveReadKey: Equatable {
         self.figureChanges = figureChanges
     }
 
+    /// This key, with the Book's to-dos at `version` (`ResolvePane.keyAfterRead`).
+    func with(projectTasksVersion version: Int) -> ResolveReadKey {
+        ResolveReadKey(scope: scope, annotationsToken: annotationsToken, openPieces: openPieces,
+                       projectTasksVersion: version, diagnosticsVersion: diagnosticsVersion,
+                       passes: passes, localName: localName, presence: presence,
+                       figureChanges: figureChanges)
+    }
+
     /// What the annotation walk is re-run on: the real cross-piece signals.
     var walk: ResolveWalkKey {
         ResolveWalkKey(scope: scope, annotationsToken: annotationsToken, openPieces: openPieces)
