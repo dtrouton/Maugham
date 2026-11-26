@@ -577,7 +577,7 @@ public final class Document {
             case .notPermitted:
                 "Couldn't change \(count) notes — this Mac can no longer answer notes in this piece."
             case .taskNotPermitted:
-                "Couldn't change \(count) tasks — this Mac can no longer file tasks in this piece."
+                "Couldn't change \(count) to-dos — this Mac can no longer file to-dos in this piece."
             case .restoreNotPermitted:
                 "Couldn't undo \(count) restores — this Mac can no longer change this piece's text."
             case .suggestionNotPermitted:
@@ -606,7 +606,7 @@ public final class Document {
             case .notPermitted:
                 "Couldn't change that note — this Mac can no longer answer notes in this piece."
             case .taskNotPermitted:
-                "Couldn't change that task — this Mac can no longer file tasks in this piece."
+                "Couldn't change that to-do — this Mac can no longer file to-dos in this piece."
             case .restoreNotPermitted:
                 "Couldn't undo the restore — this Mac can no longer change this piece's text."
             case .suggestionNotPermitted:

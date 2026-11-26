@@ -526,10 +526,10 @@ enum RoundNarrative {
     /// The caller resolves the name through `ReviewPass.effectiveEditorName`,
     /// never the raw field: a customized manifest can store a preset-id pass
     /// that predates the editor field, and a pass a writer named themselves
-    /// falls back to its own name ("Run Beta Read's round"), which reads as
+    /// falls back to its own name ("Run Beta Read's Round"), which reads as
     /// intended rather than naming a person who does not exist.
     static func runRoundTitle(editorName: String) -> String {
-        "Run \(editorName)\u{2019}s round"
+        "Run \(editorName)\u{2019}s Round"
     }
 
     /// **A run of this loop on ANOTHER piece** (#83) — the line both loops'

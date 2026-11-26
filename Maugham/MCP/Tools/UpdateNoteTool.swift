@@ -26,7 +26,7 @@ public enum UpdateNoteTool: MCPTool {
         "Replace the whole body of an existing Research note (.md) with `body`, as the assistant. " +
         "The text it replaces, including any edit the writer has not saved yet, is kept as a version " +
         "marked \"Before the assistant’s change\" that the writer can restore from the note's Versions. " +
-        " Read the note first with read_document; find its id with list_research. " +
+        "Read the note first with read_document; find its id with list_research. " +
         "Research notes only: never the manuscript, a palette card, or a Research table " +
         "(use write_research_cells). To create a note, use add_note."
     public static let inputSchemaJSON =

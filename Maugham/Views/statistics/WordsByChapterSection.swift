@@ -4,6 +4,10 @@ struct WordsByChapterSection: View {
     let chapters: [ChapterRow]
     /// What the project calls a piece (`PieceNoun`): the section's title.
     let noun: PieceNoun
+    /// Whether some rows are groups (a Part's row sums its pieces), and
+    /// whether every row is: the title names what the rows are.
+    let rowsHoldGroups: Bool
+    let rowsAreAllGroups: Bool
     let onSelectChapter: (String) -> Void
 
     struct ChapterRow: Identifiable, Equatable {
@@ -13,12 +17,20 @@ struct WordsByChapterSection: View {
         let wordTarget: Int?
     }
 
-    /// "Words by chapter", in the project's word for a piece.
-    static func title(_ noun: PieceNoun) -> String { "Words by \(noun.singular)" }
+    /// "Words by chapter", in the project's word for a piece — and, where
+    /// the rows are the book's top level and some are Parts, "Words by Part
+    /// and chapter" (fix round 1, M13): the title names what the rows are.
+    static func title(_ noun: PieceNoun, rowsHoldGroups: Bool = false,
+                      rowsAreAllGroups: Bool = false) -> String {
+        let group = noun.group ?? "group"
+        if rowsAreAllGroups { return "Words by \(group)" }
+        if rowsHoldGroups { return "Words by \(group) and \(noun.singular)" }
+        return "Words by \(noun.singular)"
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            sectionHeader(Self.title(noun))
+            sectionHeader(Self.title(noun, rowsHoldGroups: rowsHoldGroups, rowsAreAllGroups: rowsAreAllGroups))
             VStack(spacing: 4) {
                 ForEach(chapters) { row in
                     chapterRow(row)

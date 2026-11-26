@@ -4080,7 +4080,7 @@ final class CompilerRunCommandTests: XCTestCase {
         let menu = verbs.chipMenu(
             for: "ch-1", pass: ReviewPass(id: "copyedit", name: "Copyedit"),
             current: nil, posture: .author)
-        XCTAssertEqual(menu.run?.title, "Run Gould\u{2019}s round",
+        XCTAssertEqual(menu.run?.title, "Run Gould\u{2019}s Round",
                        "premise: this is the verb a reviewer would press")
         try XCTUnwrap(menu.run).perform()
 

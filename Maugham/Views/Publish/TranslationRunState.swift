@@ -65,7 +65,7 @@ enum TranslationRunTarget: Equatable {
     /// serves all of them and the desk never has to explain a distinction the
     /// writer did not draw.
     static let openAChapter =
-        "Open it to translate it \u{2014} a round translates what this window has open."
+        "Open what you want translated \u{2014} a round translates what this window has open."
 
     /// **Resolve the window's subject to a run target.**
     ///
@@ -192,6 +192,9 @@ struct TranslationRunState: Equatable {
     var chapterPreflight: TranslationPreflight.Budgets.Answer? = nil
     var bookPreflight: TranslationPreflight.Budgets.Answer? = nil
     var bookDocumentCount: Int = 0
+    /// What the project calls a piece (`PieceNoun`): a book queue's line
+    /// says which one of how many ("Chapter 4 of 12").
+    var noun: PieceNoun
     /// Injected so `roundLine`'s "2m ago" is assertable.
     var now: Date = Date()
 
@@ -234,7 +237,7 @@ struct TranslationRunState: Equatable {
     var statusLine: String? {
         switch phase {
         case .running(.translating(let count, let cells)): return Self.translating(count, cells: cells)
-        case .running(.leg(let leg, let book)): return Self.legLine(leg, book: book)
+        case .running(.leg(let leg, let book)): return Self.legLine(leg, book: book, noun: noun)
         case .failed(let failure): return Self.failureCopy(failure)
         case .nothingToTranslate: return Self.nothingToTranslateLine
         case .idle:
@@ -268,7 +271,8 @@ struct TranslationRunState: Equatable {
     /// chapters the window is not on, and a row that went idle whenever the
     /// queue left the open chapter would say nothing for eleven of twelve
     /// rounds.
-    static func resolve(language: String,
+    static func resolve(noun: PieceNoun,
+                        language: String,
                         target: TranslationRunTarget,
                         session: TranslationRunSession,
                         runState: TranslatorOrchestrator.RunState,
@@ -313,7 +317,7 @@ struct TranslationRunState: Equatable {
                                   latestRound: latestRound, trend: trend,
                                   chapterPreflight: chapterPreflight,
                                   bookPreflight: bookPreflight,
-                                  bookDocumentCount: bookDocumentCount, now: now)
+                                  bookDocumentCount: bookDocumentCount, noun: noun, now: now)
     }
 
     /// **Why Run refuses, in the order the writer needs to hear it.**
@@ -394,7 +398,7 @@ struct TranslationRunState: Equatable {
 
     /// A cancel is the writer's own act and is never drawn as a failure
     /// (`ReviewRoundCockpit`'s rule, in this surface's currency).
-    static let cancelledLine = "Run cancelled. Nothing was written."
+    static let cancelledLine = "Round cancelled. Nothing was written."
 
     /// A round's table cells are named beside its paragraphs (report plan
     /// 9e-2) — and alone, when every paragraph is already translated.
@@ -435,13 +439,17 @@ struct TranslationRunState: Equatable {
     }
 
     static let runBookTitle = "Translate Whole Book"
+    /// The visible title first (Voice Control), then the language.
     static func runBookAccessibilityLabel(language: String) -> String {
-        "Translate the whole book into " + LanguageName.labelled(language)
+        runBookTitle + " into " + LanguageName.labelled(language)
     }
     static func runBookHelp(language: String, count: Int, noun: PieceNoun,
                             preflight: TranslationPreflight.Budgets.Answer?) -> String {
         let edition = LanguageName.labelled(language)
         let budget = preflightLine(preflight).map { " \u{2014} \($0)" } ?? ""
+        // A book of one piece (a Short Story, a Screenplay, a one-document
+        // Report) is translated whole, in one round — never "every story: 1 story".
+        guard count != 1 else { return "Translate the whole book into \(edition) in one round\(budget)." }
         return "Translate every \(noun.singular) of this book into \(edition), one round each, "
             + "in order: \(noun.counted(count))\(budget)."
     }
@@ -453,12 +461,13 @@ struct TranslationRunState: Equatable {
     }
     static let showRoundHelp = "Read the round's report in the centre column"
 
-    /// The running leg's own line, and for a book queue, which chapter of how
-    /// many (spec §8).
-    static func legLine(_ leg: TranslationRound.Leg, book: TranslationPipeline.BookProgress?) -> String {
+    /// The running leg's own line, and for a book queue, which piece of how
+    /// many, in the project's word (spec §8): "Chapter 4 of 12 · Reading…".
+    static func legLine(_ leg: TranslationRound.Leg, book: TranslationPipeline.BookProgress?,
+                        noun: PieceNoun) -> String {
         let verb = "\(leg.verb)\u{2026} (leg \(leg.rawValue) of \(TranslationRound.Leg.allCases.count))"
         guard let book else { return verb.prefix(1).uppercased() + verb.dropFirst() }
-        return "\(book.position) of \(book.count) \u{00b7} \(verb)"
+        return "\(noun.capitalised) \(book.position) of \(book.count) \u{00b7} \(verb)"
     }
 
     /// A finished round's line: where it ended, and how long ago.

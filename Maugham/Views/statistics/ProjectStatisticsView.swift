@@ -24,6 +24,9 @@ struct ProjectStatisticsView: View {
                 WordsByChapterSection(
                     chapters: chapterRows,
                     noun: PieceNoun.of(nil, in: store.manifest),
+                    rowsHoldGroups: store.manifest.structure.contains { $0.type == .group },
+                    rowsAreAllGroups: !store.manifest.structure.isEmpty
+                        && store.manifest.structure.allSatisfy { $0.type == .group },
                     onSelectChapter: onSelectChapter)
                 RecentSessionsSection(
                     events: sessionLog.eventsRecent(limit: 50))

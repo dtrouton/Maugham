@@ -20,15 +20,15 @@ Every file in `Maugham/Views/` appears once, plus the `Maugham/Models/` files CL
 - `ReadThrough.swift`, `ReadThroughModifier.swift`, `ReadThroughLine.swift` — `ReadThrough.isOn`, `ReadThroughGate`, `ReadThroughOffer` (routes post only what it gives), the verbs, the receiver, the line, the mark.
 - `FocusPostureModifier.swift` — ⌘\ no-chrome.
 - `ParagraphNavModifier.swift` — `.maughamNavigateToParagraph`, `.maughamNavigateToScene` receivers.
-- `CanvasCollapseModifier.swift`, `CanvasPromotionModifier.swift`, `CanvasClaudeArrivalModifier.swift` — ⌘\ collapse to the canvas; Promote…; Claude's arrival banner and its Show. **→ Canvas** ("`⌘\` gives the canvas the window").
+- `CanvasCollapseModifier.swift`, `CanvasPromotionModifier.swift`, `CanvasClaudeArrivalModifier.swift` — ⌘\ collapse to the canvas; Promote…; Claude's arrival banner. **→ Canvas** ("`⌘\` gives the canvas the window").
 - `ReadingLanguageModifier.swift`, `ReadingLanguage.swift` — the language a piece is read in, and the reveal's window half.
 - `EditorControlMirror.swift` — `EditorControlMirror` (the editor's membrane, pure, from the posture), `InsertMenuGate` (the Insert menu's enablement, focused value `mayInsertReportElement`), the modifier.
-- `NoteOutcomeAlert.swift`, `ContainerWidthReporter.swift` — the translator's-note outcome alert; a width reporter.
+- `NoteOutcomeAlert.swift`, `ContainerWidthReporter.swift` — the translator's-note alert; a width reporter.
 - `CompilerRunModifier.swift` — the run commands' delivery path (`RunCommand`) and the session's teardown (`roster.shutdownAll()`). **→ Compiler**
 - `AdmissionModifier.swift`, `NewPieceModifier.swift` — the window's halves of the admission and new-piece questions (below).
 - `SubjectValidationModifier.swift` — repairs the whole subject (`validatedSubject`) on a structure, research or figure change, and when a figure's stream parks it.
 - `ResearchRevealModifier.swift` — an item arriving beside reveals the right column.
-- `WindowAccessor.swift`, `WindowEscapeArbiter.swift` — the hosting `NSWindow` (cached; never re-nils); one Escape monitor per window.
+- `WindowAccessor.swift`, `WindowEscapeArbiter.swift` — the hosting `NSWindow` (cached; never re-nils); one Escape monitor per window, fixed priority, let go when the window closes.
 - `WindowFloorFree.swift` — `WindowFloorFreeLayout`, `.doesNotRaiseTheWindowFloor()`: a pane may not raise the window's minimum height.
 - The window borrows a `ProjectSession` from `ProjectSessionRegistry` (a `.window` lease) and its `claude` services through `AgentRoster`: `Maugham/Stores/AREA.md` ("Project sessions").
 
@@ -37,13 +37,13 @@ Every file in `Maugham/Views/` appears once, plus the `Maugham/Models/` files CL
 - `PieceNoun.swift` — the project's word for a piece.
 - `ManuscriptNavigation.swift` — going to a place opens its piece.
 - `TreeTravel.swift` — the double-click: the row mark (`treeTravelOnDoubleClick`), `TreeTravelClickWatcher`, `TreeTravelModifier`.
-- `IntentStrip.swift`, `CentreTopLines.swift` — the signature line; the centre's top lines.
+- `IntentStrip.swift`, `CentreTopLines.swift` — the signature line; the top lines.
 - `LanguageSwitch.swift`, `RunningRoundIndicator.swift` — the toolbar's language switch, running round.
-- `SaveFlashOverlay.swift` — the ⌘S muscle-memory capsule.
+- `SaveFlashOverlay.swift` — the ⌘S capsule.
 - `MCPBannerModel.swift`, `MCPNoteBanner.swift` — Claude's note banner.
 - `BackupRecoveryBanner.swift`, `ManifestRestoredBanner.swift` — the refused-backup banner (Restore); the put-back-manifest note.
 - `SharingStatusPill.swift` — the share indicator, never a role.
-- `ViewOnlyShareNotice.swift` — the banner over a read-only iCloud share (`ProjectWindow.shareIsReadOnly`).
+- `ViewOnlyShareNotice.swift` — the banner over a read-only share (`ProjectWindow.shareIsReadOnly`).
 - `ProjectShareSheetPresenter.swift` — File → Share Project via iCloud… (`NSSharingServicePicker`).
 
 ### The left column: the tree

@@ -114,6 +114,9 @@ final class TranslationRunTests: XCTestCase {
     /// names. A sentence that only reported the state ("no document selected")
     /// would be a diagnosis where an instruction belongs.
     func test_theRefusalSaysWhatToDoAboutIt() {
+        XCTAssertEqual(TranslationRunTarget.openAChapter,
+                       "Open what you want translated \u{2014} a round translates what this window has open.",
+                       "no \u{201C}it\u{201D} that names nothing (fix round 1, I6)")
         let words = TranslationRunTarget.openAChapter.lowercased()
         XCTAssertTrue(words.contains("open"), TranslationRunTarget.openAChapter)
         XCTAssertTrue(words.contains("translate"), TranslationRunTarget.openAChapter)
@@ -150,7 +153,7 @@ final class TranslationRunTests: XCTestCase {
     /// idle whenever the queue left the open chapter would say nothing for
     /// eleven of twelve rounds.
     func test_aPipelineLegIsDrawnOnItsLanguagesRowWhateverChapterTheWindowIsOn() {
-        let state = TranslationRunState.resolve(
+        let state = TranslationRunState.resolve(noun: .chapter, 
             language: "es",
             target: .ready(docId: "doc-1", title: "Chapter 1"),
             session: .busy(language: "es"),
@@ -160,11 +163,14 @@ final class TranslationRunTests: XCTestCase {
         XCTAssertEqual(state.phase,
                        .running(.leg(.read, book: .init(position: 4, count: 12))))
         XCTAssertEqual(state.statusLine, TranslationRunState.legLine(
-            .read, book: .init(position: 4, count: 12)))
-        XCTAssertTrue(state.statusLine?.contains("4 of 12") == true)
+            .read, book: .init(position: 4, count: 12), noun: .chapter))
+        XCTAssertTrue(state.statusLine?.hasPrefix("Chapter 4 of 12 \u{00b7} ") == true, state.statusLine ?? "nil")
+        XCTAssertEqual(TranslationRunState.legLine(.read, book: .init(position: 2, count: 5), noun: .section)
+                        .components(separatedBy: " \u{00b7} ").first, "Section 2 of 5",
+                       "the queue's line names the piece in the project's word")
         XCTAssertTrue(state.statusLine?.contains("reading") == true)
 
-        let french = TranslationRunState.resolve(
+        let french = TranslationRunState.resolve(noun: .chapter, 
             language: "fr",
             target: .ready(docId: "doc-1", title: "Chapter 1"),
             session: .busy(language: "es"),
@@ -176,7 +182,7 @@ final class TranslationRunTests: XCTestCase {
     /// **A bare translator round keeps its own count line** — the phase the
     /// probe mounts still produce, unchanged in words.
     func test_aBareTranslatorRoundStillSaysHowManyParagraphs() {
-        let state = TranslationRunState.resolve(
+        let state = TranslationRunState.resolve(noun: .chapter, 
             language: "es",
             target: .ready(docId: "doc-1", title: "Chapter 1"),
             session: .busy(language: "es"),
@@ -199,7 +205,7 @@ final class TranslationRunTests: XCTestCase {
             runId: "r", docId: "doc-1", language: "es", at: Date(),
             outcome: .ingested(.init(entriesWritten: 2, queriesMinted: 0)))
         let now = Date()
-        let state = TranslationRunState.resolve(
+        let state = TranslationRunState.resolve(noun: .chapter, 
             language: "es", target: .ready(docId: "doc-1", title: "Chapter 1"),
             session: .free, runState: .idle, lastRun: summary,
             latestRound: round, trend: [6, 4, 1], now: now)
@@ -208,7 +214,7 @@ final class TranslationRunTests: XCTestCase {
         XCTAssertTrue(state.statusLine?.contains("2m ago") == true)
         XCTAssertTrue(state.offersShow)
 
-        let none = TranslationRunState.resolve(
+        let none = TranslationRunState.resolve(noun: .chapter, 
             language: "es", target: .ready(docId: "doc-1", title: "Chapter 1"),
             session: .free, runState: .idle, lastRun: summary)
         XCTAssertEqual(none.statusLine, TranslationRunState.reportLine(summary.outcome),
@@ -258,7 +264,7 @@ final class TranslationRunTests: XCTestCase {
         XCTAssertEqual(TranslationRunState.trendLine([4]), "notes per round 4")
         XCTAssertNil(TranslationRunState.trendLine([]))
 
-        var state = TranslationRunState()
+        var state = TranslationRunState(noun: .chapter)
         XCTAssertNil(state.detailLine)
         state.chapterPreflight = .words(1200)
         state.trend = [6, 4, 1]
@@ -270,19 +276,19 @@ final class TranslationRunTests: XCTestCase {
     /// **Run Whole Book needs no open chapter** — the book is the desk's own
     /// set — but it refuses while a session is busy and when the set is empty.
     func test_theBookVerbRefusesOnlyForBusyAndForAnEmptyBook() {
-        let noChapter = TranslationRunState.resolve(
+        let noChapter = TranslationRunState.resolve(noun: .chapter, 
             language: "es", target: .unavailable(TranslationRunTarget.openAChapter),
             session: .free, runState: .idle, lastRun: nil, bookDocumentCount: 12)
         XCTAssertNil(noChapter.bookRefusal)
         XCTAssertTrue(noChapter.canRunBook)
         XCTAssertFalse(noChapter.canRun, "…while the chapter Run still refuses")
 
-        let busy = TranslationRunState.resolve(
+        let busy = TranslationRunState.resolve(noun: .chapter, 
             language: "es", target: .unavailable(TranslationRunTarget.openAChapter),
             session: .busy(language: "fr"), runState: .idle, lastRun: nil, bookDocumentCount: 12)
         XCTAssertEqual(busy.bookRefusal, TranslationRunState.busyReason(language: "fr"))
 
-        let empty = TranslationRunState.resolve(
+        let empty = TranslationRunState.resolve(noun: .chapter, 
             language: "es", target: .unavailable(TranslationRunTarget.openAChapter),
             session: .free, runState: .idle, lastRun: nil, bookDocumentCount: 0)
         XCTAssertEqual(empty.bookRefusal, TranslationRunState.nothingInTheBook)
@@ -574,13 +580,13 @@ final class TranslationRunTests: XCTestCase {
             runId: "r1", docId: "doc-1", language: "es", at: Date(),
             outcome: .ingested(.init(entriesWritten: 3)))
 
-        let mine = TranslationRunState.resolve(
+        let mine = TranslationRunState.resolve(noun: .chapter, 
             language: "es",
             target: .ready(docId: "doc-1", title: "Chapter 1"),
             session: .free, runState: .idle, lastRun: summary)
         XCTAssertNotNil(mine.report)
 
-        let elsewhere = TranslationRunState.resolve(
+        let elsewhere = TranslationRunState.resolve(noun: .chapter, 
             language: "es",
             target: .ready(docId: "doc-2", title: "Chapter 2"),
             session: .free, runState: .idle, lastRun: summary)
@@ -1432,7 +1438,7 @@ final class TranslationRunTests: XCTestCase {
                        runState: TranslatorOrchestrator.RunState = .idle,
                        lastRun: TranslatorOrchestrator.RunSummary? = nil)
     -> TranslationRunState {
-        TranslationRunState.resolve(language: language, target: target,
+        TranslationRunState.resolve(noun: .chapter, language: language, target: target,
                                    session: session, runState: runState,
                                    lastRun: lastRun)
     }

@@ -225,7 +225,7 @@ final class ManuscriptWriterPostureTests: XCTestCase {
             await doc.awaitPendingUndoWork()
         }
         XCTAssertEqual(saidOnPress, [
-            "Couldn't change that task — this Mac can no longer file tasks in this piece."])
+            "Couldn't change that to-do — this Mac can no longer file to-dos in this piece."])
         XCTAssertEqual(doc.paragraph(id: pid), prior)
         XCTAssertFalse(um.canUndo)
 
@@ -240,7 +240,7 @@ final class ManuscriptWriterPostureTests: XCTestCase {
             await doc.awaitPendingUndoWork()
         }
         XCTAssertEqual(saidOnUndo, [
-            "Couldn't change that task — this Mac can no longer file tasks in this piece."])
+            "Couldn't change that to-do — this Mac can no longer file to-dos in this piece."])
         XCTAssertEqual(doc.paragraph(id: pid), flipped, "the flip stays")
         await doc.close()
     }
@@ -248,7 +248,7 @@ final class ManuscriptWriterPostureTests: XCTestCase {
     // MARK: - The yield (#74): the stamp allows, the posture does not
 
     private static let taskRefusal =
-        "Couldn't change that task — this Mac can no longer file tasks in this piece."
+        "Couldn't change that to-do — this Mac can no longer file to-dos in this piece."
 
     /// **Append asks the posture as well as the stamp** (#74): a book author's
     /// Mac yielding to a piece's starter has a stamp that allows and a posture

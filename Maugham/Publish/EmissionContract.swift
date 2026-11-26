@@ -236,8 +236,8 @@ public enum EmissionContract {
     is written, a resolution pass walks every piece the edition includes — \
     never only the pieces a preview renders — and numbers, resolves and \
     checks. The emitter reads its numbers and never counts on its own, so a \
-    preview of chapter 3 still prints "Figure 7" and a reference into another \
-    included chapter still resolves. A section the edition leaves out \
+    preview of the third piece still prints "Figure 7" and a reference into \
+    another included piece still resolves. A section the edition leaves out \
     (`include` off, or dropped by an imprint) is outside the book: it is not \
     numbered, and a reference into it is unresolved.
 
@@ -366,7 +366,7 @@ public enum EmissionContract {
     lost or breaks the compile — a caption, a table cell, a heading, a note's \
     own text — the reference is `\\footnotemark[n]` and its \
     `\\footnotetext[n]{…}` follows the construct. A footnote label belongs \
-    to its piece: `[^1]` in two chapters is two notes.
+    to its piece: `[^1]` in two pieces is two notes.
 
     ### Numbered headings
 

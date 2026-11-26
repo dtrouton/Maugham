@@ -353,15 +353,10 @@ struct DesignRoundState: Equatable {
         "Rename \(designerName)\u{2026}"
     }
 
-    /// **The Run button's own name in the accessibility tree**, distinct from
-    /// the language rows' Run.
-    ///
-    /// Three buttons on one pane all labelled "Run" are three buttons a
-    /// VoiceOver user cannot tell apart, and the visible titles are told apart
-    /// only by the row they sit on — which a linear tree does not carry. The
-    /// visible title is "Run Design"; what is announced, and what a test
-    /// finds the design verb by, is this.
-    static let runAccessibilityLabel = "Run a design round"
+    /// **The Run Design button's name in the accessibility tree**: its
+    /// visible title, now that the title alone tells it from the translator's
+    /// buttons — Voice Control matches what the writer says against it.
+    static let runAccessibilityLabel = runTitle
     static let cancelAccessibilityLabel = "Cancel the design round"
 
     /// The direction field's prompt. **Optional, and it says so**: a bare round

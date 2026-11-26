@@ -305,8 +305,10 @@ enum ResolvePieceInLanguage {
         TranslationRunState.runHelp(language: language, target: .ready(docId: "", title: title))
     }
 
-    static func runAccessibilityLabel(language: String, noun: String) -> String {
-        "Translate this \(noun) into " + LanguageName.labelled(language)
+    /// The run button's spoken label: its visible title first, so Voice
+    /// Control finds it by what the writer reads, then the language.
+    static func runAccessibilityLabel(language: String, noun: PieceNoun) -> String {
+        TranslationRunState.runTitle(noun) + " into " + LanguageName.labelled(language)
     }
 
     /// The line under Run: what it runs, and what it will cost before the
@@ -820,6 +822,8 @@ struct PieceInLanguageHeadView: View {
         let pipeline = roster?.pipeline.status ?? .idle
         let title = TreeWalk.find(id: docId, in: store.manifest.structure)?.title ?? ""
         return TranslationRunState.resolve(
+            // A book queue counts the book's pieces, in the book's word.
+            noun: PieceNoun.of(nil, in: store.manifest),
             language: language,
             target: isOpen ? .ready(docId: docId, title: title) : .unavailable(TranslationRunTarget.openAChapter),
             session: TranslationRunSession.read(
@@ -856,7 +860,7 @@ struct PieceInLanguageHeadView: View {
                     .controlSize(.small)
                     .fixedSize()
                     .disabled(!run.canRun)
-                    .accessibilityLabel(ResolvePieceInLanguage.runAccessibilityLabel(language: language, noun: noun))
+                    .accessibilityLabel(ResolvePieceInLanguage.runAccessibilityLabel(language: language, noun: pieceWord))
                     .help(run.refusal ?? ResolvePieceInLanguage.runHelp(
                         language: language,
                         title: TreeWalk.find(id: docId, in: store.manifest.structure)?.title ?? ""))

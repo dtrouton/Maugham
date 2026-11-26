@@ -207,7 +207,7 @@ enum ResolveEditionItems {
                           readingBook: Bool = false) -> String {
         if isSource {
             return "Nothing about the book\u{2019}s design or its last compile waits on you. "
-                + "Run design above to ask for a new design."
+                + "Run Design above asks for a new design."
         }
         let edition = LanguageName.labelled(language)
         // **Never "nothing waits" over a book not yet read** (fix round 2,
@@ -431,7 +431,12 @@ enum ResolveEditionItems {
         // the refusal that stands in its place.
         let cost = TranslationRunState.preflightLine(preflight).map { " \u{00b7} \($0)" } ?? ""
         guard let imprint else {
+            // One piece: the whole book in one round, never "every story: 1 story".
+            guard count != 1 else { return "Translates the whole book in one round\(cost)." }
             return "Translates every \(noun.singular) of the book: \(noun.counted(count))\(cost)."
+        }
+        guard count != 1 else {
+            return "Translates \u{201C}\(imprint)\u{201D}, the imprint chosen above, in one round\(cost)."
         }
         return "Translates \u{201C}\(imprint)\u{201D}, the imprint chosen above: \(noun.counted(count))\(cost)."
     }
@@ -1256,6 +1261,7 @@ struct EditionHeadView: View {
         let session = TranslationRunSession.read(
             runState: runState, isRunning: roster?.translator.isRunning ?? false, pipeline: pipeline)
         return TranslationRunState.resolve(
+            noun: PieceNoun.of(nil, in: store.manifest),
             language: language,
             target: TranslationRunTarget.resolve(subject: nil, structure: [], isOpen: { _ in false }),
             session: session, runState: runState, lastRun: nil, pipeline: pipeline,

@@ -254,7 +254,7 @@ extension Document {
         // because both keys take the person's row for a task.
         guard localWritePermit.allows(.op(op.kind)) == .yes else {
             documentLog.error(
-                "appendTaskOpInternal: \(op.kind.rawValue, privacy: .public) refused at the task door — nothing appended")
+                "appendTaskOpInternal: \(op.kind.rawValue, privacy: .public) refused at the to-do door — nothing appended")
             declineUndo(.taskNotPermitted)
             return
         }
@@ -285,7 +285,7 @@ extension Document {
             do { try await store.append(op) }
             catch {
                 documentLog.error(
-                    "task op append failed for doc \(docId, privacy: .public): \(error.localizedDescription, privacy: .public)")
+                    "to-do op append failed for doc \(docId, privacy: .public): \(error.localizedDescription, privacy: .public)")
             }
             // Self-prune so the tracking set stays near-empty in steady state
             // (touching only this dict is husk-safe).
@@ -584,7 +584,7 @@ extension Document {
               !splicesText || localWritePermit.allows(.op(.typingBurst)) == .yes
         else {
             documentLog.error(
-                "archiveTask: \(id, privacy: .public) refused at the task door — nothing archived")
+                "archiveTask: \(id, privacy: .public) refused at the to-do door — nothing archived")
             declineUndo(.taskNotPermitted)
             return
         }

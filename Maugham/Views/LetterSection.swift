@@ -44,7 +44,7 @@ struct LetterSection: View {
     static let habitsTitle = "Habits"
     static let questionsTitle = "Questions"
     static let scenesTitle = "Scenes"
-    static let acceptTitle = "Accept as task"
+    static let acceptTitle = "Accept as To-Do"
     static let addToIntentTitle = "Add to intent"
     /// **The same offer, when the piece is measured against the book's
     /// intent** (final review, Critical). A piece with no intent of its own

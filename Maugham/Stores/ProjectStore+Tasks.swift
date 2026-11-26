@@ -74,7 +74,7 @@ extension ProjectStore {
 
     /// Said where the posture refuses a project task outright.
     static let projectTaskNotPermittedRefusal =
-        "Your part in this book doesn\u{2019}t reach the project\u{2019}s own tasks, "
+        "Your part in this book doesn\u{2019}t reach the project\u{2019}s own to-dos, "
         + "so nothing was changed."
 
     // MARK: - Mutation
@@ -166,7 +166,7 @@ extension ProjectStore {
     public func appendProjectTaskOp(_ op: Op) -> Bool {
         if let refusal = projectTaskRefusal() {
             projectStoreLog.error(
-                "project task op \(op.kind.rawValue, privacy: .public) refused at the project stream's door")
+                "project to-do op \(op.kind.rawValue, privacy: .public) refused at the project stream's door")
             MaughamEvent.postNotice(refusal, projectURL: url)
             return false
         }
@@ -186,7 +186,7 @@ extension ProjectStore {
             do { try await store.append(op) }
             catch {
                 projectStoreLog.error(
-                    "project task op append failed: \(error.localizedDescription, privacy: .public)")
+                    "project to-do op append failed: \(error.localizedDescription, privacy: .public)")
             }
         }
         return true

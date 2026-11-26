@@ -56,11 +56,14 @@ struct BriefPartView: View {
             BriefPane.statementIsUnreadable(kind: .intent, scope: .document($0),
                                             snapshot: contents.snapshot, statements: statements)
         })
+        // Once per body, never per row (tripwire 4): a Part holds no
+        // screenplay piece, so the project's own word serves every row.
+        let noun = PieceNoun.of(nil, in: store.manifest)
         let sections = Self.sections(docIds: docIds, decisions: contents.snapshot.decisions,
                                      structure: store.manifest.structure, unreadable: unreadable)
         VStack(alignment: .leading, spacing: 14) {
             if sections.isEmpty {
-                Text(Self.emptyLine(PieceNoun.of(nil, in: store.manifest)))
+                Text(Self.emptyLine(noun))
                     .font(.callout)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -74,8 +77,7 @@ struct BriefPartView: View {
                             .truncationMode(.middle)
                     }
                     .buttonStyle(.plain)
-                    .help(Self.openBriefHelp(PieceNoun.of(
-                        TreeWalk.find(id: section.docId, in: store.manifest.structure), in: store.manifest)))
+                    .help(Self.openBriefHelp(noun))
                     BriefDecidedSection(
                         fileOrder: contents.fileOrder[section.docId] ?? [],
                         decisions: section.decisions,

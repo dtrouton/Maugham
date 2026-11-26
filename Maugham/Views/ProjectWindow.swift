@@ -1301,7 +1301,7 @@ struct ProjectWindow: View {
                     navigate: navigate,
                     pendingPieceRenameId: $pendingPieceRenameId,
                     treeState: treeState))
-                .alert("Renumber every file in the binder?",
+                .alert("Renumber the manuscript\u{2019}s files?",
                        isPresented: $showingTidyAllConfirmation
                 ) {
                     Button("Renumber", role: .destructive) {

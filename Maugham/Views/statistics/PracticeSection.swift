@@ -68,7 +68,6 @@ struct PracticeSection: View {
     /// What a row promises, and the whole of what it promises. Never a scroll
     /// and never a paragraph (global constraint 31).
     static func opensThePiece(_ noun: PieceNoun) -> String { "Opens the \(noun.singular)" }
-    static let opensTheScene = "Opens the scene\u{2019}s file"
 
     /// A document whose op log could not be read is skipped and NAMED
     /// (`ProjectPractice.unreadableDocIds`, RULING-54 lenient). The writer is
@@ -188,7 +187,7 @@ struct PracticeSection: View {
                     unavailable(Self.nothingYetTitle, Self.nothingYetMessage)
                 } else {
                     frontierRow(practice, frontier: frontier)
-                    hotspotRows(hotspots, isScreenplay: practice.isScreenplay)
+                    hotspotRows(hotspots)
                 }
                 if !practice.unreadableDocIds.isEmpty {
                     Text(Self.unreadableNotice(practice.unreadableDocIds.count))
@@ -210,7 +209,7 @@ struct PracticeSection: View {
     ) -> some View {
         if let frontier {
             row(Self.frontierLine(practice),
-                docId: frontier.row.id, isScreenplay: practice.isScreenplay)
+                docId: frontier.row.id)
         } else {
             quietLine(Self.noFrontierLine)
         }
@@ -218,8 +217,7 @@ struct PracticeSection: View {
 
     @ViewBuilder
     private func hotspotRows(
-        _ hotspots: [(row: ProjectPractice.DocumentRow, hotspot: ProcessSignals.Hotspot)],
-        isScreenplay: Bool
+        _ hotspots: [(row: ProjectPractice.DocumentRow, hotspot: ProcessSignals.Hotspot)]
     ) -> some View {
         if hotspots.isEmpty {
             quietLine(Self.noHotspotsLine)
@@ -232,7 +230,7 @@ struct PracticeSection: View {
                 // documents, so the third row routinely belongs to a different
                 // file than the first.
                 row(Self.hotspotLine(entry.row, entry.hotspot),
-                    docId: entry.row.id, isScreenplay: isScreenplay)
+                    docId: entry.row.id)
             }
         }
     }
@@ -240,7 +238,7 @@ struct PracticeSection: View {
     /// One pressable line. `Button(.plain)` rather than a tap gesture, the
     /// house rule, and the whole line is the label so what a writer reads and
     /// what VoiceOver announces are the same sentence.
-    private func row(_ line: String, docId: String, isScreenplay: Bool) -> some View {
+    private func row(_ line: String, docId: String) -> some View {
         Button {
             onSelectChapter(docId)
         } label: {
@@ -253,7 +251,7 @@ struct PracticeSection: View {
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .help(isScreenplay ? Self.opensTheScene : Self.opensThePiece(noun))
+        .help(Self.opensThePiece(noun))
         .padding(.vertical, 2)
     }
 

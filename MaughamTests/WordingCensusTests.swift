@@ -11,25 +11,30 @@ import MaughamCore
 /// The censuses read Swift STRING LITERALS (`SwiftLiterals`), single-line,
 /// multi-line and raw, never comments; an interpolation's code is not the
 /// literal's text (it reads as `…`), but a string nested inside it is a
-/// literal of its own. Each allow-list entry is a file and the literal's
-/// exact text, with its reason, so a new literal in an allowed file is still
-/// caught.
+/// literal of its own. Each allow-list entry is a file and a PHRASE with its
+/// reason: a literal passes only when every match lies inside an allowed
+/// phrase of that file (a whole literal is a phrase too), so a new use in an
+/// allowed file, or a new sentence in an allowed literal, is still caught.
+/// Backticked spans are code and blanked only in MCP text (`withoutCode`).
 final class WordingCensusTests: XCTestCase {
 
     // MARK: - The piece's noun is never hard-coded
 
     static let chapterPattern = try! NSRegularExpression(pattern: #"\b[Cc]hapters?\b"#)
 
-    /// file → literal text → why it may say "chapter". `allFile` allows
-    /// every literal in the file.
+    /// file → phrase → why it may say "chapter". `allFile` allows every
+    /// literal in the file.
     static let chapterAllowed: [String: [String: String]] = [
         "Maugham/Stores/ProjectFactory.swift": [
             "Chapter 1": "the first piece's title in a new Novel — a title the writer renames, not a noun",
         ],
+        // The publishing contract Claude reads (EMISSION.md), where these
+        // three are the typesetter's word, not the writer's piece.
         "Maugham/Publish/EmissionContract.swift": [
-            allFile: "the publishing contract Claude reads (EMISSION.md): \"chapter\" there is the "
-                + "typesetter's word — LaTeX's `\\chapter`, chapter breaks, a heading example — "
-                + "not the writer's piece",
+            "# Chapter Title": "the Markdown heading example's sample text",
+            "chapter-numbered class": "a LaTeX document class that numbers by `\\chapter`",
+            #"`\\chapter`"#: "LaTeX's sectioning command, by name",
+            "chapter breaks": "a typesetting term for where a new chapter's page begins",
         ],
         "Maugham/Views/PieceNoun.swift": [
             allFile: "the one noun function: where the word for a novel's piece is spelled",
@@ -142,6 +147,10 @@ final class WordingCensusTests: XCTestCase {
                 XCTAssertEqual(EditionStatusView.emptyDescription(bookNoun),
                                "Add \(ws) and Status shows where each one stands in this edition.", k)
                 XCTAssertEqual(WordsByChapterSection.title(bookNoun), "Words by \(w)", "Statistics, \(k)")
+                XCTAssertEqual(WordsByChapterSection.title(bookNoun, rowsHoldGroups: true),
+                               "Words by \(bookNoun.group ?? "group") and \(w)", "Statistics with Parts, \(k)")
+                XCTAssertEqual(WordsByChapterSection.title(bookNoun, rowsHoldGroups: true, rowsAreAllGroups: true),
+                               "Words by \(bookNoun.group ?? "group")", "Statistics, all Parts, \(k)")
                 XCTAssertEqual(ResolveEditionItems.runScopeLine(count: 2, noun: bookNoun, imprint: nil),
                                "Translates every \(w) of the book: 2 \(ws).", k)
                 XCTAssertEqual(BinderView.newPieceTitle(bookNoun), "New \(w.prefix(1).uppercased() + w.dropFirst())",
@@ -154,6 +163,18 @@ final class WordingCensusTests: XCTestCase {
                                "Brief's Part line, \(k)")
             }
         }
+    }
+
+    /// **One verb per round** (fix round 1, I2 and M7): the board's chip is
+    /// "Run Gould's Round", the Source's clear line names the button by its
+    /// title, and a cancelled translation is a cancelled round.
+    func test_theRoundVocabularyIsOneVocabulary() {
+        XCTAssertEqual(RoundNarrative.runRoundTitle(editorName: "Gould"), "Run Gould\u{2019}s Round")
+        XCTAssertEqual(ReviewRoundCockpit.runTitle, "Run Round")
+        XCTAssertEqual(DesignRoundState.runTitle, "Run Design")
+        XCTAssertTrue(ResolveEditionItems.clearLine(language: "en", isSource: true, hasRounds: false)
+                        .contains(DesignRoundState.runTitle + " above"))
+        XCTAssertEqual(TranslationRunState.cancelledLine, "Round cancelled. Nothing was written.")
     }
 
     /// The board's worded open-notes heading fits its column (ADR 0038's
@@ -202,6 +223,45 @@ final class WordingCensusTests: XCTestCase {
         let offenders = try Self.offenders(pattern: Self.retiredPattern, allowed: Self.retiredAllowed)
         XCTAssertEqual(offenders, [], "a string names a surface the window no longer has:\n"
                        + offenders.joined(separator: "\n"))
+    }
+
+    /// **A to-do is a to-do wherever the writer reads** (fix round 1, I1):
+    /// no app string says "task" in either case. MCP keeps `task` as the
+    /// wire noun (tool and field names, and the prose that explains them),
+    /// so `Maugham/MCP/` is outside this census.
+    static let taskPattern = try! NSRegularExpression(pattern: #"\b[Tt]asks?\b"#)
+
+    func test_noAppStringCallsAToDoATask() throws {
+        let offenders = try Self.offenders(pattern: Self.taskPattern, allowed: [:], excluding: ["Maugham/MCP/"])
+        XCTAssertEqual(offenders, [], "say \u{201C}to-do\u{201D}:\n" + offenders.joined(separator: "\n"))
+    }
+
+    /// Planted offender and control: a lowercase "task" in a view and in a
+    /// log line is caught; MCP's wire noun, "to-do", "multitasking" and a
+    /// comment are not; a backticked word in an app string is still read
+    /// (only MCP text blanks code spans).
+    func test_theTaskAndPhraseCensusCatchPlantedOffenders() throws {
+        let base = try SourceTree.plantedTree([
+            "Maugham/Views/Rogue.swift": #"""
+            let a = "Accept as task"
+            let b = "change the to-do"
+            let c = "multitasking"
+            // a task, in a comment
+            let d = "the `chapter` here is shown"
+            let e = "Chapter breaks and a chapter-numbered class"
+            """#,
+            "Maugham/MCP/Tools/Rogue.swift": #"let f = "List tasks; `chapter` is a field""#,
+        ])
+        XCTAssertEqual(try Self.offenders(pattern: Self.taskPattern, allowed: [:], excluding: ["Maugham/MCP/"],
+                                          base: base),
+                       ["Maugham/Views/Rogue.swift:1: Accept as task"])
+        XCTAssertEqual(try Self.offenders(pattern: Self.chapterPattern,
+                                          allowed: ["Maugham/Views/Rogue.swift": ["chapter-numbered class": "x"]],
+                                          base: base),
+                       ["Maugham/Views/Rogue.swift:5: the `chapter` here is shown",
+                        "Maugham/Views/Rogue.swift:6: Chapter breaks and a chapter-numbered class"],
+                       "an allowed phrase covers only its own match; the code span is read in an app string; "
+                       + "MCP's backticked field is not")
     }
 
     /// **MCP descriptions are read as values** (`MCPToolCatalog.all`), so a
@@ -294,22 +354,48 @@ final class WordingCensusTests: XCTestCase {
     /// Every string literal under `Maugham/` matching `pattern`, minus the
     /// allowed ones, as `path:line: text`.
     static func offenders(pattern: NSRegularExpression, allowed: [String: [String: String]],
+                          excluding: [String] = [],
                           base: URL = SourceTree.repoRoot) throws -> [String] {
         var offenders: [String] = []
         for path in try SourceTree.swiftFiles(under: "Maugham", base: base) {
             let allowedHere = allowed[path] ?? [:]
             guard allowedHere[allFile] == nil else { continue }
-            for literal in SwiftLiterals.extract(try SourceTree.read(path, base: base))
-            where matches(pattern, withoutCode(literal.text)) && allowedHere[literal.text] == nil {
-                offenders.append("\(path):\(literal.line): \(literal.text)")
+            guard !excluding.contains(where: path.hasPrefix) else { continue }
+            let isMCP = path.hasPrefix("Maugham/MCP/")
+            for literal in SwiftLiterals.extract(try SourceTree.read(path, base: base)) {
+                let text = isMCP ? withoutCode(literal.text) : literal.text
+                if !allMatchesAllowed(pattern, in: text, phrases: Array(allowedHere.keys)) {
+                    offenders.append("\(path):\(literal.line): \(literal.text)")
+                }
             }
         }
         return offenders.sorted { $0.localizedStandardCompare($1) == .orderedAscending }
     }
 
-    /// `text` with every backticked span blanked: a word in backticks is
-    /// code — a wire field (`synopsis`), a tool's parameter — that keeps its
-    /// name whatever the writer calls the thing.
+    /// Whether every match of `pattern` in `text` lies inside an occurrence
+    /// of one of `phrases` (true when nothing matches).
+    static func allMatchesAllowed(_ pattern: NSRegularExpression, in text: String, phrases: [String]) -> Bool {
+        let ns = text as NSString
+        var allowedRanges: [NSRange] = []
+        for phrase in phrases where !phrase.isEmpty {
+            var from = 0
+            while from < ns.length {
+                let found = ns.range(of: phrase, options: [], range: NSRange(location: from, length: ns.length - from))
+                guard found.location != NSNotFound else { break }
+                allowedRanges.append(found)
+                from = found.location + max(found.length, 1)
+            }
+        }
+        return pattern.matches(in: text, range: NSRange(location: 0, length: ns.length)).allSatisfy { match in
+            allowedRanges.contains { NSLocationInRange(match.range.location, $0)
+                && NSMaxRange(match.range) <= NSMaxRange($0) }
+        }
+    }
+
+    /// `text` with every backticked span blanked — for MCP text only, where
+    /// a word in backticks is code: a wire field (`synopsis`), a tool's
+    /// parameter, that keeps its name whatever the writer calls the thing.
+    /// An app string is shown as written, so nothing in it is exempt.
     static func withoutCode(_ text: String) -> String {
         text.replacingOccurrences(of: #"`[^`\n]*`"#, with: "``", options: .regularExpression)
     }

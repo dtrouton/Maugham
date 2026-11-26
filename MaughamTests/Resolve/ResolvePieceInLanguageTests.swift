@@ -435,8 +435,12 @@ final class ResolvePieceInLanguageTests: XCTestCase {
     /// **Closing review M4**: Run's VoiceOver label names the piece by the
     /// project's own word, as the scope line beside it does.
     func test_runsLabelNamesThePieceByTheProjectsWord() {
-        XCTAssertEqual(ResolvePieceInLanguage.runAccessibilityLabel(language: "sr", noun: "story"),
-                       "Translate this story into " + LanguageName.labelled("sr"))
+        XCTAssertEqual(ResolvePieceInLanguage.runAccessibilityLabel(language: "sr", noun: .story),
+                       "Translate This Story into " + LanguageName.labelled("sr"))
+        // Voice Control: every run button's label begins with what it shows.
+        XCTAssertTrue(TranslationRunState.runBookAccessibilityLabel(language: "sr")
+                        .hasPrefix(TranslationRunState.runBookTitle))
+        XCTAssertEqual(DesignRoundState.runAccessibilityLabel, DesignRoundState.runTitle)
     }
 
     // MARK: - The source's keys (closing review I2)
@@ -572,7 +576,7 @@ final class ResolvePieceInLanguageTests: XCTestCase {
         func state(_ status: TranslationPipeline.Status, queued: [String] = []) -> TranslationRunState {
             let relation = ResolvePieceInLanguage.pieceRun(status: status, queued: queued,
                                                            docId: "doc-3", language: "es")
-            return TranslationRunState.resolve(
+            return TranslationRunState.resolve(noun: .chapter, 
                 language: "es", target: .ready(docId: "doc-3", title: "Three"),
                 session: TranslationRunSession.read(runState: .idle, isRunning: false, pipeline: status),
                 runState: .idle, lastRun: nil,

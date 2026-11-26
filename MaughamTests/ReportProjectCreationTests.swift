@@ -238,7 +238,7 @@ final class ReportProjectCreationTests: XCTestCase {
         let golden: [String: String] = [
             "backmatter.tex": "f9e196a3871432d8e28dd1079a432d4474f6494c76b5089588df289892128e89",
             "config.json": "85dfc7c2b44b1457704bb965e0ebb682723ab7c1be132daaa3539f8caccb1c6a",
-            "EMISSION.md": "ad55a6169796aeb2c4036f585d712c370cf7e2fa04d388961c482e934ffd536c",  // shell p5 Task 6: the recovery paragraph says "the binder's Trash", not "the Trash pane"
+            "EMISSION.md": "bf05460f6e4349153945cb16ec8d2455193c56c4f418891dea5321f3fb63fcf7",  // shell p5 Task 6 fix round 1: "the binder's Trash"; a preview of "the third piece", "[^1] in two pieces"
             "frontmatter.tex": "0537b0bf87fd28119e7c55134f786e95ed0ea5a6bdf972210f5b62521312390b",
             "preamble.tex": "6d6e044b7729318a1c25b75f0793e70124c9c1521f6faf2b6f27f31bb75525cc",
             "prose.tex": "233eea1e200b03d427a0bfc236138790d4b46b2be3d26654559ee6013e4f239d",

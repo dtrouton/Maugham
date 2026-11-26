@@ -68,7 +68,7 @@ struct TaskRow: View {
         switch task.kind {
         case .inlineMarkdown, .fountainBoneyard:
             text
-                .help("Double-click or press Return to jump to this paragraph; edit the text there to change the task.")
+                .help("Double-click or press Return to jump to this paragraph; edit the text there to change the to-do.")
         case .paneCreated:
             text
         }

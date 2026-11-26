@@ -434,7 +434,7 @@ A. Writer\par}
 
 ## Report elements — positive space
 
-Tables, figures, footnotes, citations, cross-references and numbered headings are emitted from the **whole book's resolution**: before any body is written, a resolution pass walks every piece the edition includes — never only the pieces a preview renders — and numbers, resolves and checks. The emitter reads its numbers and never counts on its own, so a preview of chapter 3 still prints "Figure 7" and a reference into another included chapter still resolves. A section the edition leaves out (`include` off, or dropped by an imprint) is outside the book: it is not numbered, and a reference into it is unresolved.
+Tables, figures, footnotes, citations, cross-references and numbered headings are emitted from the **whole book's resolution**: before any body is written, a resolution pass walks every piece the edition includes — never only the pieces a preview renders — and numbers, resolves and checks. The emitter reads its numbers and never counts on its own, so a preview of the third piece still prints "Figure 7" and a reference into another included piece still resolves. A section the edition leaves out (`include` off, or dropped by an imprint) is outside the book: it is not numbered, and a reference into it is unresolved.
 
 The examples below run that real resolution pass, then the real emitter, over a fixed one-piece book: one research item cited as `smith2026` ("Smith, Jane", *Annual Report*, 2026), section numbering on, the lists of figures and tables off. The examples have no project on disk, so the figure example hands the emitter its staged name directly; a real compile stages the image under `build/figures/` with a 16-hex-digit content hash for a name (`0123456789abcdef` below stands in for it).
 
@@ -644,7 +644,7 @@ An element carrying `{#fig:map}`, `{#tbl:sales}` or `{#sec:method}` gets `\hyper
 
 ### Footnotes — `\footnote[n]`
 
-Footnotes are numbered continuously across the book, and the PDF prints the resolution's number explicitly (`\footnote[n]{…}`), so the PDF and the EPUB agree even for a note inside a note. A second reference to the same note in a piece is `\footnotemark[n]`. Where `\footnote` is lost or breaks the compile — a caption, a table cell, a heading, a note's own text — the reference is `\footnotemark[n]` and its `\footnotetext[n]{…}` follows the construct. A footnote label belongs to its piece: `[^1]` in two chapters is two notes.
+Footnotes are numbered continuously across the book, and the PDF prints the resolution's number explicitly (`\footnote[n]{…}`), so the PDF and the EPUB agree even for a note inside a note. A second reference to the same note in a piece is `\footnotemark[n]`. Where `\footnote` is lost or breaks the compile — a caption, a table cell, a heading, a note's own text — the reference is `\footnotemark[n]` and its `\footnotetext[n]{…}` follows the construct. A footnote label belongs to its piece: `[^1]` in two pieces is two notes.
 
 ### Numbered headings
 

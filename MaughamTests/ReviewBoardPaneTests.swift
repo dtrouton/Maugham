@@ -270,7 +270,7 @@ final class ReviewBoardPaneTests: XCTestCase {
     /// the reviewer read the grid, clicked a chip, landed in the piece, found
     /// the cockpit and pressed Run. The menu's first item is that whole path.
     ///
-    /// It is named for the EDITOR, not the pass — "Run Gould's round", the same
+    /// It is named for the EDITOR, not the pass — "Run Gould's Round", the same
     /// spelling the empty queue teaches (`RoundNarrative.runRoundTitle`) — so
     /// the grid and the queue name one act one way.
     func test_theMenuLeadsWithTheRoundNamedForThePassesEditor() {
@@ -280,7 +280,7 @@ final class ReviewBoardPaneTests: XCTestCase {
         let stored = ReviewPass(id: "copyedit", name: "Copyedit")
         let menu = verbs.chipMenu(for: "ch1", pass: stored, current: nil, posture: .author)
 
-        XCTAssertEqual(menu.run?.title, "Run Gould\u{2019}s round",
+        XCTAssertEqual(menu.run?.title, "Run Gould\u{2019}s Round",
                        "the round is offered by the name of the editor who "
                        + "reads it \u{2014} `effectiveEditorName`, never the "
                        + "raw stored field")
@@ -292,12 +292,12 @@ final class ReviewBoardPaneTests: XCTestCase {
 
     /// A pass a writer named themselves and never gave an editor falls back to
     /// its own name (`ReviewPass.effectiveEditorName`) — so the verb reads
-    /// "Run Beta Read's round" rather than naming a person who does not exist.
+    /// "Run Beta Read's Round" rather than naming a person who does not exist.
     func test_theRoundVerbNamesAWriterOwnPassByItsOwnName() {
         let menu = verbs.chipMenu(
             for: "ch1", pass: ReviewPass(id: "beta", name: "Beta Read"), current: nil,
             posture: .author)
-        XCTAssertEqual(menu.run?.title, "Run Beta Read\u{2019}s round")
+        XCTAssertEqual(menu.run?.title, "Run Beta Read\u{2019}s Round")
     }
 
     /// **The round verb carries its own cell's two ids**, exactly as the four
@@ -325,7 +325,7 @@ final class ReviewBoardPaneTests: XCTestCase {
             let menu = verbs.chipMenu(
                 for: "ch1", pass: ReviewPass(id: "line", name: "Line"), current: current,
                 posture: .author)
-            XCTAssertEqual(menu.run?.title, "Run Lish\u{2019}s round",
+            XCTAssertEqual(menu.run?.title, "Run Lish\u{2019}s Round",
                            "\(String(describing: current)) must still offer its "
                            + "round")
         }

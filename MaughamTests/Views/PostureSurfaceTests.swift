@@ -1701,7 +1701,7 @@ final class PostureSurfaceTests: XCTestCase {
         XCTAssertEqual(doc._opLogMirror.count, ops, "nothing appended")
         XCTAssertEqual(doc.displayText, text, "the inline archive spliced nothing")
         XCTAssertEqual(said, [
-            "Couldn't change 3 tasks — this Mac can no longer file tasks in this piece."])
+            "Couldn't change 3 to-dos — this Mac can no longer file to-dos in this piece."])
 
         doc.stamp(localWritePermit: .unrestricted)
         doc.setTaskStatus(id: pane.id, status: .done)

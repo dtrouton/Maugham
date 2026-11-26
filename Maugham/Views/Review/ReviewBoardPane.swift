@@ -178,7 +178,7 @@ struct ReviewBoardPane: View {
     /// hit area; the name truncates and `.help` carries it whole.
     static let minimumPassColumnWidth: CGFloat = 40
     /// The open-notes column (M3 P2 Task 9). It holds a small number.
-    static let openNotesColumnWidth: CGFloat = 56
+    static let openNotesColumnWidth: CGFloat = 60
     /// The open to-dos column, after open notes (shell p4 Task 4).
     static let openToDosColumnWidth: CGFloat = 52
     private static let horizontalPadding: CGFloat = 10

@@ -564,12 +564,22 @@ final class ResolveEditionVerbTests: XCTestCase {
         XCTAssertEqual(gone.docIds, ["a", "b"])
         XCTAssertNil(gone.imprint)
         XCTAssertEqual(ResolveEditionItems.runScopeLine(count: 1, noun: .chapter, imprint: "Volume One"),
-                       "Translates \u{201C}Volume One\u{201D}, the imprint chosen above: 1 chapter.")
+                       "Translates \u{201C}Volume One\u{201D}, the imprint chosen above, in one round.")
         XCTAssertEqual(ResolveEditionItems.runScopeLine(count: 3, noun: .chapter, imprint: nil),
                        "Translates every chapter of the book: 3 chapters.")
-        XCTAssertEqual(ResolveEditionItems.runScopeLine(count: 1, noun: .section, imprint: "Board copy"),
-                       "Translates \u{201C}Board copy\u{201D}, the imprint chosen above: 1 section.",
-                       "a Report's sections, and the sentence still reads with one")
+        XCTAssertEqual(ResolveEditionItems.runScopeLine(count: 2, noun: .section, imprint: "Board copy"),
+                       "Translates \u{201C}Board copy\u{201D}, the imprint chosen above: 2 sections.",
+                       "a Report's sections")
+        // A book of one piece (fix round 1, I5): never "every story: 1 story".
+        for noun in [PieceNoun.story, .script, .section] {
+            XCTAssertEqual(ResolveEditionItems.runScopeLine(count: 1, noun: noun, imprint: nil),
+                           "Translates the whole book in one round.")
+            XCTAssertEqual(TranslationRunState.runBookHelp(language: "sr", count: 1, noun: noun, preflight: nil),
+                           "Translate the whole book into \(LanguageName.labelled("sr")) in one round.")
+        }
+        XCTAssertEqual(TranslationRunState.runBookHelp(language: "sr", count: 3, noun: .chapter, preflight: nil),
+                       "Translate every chapter of this book into \(LanguageName.labelled("sr")), one round each, "
+                       + "in order: 3 chapters.")
     }
 
     // MARK: - Fix round 2

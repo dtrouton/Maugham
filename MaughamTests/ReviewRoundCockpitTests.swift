@@ -439,14 +439,14 @@ final class ReviewRoundCockpitTests: XCTestCase {
 
     func test_theRunTooltipNamesTheOfferAndTheRoundItWouldProduce() {
         XCTAssertEqual(ReviewRoundCockpit.runHelp(pass: Self.copyedit, round: 2),
-                       "Run Gould\u{2019}s round 3 (\u{2303}\u{2318}R)")
+                       "Run Gould\u{2019}s Round 3 (\u{2303}\u{2318}R)")
         XCTAssertTrue(
             ReviewRoundCockpit.runHelp(pass: Self.copyedit, round: 2)
                 .hasPrefix(RoundNarrative.runRoundTitle(editorName: "Gould")),
             "\u{2026}through the one spelling the empty state and the board "
             + "chip's verb read")
         XCTAssertEqual(ReviewRoundCockpit.runHelp(pass: Self.copyedit, round: nil),
-                       "Run Gould\u{2019}s round 1 (\u{2303}\u{2318}R)",
+                       "Run Gould\u{2019}s Round 1 (\u{2303}\u{2318}R)",
                        "the first round is 1, not 0")
         XCTAssertEqual(ReviewRoundCockpit.runHelp(pass: nil, round: nil),
                        ReviewRoundCockpit.noEditorReason,

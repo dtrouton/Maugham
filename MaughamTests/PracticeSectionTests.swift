@@ -276,8 +276,9 @@ final class PracticeSectionTests: XCTestCase {
     func test_theRowsHelpPromisesTheChapterAndNeverAScroll() {
         XCTAssertEqual(PracticeSection.opensThePiece(.chapter), "Opens the chapter")
         XCTAssertEqual(PracticeSection.opensThePiece(.story), "Opens the story")
-        XCTAssertEqual(PracticeSection.opensTheScene, "Opens the scene\u{2019}s file")
-        for promise in [PracticeSection.opensThePiece(.chapter), PracticeSection.opensTheScene] {
+        XCTAssertEqual(PracticeSection.opensThePiece(.script), "Opens the script",
+                       "a screenplay's row opens the one script, not a scene's file (fix round 1, M6)")
+        for promise in [PracticeSection.opensThePiece(.chapter), PracticeSection.opensThePiece(.script)] {
             XCTAssertFalse(promise.lowercased().contains("scroll"), promise)
             XCTAssertFalse(promise.lowercased().contains("paragraph"), promise)
         }
