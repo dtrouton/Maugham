@@ -12,7 +12,7 @@ import Foundation
 /// **Consumed by `list_canvas`, and the reference rail is M2's** (M1A Task 10).
 /// This comment used to say *"Produced here, consumed in 1A. The reference rail
 /// is 1A's work"* — but umbrella §10 assigns the intent strip, pinned references
-/// and the assistant column to **M2**, and always did. What 1A gave the
+/// and the reference beside the prose to **M2**, and always did. What 1A gave the
 /// projection is a *reader* rather than a rail: `ListCanvasTool` reports it as
 /// `piece_references`, so the two rules below are on the wire instead of being
 /// re-derived — wrongly, as `home ∪ appearances` — by whoever reads

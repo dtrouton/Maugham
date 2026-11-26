@@ -106,7 +106,7 @@ enum FigureUseTravel {
     /// place when one is open (its live text, the text the index read), else
     /// the op log's derived state (tripwire 20).
     ///
-    /// `language` reveals the line in that edition's translation review (the
+    /// `language` reveals the line read in that edition's language (the
     /// inspector's Translations lines, report plan 9e-1 Task 8); nil, the
     /// source.
     @MainActor
@@ -128,11 +128,13 @@ enum FigureUseTravel {
     /// **The travel, posted**: the reveal (the window selects the piece and,
     /// once its document is up, navigates to the paragraph at the line's
     /// offset — `TranslationReveal.perform`), then the same navigation at
-    /// once — which, from a persona whose centre shows no manuscript (Plan),
-    /// takes the window to Author first (`ManuscriptNavigation`), so the
-    /// reveal has an editor to land in; with no editor on that piece yet it
-    /// moves no caret. A piece alone is a subject write. `post` is
-    /// production's `MaughamEvent.post(_:to: .keyWindow, payload:)`.
+    /// once, which opens the piece in the centre whatever the centre was
+    /// (`ManuscriptNavigation`). An editor already on the piece lands it at
+    /// once; otherwise the window holds the place for the editor that loads
+    /// the piece (`EditorControl.pendingPlace`), and the reveal's own
+    /// navigation lands it too — either way, the same paragraph. A piece alone
+    /// is a subject write. `post` is production's
+    /// `MaughamEvent.post(_:to: .keyWindow, payload:)`.
     @MainActor
     static func perform(_ destination: Destination, select: (BinderSubject) -> Void,
                         post: (Notification.Name, [String: Any]) -> Void) {
@@ -314,12 +316,15 @@ struct FigureInspector: View {
     /// figure revision instead).
     let figureTree: BinderTreeSectionsState?
     let control: EditorControl
-    let persona: Persona
+    /// The window's read-through gate, asked of this figure beside the share
+    /// (`FigureActions.refusesWrites(to:)`).
+    let readThrough: ReadThroughGate
     /// The project window, whose annotation changes reload the notes.
     let window: NSWindow?
     /// The window's subject-picker, for a Used-in link that can only select its piece.
     let select: (BinderSubject) -> Void
-    /// Notes' "Show in Notes": the queue, widened, at this figure.
+    /// Notes' "Show in Notes": To resolve, on this figure's notes (the figure is
+    /// already the faces, so the list is already about it).
     let showNotes: (String) -> Void
 
     @State private var model: FigureInspectorModel
@@ -329,7 +334,7 @@ struct FigureInspector: View {
 
     init(figureId: String, store: ProjectStore, documentStore: DocumentStore, listing: FigureListingModel,
          figureWindows: FigureWindows?, figureTree: BinderTreeSectionsState? = nil,
-         control: EditorControl, persona: Persona, window: NSWindow?,
+         control: EditorControl, readThrough: ReadThroughGate, window: NSWindow?,
          select: @escaping (BinderSubject) -> Void, showNotes: @escaping (String) -> Void) {
         self.figureId = figureId
         self.store = store
@@ -338,7 +343,7 @@ struct FigureInspector: View {
         self.figureWindows = figureWindows
         self.figureTree = figureTree
         self.control = control
-        self.persona = persona
+        self.readThrough = readThrough
         self.window = window
         self.select = select
         self.showNotes = showNotes
@@ -347,14 +352,17 @@ struct FigureInspector: View {
 
     /// The one helper (`FigureActions`), as the inspector hands it what it knows.
     static func actions(store: ProjectStore, figureWindows: FigureWindows?, control: EditorControl,
-                        persona: Persona, model: FigureInspectorModel, window: NSWindow? = nil) -> FigureActions {
+                        readThrough: ReadThroughGate, model: FigureInspectorModel,
+                        window: NSWindow?) -> FigureActions {
         FigureActions(store: store, figureWindows: figureWindows, typography: control.typography,
-                      windowRefusesWrites: { FigureActions.windowRefusesWrites(control: control, persona: persona) },
+                      windowRefusesWrites: { control.shareIsReadOnly },
+                      readThrough: { readThrough },
                       report: { [weak model] in model?.message = $0 }, window: window)
     }
 
     private var actions: FigureActions {
-        Self.actions(store: store, figureWindows: figureWindows, control: control, persona: persona, model: model,
+        Self.actions(store: store, figureWindows: figureWindows, control: control, readThrough: readThrough,
+                     model: model,
                      window: window)
     }
     private var record: FigureRecord? { store.manifest.figures?.first { $0.id == figureId } }
@@ -444,7 +452,8 @@ struct FigureInspector: View {
     /// Why Refresh is not offered, nil when it is (this Mac may edit the
     /// figure and a grid has it open, whose stack takes the step).
     private var refreshRefusal: String? {
-        Self.refusal(mayEdit: actions.mayEdit(figureId), reach: actions.gridReach(figureId))
+        Self.refusal(mayEdit: actions.mayEdit(figureId), reach: actions.gridReach(figureId),
+                     readThrough: actions.readThroughRefusal(of: figureId))
     }
 
     // MARK: Sections
@@ -489,7 +498,7 @@ struct FigureInspector: View {
     }
 
     /// A line per language: "es  12 of 14 cells", and Review, which opens
-    /// the table's first line in that edition's translation review.
+    /// the table's first line read in that edition's language.
     private func translationsSection(_ row: FigureListing.Row) -> some View {
         VStack(alignment: .leading, spacing: 4) {
             Text("Translations").font(.headline)
@@ -501,7 +510,7 @@ struct FigureInspector: View {
                     if let use = row.usedIn.first {
                         Button("Review") { review(use, in: line.language) }
                             .buttonStyle(.link)
-                            .help("Show this table's line in the \(line.language) translation review")
+                            .help("Show this table's line read in \(LanguageName.title(line.language))")
                     }
                 }
             }
@@ -590,15 +599,27 @@ struct FigureInspector: View {
         let mayEdit = actions.mayEdit(figureId)
         let offered = Self.offered(mayEdit: mayEdit, kind: row.kind)
         let reach = actions.gridReach(figureId)
-        let importRefusal = Self.refusal(mayEdit: mayEdit, reach: reach)
+        let readThroughRefusal = actions.readThroughRefusal(of: figureId)
+        let importRefusal = Self.refusal(mayEdit: mayEdit, reach: reach, readThrough: readThroughRefusal)
         VStack(alignment: .leading, spacing: 6) {
+            // Refused for a piece's read-through: which piece, and its Resume.
+            if let readThroughRefusal {
+                Text(readThroughRefusal.because("this figure"))
+                    .font(.caption).foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                if let resume = readThroughRefusal.resumeOffer.resumeRequest {
+                    Button(ReadThroughLine.resumeTitle) { ReadThrough.post(resume) }
+                        .buttonStyle(.link)
+                        .help("Resume writing \u{201C}\(readThroughRefusal.title)\u{201D}")
+                }
+            }
             if offered.contains(.openInWindow) {
                 Button("Open in Window") { actions.openInWindow(row) }
             }
             if offered.contains(.sendToResearch) {
                 SwiftUI.Menu(FigureTableMenu.sendToResearchTitle) {
                     ForEach(actions.sendDestinations(for: row), id: \.self) { destination in
-                        Button(destination.title) { actions.sendToResearch(row, to: destination) }
+                        Button(actions.sendTitle(destination, for: row)) { actions.sendToResearch(row, to: destination) }
                     }
                 }
                 .fixedSize()
@@ -606,7 +627,7 @@ struct FigureInspector: View {
             if offered.contains(.importCSV) {
                 // Shown while no grid can take it, disabled, with the reason;
                 // a grid in another window: pressed, that window comes front.
-                Button(FigureTableCommand.importCSV.title) { actions.importFromCSV(figureId) }
+                Button(FigureTableCommand.importCSV.title(.piece)) { actions.importFromCSV(figureId) }
                     .disabled(reach == .none)
                 if let importRefusal {
                     Text(importRefusal).font(.caption).foregroundStyle(.secondary)
@@ -681,14 +702,16 @@ struct FigureInspector: View {
 
     /// Why Import and Refresh cannot act now, nil when they can: they write
     /// on the open grid's stack, as this Mac's edit.
-    static func refusal(mayEdit: Bool, hasGrid: Bool) -> String? {
-        refusal(mayEdit: mayEdit, reach: hasGrid ? .here : .none)
+    static func refusal(mayEdit: Bool, hasGrid: Bool, readThrough: ReadThroughRefusal?) -> String? {
+        refusal(mayEdit: mayEdit, reach: hasGrid ? .here : .none, readThrough: readThrough)
     }
 
     /// The same, where the grid may be open in another window: they act
-    /// through this window's grid only (final review M7).
-    static func refusal(mayEdit: Bool, reach: FigureActions.GridReach) -> String? {
-        guard mayEdit else { return "This figure is read-only here." }
+    /// through this window's grid only (final review M7). A figure refused
+    /// for a piece's read-through says which piece.
+    static func refusal(mayEdit: Bool, reach: FigureActions.GridReach,
+                        readThrough: ReadThroughRefusal?) -> String? {
+        guard mayEdit else { return readThrough?.because("this figure") ?? "This figure is read-only here." }
         switch reach {
         case .here: return nil
         case .none: return FigureActions.openTheTableFirst

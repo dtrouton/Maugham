@@ -1,16 +1,13 @@
 import SwiftUI
 import AppKit
+import MaughamCore
 
-/// **Denver's travel rule, 2026-08-12: a double-click on any tree row in Plan
-/// takes the writer to Author, on that row's subject.**
-///
-/// Plan's centre column is always the planning canvas (`Persona
-/// .centresTheCanvas`) — a chapter, a research note, a palette card double-
-/// clicked in the tree has nowhere to open *in* Plan, so the writer has to be
-/// taken to where it opens. Elsewhere the tree already sits beside the
-/// document it names (Author, Review, Publish all centre the editor), so the
-/// same double-click means nothing beyond the click a single click already
-/// gave it — no persona to travel TO.
+/// **A double-click on a tree row opens it in the centre** (shell p1 Task 3):
+/// `ClickRule.resolve(subject, gesture: .openInCentre, …)` and nothing else.
+/// No travel and no mode: the single click before it already did what a
+/// click does (a piece's faces, a note beside), and the second click takes the
+/// centre. The mark below is how a double-click is READ; what it does is the
+/// click rule's.
 ///
 /// **Two halves, one file** (the plan's own instruction): `treeTravelOnDoubleClick(_:)`
 /// MARKS a row's LABEL LEAF — never the row container — and
@@ -86,16 +83,7 @@ import AppKit
 /// knowable from the row itself. That is what `TreeTravelTargetView` carries.
 ///
 /// `TreeTravelModifier` is the receiver, mounted once on `ProjectWindow.body`.
-/// It writes `selectedSubject` directly and moves the persona through
-/// `PersonaModifier.applyPersonaChange` — the same call `ManuscriptNavigation
-/// .go` makes and for the same reason: a deliberate writer move records the
-/// departing position, so ⌘1 brings the writer back to the tree they were
-/// arranging. **Not through `ManuscriptNavigation` itself** — that rule reads
-/// "does the CURRENT persona already show a manuscript document", which is a
-/// different question from "is Plan the departure point", and answering the
-/// travel rule by routing it through a navigation meant for a different
-/// premise would leave Review's own guard (never eject a reviewer mid-
-/// adjudication) silently deciding a case it was never asked about.
+/// It writes the window's subject through the click rule's `.openInCentre`.
 ///
 /// **The set this closes.** "Any tree row" means every row that tags a
 /// `BinderSubject` in any of the three trees — `TreeTravelGestureAttachmentTests
@@ -108,24 +96,36 @@ import AppKit
 /// `BinderTreeSections.swift`), and the screenplay's own script row
 /// (`SceneNavigatorPane.scriptRow` — structurally a structure row in every way
 /// that matters, just named for what a screenplay's one document always is).
-/// Excluded on purpose: a slugline in `SceneNavigatorPane` needs nothing,
-/// because it already navigates Plan → Author on a single click through
-/// `ManuscriptNavigation` (`ManuscriptNavigationTests
-/// .test_onlyPlanIsMovedToAuthorAndTheOthersStayWhereTheyAre`) — giving it
-/// this gesture too would double the trip.
+/// Excluded on purpose: a slugline in `SceneNavigatorPane` is a place in the
+/// script, not a subject. Its own click posts `.maughamNavigateToScene`, a
+/// place, whose receiver opens the script whatever the centre was
+/// (`ManuscriptNavigation`).
 enum TreeTravel {
 
-    /// Where a double-click on a tree row takes the window, or `nil` when it
-    /// takes it nowhere.
-    ///
-    /// **`persona.centresTheCanvas`, not `== .plan`** — the same discriminator
-    /// `ManuscriptNavigation` uses and for the same reason
-    /// (`ManuscriptNavigationTests.test_theRuleIsAboutTheCentreColumn_notAboutAnyParticularPersona`):
-    /// the travel rule is about *"is there a persona to travel to"*, not about
-    /// which one is named Plan today.
-    static func treeTravelDestination(persona: Persona) -> Persona? {
-        guard persona.centresTheCanvas else { return nil }
-        return .author
+    /// What a double-click on the row naming `clicked` makes of the window's
+    /// subject: the click rule's `.openInCentre`, and nothing else.
+    static func openInCentre(_ clicked: BinderSubject, current: WindowSubject,
+                             structure: [StructureItem],
+                             projectType: ProjectType) -> WindowSubject {
+        ClickRule.resolve(clicked, gesture: .openInCentre, current: current,
+                          structure: structure, projectType: projectType)
+    }
+
+    /// **A single click on the table's ONE selected row** — the one click its
+    /// `List` writes nothing for, because the selection did not change. Heard
+    /// here so the click rule's own answer still lands (on the row opened
+    /// beside, it puts it away — controller ruling 2). Any other click is the
+    /// `List`'s to deliver (`BinderTreeSelection`), so this answers it with no
+    /// change: a row that was not selected, and a click inside a selection of
+    /// several rows, which the table collapses and so writes — one path per
+    /// click, whatever order the two arrive in.
+    static func clickOnTheSelectedRow(_ clicked: BinderSubject, rowWasSelected: Bool,
+                                      current: WindowSubject,
+                                      structure: [StructureItem],
+                                      projectType: ProjectType) -> WindowSubject {
+        guard rowWasSelected else { return current }
+        return ClickRule.resolve(clicked, gesture: .click, current: current,
+                                 structure: structure, projectType: projectType)
     }
 
     /// The subject of the tree label drawn under `pointInWindow`, or `nil`
@@ -146,14 +146,39 @@ enum TreeTravel {
     /// answering for a live click is exactly the id-vs-path confusion
     /// tripwire 22 is about.
     static func subject(at pointInWindow: NSPoint, in window: NSWindow) -> BinderSubject? {
+        target(at: pointInWindow, in: window)?.subject
+    }
+
+    /// The mark under `pointInWindow` — `subject(at:in:)`'s view.
+    static func target(at pointInWindow: NSPoint, in window: NSWindow) -> TreeTravelTargetView? {
         guard let root = window.contentView else { return nil }
-        var match: BinderSubject?
+        var match: TreeTravelTargetView?
         walkTargets(root) { view in
-            guard let subject = view.subject, view.window === window else { return }
+            guard view.subject != nil, view.window === window else { return }
             let frameInWindow = view.convert(view.bounds, to: nil)
-            if frameInWindow.contains(pointInWindow) { match = subject }
+            if frameInWindow.contains(pointInWindow) { match = view }
         }
         return match
+    }
+
+    /// Whether the view under `pointInWindow` sits inside an `NSTableView`.
+    static func isInATable(_ pointInWindow: NSPoint, in window: NSWindow) -> Bool {
+        var view = window.contentView?.superview?.hitTest(pointInWindow)
+        while let current = view {
+            if current is NSTableView { return true }
+            view = current.superview
+        }
+        return false
+    }
+
+    /// Whether the table row drawing `target` is the table's ONE selected row
+    /// right now — a click there changes no selection, so no `List` write.
+    static func rowIsSelected(holding target: NSView) -> Bool {
+        var view: NSView? = target.superview
+        while let current = view, !(current is NSTableView) { view = current.superview }
+        guard let table = view as? NSTableView else { return false }
+        let row = table.row(for: target)
+        return row >= 0 && table.numberOfSelectedRows == 1 && table.isRowSelected(row)
     }
 
     private static func walkTargets(_ view: NSView,
@@ -242,10 +267,8 @@ struct TreeTravelTarget: NSViewRepresentable {
 /// `.onAppear` the watcher captured `nil` and never learned better: measured
 /// `events=2 cc2=1 winMatch=0` — every double-click read, matched against a nil
 /// window, dropped. Worse, the shape that fixes THAT is still wrong at two
-/// windows: N watchers all match the same click and post N times, and
-/// `PersonaModifier.applyPersonaChange` is not idempotent — the second post
-/// records Author as the departing position, so ⌘1 stops bringing the writer
-/// back to the board. So the watcher takes the window from the EVENT
+/// windows: N watchers all match the same click and post N times, and a
+/// receiver that was not idempotent would act N times. So the watcher takes the window from the EVENT
 /// (`event.window`), which is always the right one because a click is what
 /// makes a window key in the first place, and there is exactly one of it.
 /// Window discrimination stays where ADR 0021 already put it: the post is
@@ -273,14 +296,25 @@ final class TreeTravelClickWatcher {
     }
 
     private func handle(_ event: NSEvent) {
-        guard event.clickCount == 2,
+        guard event.clickCount == 1 || event.clickCount == 2,
               let window = event.window,
-              let subject = TreeTravel.subject(at: event.locationInWindow, in: window)
+              // Only a click inside a table can be on a tree row: one hit test
+              // first, so a caret click or a canvas press walks nothing.
+              TreeTravel.isInATable(event.locationInWindow, in: window),
+              let target = TreeTravel.target(at: event.locationInWindow, in: window),
+              let subject = target.subject
         else { return }
+        // Read BEFORE the table handles the click: whether this row was the
+        // selected one is what tells a click the `List` will deliver from one
+        // it will not.
+        let wasSelected = TreeTravel.rowIsSelected(holding: target)
+        let count = event.clickCount
         // Off AppKit's tracking loop first — see this type's doc comment.
         Task { @MainActor in
             MaughamEvent.post(.maughamTreeTravel, to: .keyWindow,
-                              payload: [MaughamEvent.treeTravelSubjectKey: subject])
+                              payload: [MaughamEvent.treeTravelSubjectKey: subject,
+                                        MaughamEvent.treeTravelClickCountKey: count,
+                                        MaughamEvent.treeTravelRowWasSelectedKey: wasSelected])
         }
     }
 }
@@ -290,16 +324,20 @@ extension View {
     /// why the container is never the right place, and why this is a
     /// hit-test-transparent MARK rather than a gesture.
     ///
-    /// It names the row's own `subject`, unconditionally: the persona guard
-    /// lives on the RECEIVER (`TreeTravel.treeTravelDestination`), so a
-    /// double-click in Author is still read and still refused there — one
-    /// control point, not a second copy of the guard at every call site.
+    /// It names the row's own `subject`, unconditionally; what the
+    /// double-click does is the receiver's (`TreeTravelModifier`).
     ///
     /// **`.background`, never `.overlay`.** Both would work for a view that
     /// cannot be hit, and `.background` says the weaker thing: this mark is
     /// behind the writer's text and has no business in front of it.
+    ///
+    /// **The same mark draws the row's state** (`TreeRowStateMark`, shell p1
+    /// Task 3): every row that names a subject already carries it on its label
+    /// leaf, so the open row, the faces and what is beside are drawn on
+    /// exactly the rows that can be clicked.
     func treeTravelOnDoubleClick(_ subject: BinderSubject) -> some View {
         background(TreeTravelTarget(subject: subject))
+            .modifier(TreeRowStateMark(subject: subject))
     }
 }
 
@@ -311,10 +349,21 @@ extension View {
 /// failure mode `CanvasClaudeArrivalModifier`'s own doc comment warns about.
 struct TreeTravelModifier: ViewModifier {
     let window: NSWindow?
-    @Binding var persona: Persona
-    @Binding var detailSegment: DetailSegment
-    @Binding var selectedSubject: BinderSubject?
-    let documentStore: DocumentStore?
+    /// The window's subject; a double-click writes it through the click rule.
+    @Binding var subject: WindowSubject
+    /// The centre item's cover: opening the open piece's own row closes it.
+    @Binding var centreItem: CentreItem?
+    let store: ProjectStore?
+
+    /// **A double-click on the row of the piece already open closes the
+    /// centre item's cover** (controller ruling, shell plan 3 Task 5 fix 2):
+    /// the writer asked to see that piece, and `open` does not move, so
+    /// `centreItemAfterOpenChange` would leave the cover up. Any other open
+    /// moves `open` and clears it there. Pure.
+    static func closesTheCentreItem(_ clicked: BinderSubject, clickCount: Int,
+                                    current: WindowSubject) -> Bool {
+        clickCount >= 2 && clicked == current.open
+    }
 
     func body(content: Content) -> some View {
         content
@@ -324,22 +373,27 @@ struct TreeTravelModifier: ViewModifier {
             // window.
             .onAppear { TreeTravelClickWatcher.shared.start() }
             .onKeyWindowCommand(.maughamTreeTravel, window: window) { note in
-                guard let subject = note.userInfo?[MaughamEvent.treeTravelSubjectKey]
-                        as? BinderSubject,
-                      let destination = TreeTravel.treeTravelDestination(persona: persona)
-                else { return }
-                selectedSubject = subject
-                let change = PersonaModifier.applyPersonaChange(
-                    to: destination,
-                    from: persona,
-                    currentSegment: detailSegment,
-                    memory: documentStore?.uiState.personaMemory ?? .empty)
-                persona = change.persona
-                detailSegment = change.segment
-                documentStore?.updateUIState {
-                    $0.persona = change.persona
-                    $0.personaMemory = change.memory
+                guard let clicked = note.userInfo?[MaughamEvent.treeTravelSubjectKey]
+                        as? BinderSubject else { return }
+                let structure = store?.manifest.structure ?? []
+                let type = store?.manifest.type ?? .novel
+                let next: WindowSubject
+                let clicks = note.userInfo?[MaughamEvent.treeTravelClickCountKey] as? Int ?? 2
+                if centreItem != nil,
+                   Self.closesTheCentreItem(clicked, clickCount: clicks, current: subject) {
+                    centreItem = nil
                 }
+                if clicks >= 2 {
+                    next = TreeTravel.openInCentre(clicked, current: subject,
+                                                   structure: structure, projectType: type)
+                } else {
+                    next = TreeTravel.clickOnTheSelectedRow(
+                        clicked,
+                        rowWasSelected: note.userInfo?[MaughamEvent.treeTravelRowWasSelectedKey]
+                            as? Bool ?? false,
+                        current: subject, structure: structure, projectType: type)
+                }
+                if next != subject { subject = next }
             }
     }
 }

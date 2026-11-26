@@ -1,0 +1,325 @@
+import XCTest
+import AppKit
+import SwiftUI
+import MaughamCore
+@testable import Maugham
+
+/// **Can the writer make structure from the tree?**
+///
+/// The tree is the window's one left column. `BinderView` carries its root
+/// context menu, its per-row menu and its empty-state buttons **attached to
+/// the view rather than gated on what the window shows**, so mounting it ought
+/// to bring creation with it — the verification is the deliverable. `TreePaneTests` and
+/// `ProjectSubjectReachabilityTests` prove the right PANE is mounted, and
+/// "the pane is there" is not "the writer can make a chapter".
+///
+/// **Two halves, and no press** (#120, tripwire 33). The mounted half reads
+/// the accessibility tree — SwiftUI on macOS 26 backs a `Button` with no
+/// `NSView`, so a subview walk finds nothing (`IntentStripTests`)
+/// — and asserts the empty state's buttons are DRAWN, which doubles as proof
+/// VoiceOver can reach them. The windowless half runs the verb those buttons
+/// run, `BinderView.addItem(parent:kind:in:)`, against the same empty project
+/// and reads the manifest. The button-to-verb hop is `WiringCensusTests`'
+/// `type:BinderView` entry. (The pressed version polled the manifest after an
+/// `accessibilityPerformPress` from inside its own `press` helper.) The two
+/// `.contextMenu`s are the same `addItem` call one level down and are not
+/// reachable from here (an `NSMenu` is built on right-click, not published
+/// into the tree), which is recorded rather than asserted.
+///
+/// **A screenplay has no structure creation here and must not gain one** — a
+/// screenplay is one `.fountain` (the Phase 3d invariant) and its structure is
+/// sluglines, typed in the editor.
+/// `SceneNavigatorPane`'s empty state already points at the script row for
+/// exactly this reason. That is asserted below rather than left to prose.
+@MainActor
+final class TreeStructureCreationTests: XCTestCase {
+
+    private var temp: TempDirectory!
+    private var windows: [NSWindow] = []
+    /// The window's door, held here because `ProjectStore.documentStore` is
+    /// weak. Every production window adopts one before its tree is drawn, and
+    /// since the P3c whole-branch fix wave (Minor 2) a tree with NO door
+    /// behind it offers nothing — so the probe, like the window, has one.
+    private var doors: [DocumentStore] = []
+
+    override func setUp() async throws {
+        temp = TempDirectory()
+    }
+
+    override func tearDown() async throws {
+        for window in windows { window.contentView = NSView(frame: .zero) }
+        pump(0.05)
+        windows.removeAll()
+        doors.removeAll()
+        temp.cleanup()
+        temp = nil
+    }
+
+    // MARK: - The novel and the short story
+
+    /// The whole round trip: an empty binder,
+    /// **New Document** drawn there, and its verb leaving a document in the
+    /// manifest that was not there before.
+    func test_aChapterCanBeMadeFromTheTree() async throws {
+        for type in [ProjectType.novel, .shortStory] {
+            let store = try await emptyProject(of: type)
+            XCTAssertTrue(store.manifest.structure.isEmpty, "\(type): fixture")
+
+            let window = host(store: store)
+            try assertButtonDrawn(BinderView.newPieceTitle(PieceNoun.of(nil, in: store.manifest)),
+                                  in: window, "\(type)")
+            try await startAPiece(.document(store.manifest.type.primaryFormat), in: store)
+
+            XCTAssertEqual(store.manifest.structure.count, 1,
+                           "\(type): New Document's verb, drawn in the tree, must "
+                           + "add a document")
+            XCTAssertEqual(store.manifest.structure.first?.type, .document)
+        }
+    }
+
+    /// And a group, because the two buttons are two different `addItem` kinds
+    /// and a pane that could only make documents would still pass the test
+    /// above.
+    func test_aGroupCanBeMadeFromTheTree() async throws {
+        let store = try await emptyProject(of: .novel)
+        let window = host(store: store)
+        try assertButtonDrawn("New Part", in: window, "novel")
+        try await startAPiece(.group, in: store)
+
+        XCTAssertEqual(store.manifest.structure.first?.type, .group)
+    }
+
+    // MARK: - The Collection
+
+    /// A Collection's tree is `CollectionPiecesPane`, whose `+` menu is attached
+    /// to its header the same way — so it comes with the pane.
+    ///
+    /// **Its items are asserted differently and deliberately.** The `+` is a
+    /// SwiftUI `Menu`; its three `Button`s do not exist until the menu is opened,
+    /// and its items post key-window events that `ProjectWindow` handles rather
+    /// than calling the store. So what is asserted here is that the control
+    /// itself reaches the tree — the piece-creation actions behind it are
+    /// `CollectionPieceModifier`'s and are tested there.
+    func test_theCollectionsAddControlReachesTheTree() async throws {
+        let store = try await emptyProject(of: .collection)
+        let window = host(store: store)
+
+        let found = try axDescriptors(in: window)
+        XCTAssertTrue(found.contains("Add a piece"),
+                      "the Pieces pane's + control did not reach the tree. "
+                      + "Found: \(found)")
+    }
+
+    // MARK: - The screenplay refuses, and that is the design
+
+    /// **The stop, asserted.** No creation affordance in a screenplay's tree:
+    /// one `.fountain` per screenplay is the Phase 3d invariant, and its
+    /// structure is sluglines typed into the editor. A future slice that adds a
+    /// "New Scene" button here has to delete this test, which is the point.
+    func test_aScreenplaysTreeOffersNoStructureCreationAndMustNotGainOne() async throws {
+        let store = try await emptyProject(of: .screenplay)
+        let window = host(store: store)
+
+        let found = try axDescriptors(in: window)
+        // The control: an empty tree would make every refusal below vacuous.
+        // The same walk finds "New Document" in a novel's tree one test up.
+        XCTAssertFalse(found.isEmpty,
+                       "the screenplay's tree published nothing at all, so this "
+                       + "test could not have failed for its own reason")
+        for creation in ["New Document", "New Group", "New Script", "New Scene", "Add a piece"] {
+            XCTAssertFalse(found.contains(creation),
+                           "a screenplay's tree published \u{201C}\(creation)\u{201D}. "
+                           + "A screenplay is ONE .fountain and its structure is "
+                           + "sluglines typed in the editor — see "
+                           + "SceneNavigatorPane's empty state, which points at "
+                           + "the script row for exactly this reason. Found: "
+                           + "\(found)")
+        }
+    }
+
+    // MARK: - One production caller
+
+    /// `addStructureItem` has exactly one production call site and must keep
+    /// having one — the binder's `addItem`, which every affordance above funnels
+    /// through. A second caller is a second set of defaults for a new chapter's
+    /// title, filename and parent.
+    func test_addStructureItemStillHasOneProductionCaller() throws {
+        let root = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("Maugham", isDirectory: true)
+        var callers: [String] = []
+        let files = FileManager.default.enumerator(
+            at: root, includingPropertiesForKeys: nil)?
+            .compactMap { $0 as? URL }
+            .filter { $0.pathExtension == "swift" } ?? []
+        for file in files {
+            guard let text = try? String(contentsOf: file, encoding: .utf8) else { continue }
+            // The declaration itself is in ProjectStore; callers say `.addStructureItem(`.
+            for line in text.split(separator: "\n")
+            where line.contains(".addStructureItem(")
+                && !line.trimmingCharacters(in: .whitespaces).hasPrefix("//") {
+                callers.append("\(file.lastPathComponent): \(line.trimmingCharacters(in: .whitespaces))")
+            }
+        }
+        // `TestDocumentTools.swift` is the dev-only `test_add_document` MCP tool
+        // (`#if MAUGHAM_DEV_BUILD`, absent from the stable binary): a scripted
+        // multi-Mac smoke reaching the binder's own verb, not a second door.
+        //
+        // Allowed by FILE AND SPELLING — the exact call line — so a second
+        // call in either file — even one spelled identically — is a new caller
+        // and fails here (review M3). Compared as a list, not a set, so a
+        // duplicate of an allowed line counts.
+        let allowed = [
+            "BinderView.swift: let item = try await store.addStructureItem(",
+            "TestDocumentTools.swift: let item = try await entry.store.addStructureItem(",
+        ]
+        XCTAssertEqual(callers.sorted(), allowed.sorted(),
+                       "structure creation grew a second production caller: \(callers)")
+        XCTAssertFalse(callers.isEmpty,
+                       "the control: no caller found at all means this scan is "
+                       + "reading nothing and asserts nothing")
+    }
+
+    // MARK: - Fixtures
+
+    /// A project of `type` with **no structure at all** — the state the empty
+    /// state is drawn for, reached by deleting whatever the factory seeds rather
+    /// than by hand-building a manifest.
+    private func emptyProject(of type: ProjectType) async throws -> ProjectStore {
+        let name = "\(type.rawValue)-\(UUID().uuidString.prefix(6))"
+        let url: URL
+        switch type {
+        case .shortStory:
+            url = try await ProjectFactory.createShortStoryProject(named: name, in: temp.url)
+        case .novel:
+            url = try await ProjectFactory.createNovelProject(named: name, in: temp.url)
+        case .screenplay:
+            url = try await ProjectFactory.createScreenplayProject(named: name, in: temp.url)
+        case .collection:
+            url = try await ProjectFactory.createCollectionProject(named: name, in: temp.url)
+        case .unknown:
+            throw XCTSkip("`.unknown` is excluded from allCases and cannot be created")
+        }
+        let store = try await ProjectStore.load(from: url)
+        await store.wordCountPopulationTask?.value
+        for item in store.manifest.structure {
+            try? await store.deleteStructureItem(id: item.id)
+        }
+        let door = try await DocumentStore.open(url: url)
+        store.documentStore = door
+        door.projectStore = store
+        doors.append(door)
+        return store
+    }
+
+    // MARK: - Hosting and pressing
+
+    private func host(store: ProjectStore) -> NSWindow {
+        let window = TestWindow.mount(
+            AnyView(StructureCreationProbeView(store: store)),
+            size: CGSize(width: 320, height: 600))
+        windows.append(window)
+        pump(0.25)
+        return window
+    }
+
+    private func axAttribute(_ element: AnyObject, _ attribute: String) -> Any? {
+        guard let object = element as? NSObject,
+              object.responds(to: NSSelectorFromString(attribute)) else { return nil }
+        return object.value(forKey: attribute)
+    }
+
+    private func axElements(under root: AnyObject, depth: Int = 0) -> [AnyObject] {
+        guard depth < 40 else { return [] }
+        let children = axAttribute(root, "accessibilityChildren") as? [AnyObject] ?? []
+        return [root] + children.flatMap { axElements(under: $0, depth: depth + 1) }
+    }
+
+    /// The tree an assistive client walks, or a skip naming why there is none —
+    /// a tree that was never built is not evidence about this view.
+    private func axTree(in window: NSWindow) throws -> [AnyObject] {
+        var role: CFTypeRef?
+        let error = AXUIElementCopyAttributeValue(
+            AXUIElementCreateApplication(getpid()), kAXRoleAttribute as CFString, &role)
+        guard error == .success, role != nil else {
+            throw XCTSkip(
+                "no assistive client could be attached to this process "
+                + "(AXUIElementCopyAttributeValue -> \(error.rawValue)), so "
+                + "SwiftUI never builds the tree this test presses through")
+        }
+        return axElements(under: try XCTUnwrap(window.contentView))
+    }
+
+    /// Every piece of text the hosted column publishes about its controls —
+    /// **label AND help**, whatever the element's role.
+    ///
+    /// Both, because the two creation surfaces name themselves differently and a
+    /// labels-only walk finds one and misses the other: `BinderView`'s
+    /// empty-state buttons carry `Label(…)`, which becomes an
+    /// `accessibilityLabel`, while `CollectionPiecesPane`'s `+` is an
+    /// `Image(systemName:)` with `.help("Add a piece")` — measured 2026-08-02 to
+    /// publish an EMPTY label and the help string instead. A test written
+    /// against labels alone reports a Collection has no creation affordance at
+    /// all, which is how a false stop gets recorded as a finding.
+    private func axDescriptors(in window: NSWindow) throws -> [String] {
+        try axTree(in: window).flatMap { element -> [String] in
+            [axAttribute(element, "accessibilityLabel") as? String,
+             axAttribute(element, "accessibilityHelp") as? String]
+                .compactMap { $0 }
+                .filter { !$0.isEmpty }
+        }
+    }
+
+    /// The control is drawn as a BUTTON in the hosted column — the same
+    /// accessibility walk the pressed version found it by, with nothing pressed.
+    private func assertButtonDrawn(_ label: String, in window: NSWindow,
+                                   _ context: String) throws {
+        let buttons = try axTree(in: window)
+            .filter { (axAttribute($0, "accessibilityRole") as? String) == "AXButton" }
+        let labels = buttons.map { axAttribute($0, "accessibilityLabel") as? String ?? "nil" }
+        XCTAssertTrue(labels.contains(label),
+                      "\(context): no button labelled \u{201C}\(label)\u{201D} reached the "
+                      + "hosted column. Buttons found: \(labels)")
+    }
+
+    /// What the empty state's button runs, at the root — the binder's own
+    /// verb, awaited rather than pressed and polled.
+    @discardableResult
+    private func startAPiece(_ kind: StructureItemKind,
+                             in store: ProjectStore) async throws -> StructureItem {
+        try await BinderView.addItem(parent: nil, kind: kind, in: store)
+    }
+
+}
+
+/// The left column as `ProjectWindow.binderColumn` builds it — same shell rule.
+@MainActor
+private struct StructureCreationProbeView: View {
+    let store: ProjectStore
+    @State private var subject: BinderSubject?
+    @State private var renamingItemId: String?
+    @State private var treeFindActive = false
+    let treeState = BinderTreeSectionsState()
+
+    var body: some View {
+        Group {
+            switch ProjectWindow.BinderShell.shell(for: store.manifest.type) {
+            case .standard:
+                BinderPaneToggle(
+                    store: store,
+                    subject: .tree($subject),
+                    projectType: store.manifest.type,
+                    lastParsedScript: nil,
+                    treeState: treeState,
+                    treeFindActive: $treeFindActive)
+            case .collection:
+                CollectionBinderPaneToggle(
+                    store: store,
+                    subject: .tree($subject),
+                    treeFindActive: $treeFindActive,
+                    renamingItemId: $renamingItemId,
+                    treeState: treeState)
+            }
+        }
+    }
+}

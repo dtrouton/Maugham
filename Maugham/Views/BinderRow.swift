@@ -36,6 +36,16 @@ struct BinderRow: View {
     ///
     /// Returns whether the drop was accepted — see `onDrop`.
     let onExternalDrop: (_ providers: [NSItemProvider], _ position: DropIntent.Position) -> Bool
+
+    /// **What this row shows while a drag is over it** (shell p4 Task 10):
+    /// its caller's answers at each drop position, decided by the same rules
+    /// its drop performs (`BinderTreeVerbs.dropAnswers(on:)`).
+    var dropAnswers: () -> TreeDropAnswers = { .none }
+    @State private var internalDropTargeted = false
+    @State private var externalDropTargeted = false
+    /// The row's REAL height — what a drop's location is read against
+    /// (`DropIntent.Position.of`), never an assumed 22 pt.
+    @State private var rowHeight: CGFloat = 22
     /// **The figures this piece's text uses** ("2 tables, 1 figure"; report
     /// plan 8a Task 4, D8-1), nil at none — `BinderTreeSectionsState
     /// .figureCountText`. Pressing it filters the Figures section to this
@@ -44,6 +54,10 @@ struct BinderRow: View {
     var figureCount: String? = nil
     var onShowFigures: () -> Void = {}
 
+    /// Which rows have something to resolve (`ResolvePresence`).
+    @Environment(\.resolvePresence) private var presence
+    /// Which pieces are in read-through (`BinderTreeSectionsState.readThrough`).
+    @Environment(\.readThroughPieces) private var readThroughPieces
     @State private var draftTitle: String = ""
     @FocusState private var isRenameFieldFocused: Bool
 
@@ -95,8 +109,14 @@ struct BinderRow: View {
                 if let figureCount {
                     FigureCountButton(text: figureCount, action: onShowFigures)
                 }
+                // The read-through lock: a set lookup (tripwire 4), before
+                // the presence dot, which keeps the trailing edge.
+                ReadThroughMark(isOn: readThroughPieces.contains(item.id))
+                // Trailing, so no title moves; a Part's comes from `marks`.
+                ResolvePresenceMark(ResolvePresence.rowMark(.item(item.id), in: presence))
             }
             .contentShape(Rectangle())
+            .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { rowHeight = $0 }
             .draggable(item.id) {
                 Text(item.title)
                     .padding(6)
@@ -104,28 +124,23 @@ struct BinderRow: View {
             }
             .dropDestination(for: String.self) { ids, location -> Bool in
                 guard let droppedId = ids.first else { return false }
-                let rowHeight: CGFloat = 22
-                let position: DropIntent.Position
-                if location.y < rowHeight / 3 { position = .top }
-                else if location.y > (rowHeight * 2 / 3) { position = .bottom }
-                else { position = .middle }
+                let position = DropIntent.Position.of(y: location.y, height: rowHeight)
                 // The caller's answer, never a literal — see `onDrop`.
                 return onDrop(droppedId, position)
-            }
+            } isTargeted: { internalDropTargeted = $0 }
             // **After the string destination, always.** AppKit offers a drag to
             // the innermost drop modifier only; a List row's drops are dispatched
             // by the table, where this order works, as measured on the binder's
             // rows (#109). `TripwireGrepTests` censuses the order.
-            .onDrop(of: [.fileURL, .image], isTargeted: nil) { providers, location in
+            .onDrop(of: [.fileURL, .image], isTargeted: $externalDropTargeted) { providers, location in
                 guard !providers.isEmpty else { return false }
-                let rowHeight: CGFloat = 22
-                let position: DropIntent.Position
-                if location.y < rowHeight / 3 { position = .top }
-                else if location.y > (rowHeight * 2 / 3) { position = .bottom }
-                else { position = .middle }
+                let position = DropIntent.Position.of(y: location.y, height: rowHeight)
                 // The caller's answer, never a literal — see `onDrop`.
                 return onExternalDrop(providers, position)
             }
+            // Its feedback, asked once as a drag arrives (`TreeDropHover`).
+            .treeDropHover(internalTargeted: internalDropTargeted,
+                           externalTargeted: externalDropTargeted, answers: dropAnswers)
         }
     }
 

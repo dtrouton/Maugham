@@ -214,15 +214,11 @@ final class ProjectAnnotationAggregationTests: XCTestCase {
         let onFigure = snapshot.annotations.filter { $0.docId == figureId }
         XCTAssertEqual(onFigure.map(\.annotation.body), ["check this total"])
 
-        let sections = AnnotationScopeSections.build(
-            rows: ReviewBoardRows.derive(structure: store.manifest.structure),
-            annotations: snapshot.annotations, sequences: snapshot.sequences,
-            figures: store.manifest.figures ?? [])
-        XCTAssertEqual(Array(sections.suffix(2).map(\.title)), ["Figures", "Table: cashflow"],
-                       "filed last, under the registry's name")
-        XCTAssertEqual(sections.last?.id, figureId)
+        // Where the note is filed in the Book's list is To resolve's grouping
+        // (`ResolveGroupingTests`); the Annotations pane's sections went with
+        // it (shell plan 2 Task 7).
         XCTAssertEqual(
-            AnnotationScopePolicy.click(rowDocId: figureId, activeDocId: "doc-c1",
+            FigureNoteClick.click(rowDocId: figureId, activeDocId: "doc-c1",
                                         drawsFigure: { $0 == figureId }),
             .travel(.figure(figureId)),
             "a figure's note travels to the figure")

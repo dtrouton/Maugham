@@ -54,7 +54,7 @@ import AppKit
 /// - An "Edit Scrap" gesture spans as many events as the writer types
 ///   keystrokes, so a group opened at `beginGesture` is a bracket held open
 ///   across events — stranded half-open by anything that tears the surface down
-///   mid-visit, a persona switch above all. (Under `groupsByEvent`, which the
+///   mid-visit, a subject change above all. (Under `groupsByEvent`, which the
 ///   canvas turns OFF, it could not span them at all.)
 ///
 /// So `beginGesture` takes a snapshot, and `endGesture` opens/registers/names/
@@ -129,7 +129,7 @@ final class CanvasUndo {
     /// Rename the gesture already open, for the case where what the writer did
     /// is only knowable at the END of it.
     ///
-    /// **One caller, and it is the sweep** (persona-shell §4.1). A press opens
+    /// **One caller, and it is the sweep** (the shell spec's §4.1). A press opens
     /// the bracket the moment `begin` picks a mode, and at that instant a sweep
     /// is a sweep; whether it will mint a region or bind the ones it passes over
     /// depends on where the pointer eventually goes and on what the tree names.

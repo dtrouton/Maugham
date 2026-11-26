@@ -835,6 +835,10 @@ public enum RegistryReader {
             entries = try FileManager.default.contentsOfDirectory(
                 at: dir, includingPropertiesForKeys: [.isDirectoryKey], options: [])
         } catch {
+            // Gone between the existence check and the listing: absent, as it
+            // would have been a moment later — not a directory that exists
+            // and cannot be read.
+            if isAbsent(error) { return [] }
             throw OpLogStore.ReadError.unreadableFile(
                 name: dir.lastPathComponent, underlying: error.localizedDescription,
                 kind: .registry)
@@ -846,6 +850,23 @@ public enum RegistryReader {
                 (try? $0.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) != true
             }
             .sorted { $0.lastPathComponent < $1.lastPathComponent }
+    }
+
+    /// Whether a listing failed because the directory is not there (Cocoa's
+    /// no-such-file, or POSIX `ENOENT` under it) — and for no other reason: a
+    /// permission failure or a path that is a file still throws (RULING-54).
+    nonisolated static func isAbsent(_ error: Error) -> Bool {
+        let ns = error as NSError
+        if ns.domain == NSCocoaErrorDomain,
+           ns.code == NSFileReadNoSuchFileError || ns.code == NSFileNoSuchFileError {
+            return true
+        }
+        if ns.domain == NSPOSIXErrorDomain, ns.code == Int(ENOENT) { return true }
+        if let underlying = ns.userInfo[NSUnderlyingErrorKey] as? NSError,
+           underlying.domain == NSPOSIXErrorDomain, underlying.code == Int(ENOENT) {
+            return true
+        }
+        return false
     }
 
     /// The coordinated read of one record's exact bytes. A present-but-

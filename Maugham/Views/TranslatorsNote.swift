@@ -20,7 +20,7 @@ import MaughamCore
 /// holds INTENT readings, and nothing derives a world from an edition brief.
 ///
 /// **Isolation is per-member, not on the type.** `commit` and `target` touch
-/// `ProjectStore`/`Document`/`DiagnosticsPane` and are `@MainActor`; the two
+/// `ProjectStore`/`Document`/the Diagnostics pane and are `@MainActor`; the two
 /// pure statics and the two value types are not, because
 /// `ProjectActiveSheet`'s synthesized `Hashable` is nonisolated and has to
 /// hash a `Target`.
@@ -73,7 +73,8 @@ enum TranslatorsNote {
             if case .editionBrief(let l) = $0.kind { return l.lowercased() }
             return nil
         }
-        return EditionStatus.editionLanguages(files: files, queries: [], roles: roles + briefs)
+        return EditionStatus.editionLanguages(files: files, queries: [], roles: roles + briefs,
+                                              removed: manifest.removedEditions)
     }
 
     /// **The homes a sheet about `target` offers** — every edition, then each
@@ -99,7 +100,7 @@ enum TranslatorsNote {
             .trimmingCharacters(in: .whitespacesAndNewlines)
         return Target(
             docId: docId, paragraphId: paragraphId,
-            excerpt: DiagnosticsPane.truncatedDriftQuote(text),
+            excerpt: CheckNarrative.truncatedDriftQuote(text),
             editions: editions(manifest: manifest, docId: docId, projectURL: projectURL))
     }
 
@@ -227,7 +228,7 @@ enum TranslatorsNoteCopy {
 
     static func thisEditionOnly(_ language: String) -> String {
         "This edition only: "
-            + TranslationReviewIndicator.displayLabel(forLanguageTag: language)
+            + LanguageName.labelled(language)
     }
 
     /// Both possible destinations, before the click.
@@ -238,7 +239,7 @@ enum TranslatorsNoteCopy {
                 + "craft intent, briefed to every translator, reader and collator."
         case .edition(let language):
             return "This becomes a dated ruling on this paragraph in the "
-                + TranslationReviewIndicator.displayLabel(forLanguageTag: language)
+                + LanguageName.labelled(language)
                 + " edition brief, briefed to that edition\u{2019}s people only."
         }
     }

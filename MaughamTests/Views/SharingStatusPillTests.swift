@@ -75,7 +75,7 @@ final class SharingStatusPillTests: XCTestCase {
     /// and a read-write share over an author posture does not.
     func test_aReadOnlyShareLocksAndAReadWriteShareDoesNot() {
         let readOnly = EditorControlMirror.membrane(
-            posture: Posture(.unrestricted), manualReview: false,
+            posture: Posture(.unrestricted),
             shareIsReadOnly: ProjectWindow.shareIsReadOnly(share(canWrite: false)))
         XCTAssertTrue(readOnly.lockEditing,
                       "a read-only share locks the editor on a book with no registry")
@@ -83,12 +83,12 @@ final class SharingStatusPillTests: XCTestCase {
                        "and claims no role: it is not the reviewer's review render")
 
         let readWrite = EditorControlMirror.membrane(
-            posture: Posture(.unrestricted), manualReview: false,
+            posture: Posture(.unrestricted),
             shareIsReadOnly: ProjectWindow.shareIsReadOnly(share(canWrite: true)))
         XCTAssertFalse(readWrite.lockEditing,
                        "a read-write share over an author posture does not lock")
         XCTAssertEqual(readWrite, EditorControlMirror.membrane(
-            posture: Posture(.unrestricted), manualReview: false,
+            posture: Posture(.unrestricted),
             shareIsReadOnly: ProjectWindow.shareIsReadOnly(nil)),
             "a read-write participant edits exactly as the unshared writer does — the share is not a role")
     }

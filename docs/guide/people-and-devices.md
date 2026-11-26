@@ -3,8 +3,8 @@
 Maugham marks the history it writes. Every stretch of changes your Mac appends
 carries a mark made by a key that lives in this machine's secure hardware and
 never leaves it, so a change made by your Mac can be told apart from one made by
-something else. That was true before this page existed. What's new is that a book now
-knows **who else** may write in it, and you are the one who says so.
+something else. A book also knows **who else** may write in it, and you are
+the one who says so.
 
 Open **Project Settings** and look for **People & Devices**. It is the whole of
 this feature: one list, and a small number of verbs.
@@ -12,8 +12,8 @@ this feature: one list, and a small number of verbs.
 ## The short version
 
 - Your first Mac writes itself into the book, quietly, the first time you open
-  it. You do nothing. It calls you by the name on your macOS account — *Denver*,
-  not *Denver's MacBook Air* — with the machine named on its own row just
+  it. You do nothing. It calls you by the name on your macOS account — *Alex*,
+  not *Alex's MacBook Air* — with the machine named on its own row just
   beneath, so the list can tell you apart from your laptop. **Rename…** changes
   it if the account name isn't what you'd call yourself here.
 - Your other devices — your iPhone, a second Mac — are usually **recognised**:
@@ -52,7 +52,7 @@ admitting is the book's owner's act, and asking somebody who cannot answer
 would only be noise.
 
 You type a name. **The name is yours, not the machine's** — it's how you'd refer
-to whoever is at that keyboard, which is usually just "Denver" or "me". The
+to whoever is at that keyboard, which is usually just "Alex" or "me". The
 panel proposes the machine's own name to start with, and you can keep it.
 
 The **code** is four characters. It is there so you can check you are admitting
@@ -88,7 +88,7 @@ be you, and Maugham then treats them as one person rather than two.
 
 You can press **Not now**. Nothing is written, nothing is lost, and Maugham
 won't raise the panel again until you next open the project. You can always ask
-for it deliberately: the History pane's waiting line has an **Admit…** button,
+for it deliberately: History's waiting line (⌃⌘H) has an **Admit…** button,
 and so does the Inbox banner, and so does People & Devices itself.
 
 ## Recognised devices
@@ -96,7 +96,7 @@ and so does the Inbox banner, and so does People & Devices itself.
 Most of the time you should never see the panel for a device of your own.
 Maugham keeps a key for **you**, the person, in iCloud Keychain, so every device
 signed into your Apple ID holds the same one. Each device uses it to sign a
-line in the book saying *this device belongs to Denver*, and the Mac that holds
+line in the book saying *this device belongs to Alex*, and the Mac that holds
 the book checks that line and lets the device in as you, with no panel. It
 writes the whole book, as you do.
 
@@ -116,7 +116,7 @@ For that to happen:
 
 A recognised iPhone also gets a proper name. iOS usually tells an app nothing
 more than "iPhone", so where that is all it says, Maugham calls it
-*Denver's iPhone*, using the first name on the key. A name you gave the phone
+*Alex's iPhone*, using the first name on the key. A name you gave the phone
 yourself is never replaced.
 
 **A collaborator's other devices** join the same way. The first time Sam's
@@ -143,7 +143,7 @@ Devices, in each book where that Mac carried the old key, says *This Mac now
 belongs to a different person key, so your other Macs will ask about it
 again.* until you press Dismiss or close the book.
 
-Each recognised arrival is a dated entry in History: *Denver's iPhone joined as
+Each recognised arrival is a dated entry in History: *Alex's iPhone joined as
 you — recognised by your Apple ID.*, or *Sam's iPad joined as Sam — recognised
 by their Apple ID.*
 
@@ -158,12 +158,16 @@ the row beneath it.
 listed under ONE person row — so your Mac and your iPhone, admitted as you, are
 you twice over only in the files, never on the screen. The match is the exact
 name the book gave them (the panel's *this machine is also that person* always
-writes the existing spelling). What the person may write, and **Change…**, sit
+writes the existing spelling).
+
+What the person may write, and **Change…**, sit
 on the person, because a change of permission reaches every machine under that
 name at once. **Rename…**, **Revoke**, **Re-admit** and **Retire** each act on
 ONE machine, so inside such a group they sit on that machine's row — and Rename
 there moves that one machine out from under the name, which the button's help
-says. If the machines under one name don't all hold the same permission (a book
+says.
+
+If the machines under one name don't all hold the same permission (a book
 set up before permissions were changed name-wide can have this), the person row
 says so and each machine's row says its own. Where the Mac the book was started
 on is one of them, there is no Change… at all: that Mac writes the whole of the
@@ -179,14 +183,14 @@ description of it has reached the book yet — and that a current Maugham adds o
 by the next time that device writes in the book. It doesn't guess whether it is a Mac or an
 iPhone.
 
-A person with a single machine is drawn exactly as before: every verb on the
+A person with a single machine is drawn as one row: every verb is on the
 person row.
 
 Every person carries **Rename…**, and so do you — on the person row for a
 person with one machine, and on each machine's row inside a group. The name in this
-book is your word for whoever is at that keyboard, and until now you could only
-choose it once — at the panel, or, for the Mac that started the book, by
-whatever that machine happened to be called. Renaming changes the name and
+book is your word for whoever is at that keyboard, first chosen at the panel
+(or, for the Mac that started the book, taken from that machine's name).
+Renaming changes the name and
 nothing else: it lets nobody in, shuts nobody out, and leaves untouched when
 they were admitted and what they wrote. Every machine on the book sees the new
 name. You can rename anybody this Mac admitted, and yourself; somebody another
@@ -203,7 +207,7 @@ Key**. Use it if that Apple ID may be in somebody else's hands. After it, each
 new device signed into that Apple ID gets the panel again, one at a time, and
 the devices already let in stay exactly as they are. **Forgetting lasts**: this
 book won't link that Apple ID to anybody again, and History records the day
-you did it (*Sam's Apple ID key was forgotten by Denver.*). If
+you did it (*Sam's Apple ID key was forgotten by Alex.*). If
 Forget can't finish (a record it has to change can't be written, for
 instance), it says which devices it cleared and which it didn't, and pressing
 it again finishes the rest. On any other Mac the button isn't there at all.
@@ -212,7 +216,7 @@ Beneath the people you may also see:
 
 - **Older history from before this book signed its lines** — one quiet row,
   with a disclosure listing what it holds in plain words: a Mac under the name
-  it had then, edits made through MCP, the task rebalance, what a phone wrote
+  it had then, edits made through MCP, the reordering of to-dos, what a phone wrote
   before it signed its lines, and the book's oldest history from before each
   device kept its own. This is almost always your own earlier work. In a book
   where everybody writes the whole of it, the row says nothing already in it
@@ -377,7 +381,7 @@ later from **People & Devices** → **Change…**:
   may not change a word of the manuscript.
 - **Author of some pieces.** Pick the chapters. They write those as fully as you
   do, and everything else in the book is a reviewer's to them.
-- **Author of the whole book.** What every admission meant before this existed.
+- **Author of the whole book.** They write everything, as you do.
 
 **A change never reaches backwards.** Make somebody a reviewer today and every
 chapter they wrote yesterday stays exactly where it is. Widen their access
@@ -393,12 +397,16 @@ from a laptop and a phone, one change covers both.
 the whole book, Maugham starts judging what it reads — and a machine nothing in
 the book signs for yet has nothing to judge by. Usually that is a machine that
 signs nothing it writes (an old Intel Mac, a virtual machine); sometimes it is
-a new Mac whose first signed change simply hasn't synced yet. What such a
+a new Mac whose first signed change simply hasn't synced yet.
+
+What such a
 machine has ALREADY written stays in your draft, exactly as it is. What it
 writes from then on waits: a Mac whose first signed change arrives is judged
 the moment it does, and a Mac that signs nothing has its paragraphs brought
 back through the Inbox rather than arriving on their own. Only its paragraphs:
-a note it leaves, or a note it settles, stays held with no way back. The panel says so
+a note it leaves, or a note it settles, stays held with no way back.
+
+The panel says so
 before you press anything, and People & Devices lists any such machine the
 book is holding. History from before the book signed its lines — your own
 older work, written under names no current Maugham uses — is not such a
@@ -414,20 +422,24 @@ the book would refuse.
 
 On a **reviewer's** Mac the manuscript is readable, selectable and copyable,
 and simply doesn't take typing. A line above the text says why — *You're
-reviewing this book — your notes reach Denver; the text is theirs.* Notes,
+reviewing this book — your notes reach Alex; the text is theirs.*
+
+Notes,
 comments, suggestions and questions work as they do for you. What isn't drawn:
 Accept, Reject, Stet and the other ways of settling a note; setting a review
 pass's state; Run for a review round (a check still runs — it only leaves
 notes); editing an intent or any other statement; new documents, renaming,
-moving and deleting in the tree; tasks; translating; History's **Rewind to
+moving and deleting in the binder; to-dos; translating; History's **Rewind to
 before this…**, the rewind window's **Restore here…** and **Snapshot here…**,
 and a checkpoint's **Revert here…** (History itself is all there to read); and
 Find in Project's **Replace** and **Replace All** for chapters that aren't
-yours (a research note's matches still replace). **⌘S** still flashes,
+yours (a research note's matches still replace).
+
+**⌘S** still flashes,
 because your fingers expect it, but makes no checkpoint — a checkpoint of text
 you can't change would mark nothing of yours (your backups still run) — and **⇧⌘S** says so instead of
-asking for a label (your backups still run then too). In a collection, the File menu's **New Prose Story**,
-**New Screenplay** and **Link Existing Project…** are greyed (they add a
+asking for a label (your backups still run then too). In a collection, the File menu's **New Prose Piece**,
+**New Script** and **Link Existing Project…** are greyed (they add a
 collection's pieces, so no other kind of book greys them).
 
 An **author of some pieces** has all of that in their own chapters. Everywhere
@@ -459,7 +471,7 @@ the same book, or the next time you open it, asks again.
 
 What this is not:
 
-- **It doesn't lock the book's structure.** Keeping somebody out of the tree's
+- **It doesn't lock the book's structure.** Keeping somebody out of the binder's
   verbs is a courtesy their Mac pays, not something the book can enforce:
   adding, renaming, moving and trashing documents aren't signed, so a
   determined machine could still change the binder. Permissions guard the
@@ -482,30 +494,30 @@ book is decided here, when their Mac first asks to be let in.
 
 ## Starting a piece of your own
 
-An **author of some pieces** can add a piece to the book — **New Document**,
-**Duplicate**, or, in a collection, the File menu's piece items — and start
+An **author of some pieces** can add a piece to the book — **New Chapter**,
+**Duplicate**, or, in a collection, **New Prose Piece** and **New Script** — and start
 writing in it straight away. The book remembers which Mac started each piece,
 and that is what the rest of this section turns on.
 
 - **On their Mac**, the piece is theirs to write while the book's author
-  decides. The line over it reads *Waiting for Denver to say this piece is
-  yours.* They can type, leave notes, accept or reject a suggestion, set its
+  decides. In a novel the line over it reads *Waiting for Alex to say this chapter is
+  yours.* (a Report says *section*, a Collection *piece*). They can type, leave notes, accept or reject a suggestion, set its
   review pass, rename or move it, and run a round on it. Stet, archive and
-  reopen, ⌘S's checkpoint, tasks and translating wait until Denver has
-  answered. So does the piece's own intent, which is Denver's to write until
+  reopen, ⌘S's checkpoint, to-dos and translating wait until Alex has
+  answered. So does the piece's own intent, which is Alex's to write until
   then. Anything they accept or reject there counts as their words: it shows
-  on their Mac and waits on Denver's, like their typing.
+  on their Mac and waits on Alex's, like their typing.
 - **On their other Macs**, the piece waits for the first Mac's words to arrive
-  (*Waiting for this piece to arrive.*), then shows them as theirs.
+  (*Waiting for this chapter to arrive.*), then shows them as theirs.
 - **On the book author's Mac**, the piece waits for their words to arrive —
-  *Waiting for this piece to arrive from Sam.* — rather than starting a copy of
+  *Waiting for this chapter to arrive from Sam.* — rather than starting a copy of
   its own in front of them. Then Maugham asks: *Sam started “The Orchard” — is
   it theirs?* **Theirs** adds the piece to what Sam may write, their words come
   in on every Mac, and the waiting line on Sam's Mac goes, with no reopening.
   **Not now** writes nothing and sets nothing aside, and you can answer later
   from People & Devices.
 - **Until you answer, your Mac keeps out of the piece.** Opening it shows *Sam
-  started this piece — it isn't settled whose it is yet.*, and the editor
+  started this chapter — it isn’t settled whose it is yet.*, and the editor
   doesn't take typing. That holds even when the piece arrived before any of
   Sam's words did. **Edit Anyway** lets you write in it (in that window, until
   you close it), but read the next point first.
@@ -534,8 +546,8 @@ let them write there, add the piece to what they may write in People &
 Devices. (If you already answered **Theirs** for such a piece, that answer
 stands.)
 
-Pieces made before this version remember no starter, and behave as they always
-did: writing in one is still a question.
+A piece made by an older Maugham remembers no starter, and writing in one is
+still a question.
 
 **A piece waiting for a Mac that is gone.** In a book where somebody may write
 less than the whole of it, only the Mac that started a piece can create its
@@ -551,8 +563,8 @@ some piece is actually waiting.
 ## Restoring your own note
 
 Deleting a note you wrote can be undone. **⌘Z** straight after brings it back,
-and so does **Restore** in the annotations queue's **Deleted** section (show
-resolved notes with the tray button in the queue's toolbar to see it).
+and so does **Restore** under **Deleted**, in the **Settled** section at the
+foot of To resolve.
 
 A **reviewer** can restore a note of their own that they deleted themselves,
 and it comes back on every Mac and on the iPhone. These stay the book author's:
@@ -582,7 +594,7 @@ until you tell each of them.
 
 ## What History tells you
 
-The History pane (⌘⌥H) shows trust in two shapes, and the difference is
+History (⌃⌘H) shows trust in two shapes, and the difference is
 deliberate.
 
 - **A banner is something that is true now** — *this book was started on this
@@ -597,7 +609,9 @@ without asking** is the silent admission above: a machine you had already named
 elsewhere, let in with no panel. An entry that says a device **joined as you —
 recognised by your Apple ID** (or *joined as Sam — recognised by their Apple
 ID*) is a recognised device, and one that says an **Apple ID key was
-forgotten** is a Forget. And where a machine's history is waiting, the
+forgotten** is a Forget.
+
+And where a machine's history is waiting, the
 row says so and — for a machine nothing in this book signs for yet — carries a
 **Send to Inbox** button, which copies the waiting paragraphs into your Inbox
 as captures. Nothing is applied to your draft; you put them where they belong
@@ -614,8 +628,8 @@ what History says about the history's signatures.
 ## On the iPhone
 
 Settings has a **This device** section: this phone's four-character code, and
-one line for each book it has been in — *In this book as Denver since 9 Sep.
-Started on Denver's MacBook.*, or *Not yet admitted — the Mac will ask*, or,
+one line for each book it has been in — *In this book as Alex since 9 Sep.
+Started on Alex's MacBook.*, or *Not yet admitted — the Mac will ask*, or,
 where the book holds a damaged file about this phone, *This book's file about
 this device doesn't check out, so nothing here confirms it* (see *Records that
 don't verify* above — the Mac is where that one is put right).
@@ -623,7 +637,7 @@ don't verify* above — the Mac is where that one is put right).
 Just under the code, one line says whether your other devices will recognise
 this phone (see *Recognised devices* above):
 
-- *Recognised as Denver Trouton on your other devices.* The phone has your
+- *Recognised as Alex Moreno on your other devices.* The phone has your
   key, and it says so in each book the next time it writes there.
 - *Recognised on your other devices. Your name shows here once a Mac has named
   you.* The phone has the key, but no Mac has put your name on it yet.

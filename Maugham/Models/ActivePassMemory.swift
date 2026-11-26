@@ -5,12 +5,10 @@ import MaughamCore
 /// `ReviewPass.id` per piece, restored the next time that piece's board
 /// opens.
 ///
-/// **Copies `PersonaMemory`'s tolerant keyed-map shape exactly**
-/// (`PersonaMemory.swift:33-97`): `[String: String]` on the wire (a
+/// **A tolerant keyed map**: `[String: String]` on the wire (a
 /// human-readable `ui-state.json`, not enum-keyed), an unreadable map decodes
-/// to empty, and nothing here throws. Unlike `PersonaMemory`'s value type
-/// (`DetailSegment`, a closed enum whose unknown raw values drop per-entry at
-/// decode), a pass id is a bare `String` — the same representation
+/// to empty, and nothing here throws. Unlike a closed enum value (whose
+/// unknown raw values would drop per-entry at decode), a pass id is a bare `String` — the same representation
 /// `ReviewPass.id`, `ProjectStore.setPassState(id:passId:_:)` and
 /// `PassState`'s dictionary keys already use — so nothing can fail to decode
 /// per-entry; the whole map either reads or, tolerantly, reads as empty.
@@ -28,13 +26,11 @@ import MaughamCore
 /// annotation-creation stamp are the consumers. A stored id absent from the
 /// effective list is treated as "no active pass" there, not swept from this
 /// memory, so the piece's real chosen pass is exactly where it was if the
-/// pass list is ever restored. This mirrors
-/// `PersonaMemory.restoredDetailSegment`'s own validity check
-/// (`persona.panes.contains(remembered)`) — the filtering happens at the
-/// reader, not inside the stored map.
+/// pass list is ever restored — the filtering happens at the reader, not
+/// inside the stored map.
 ///
 /// Persisted in `UIState`, so it is per PROJECT and shared last-writer-wins by
-/// two windows on the same project — the same shape as `personaMemory` and
+/// two windows on the same project — the same shape as `detailSegment` and
 /// `compilerModel`, which sit beside it.
 public struct ActivePassMemory: Codable, Equatable, Sendable {
     /// Piece id → last-viewed `ReviewPass.id`.
@@ -61,10 +57,10 @@ public struct ActivePassMemory: Codable, Equatable, Sendable {
     /// prescribes, in its one production spelling (M3 P2 Task 8).
     ///
     /// A stored id that no longer names a pass in `passes` reads as "no active
-    /// pass" and is left exactly where it is: the queue's filter falls back to
-    /// every pass, a note created under it is written unstamped, and restoring
-    /// the pass list restores the writer's place. Every reader — the queue's
-    /// filter default, the creation stamp, the board — calls this rather than
+    /// pass" and is left exactly where it is: a note created under it is
+    /// written unstamped, and restoring the pass list restores the writer's
+    /// place. Every reader — To resolve's Rounds request and head, the
+    /// creation stamp, the board — calls this rather than
     /// re-deriving the check, which `AnnotationPassStampTests`' census keeps
     /// true.
     public func validatedActivePass(
@@ -84,7 +80,7 @@ public struct ActivePassMemory: Codable, Equatable, Sendable {
 
     // MARK: - Codable
 
-    /// Hand-rolled and tolerant, for `PersonaMemory`'s reason: an unreadable
+    /// Hand-rolled and tolerant: an unreadable
     /// map decodes empty rather than failing the whole `UIState` load.
     private enum CodingKeys: String, CodingKey { case active }
 

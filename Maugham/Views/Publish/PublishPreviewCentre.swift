@@ -1,7 +1,7 @@
 import SwiftUI
 import AppKit
 
-/// **What the Publish persona's centre column puts over the manuscript stack**
+/// **What an edition's centre column puts over the manuscript stack**
 /// (shell-finish stage 3b Task 5, revised by Denver's rulings of 2026-08-12).
 ///
 /// One value with two arms, answered by `ProjectWindow.publishCentre`, so the
@@ -110,7 +110,7 @@ enum PublishCentreNotice: Equatable {
     }
 }
 
-/// **The centre column of the Publish persona: the book itself** (shell-finish
+/// **The centre column of an edition: the book itself** (shell-finish
 /// stage 3b Task 5, spec §4's Publish column).
 ///
 /// Denver's rulings, recorded: the compiled book is a PROJECT-level surface (a
@@ -139,6 +139,32 @@ struct PublishPreviewCentre: View {
     /// The writer's pick, by `publicationID`. `nil` is "the newest", which is
     /// also what a new compile resets it to (`PublishPreviewModifier`).
     @Binding var selectedPublicationID: String?
+    /// **Which edition's book this is** (shell p4 Task 5) — the tag its
+    /// anchors carry is read off it per publication
+    /// (`PublishPreviewResolver.bodyTag`). Nil draws the book alone.
+    var edition: EditionBook? = nil
+    /// **The piece on the faces**, when it is a document: the page goes to
+    /// where it starts. Nil leaves the page where the writer put it.
+    var piece: PieceInBook? = nil
+    /// The piece's paragraph order, no load (`currentParagraphState`).
+    var sequence: (String) -> [String]? = { _ in nil }
+    /// Every piece's paragraph order, from the window's presence read
+    /// (`BinderTreeSectionsState.bookReading`): a ¶id another piece also has
+    /// is never trusted as this piece's anchor (`PDFAnchors.locate`).
+    var sequences: () -> [String: [String]] = { [:] }
+    /// Compile… and the imprint picker, under the title.
+    var bar: EditionCompileBar? = nil
+
+    /// What the page knows about the faced piece, for the shown book.
+    @State private var place: PiecePlace?
+    /// The shown book's anchors, read once per publication off the main
+    /// actor; every click after the first is a dictionary lookup.
+    @State private var anchors: (publication: String, pages: [String: Int])?
+    /// Each resolve's serial — what makes a second ask for the same page a
+    /// new ask (`PDFPreview.Target`).
+    @State private var serial = 0
+    /// The header's "starts on page N" presses: going back after scrolling.
+    @State private var goBack = 0
 
     /// Never resolved locally — `PublishPreviewResolver.shown` owns the fallback
     /// so that a pick whose row has left the list still draws the newest book
@@ -150,14 +176,91 @@ struct PublishPreviewCentre: View {
     var body: some View {
         VStack(spacing: 0) {
             header
+            if let bar {
+                if place == .noAnchors {
+                    bar.hinting(PiecePlace.compileAgainLine)
+                } else {
+                    bar
+                }
+            }
+            placeLine
             Divider()
             if let shown, let url = PublishPreviewResolver.fileURL(of: shown, in: projectURL) {
-                PDFPreview(fileURL: url)
+                PDFPreview(fileURL: url, target: place?.target)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .background(Color(nsColor: .windowBackgroundColor))
+        // **Once per ask**: a new book, a new piece, or the header's "starts
+        // on page N". The anchors are read off the main actor once per book.
+        .task(id: PiecePlace.Key(publication: shown?.publicationID, piece: piece?.id, ask: goBack)) {
+            let next = await locate()
+            guard !Task.isCancelled else { return }
+            place = next
+        }
+    }
+
+    /// **Where the faced piece is, said under the bar**: its first page as a
+    /// control that goes back there; not in this book; or no telling.
+    @ViewBuilder
+    private var placeLine: some View {
+        switch place {
+        case .page(let page, _):
+            if let piece {
+                Button {
+                    goBack &+= 1
+                } label: {
+                    Label(PiecePlace.startsLine(piece.title, page: page), systemImage: "arrow.uturn.backward")
+                        .font(.caption)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                }
+                .buttonStyle(.link)
+                .help("Go back to where \(piece.title) starts")
+                .padding(.horizontal, 12)
+                .padding(.bottom, 6)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        case .notInBook(let title), .ambiguous(let title):
+            Text(place == .notInBook(title) ? PiecePlace.notInBookLine(title)
+                                            : PiecePlace.ambiguousLine(title))
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .truncationMode(.middle)
+                .padding(.horizontal, 12)
+                .padding(.bottom, 6)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        case .noAnchors, .none:
+            EmptyView()
+        }
+    }
+
+    /// Where the faced piece starts in the shown book, or why it cannot.
+    private func locate() async -> PiecePlace? {
+        guard let piece, let edition, let shown,
+              let url = PublishPreviewResolver.fileURL(of: shown, in: projectURL) else { return nil }
+        let pages: [String: Int]
+        if let anchors, anchors.publication == shown.publicationID {
+            pages = anchors.pages
+        } else {
+            pages = await Task.detached(priority: .userInitiated) {
+                PDFAnchors.anchorPages(inFileAt: url)
+            }.value
+            guard !Task.isCancelled else { return place }
+            anchors = (shown.publicationID, pages)
+        }
+        guard !pages.isEmpty else { return .noAnchors }
+        guard let tag = PiecePlace.bodyTag(of: shown, edition: edition, pages: pages) else {
+            return .notInBook(piece.title)
+        }
+        var sequences = sequences()
+        if let own = sequence(piece.id) { sequences[piece.id] = own }
+        serial &+= 1
+        return PiecePlace(PDFAnchors.locate(piece: piece.id, bodyTag: tag, sequences: sequences,
+                                            pages: pages),
+                          title: piece.title, ask: serial)
     }
 
     /// **The header, and the one place this view branches on VoiceOver rather
@@ -269,7 +372,7 @@ struct PublishPreviewCentre: View {
     /// imprint (when there is one), language (when there is one, already
     /// uppercased — a joined `"en+sr"` reads as `"EN+SR"`), then when it was
     /// compiled. `label(for:)`, `stamp(for:)` and
-    /// `DepartmentCompileState.completedLine` all draw from this, so no two
+    /// `CompileRunState.completedLine` all draw from this, so no two
     /// surfaces that name a book can disagree about what it's called.
     static func parts(for publication: Publication) -> [String] {
         // A row is named as a draft only when its format mints drafts: a
@@ -289,6 +392,248 @@ struct PublishPreviewCentre: View {
         formatter.timeStyle = .short
         return formatter
     }()
+}
+
+/// **An edition, as the book's header needs it** (shell p4 Task 5): its tag
+/// and the book's own, which together say which body of a publication is
+/// this edition's (`PublishPreviewResolver.bodyTag`).
+struct EditionBook: Equatable {
+    let language: String
+    let sourceLanguage: String
+}
+
+/// **The piece on the faces**, by id and title (the not-in-book line).
+struct PieceInBook: Equatable {
+    let id: String
+    let title: String
+}
+
+/// **Where the faced piece is in the shown book**: a page, or not in it (a
+/// book compiled before anchors, or an imprint that leaves the piece out) —
+/// the page then stays where it was and the header says so.
+enum PiecePlace: Equatable {
+    /// Its first page, and which ask found it — a new ask for the same page
+    /// goes there again.
+    case page(Int, ask: Int)
+    case notInBook(String)
+    /// Its anchors resolve, but none is surely its own (two pieces share it).
+    case ambiguous(String)
+    /// The book carries no paragraph anchors: compiled before they existed.
+    case noAnchors
+
+    init(_ location: PDFAnchors.Location, title: String, ask: Int) {
+        switch location {
+        case .page(let page): self = .page(page, ask: ask)
+        case .notInBook: self = .notInBook(title)
+        case .ambiguous: self = .ambiguous(title)
+        case .noAnchors: self = .noAnchors
+        }
+    }
+
+    /// What the PDF view goes to.
+    var target: PDFPreview.Target? {
+        if case .page(let page, let ask) = self { return .init(page: page, ask: ask) }
+        return nil
+    }
+
+    static func notInBookLine(_ title: String) -> String {
+        "\(title) is not in this book"
+    }
+
+    static func ambiguousLine(_ title: String) -> String {
+        "Can\u{2019}t tell where \(title) starts in this book"
+    }
+
+    static func startsLine(_ title: String, page: Int) -> String {
+        "\(title) starts on page \(page + 1)"
+    }
+
+    /// Said once, beside Compile…, for a book with no paragraph anchors.
+    static let compileAgainLine = "Compile again to jump from the binder to the page"
+
+    /// **The tag this edition's body carries in the book**, checked against
+    /// the tags its anchors actually use: a one-body book whose compile spelled
+    /// its tag otherwise (an imprint's own `metadata.language`, or the ordinal a
+    /// tag that cannot be a filename becomes) is read by the one tag it has.
+    static func bodyTag(of publication: Publication, edition: EditionBook,
+                        pages: [String: Int]) -> String? {
+        guard let tag = PublishPreviewResolver.bodyTag(
+            of: publication, edition: edition.language, sourceLanguage: edition.sourceLanguage)
+        else { return nil }
+        let tags = PDFAnchors.tags(in: pages)
+        if tags.contains(tag) { return tag }
+        let oneBody = !(publication.language ?? "").contains("+")
+        return oneBody && tags.count == 1 ? tags.first : tag
+    }
+
+    /// The task's key: a new book, a new piece, or a going-back is a new ask.
+    struct Key: Equatable {
+        let publication: String?
+        let piece: String?
+        var ask: Int = 0
+    }
+}
+
+/// **Compile… and the imprint picker, in the edition's book header** (shell
+/// p4 Task 5), moved from the desk: where the writer looks when looking at
+/// the book. Values and closures; the compile runs on the window's
+/// `PublishCentreModel.compileRunner`, so it survives the column going.
+///
+/// One line at the column's floor: the picker and the buttons keep their
+/// size, the status sentence truncates (its whole text is the help).
+struct EditionCompileBar: View {
+    let imprints: [String]
+    let selectedImprint: String?
+    let selectImprint: (String?) -> Void
+    let compileRun: CompileRunState
+    /// This edition's tag, checked in the sheet; nil for the Source, where
+    /// the book's own language is.
+    let editionLanguage: String?
+    /// Every edition's tag, the Source first — read when Compile… is
+    /// pressed (`TreeEditionRows.languages`), never on a body path.
+    let editions: () -> [String]
+    let runCompile: (CompileRunner.Request) -> Void
+    let cancelCompile: () -> Void
+    let showProblems: () -> Void
+    /// A line beside Compile… when the book asks for one (a book compiled
+    /// before chapter anchors existed).
+    var hint: String? = nil
+
+    @State private var sheet: EditionCompileAsk?
+
+    /// The same bar, saying `hint` beside Compile….
+    func hinting(_ hint: String) -> EditionCompileBar {
+        var copy = self
+        copy.hint = hint
+        return copy
+    }
+
+    var body: some View {
+        HStack(spacing: 8) {
+            if !imprints.isEmpty {
+                Picker(CompileBarCopy.imprintLabel,
+                       selection: Binding(get: { selectedImprint }, set: { selectImprint($0) })) {
+                    Text(CompileBarCopy.bookImprintTitle).tag(String?.none)
+                    ForEach(imprints, id: \.self) { name in
+                        Text(name).tag(String?.some(name))
+                    }
+                }
+                .pickerStyle(.menu)
+                .controlSize(.small)
+                // A long imprint name truncates rather than pushing Cancel
+                // off the column at its floor.
+                .frame(maxWidth: 160)
+                .help(CompileBarCopy.imprintHelp)
+            }
+            Button(CompileBarCopy.compileTitle) {
+                sheet = EditionCompileAsk.make(editions: editions(), edition: editionLanguage)
+            }
+            .controlSize(.small)
+            .fixedSize()
+            .disabled(compileRun.isRunning)
+            .help(compileRun.isRunning ? CompileRunState.alreadyRunning
+                                       : CompileBarCopy.compileHelp)
+            if compileRun.isRunning {
+                ProgressView().controlSize(.small)
+            }
+            if compileRun.statusLine == nil, !compileRun.isRunning, let hint {
+                Text(hint)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .help(hint)
+                    .layoutPriority(-1)
+            }
+            if let status = compileRun.statusLine {
+                Text(status)
+                    .font(.caption)
+                    .foregroundStyle(compileRun.isFailure ? Color.red : Color.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .help(status)
+                    .layoutPriority(-1)
+            }
+            Spacer(minLength: 0)
+            if compileRun.offersShowProblems {
+                Button(CompileRunState.showProblemsTitle) { showProblems() }
+                    .controlSize(.small)
+                    .fixedSize()
+                    .help(CompileRunState.showProblemsHelp)
+            }
+            if compileRun.isRunning {
+                Button(CompileRunState.cancelTitle) { cancelCompile() }
+                    .controlSize(.small)
+                    .fixedSize()
+                    .accessibilityLabel(CompileBarCopy.cancelCompileLabel)
+                    .help(CompileBarCopy.cancelCompileHelp)
+            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.bottom, 8)
+        .sheet(item: $sheet) { ask in
+            CompileSheet(
+                languages: ask.languages, bookLanguage: ask.bookLanguage,
+                imprint: selectedImprint,
+                initiallyIncludesBook: ask.includesBook,
+                initiallySelected: ask.selected,
+                onCompile: { request in
+                    sheet = nil
+                    runCompile(request)
+                },
+                onCancel: { sheet = nil })
+        }
+    }
+}
+
+/// **What Compile… asks, from an edition** (shell p4 Task 5): the desk's
+/// sheet, with this edition's language checked — the book's own language for
+/// the Source, only the translation for a translated edition.
+struct EditionCompileAsk: Identifiable, Equatable {
+    let languages: [String]
+    let bookLanguage: String
+    let includesBook: Bool
+    let selected: Set<String>
+    var id: String { bookLanguage + "|" + languages.joined(separator: ",") }
+
+    /// `editions` is the tree's list, the Source first; `edition` this
+    /// edition's tag, nil for the Source.
+    static func make(editions: [String], edition: String?) -> EditionCompileAsk {
+        let book = editions.first ?? PublishConfig.Metadata().language
+        var others = editions.dropFirst().filter { $0.caseInsensitiveCompare(book) != .orderedSame }
+        if let edition, edition.caseInsensitiveCompare(book) != .orderedSame,
+           !others.contains(where: { $0.caseInsensitiveCompare(edition) == .orderedSame }) {
+            others.append(edition)
+        }
+        let picked = edition.flatMap { tag in
+            others.first { $0.caseInsensitiveCompare(tag) == .orderedSame }
+        }
+        return EditionCompileAsk(languages: Array(others), bookLanguage: book,
+                                 includesBook: picked == nil,
+                                 selected: picked.map { [$0] } ?? [])
+    }
+}
+
+/// **An edition with no book to show, and its Compile…** (shell p4 Task 5):
+/// the header bar, opaque and taking its own clicks, over the standing
+/// notice, which takes none — the Book's view stays readable beneath.
+struct EditionNoticeCover: View {
+    let notice: PublishCentreNotice
+    let bar: EditionCompileBar?
+
+    var body: some View {
+        VStack(spacing: 0) {
+            if let bar {
+                bar
+                    .padding(.top, 8)
+                    .frame(maxWidth: .infinity)
+                    .background(Color(nsColor: .windowBackgroundColor))
+                Divider()
+            }
+            PublishCentreNoticeBanner(notice: notice)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+    }
 }
 
 /// **The standing notice over the project at altitude** (Denver, 2026-08-12).
@@ -369,7 +714,7 @@ struct PublishNoticeLine: View {
 ///   `.maughamPublicationCompleted` AFTER appending to the catalog, scoped
 ///   `.project`; received through the ADR 0021 helper, which filters to this
 ///   project and drops closed windows.
-/// - **Arriving in Publish** (`.onChange(of: persona)`) — which also covers the
+/// - **Opening an edition** (`.onChange(of: subject.open)`) — which also covers the
 ///   export a writer deleted in the Finder while they were elsewhere. That is
 ///   deliberately not a directory watcher: the staleness only matters when the
 ///   book is about to be on screen, and a watcher would be a second source of
@@ -378,7 +723,7 @@ struct PublishNoticeLine: View {
 /// **It is also where a new compile takes the writer's manual pick away**
 /// (Denver, 2026-08-12: *"a NEW compile snaps the preview back to the
 /// newest"*). The reset is keyed on the NEWEST publication changing rather than
-/// on the refresh happening, so walking out of Publish and back keeps whatever
+/// on the refresh happening, so walking out of an edition and back keeps whatever
 /// the writer was looking at — a refresh is not news, a new book is. The rule
 /// itself is `PublishCentreModel.publishSelection(after:)`; this is what calls it.
 ///
@@ -391,32 +736,44 @@ struct PublishPreviewModifier: ViewModifier {
     /// Hosting window for ADR 0021's project scope + closed-window liveness
     /// guard, the `ExportsListView` idiom.
     let window: NSWindow?
-    /// Read, never written: which persona the writer is in is their own choice,
-    /// and this only wants to know when they arrive.
-    let persona: Persona
+    /// Read, never written: this only wants to know when an edition opens in
+    /// the centre, or stops being there.
+    let subject: WindowSubject
     /// **The centre column's state, owned by the window** (foundations plan 4
     /// Task 2). This modifier is the only writer of its books
     /// (`publishSelection(after:)`, which carries the new-compile reset), and it
-    /// lets the desk's two decisions go on any persona change
+    /// lets the desk's two decisions go whenever the centre's `open` changes
     /// (`clearDecisions`) while keeping the book's pick — the asymmetry
     /// `PublishCentreModel.clearDecisions` argues. Here rather than in a
     /// modifier of its own because this is already the one place that owns the
     /// Publish centre's transient picks, and the body it hangs off has no
     /// expression budget (the Release type-check ceiling).
     let centre: PublishCentreModel
+    /// The project, for the manuscript ids the source tag is resolved over.
+    var store: ProjectStore? = nil
+    /// The newest refresh: an older one that finishes later applies nothing.
+    @State private var refreshes = LatestOnly()
 
     func body(content: Content) -> some View {
         content
             .task(id: projectURL) { await refresh() }
+            // **The window's compile settling** (shell p4 Task 5): the one
+            // observer of `compileRunner`, wherever it was pressed — a
+            // refusal over the manuscript's problems covers the centre.
+            .onChange(of: centre.compileRunner.state) { old, new in
+                centre.compileSettled(from: old, to: new)
+            }
             .onProjectEvent(.maughamPublicationCompleted,
                             url: projectURL, window: window) { _ in
                 Task { await refresh() }
             }
-            .onChange(of: persona) { _, next in
-                // Before the arrival guard: leaving Publish is a persona change
-                // too, and it is the one that most needs the gate let go of.
+            .onChange(of: subject.open) { _, next in
+                // Before the arrival guard: leaving an edition is a change of
+                // `open` too, and it is the one that most needs the gate let go
+                // of. A click on a piece while an edition is open moves only the
+                // faces, so it lets nothing go.
                 centre.clearDecisions()
-                guard next.previewsThePublishedBook else { return }
+                guard case .edition = next else { return }
                 Task { await refresh() }
             }
             // **The gate's proposal goes stale where it sits** (the final-review
@@ -432,14 +789,90 @@ struct PublishPreviewModifier: ViewModifier {
                     try? DesignProposalStore(projectURL: projectURL).load(id: $0)
                 }
             }
+            // **A round's record rewritten elsewhere** (shell p4 Task 6 fix
+            // round): the report re-reads its round, so it never writes a stale
+            // copy back nor offers a verb already answered.
+            .onProjectEvent(.maughamTranslationRoundChanged,
+                            url: projectURL, window: window) { _ in
+                // The record decoded off the main actor (fix round 2, N5).
+                guard let round = centre.selectedRound else { return }
+                let (language, docId, number) = (round.language, round.docId, round.number)
+                Task {
+                    let fresh = await Task.detached(priority: .userInitiated) {
+                        TranslationRoundStore(projectURL: projectURL)
+                            .record(language: language, docId: docId, number: number)
+                    }.value
+                    centre.rereadRound { $0 == language && $1 == docId && $2 == number ? fresh : nil }
+                }
+            }
     }
 
+    /// **The catalog and the config, read off the main actor** (shell p5a
+    /// closing round B): a window opening on a slow folder draws its first
+    /// frame; the result is applied on main, and only by the newest refresh.
     private func refresh() async {
+        let ticket = refreshes.begin()
         let stores = PublishingStores.sharedFor(
             projectID: ProjectIdentifier.id(for: projectURL),
             projectURL: projectURL)
         let next = await PublishPreviewResolver.readablePDFs(
             store: stores.publicationStore, projectURL: projectURL)
+        // **The config, read once with the catalog** (shell p4 Task 5): which
+        // edition is the Source, and the header's imprint rows —
+        // own two readings of it (`PublishImprint`).
+        let url = projectURL
+        let config = await Task.detached(priority: .userInitiated) {
+            (try? PublishConfigStore.read(in: url)) ?? nil
+        }.value
+        guard refreshes.isCurrent(ticket) else { return }
+        centre.sourceLanguage = PublishImprint.sourceLanguage(
+            imprint: nil, in: config, pieceIDs: manuscriptIDs())
+        centre.imprints = PublishImprint.imprintNames(in: config)
         centre.publishSelection(after: next)
     }
+
+    /// The manuscript's document ids, for an imprint's `sections` fold —
+    /// empty with no store (the source tag then comes from the top level).
+    private func manuscriptIDs() -> [String] {
+        store.map { EditionStatus.manuscriptDocumentIds(in: $0.manifest) } ?? []
+    }
+}
+
+/// **The newest of overlapping async reads wins** (shell p5a closing round
+/// B): each read takes a ticket; one that finishes after a newer began
+/// applies nothing, so a slow first read never overwrites a fresher one.
+@MainActor
+final class LatestOnly {
+    private var newest = 0
+    func begin() -> Int {
+        newest &+= 1
+        return newest
+    }
+    func isCurrent(_ ticket: Int) -> Bool { ticket == newest }
+}
+
+/// **The compile bar's own words** (imprints P3 Task 5; moved off the
+/// Department desk in shell p4 Task 7) — the edition's book header's imprint
+/// picker, Compile… and its Cancel.
+enum CompileBarCopy {
+    /// Visible rather than `labelsHidden()`: a bare popup reading "Book"
+    /// says nothing about what it changes.
+    static let imprintLabel = "Imprint"
+    /// What `nil` is called: the book itself.
+    static let bookImprintTitle = "Book"
+    static let imprintHelp =
+        "Which edition of this project a compile and a whole-book round are about \u{2014} the book "
+        + "itself, or one of the imprints its config declares. An imprint has "
+        + "its own template, its own metadata and its own version count."
+    /// The ellipsis promises a sheet: the format and the editions are still
+    /// to be chosen.
+    static let compileTitle = "Compile\u{2026}"
+    static let compileHelp =
+        "Make the book \u{2014} choose a format and which editions go in it"
+    /// Named rather than "Cancel": a VoiceOver user must tell it from a
+    /// round's Cancel.
+    static let cancelCompileLabel = "Cancel Compile"
+    static let cancelCompileHelp =
+        "Stop this compile. Nothing is published \u{2014} a compile that does "
+        + "not finish leaves no publication behind."
 }

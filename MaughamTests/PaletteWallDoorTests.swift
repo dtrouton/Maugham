@@ -4,13 +4,14 @@ import SwiftUI
 import MaughamCore
 @testable import Maugham
 
-/// **The palette wall keeps a door** (shell-finish stage-2b Task 5).
+/// **The palette wall is the Palette row** (shell-finish stage-2b Task 5; shell
+/// p1 Task 2 made the wall a subject, Task 3 made the door a row).
 ///
-/// `.palette` dies with the strip in Task 7, and the wall — the centre-column
-/// card-arrangement surface `PaletteWallView` draws — would go dark with it
-/// unless something else opens it. This suite is that something: the Palette
-/// tree section's own "Open Wall" affordance, `ProjectWindow.showsPaletteWall`,
-/// and the routing/stash/close rules built on it.
+/// The wall is open exactly while the window's subject has `open == .palette`
+/// (`ProjectWindow.showsPaletteWallCentre`). Selecting the tree's Palette row
+/// sets that through the click rule, nothing travels, and any subject change
+/// that takes `open` elsewhere closes it — the stash and the Close rule are
+/// `PaletteWallState`'s.
 @MainActor
 final class PaletteWallDoorTests: XCTestCase {
 
@@ -32,164 +33,151 @@ final class PaletteWallDoorTests: XCTestCase {
         temp = nil
     }
 
-    // MARK: - showsPaletteWallCentre: the routing guard
+    // MARK: - showsPaletteWallCentre: the one question
 
-    func test_showsPaletteWallCentre_trueOutsidePlanWhenOpen() {
-        for persona in Persona.allCases where persona != .plan {
-            XCTAssertTrue(
-                ProjectWindow.showsPaletteWallCentre(showsPaletteWall: true, persona: persona),
-                "\(persona)")
+    func test_theWallIsTheCentreExactlyWhenThePaletteIsOpen() {
+        for open in SubjectSamples.everyOpen {
+            XCTAssertEqual(
+                ProjectWindow.showsPaletteWallCentre(subject: SubjectSamples.opened(open)),
+                open == .palette, "\(open)")
+        }
+        // The faces do not open it: the palette in the faces with a piece open
+        // is not the wall.
+        XCTAssertFalse(ProjectWindow.showsPaletteWallCentre(
+            subject: WindowSubject(open: .item(SubjectSamples.pieceID), faces: .palette)))
+    }
+
+    // MARK: - The Palette row
+
+    /// **Selecting the Palette row opens the wall where the writer is**: the
+    /// click rule makes the palette what is open, from every centre. Nothing
+    /// travels.
+    func test_thePaletteRowOpensTheWall() {
+        for open in SubjectSamples.everyOpen where open != .palette {
+            let before = WindowSubject(open: open, faces: .item(SubjectSamples.pieceID))
+            let subject = ClickRule.resolve(.palette, gesture: .click, current: before,
+                                            structure: SubjectSamples.structure,
+                                            projectType: .novel)
+            XCTAssertEqual(subject.open, .palette, "from \(open)")
+            XCTAssertTrue(ProjectWindow.showsPaletteWallCentre(subject: subject))
+            XCTAssertFalse(ProjectWindow.showsStatusFooter(
+                subject: subject, structure: SubjectSamples.structure),
+                           "the manuscript footer is silent under the wall")
         }
     }
 
-    func test_showsPaletteWallCentre_falseInPlanEvenWhenOpen() {
-        XCTAssertFalse(
-            ProjectWindow.showsPaletteWallCentre(showsPaletteWall: true, persona: .plan),
-            "Plan's centre is the canvas — the wall taking it over is stage 3's call")
-    }
-
-    func test_showsPaletteWallCentre_falseWhenClosed() {
-        for persona in Persona.allCases {
-            XCTAssertFalse(
-                ProjectWindow.showsPaletteWallCentre(showsPaletteWall: false, persona: persona),
-                "\(persona)")
+    /// The row is a row: every tree's Palette row carries the `.palette` tag
+    /// the `List` selects, and no tree carries a door any more.
+    func test_thePaletteRowIsTaggedAndTheDoorIsGone() throws {
+        let sections = Self.codeOnly(try String(
+            contentsOf: SourceTree.repoRoot.appendingPathComponent(
+                "Maugham/Views/BinderTreeSections.swift"), encoding: .utf8))
+        XCTAssertTrue(sections.contains(".tag(TreeRowTag.subject(.palette))"),
+                      "the Palette row selects through the tree's `List`")
+        for gone in ["openWallButton", "onOpenPaletteWall", "paletteWallTravels",
+                     "pressPaletteWallDoor"] {
+            let hits = try SourceTree.sources(under: "Maugham", base: SourceTree.repoRoot)
+                .filter { Self.codeOnly($0.text).contains(gone) }.map { $0.path }
+            XCTAssertEqual(hits, [], "the door's \(gone) survives in \(hits)")
         }
     }
 
-    // MARK: - applyPaletteWallChange: the door's own fold
+    // MARK: - applyPaletteWallChange: the wall's own fold
 
     func test_applyPaletteWallChange_opensStashesAndHidesTheInspector() {
         var showInspector = true
         var wall = PaletteWallState()
         var card: String? = "card-1"
         wall.applyPaletteWallChange(
-            from: false, to: true, showInspector: &showInspector,
+            from: Self.piece, to: Self.wall, showInspector: &showInspector,
             selectedPaletteCardId: &card)
         XCTAssertFalse(showInspector)
         XCTAssertEqual(wall.inspectorWasVisibleBefore, true)
+        XCTAssertEqual(wall.subjectBeforeWall, Self.piece)
         XCTAssertEqual(card, "card-1", "opening does not disturb a card already selected")
     }
 
     func test_applyPaletteWallChange_closesRestoresAndForgetsTheCard() {
         var showInspector = false
-        var wall = PaletteWallState(inspectorWasVisibleBefore: true)
+        var wall = PaletteWallState(inspectorWasVisibleBefore: true, subjectBeforeWall: Self.piece)
         var card: String? = "card-1"
         wall.applyPaletteWallChange(
-            from: true, to: false, showInspector: &showInspector,
+            from: Self.wall, to: Self.piece, showInspector: &showInspector,
             selectedPaletteCardId: &card)
         XCTAssertTrue(showInspector)
         XCTAssertNil(wall.inspectorWasVisibleBefore)
+        XCTAssertNil(wall.subjectBeforeWall)
         XCTAssertNil(card, "the wall forgets which card it had open")
     }
 
-    /// The takeover case: something else (the canvas collapse) already took the
-    /// stash. A `nil` stash on the way out is a real state, not "nothing to
-    /// restore" — see `applyPaletteWallChange`'s own doc comment.
-    func test_applyPaletteWallChange_aTakenOverStashIsNotResurrected() {
+    /// A `nil` stash on the way out is a real state, not "nothing to restore" —
+    /// see `applyPaletteWallChange`'s own doc comment.
+    func test_applyPaletteWallChange_aMissingStashIsNotResurrected() {
         var showInspector = false
-        var wall = PaletteWallState()   // the stash already taken over
+        var wall = PaletteWallState()
         var card: String? = "card-1"
         wall.applyPaletteWallChange(
-            from: true, to: false, showInspector: &showInspector,
+            from: Self.wall, to: Self.piece, showInspector: &showInspector,
             selectedPaletteCardId: &card)
-        XCTAssertFalse(showInspector, "nothing restores over a takeover")
+        XCTAssertFalse(showInspector, "nothing restores over a missing stash")
         XCTAssertNil(wall.inspectorWasVisibleBefore)
         XCTAssertNil(card)
     }
 
-    func test_applyPaletteWallChange_isANoOpWhenNothingChanged() {
-        for value in [true, false] {
+    /// A change that keeps the wall open (the faces moving) or keeps it shut
+    /// touches nothing.
+    func test_applyPaletteWallChange_isANoOpWhenTheWallDidNotOpenOrClose() {
+        var facesMoved = Self.wall
+        facesMoved.faces = .project
+        for (from, to) in [(Self.wall, facesMoved), (Self.piece, SubjectSamples.opened(.canvas))] {
             var showInspector = true
             var wall = PaletteWallState()
             var card: String? = "card-1"
             wall.applyPaletteWallChange(
-                from: value, to: value, showInspector: &showInspector,
+                from: from, to: to, showInspector: &showInspector,
                 selectedPaletteCardId: &card)
-            XCTAssertTrue(showInspector, "\(value)")
-            XCTAssertNil(wall.inspectorWasVisibleBefore, "\(value)")
-            XCTAssertEqual(card, "card-1", "\(value)")
+            XCTAssertTrue(showInspector)
+            XCTAssertNil(wall.inspectorWasVisibleBefore)
+            XCTAssertEqual(card, "card-1")
         }
     }
 
-    // MARK: - The door's own press: travel, or open in place
-
-    /// The rule the door's tooltip and its action both read, in ONE spelling —
-    /// `TreeTravel.treeTravelDestination`, taken from production rather than
-    /// named here. The wall's door is a tree affordance and this is the same
-    /// question Denver's tree-travel rule asks: Plan's centre column is the
-    /// board, so there is somewhere to travel TO; everywhere else the centre is
-    /// already the wall's own column.
-    func test_paletteWallDoorTravels_agreesWithTheOneTravelRule() {
-        for persona in Persona.allCases {
-            XCTAssertEqual(
-                ProjectWindow.paletteWallDoorTravels(persona: persona),
-                TreeTravel.treeTravelDestination(persona: persona) != nil,
-                "\(persona): the door's tooltip and the tree's travel rule must "
-                + "not be two spellings of one question")
-        }
-        XCTAssertTrue(ProjectWindow.paletteWallDoorTravels(persona: .plan),
-                      "anti-vacuity: somebody travels")
-        XCTAssertFalse(ProjectWindow.paletteWallDoorTravels(persona: .author),
-                       "anti-vacuity: somebody does not")
+    /// **The wall's Close goes back where the writer was**, or to the Book when
+    /// nothing is remembered; over anything but the wall it is no change.
+    func test_closingTheWallReturnsToTheSubjectItWasOpenedOver() {
+        let wall = PaletteWallState(inspectorWasVisibleBefore: true, subjectBeforeWall: Self.piece)
+        XCTAssertEqual(wall.closingWall(Self.wall), Self.piece)
+        XCTAssertEqual(PaletteWallState().closingWall(Self.wall), .book)
+        XCTAssertEqual(wall.closingWall(Self.piece), Self.piece)
     }
 
-    /// **In Plan the press opens NOTHING yet** — it arms the token and moves the
-    /// persona. Opening the wall here would be the bug the ordering exists to
-    /// prevent: `PaletteWallModifier`'s persona observer closes the wall on any
-    /// persona change, so a wall opened before the switch is a wall the switch
-    /// itself shuts.
-    func test_pressPaletteWallDoor_inPlanArmsTheTravelAndOpensNothingYet() {
-        var persona = Persona.plan
-        var segment = DetailSegment.inspector
-        var wall = PaletteWallState()
+    /// **Closing the wall keeps the order of the clicks before it** (shell p1
+    /// final fix 2, N1): a piece clicked after a note on the canvas is still
+    /// the part clicked last once the wall closes, and the close is not an
+    /// arrival, so the right column's pane is not taken. A note opened while
+    /// the wall was up still arrives.
+    func test_closingTheWallKeepsTheLastClickedOrderAndIsNotAnArrival() {
+        let note = BinderSubject.research("r-1")
+        let canvas = WindowSubject(open: .canvas, faces: .canvas)
+        let before = ClickRule.resolve(.item("ch-1"), gesture: .click,
+            current: ClickRule.resolve(note, gesture: .click, current: canvas,
+                                       structure: [], projectType: .novel),
+            structure: [], projectType: .novel)
+        XCTAssertFalse(before.besideIsLatest, "premise: the piece was clicked after the note")
+        let atWall = ClickRule.resolve(.palette, gesture: .click, current: before,
+                                       structure: [], projectType: .novel)
+        let wall = PaletteWallState(inspectorWasVisibleBefore: true, subjectBeforeWall: before)
+        let closed = wall.closingWall(atWall)
+        XCTAssertEqual(closed, before)
+        XCTAssertEqual(closed.lastClicked, .item("ch-1"))
+        XCTAssertFalse(ResearchRevealModifier.isAnArrival(from: atWall, to: closed))
 
-        let change = ProjectWindow.pressPaletteWallDoor(
-            persona: &persona, detailSegment: &segment, paletteWall: &wall,
-            memory: .empty)
-
-        XCTAssertEqual(persona, .author, "the door travels to Author")
-        XCTAssertTrue(wall.travelPending, "the wall's arrival is a token, not an open flag")
-        XCTAssertFalse(wall.showsWall,
-                       "the wall must not be opened before the switch — the "
-                       + "persona observer would close it again on the way")
-        XCTAssertEqual(change?.persona, .author,
-                       "the caller needs the change to persist the memory")
-    }
-
-    func test_pressPaletteWallDoor_outsidePlanOpensInPlaceAndMovesNobody() {
-        for persona in Persona.allCases where !persona.centresTheCanvas {
-            var current = persona
-            var segment = DetailSegment.inspector
-            var wall = PaletteWallState()
-
-            let change = ProjectWindow.pressPaletteWallDoor(
-                persona: &current, detailSegment: &segment, paletteWall: &wall,
-                memory: .empty)
-
-            XCTAssertEqual(current, persona, "\(persona): nobody travels from here")
-            XCTAssertTrue(wall.showsWall, "\(persona): the wall opens where the writer is")
-            XCTAssertFalse(wall.travelPending, "\(persona): no token, nothing to consume")
-            XCTAssertNil(change, "\(persona): no persona change to persist")
-        }
-    }
-
-    // MARK: - applyWallTravelOnPersonaChange: the token's consumption
-
-    func test_applyWallTravelOnPersonaChange_opensTheWallAndConsumesTheToken() {
-        var wall = PaletteWallState(travelPending: true)
-        wall.applyWallTravelOnPersonaChange()
-        XCTAssertTrue(wall.showsWall, "the travelled-to wall opens once the switch landed")
-        XCTAssertFalse(wall.travelPending, "consumed exactly once — a token, not a mode")
-    }
-
-    func test_applyWallTravelOnPersonaChange_isANoOpWithNoToken() {
-        for open in [true, false] {
-            var wall = PaletteWallState(showsWall: open)
-            wall.applyWallTravelOnPersonaChange()
-            XCTAssertEqual(wall.showsWall, open,
-                           "an ordinary persona change must not open the wall")
-            XCTAssertFalse(wall.travelPending)
-        }
+        let other = BinderSubject.research("r-2")
+        let noteAtWall = ClickRule.resolve(other, gesture: .click, current: atWall,
+                                           structure: [], projectType: .novel)
+        let closedWithNew = wall.closingWall(noteAtWall)
+        XCTAssertEqual(closedWithNew.beside?.treeSubject, other)
+        XCTAssertEqual(closedWithNew.lastClicked, other, "control: a new note is the part clicked last")
     }
 
     // MARK: - Esc closes the wall — a REAL Escape, at the wall's own claim
@@ -205,7 +193,7 @@ final class PaletteWallDoorTests: XCTestCase {
         var closed = false
         let window = hostKeyWindow(PaletteWallCentre(
             store: store, selectedPaletteCardId: .constant(nil),
-            onClose: { closed = true }, persona: .author))
+            onClose: { closed = true }))
         await waitOut(0.2)   // outlast the 30ms deferred focus claim
 
         window.sendEvent(Self.escapeKeyEvent(for: window))
@@ -250,275 +238,60 @@ final class PaletteWallDoorTests: XCTestCase {
                         + "update the doc comment above rather than just the assert")
     }
 
-    // **The census that stood here died with the strip it guarded** (stage
-    // 2b Task 7). It asked, by name and with a planted offender, that nothing
-    // in the window wrote `binderSegment = .palette` — the segment path the
-    // wall's door replaced. `BinderSegment` and the window's `binderSegment`
-    // state were deleted together, so the offender cannot be spelled and the
-    // compiler is the enforcement; a regex over three files that can no longer
-    // match anything is a guard in name only. What survives is everything
-    // above: the door is the one way in, and it is mounted, pressed and asked
-    // about its enablement rather than grepped for.
-
-    /// The OLD wall mechanism compared segments against `.palette` directly
-    /// (`applyPaletteSegmentChange`, `clearsPaletteStash`); both are re-keyed
-    /// off `showsPaletteWall`/`Persona` now, so no such comparison should
-    /// survive in the window — nor, since foundations plan 2, in any view: the
-    /// ban reads every file under `Maugham/Views`, so a split of the window
-    /// cannot carry a comparison out of its sight.
-    func test_noComparisonAgainstDotPaletteSurvivesInProjectWindow() throws {
+    /// **No `.palette` comparison outside the one question.** The wall is
+    /// `showsPaletteWallCentre`; a second spelling of "is the wall open" in any
+    /// view is a second answer free to disagree. Code lines only.
+    func test_thePaletteIsComparedOnlyInTheOneQuestion() throws {
         let hits = try Self.dotPaletteComparisons(under: "Maugham/Views")
-        XCTAssertTrue(hits.isEmpty,
-                      "something still compares a segment against `.palette` — "
-                      + "\(hits). `showsPaletteWall` replaced every one of these.")
+        XCTAssertEqual(hits.count, 1, "found \(hits)")
+        XCTAssertTrue(hits.first?.hasPrefix("Maugham/Views/ProjectWindow.swift") == true,
+                      "the one comparison is `showsPaletteWallCentre`'s: \(hits)")
     }
 
-    // MARK: - A persona change closes the wall, whoever wrote the persona (I3)
+    // MARK: - Mounted: the real modifier, the real door
 
-    /// **The rule, folded.** Dropping the stash rather than restoring it is what
-    /// keeps the exit arm from fighting `PersonaModifier`'s `showInspector =
-    /// true` a pass later — see `closePaletteWallOnPersonaChange`'s doc comment.
-    func test_closePaletteWallOnPersonaChange_closesAndDropsTheStash() {
-        var wall = PaletteWallState(showsWall: true, inspectorWasVisibleBefore: false)
-        wall.closePaletteWallOnPersonaChange()
-        XCTAssertFalse(wall.showsWall)
-        XCTAssertNil(wall.inspectorWasVisibleBefore,
-                     "a live stash would restore the pre-wall visibility over "
-                     + "the switch's own force-open, one pass later")
-    }
-
-    func test_closePaletteWallOnPersonaChange_isANoOpWhenTheWallIsShut() {
-        var wall = PaletteWallState(showsWall: false, inspectorWasVisibleBefore: true)
-        wall.closePaletteWallOnPersonaChange()
-        XCTAssertFalse(wall.showsWall)
-        XCTAssertEqual(wall.inspectorWasVisibleBefore, true,
-                       "a closed wall's memory belongs to whoever armed it — "
-                       + "this rule only ever cleans up after itself")
-    }
-
-    /// **Mounted, on the real modifier**: an `onChange` that does not fire is
-    /// indistinguishable from a rule that decided not to act, and only a mount
-    /// can tell them apart.
-    ///
-    /// Both destinations, because the rule this replaced fired for Plan alone —
-    /// so a wall opened in Author followed the writer into Review.
-    func test_theMountedModifierClosesTheWallOnAnyPersonaChange() async throws {
-        for destination in [Persona.plan, .review] {
-            let box = WallPersonaBox()
-            box.showsPaletteWall = true
-            box.stash = true
-            let window = hostWallModifier(box: box)
-            XCTAssertTrue(box.showsPaletteWall, "premise: the wall is open in Author")
-
-            box.persona = destination
-            await pumpUntil(deadline: 5) { !box.showsPaletteWall }
-
-            XCTAssertFalse(box.showsPaletteWall,
-                           "→\(destination): the wall belongs to the persona it "
-                           + "was opened in")
-            XCTAssertNil(box.stash, "→\(destination): and its stash went with it")
-            _ = window
-        }
-    }
-
-    // MARK: - The travel: Plan's door opens the wall in Author (Task 4)
-
-    /// **Mounted, on the real modifier**: the token is consumed INSIDE the same
-    /// `.onChange(of: persona)` handler that closes the wall, and AFTER it. Both
-    /// halves are load-bearing and this test can tell them apart:
-    ///
-    /// - a token consumed in a modifier of its own would rest on cross-modifier
-    ///   delivery order (tripwire 2's shape);
-    /// - a token consumed BEFORE `closePaletteWallOnPersonaChange` would open
-    ///   the wall and have the close shut it in the same pass — the wall would
-    ///   never appear, and this assertion would be red.
-    func test_theMountedModifierOpensTheTravelledWallAfterTheCloseHasRun() async throws {
-        let box = WallPersonaBox()
-        box.persona = .plan
+    /// **Any subject change that takes the wall away restores the inspector**,
+    /// on the real modifier: an `onChange` that does not fire is
+    /// indistinguishable from a rule that decided not to act.
+    func test_theMountedModifierFoldsTheWallOnASubjectChange() async throws {
+        let box = WallBox()
+        box.subject = Self.piece
         box.showInspector = true
-        box.wallTravelPending = true            // the door in Plan armed it
         _ = hostWallModifier(box: box)
-        XCTAssertFalse(box.showsPaletteWall, "premise: no wall in Plan")
 
-        box.persona = .author                   // the switch lands
-        await pumpUntil(deadline: 5) { box.showsPaletteWall }
-
-        XCTAssertTrue(box.showsPaletteWall,
-                      "the travelled-to wall never opened — the token is "
-                      + "consumed after the close, in the same handler")
-        XCTAssertFalse(box.wallTravelPending, "the token is consumed")
-        // …and the wall's own open arm ran over it, exactly as a door pressed
-        // in Author would have made it run.
+        box.subject = Self.wall
         await pumpUntil(deadline: 5) { !box.showInspector }
-        XCTAssertFalse(box.showInspector,
-                       "the open arm hides the right column so the wall gets width")
-        XCTAssertEqual(box.stash, true, "…and remembers what it hid")
+        XCTAssertFalse(box.showInspector, "the open arm hides the right column")
+        XCTAssertEqual(box.wall.inspectorWasVisibleBefore, true)
+
+        box.subject = ClickRule.resolve(.item("pc02"), gesture: .click,
+                                        current: box.subject,
+                                        structure: SubjectSamples.structure,
+                                        projectType: .novel)
+        await pumpUntil(deadline: 5) { box.showInspector }
+        XCTAssertTrue(box.showInspector, "a tree click took the wall away and restored it")
+        XCTAssertNil(box.wall.inspectorWasVisibleBefore)
     }
 
-    /// **Consumed exactly once.** The contract's own case: travel to Author,
-    /// then ⌘1 back to Plan and ⌘2 out again — the wall must not reappear. A
-    /// token left armed would make every later persona change open the wall.
-    func test_theTravelTokenIsConsumedOnceAndDoesNotFollowTheWriterAround() async throws {
-        let box = WallPersonaBox()
-        box.persona = .plan
-        box.wallTravelPending = true
-        _ = hostWallModifier(box: box)
-
-        box.persona = .author
-        await pumpUntil(deadline: 5) { box.showsPaletteWall }
-        XCTAssertTrue(box.showsPaletteWall, "premise: the travel landed")
-
-        box.persona = .plan                     // ⌘1 — the wall closes with it
-        await pumpUntil(deadline: 5) { !box.showsPaletteWall }
-        XCTAssertFalse(box.showsPaletteWall, "premise: a persona change closes it")
-
-        box.persona = .author                   // ⌘2 — and it stays closed
-        await waitOut(0.3)
-        XCTAssertFalse(box.showsPaletteWall,
-                       "the wall came back on a later persona change — the "
-                       + "travel token is a one-shot, not a mode")
-    }
-
-    /// **The whole door, end to end, through production's own two halves**: the
-    /// real "Open Wall" button in a tree mounted in Plan, whose closure is
-    /// `ProjectWindow.pressPaletteWallDoor` (the same function
-    /// `ProjectWindow.openPaletteWall` calls), over the real
-    /// `PaletteWallModifier`. Nothing here re-states a rule: the press decides,
-    /// the observer consumes.
-    ///
-    /// The two routing consequences are then read off the pure functions that
-    /// own them rather than re-derived — `showsPaletteWallCentre` (the wall
-    /// covers the centre) and `showsStatusFooter` (the manuscript footer goes
-    /// silent under it, `ResearchSubjectRoutingTests`' rule).
-    func test_pressingTheDoorInPlanLandsTheWriterInAuthorWithTheWallOpen() async throws {
+    /// **The whole row, end to end**: the Palette row of a real tree selected,
+    /// through the tree's `List` selection and the click rule, into the real
+    /// `PaletteWallModifier`.
+    func test_selectingThePaletteRowOpensTheWallInPlace() async throws {
         let store = try await novel()
-        let box = WallPersonaBox()
-        box.persona = .plan
-        let window = try await hostTravelProbe(store: store, box: box)
+        let box = WallBox()
+        box.subject = SubjectSamples.opened(.canvas)
+        let window = try await hostDoorProbe(store: store, box: box)
 
-        try clickTheDoor(in: window)
-        await pumpUntil(deadline: 5) { box.persona == .author && box.showsPaletteWall }
+        try selectThePaletteRow(in: window)
+        await pumpUntil(deadline: 5) { box.subject.open == .palette }
 
-        XCTAssertEqual(box.persona, .author, "the door did not travel")
-        XCTAssertTrue(box.showsPaletteWall, "the writer arrived without the wall")
-        XCTAssertTrue(
-            ProjectWindow.showsPaletteWallCentre(showsPaletteWall: box.showsPaletteWall,
-                                                 persona: box.persona),
-            "the wall must actually cover the centre where it landed")
-        XCTAssertFalse(
-            ProjectWindow.showsStatusFooter(persona: box.persona,
-                                            subject: .item("doc1"),
-                                            showsPaletteWall: box.showsPaletteWall,
-                                            structure: [StructureItem(
-                                                id: "doc1", title: "One",
-                                                type: .document,
-                                                path: "manuscript/one.md")]),
-            "the manuscript footer must be silent under the travelled-to wall")
-        XCTAssertNil(box.subject,
-                     "the travel writes NO subject — a subject change is the "
-                     + "modifier's own second observer and would close the wall "
-                     + "it just opened")
+        XCTAssertEqual(box.subject.open, .palette, "the row did not open the wall")
         await pumpUntil(deadline: 5) { !box.showInspector }
-        XCTAssertFalse(box.showInspector,
-                       "the open arm did not run over the arrival")
-    }
-
-    /// **The window's own wiring**, which no assertion above can see: both
-    /// tree shells' `onOpenPaletteWall` closures must reach the door's decision
-    /// rather than writing `showsPaletteWall = true` themselves. Reverting
-    /// either one leaves every test above green and the door in Plan silently
-    /// opening a wall that `showsPaletteWallCentre` refuses to draw.
-    func test_bothTreeShellsReachTheDoorRatherThanTheFlag() throws {
-        let presses = try Self.openPaletteWallPresses()
-        XCTAssertEqual(presses.count, 2,
-                       "the two tree shells (standard + Collection) are the "
-                       + "door's only mount sites — found \(presses)")
-        for line in presses {
-            XCTAssertTrue(line.contains("openPaletteWall()"),
-                          "a tree shell writes the wall flag directly: \(line)")
-        }
-    }
-
-    /// **Bypass 2, through the real writer.** `ManuscriptNavigation.go` moves the
-    /// persona for a wiki-link click and never touches `PersonaModifier`, where
-    /// the old wall rule lived — so this drives production's own function against
-    /// the mounted observer.
-    func test_aNavigationJumpClosesTheWallItWouldOtherwiseCarryAcross() async throws {
-        let box = WallPersonaBox()
-        // Plan with the wall armed — the very state the old rule let a bypass
-        // produce, and the only one a jump can move the persona OUT of (a jump
-        // from a persona that already centres a document moves nobody).
-        box.persona = .plan
-        box.showsPaletteWall = true
-        box.stash = true
-        _ = hostWallModifier(box: box)
-
-        let destination = ManuscriptNavigation.destination(
-            from: box.persona, currentDetailSegment: .inspector, memory: .empty)
-        XCTAssertTrue(destination.movesPersona, "premise: this jump moves the persona")
-        ManuscriptNavigation.go(
-            to: destination,
-            persona: Binding(get: { box.persona }, set: { box.persona = $0 }),
-            detailSegment: Binding(get: { box.detailSegment },
-                                   set: { box.detailSegment = $0 }),
-            documentStore: nil)
-        await pumpUntil(deadline: 5) { !box.showsPaletteWall }
-
-        XCTAssertFalse(box.showsPaletteWall,
-                       "a wiki-link jump moved the writer to Author with the wall "
-                       + "still over the centre column")
-        XCTAssertNil(box.stash)
-    }
-
-    /// **Bypass 1**, as close as its private `show` allows: the persona it
-    /// writes is `CanvasClaudeArrivalModifier.destination(forRegion:)`'s, taken
-    /// from production rather than named here, and driven into the same mounted
-    /// observer. The census below is the other half — that Show writes the
-    /// persona directly and closes nothing itself.
-    func test_aClaudeArrivalClosesTheWallItWouldOtherwiseCarryAcross() async throws {
-        let box = WallPersonaBox()
-        box.showsPaletteWall = true
-        box.stash = true
-        _ = hostWallModifier(box: box)
-
-        box.persona = CanvasClaudeArrivalModifier
-            .destination(forRegion: CanvasRegionID("r1")).persona
-        await pumpUntil(deadline: 5) { !box.showsPaletteWall }
-
-        XCTAssertFalse(box.showsPaletteWall,
-                       "Show took the writer to Plan with the wall still armed — "
-                       + "it hides itself there and is back over Author's centre "
-                       + "the moment they press ⌘2")
-        XCTAssertNil(box.stash)
-    }
-
-    /// **The falsifier for the two above**: neither bypass closes the wall
-    /// itself, and neither goes through the persona handler that used to. If one
-    /// of them grows its own close, this assertion says so — two rules about one
-    /// piece of state is the drift the observer exists to prevent.
-    func test_neitherBypassWriterClosesTheWallItself() throws {
-        for path in ["Maugham/Views/CanvasClaudeArrivalModifier.swift",
-                     "Maugham/Views/ManuscriptNavigation.swift",
-                     "Maugham/Views/TreeTravel.swift"] {
-            let text = Self.codeOnly(try source(path))
-            XCTAssertTrue(text.contains("persona"),
-                          "\(path): premise — this file writes the window's persona")
-            XCTAssertFalse(text.contains("showsPaletteWall"),
-                           "\(path): a second wall rule has appeared beside "
-                           + "`closePaletteWallOnPersonaChange` — one observer of "
-                           + "the persona covers every writer, and a census of "
-                           + "writers is what this fix removed")
-        }
-        // Comment-stripped, because the replaced predicate is NAMED in the
-        // comment that records its removal — a census over prose would fail on
-        // its own explanation.
-        XCTAssertEqual(try SourceTree.codeLines(containing: "clearsPaletteWallStash"), [],
-                       "the Plan-only predicate is back in the persona handler, "
-                       + "which two of the three persona writers never reach")
+        XCTAssertFalse(box.showInspector, "the open arm did not run over the click")
     }
 
     /// Every `== .palette`/`!= .palette` code line under `root`, as "path: line",
-    /// file by file. Comment lines are skipped — the shape this census always had.
+    /// file by file. Comment lines are skipped.
     private static func dotPaletteComparisons(
         under root: String, base: URL = SourceTree.repoRoot
     ) throws -> [String] {
@@ -531,55 +304,30 @@ final class PaletteWallDoorTests: XCTestCase {
         }
     }
 
-    /// The window's `onOpenPaletteWall:` code lines, read by TYPE — every file
-    /// under `Maugham/` declaring `ProjectWindow`.
-    private static func openPaletteWallPresses(base: URL = SourceTree.repoRoot) throws -> [Substring] {
-        codeOnly(try SourceTree.sourceOfType("ProjectWindow", under: ["Maugham"], base: base))
-            .split(separator: "\n")
-            .filter { $0.contains("onOpenPaletteWall:") }
-    }
-
-    /// **The planted control for the reads above** (foundations plan 2): a
-    /// `ProjectWindow` struct in one file and an `extension ProjectWindow` in
-    /// another. The wall modifier is found by symbol in the extension, the
-    /// press count reads both files, and both widened bans catch an offender
-    /// in a sibling view outside the window.
-    func test_theReadsFollowTheTypeAndTheBansReachSiblingViews() throws {
+    /// **The planted control for the comparison census** (foundations plan
+    /// 2): the widened ban catches an offender in a sibling view outside the
+    /// window.
+    func test_theBanReachesSiblingViews() throws {
         let base = try SourceTree.plantedTree([
             "Maugham/Views/ProjectWindow.swift": """
             struct ProjectWindow: View {
-                var body: some View { Tree(onOpenPaletteWall: { openPaletteWall() }) }
-            }
-            """,
-            "Maugham/Views/ProjectWindow+Wall.swift": """
-            extension ProjectWindow {
-                struct PaletteWallModifier: ViewModifier {
-                    func body(content: Content) -> some View {
-                        content.onChange(of: selectedSubject) { _, _ in
-                            if paletteWall.showsWall { paletteWall.showsWall = false }
-                        }
-                    }
-                }
-                var other: some View { CollectionTree(onOpenPaletteWall: { openPaletteWall() }) }
+                var body: some View { Tree() }
             }
             """,
             "Maugham/Views/SomeSiblingView.swift": """
             struct SomeSiblingView {
-                func f() -> Bool { segment == .palette }
-                func g() { clearsPaletteWallStash() }
+                func f() -> Bool { subject.open == .palette }
             }
             """,
         ])
-        let modifier = try SourceTree.declaration(
-            named: "struct PaletteWallModifier: ViewModifier {", under: "Maugham", base: base)
-        XCTAssertTrue(modifier.contains("if paletteWall.showsWall { paletteWall.showsWall = false }"))
-        XCTAssertFalse(modifier.contains("CollectionTree("), "the modifier is bounded to itself")
-        XCTAssertEqual(try Self.openPaletteWallPresses(base: base).count, 2,
-                       "the press count reads both of the window's files")
         XCTAssertEqual(try Self.dotPaletteComparisons(under: "Maugham/Views", base: base),
-                       ["Maugham/Views/SomeSiblingView.swift: func f() -> Bool { segment == .palette }"])
-        XCTAssertEqual(try SourceTree.codeLines(containing: "clearsPaletteWallStash", base: base),
-                       ["Maugham/Views/SomeSiblingView.swift: func g() { clearsPaletteWallStash() }"])
+                       ["Maugham/Views/SomeSiblingView.swift: func f() -> Bool { subject.open == .palette }"])
+    }
+
+    private static let piece = SubjectSamples.opened(.item(SubjectSamples.pieceID))
+    private static var wall: WindowSubject {
+        ClickRule.resolve(.palette, gesture: .click, current: piece,
+                          structure: SubjectSamples.structure, projectType: .novel)
     }
 
     /// Source with `//` and `///` lines dropped — the shape
@@ -607,11 +355,11 @@ final class PaletteWallDoorTests: XCTestCase {
     // MARK: - Hosting and driving
 
     /// The real door and the real `PaletteWallModifier` over one box — the two
-    /// production halves of the travel, and nothing standing in for either.
-    private func hostTravelProbe(
-        store: ProjectStore, box: WallPersonaBox
+    /// production halves of the press, and nothing standing in for either.
+    private func hostDoorProbe(
+        store: ProjectStore, box: WallBox
     ) async throws -> NSWindow {
-        let window = TestWindow.mount(AnyView(TravelProbeView(store: store, box: box)),
+        let window = TestWindow.mount(AnyView(DoorProbeView(store: store, box: box)),
                                       size: CGSize(width: 320, height: 800),
                                       as: SilentTestWindow.self)
         windows.append(window)
@@ -624,8 +372,8 @@ final class PaletteWallDoorTests: XCTestCase {
     /// nothing else in it — the observer is the whole subject, so anything else
     /// mounted here could only supply another explanation for a closed wall.
     @discardableResult
-    private func hostWallModifier(box: WallPersonaBox) -> NSWindow {
-        let window = hostKeyWindow(WallPersonaProbeView(box: box))
+    private func hostWallModifier(box: WallBox) -> NSWindow {
+        let window = hostKeyWindow(WallProbeView(box: box))
         pump(0.1)
         return window
     }
@@ -682,59 +430,35 @@ final class PaletteWallDoorTests: XCTestCase {
         for sub in view.subviews { collect(type, in: sub, into: &out) }
     }
 
-    /// **A real mouse click on the door**, because an accessibility press
-    /// skips in any process no assistive client attaches to — which is
-    /// every process this suite has ever run in. The travel is the load-bearing
-    /// behaviour of stage 3b Task 4 and it cannot be pinned by a test that
-    /// skips, so the end-to-end case drives the door the way a writer does (the Author
-    /// arm is `test_pressPaletteWallDoor_outsidePlanOpensInPlaceAndMovesNobody`,
-    /// windowless — tripwire 33).
+    /// **The Palette row selected through the tree's own table**, found by
+    /// the mark every tree label carries (`TreeTravelTargetView`, whose subject
+    /// is the row's own) — never by position, which moves whenever the tree's
+    /// furniture grows. `selectRowIndexes` reaches the `List`'s selection
+    /// binding exactly as a click does.
     ///
-    /// It also subsumes the enablement claim: a disabled
-    /// `Button` swallows a click, so a press that reaches its action proves the
-    /// door is live in the persona it was pressed in.
-    ///
-    /// **Finding the door**: `PaletteWallDoorHitAreaTests.doorGeometry`'s
-    /// structural discriminator, in miniature — the Palette header is the one
-    /// carrying TWO buttons (its chevron and the door) where Research carries a
-    /// chevron alone, and within it the door is the TRAILING one — the chevron
-    /// leads the title since D1 (2026-09-19). Identifying it by position in the
-    /// window instead is what silently measured the Research chevron when the
-    /// chevrons landed.
-    private func clickTheDoor(in window: NSWindow) throws {
-        let content = try XCTUnwrap(window.contentView)
-        let headers = allViews(in: content).filter {
-            String(describing: type(of: $0)).contains("ListTableHeaderView")
+    /// **Asserted, never skipped** (shell p1 final fix, M7): a `List` mounts
+    /// only the rows on screen, so on a short display the row is scrolled into
+    /// view one row at a time until it mounts. A test that skips on CI's
+    /// narrower display is the flaky-test shape the no-skips gate exists for.
+    private func selectThePaletteRow(in window: NSWindow) throws {
+        let table = try XCTUnwrap(firstTableView(in: window))
+        func mountedRow() -> Int? {
+            guard let mark = allViews(in: table)
+                    .compactMap({ $0 as? TreeTravelTargetView })
+                    .first(where: { $0.subject == .palette }) else { return nil }
+            let row = table.row(for: mark)
+            return row >= 0 ? row : nil
         }
-        let ringsByHeader = headers.map { header in
-            allViews(in: header)
-                .filter { String(describing: type(of: $0)).contains("FocusRing") }
-                .sorted { $0.convert($0.bounds, to: content).minX
-                          < $1.convert($1.bounds, to: content).minX }
+        var row = mountedRow()
+        var next = 0
+        while row == nil, next < table.numberOfRows {
+            table.scrollRowToVisible(next)
+            pump(0.02)
+            row = mountedRow()
+            next += 1
         }
-        guard let palette = ringsByHeader.filter({ $0.count >= 2 })
-                .max(by: { $0.count < $1.count }),
-              let ring = palette.last
-        else {
-            throw XCTSkip(
-                "this display mounted \(headers.count) section headers carrying "
-                + "\(ringsByHeader.map(\.count)) buttons — no Palette header "
-                + "with a door beside its chevron to click")
-        }
-        let icon = ring.convert(ring.bounds, to: content)
-        try XCTSkipUnless(icon.height > 1 && icon.width > 1,
-                          "this display mounted a door of \(icon.size)")
-        let inWindow = content.convert(CGPoint(x: icon.midX, y: icon.midY), to: nil)
-        for type in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
-            if let event = NSEvent.mouseEvent(
-                with: type, location: inWindow, modifierFlags: [],
-                timestamp: ProcessInfo.processInfo.systemUptime,
-                windowNumber: window.windowNumber, context: nil,
-                eventNumber: 0, clickCount: 1,
-                pressure: type == .leftMouseDown ? 1 : 0) {
-                window.sendEvent(event)
-            }
-        }
+        let paletteRow = try XCTUnwrap(row, "the tree mounted no Palette row in any scroll position")
+        table.selectRowIndexes(IndexSet(integer: paletteRow), byExtendingSelection: false)
         pump(0.05)
     }
 
@@ -745,42 +469,27 @@ final class PaletteWallDoorTests: XCTestCase {
 
 // MARK: - Probes
 
-/// The door and the wall's observer over one box, wired the way `ProjectWindow`
-/// wires them: the tree's `paletteWallTravels` and the press both come from
-/// production (`ProjectWindow.paletteWallDoorTravels` /
-/// `ProjectWindow.pressPaletteWallDoor`), and the modifier is the real one.
-/// The only thing this probe supplies is the window state, which lives in
-/// `ProjectWindow`'s `@State` and is not reachable any other way.
+/// The tree and the wall's observer over one box, wired the way `ProjectWindow`
+/// wires them: the tree writes the window subject through its own `List`
+/// selection, and the modifier is the real one.
 @MainActor
-private struct TravelProbeView: View {
+private struct DoorProbeView: View {
     let store: ProjectStore
-    let box: WallPersonaBox
+    let box: WallBox
     let treeState = BinderTreeSectionsState()
 
     var body: some View {
-        BinderView(
+        TreeHostFixture.binder(
             store: store,
-            selectedSubject: Binding(get: { box.subject },
-                                     set: { box.subject = $0 }),
-            treeState: treeState,
-            paletteWallTravels: ProjectWindow.paletteWallDoorTravels(
-                persona: box.persona),
-            onOpenPaletteWall: {
-                _ = ProjectWindow.pressPaletteWallDoor(
-                    persona: &box.persona,
-                    detailSegment: &box.detailSegment,
-                    paletteWall: &box.wall,
-                    memory: .empty)
-            })
+            subject: Binding(get: { box.subject }, set: { box.subject = $0 }),
+            treeState: treeState)
         .modifier(ProjectWindow.PaletteWallModifier(
             paletteWall: Binding(get: { box.wall }, set: { box.wall = $0 }),
             showInspector: Binding(get: { box.showInspector },
                                    set: { box.showInspector = $0 }),
             selectedPaletteCardId: Binding(get: { box.selectedCardId },
                                            set: { box.selectedCardId = $0 }),
-            selectedSubject: Binding(get: { box.subject },
-                                     set: { box.subject = $0 }),
-            persona: box.persona))
+            subject: box.subject))
     }
 }
 
@@ -799,50 +508,31 @@ private struct BothOpenProbeView: View {
             ProjectSearchView(store: store)
                 .frame(width: 160)
             PaletteWallCentre(store: store, selectedPaletteCardId: .constant(nil),
-                              onClose: onCloseWall, persona: .author)
+                              onClose: onCloseWall)
         }
     }
 }
 
-/// The window state the wall's persona rule reads and writes, held outside the
-/// view so a test can drive the persona the way any of its three production
-/// writers does. At file scope because `@Observable` cannot expand inside a
-/// `private` nested type.
+/// The window state the wall's rule reads and writes, held outside the view
+/// so a test can drive the subject the way any of its writers does. At file
+/// scope because `@Observable` cannot expand inside a `private` nested type.
 @Observable
 @MainActor
-final class WallPersonaBox {
-    var persona: Persona = .author
-    var detailSegment: DetailSegment = .inspector
+final class WallBox {
+    var subject: WindowSubject = .book
     /// The window's `PaletteWallState`, whole — what `PaletteWallModifier`
-    /// binds to. The three accessors below read and write its fields, so the
-    /// tests can say what they are about.
+    /// binds to.
     var wall = PaletteWallState()
-    var showsPaletteWall: Bool {
-        get { wall.showsWall }
-        set { wall.showsWall = newValue }
-    }
-    /// The travel token (Task 4): armed by the door pressed in Plan, consumed
-    /// by `PaletteWallModifier`'s persona observer once the switch has landed.
-    var wallTravelPending: Bool {
-        get { wall.travelPending }
-        set { wall.travelPending = newValue }
-    }
-    var stash: Bool? {
-        get { wall.inspectorWasVisibleBefore }
-        set { wall.inspectorWasVisibleBefore = newValue }
-    }
     var showInspector = true
     var selectedCardId: String?
-    var subject: BinderSubject?
     init() {}
 }
 
 /// The REAL `ProjectWindow.PaletteWallModifier`, applied to nothing — the
-/// observer is the subject, and a view with content in it could close the wall
-/// for some other reason and read the same from outside.
+/// observer is the subject under test.
 @MainActor
-private struct WallPersonaProbeView: View {
-    let box: WallPersonaBox
+private struct WallProbeView: View {
+    let box: WallBox
 
     var body: some View {
         Color.clear
@@ -852,8 +542,6 @@ private struct WallPersonaProbeView: View {
                                        set: { box.showInspector = $0 }),
                 selectedPaletteCardId: Binding(get: { box.selectedCardId },
                                                set: { box.selectedCardId = $0 }),
-                selectedSubject: Binding(get: { box.subject },
-                                         set: { box.subject = $0 }),
-                persona: box.persona))
+                subject: box.subject))
     }
 }

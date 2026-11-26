@@ -83,18 +83,17 @@ final class ResearchNewTableTests: XCTestCase {
     private func verbs(_ store: ProjectStore, _ state: BinderTreeSectionsState,
                        _ subject: Subject) -> BinderTreeVerbs {
         BinderTreeVerbs(store: store, state: state,
-                        selectedSubject: Binding(get: { subject.value }, set: { subject.value = $0 }))
+                        subject: .tree(Binding(get: { subject.value }, set: { subject.value = $0 })))
     }
 
     private func fold(for documentId: String, _ store: ProjectStore, _ state: BinderTreeSectionsState,
                       _ subject: Subject) -> BinderPieceFold {
-        BinderPieceFold(
+        TreeHostFixture.foldView(
             store: store, state: state,
-            selectedSubject: Binding(get: { subject.value }, set: { subject.value = $0 }),
+            subject: .tree(Binding(get: { subject.value }, set: { subject.value = $0 })),
             documentId: documentId,
-            fold: TreeSectionDerivation.pieceFold(
-                forDocumentId: documentId, structure: store.manifest.structure,
-                research: store.manifest.research, projectType: store.manifest.type))
+            // The verbs do not depend on what the fold draws.
+            layout: .rows([]))
     }
 
     /// Asserts `item` is a blank table — three columns, a header row and
@@ -236,16 +235,13 @@ final class ResearchNewTableTests: XCTestCase {
 
     // MARK: - Where it is not offered
 
-    /// A view-only share and Review offer no New Table — not in the header,
-    /// a row's menu or a fold — and the window's rule is the research
-    /// centre's own.
-    func test_aViewOnlyShareAndReviewOfferNoNewTable() async throws {
-        XCTAssertTrue(BinderTreeSectionsState.offersNewTable(shareIsReadOnly: false, persona: .author))
-        XCTAssertTrue(BinderTreeSectionsState.offersNewTable(shareIsReadOnly: false, persona: .plan))
-        XCTAssertFalse(BinderTreeSectionsState.offersNewTable(shareIsReadOnly: true, persona: .author),
+    /// A view-only share offers no New Table — not in the header, a row's
+    /// menu or a fold. Read-through never takes it away: making a table
+    /// damages nothing (shell read-through Task 4).
+    func test_aViewOnlyShareOffersNoNewTable() async throws {
+        XCTAssertTrue(BinderTreeSectionsState.offersNewTable(shareIsReadOnly: false))
+        XCTAssertFalse(BinderTreeSectionsState.offersNewTable(shareIsReadOnly: true),
                        "a view-only share")
-        XCTAssertFalse(BinderTreeSectionsState.offersNewTable(shareIsReadOnly: false, persona: .review),
-                       "Review")
 
         let store = try await collection()
         let piece = try await store.addLoosePiece(title: "Alpha", format: .markdown)
@@ -347,7 +343,7 @@ final class ResearchNewTableTests: XCTestCase {
     @MainActor
     final class WindowBox {
         var control = EditorControl()
-        var persona: Persona = .author
+        var readThrough = ReadThroughGate.writing
     }
 
     /// The tree wired as `ProjectWindow` wires it.
@@ -359,14 +355,14 @@ final class ResearchNewTableTests: XCTestCase {
             Color.clear.modifier(FigureSectionWiring(
                 store: store, documentStore: store.documentStore, listing: FigureListingModel(),
                 treeState: tree, figureWindows: nil, typography: .defaults,
-                control: box.control, persona: box.persona))
+                control: box.control, readThrough: box.readThrough))
         }
     }
 
     /// **The window tells the tree** (`FigureSectionWiring`): a tree no
-    /// window has told offers nothing; a writable Author window offers New
-    /// Table; a view-only share and Review take it away, and lifting them
-    /// gives it back.
+    /// window has told offers nothing; a writable window offers New Table; a
+    /// view-only share takes it away and lifting it gives it back; a piece in
+    /// read-through never does.
     func test_theWindowsWiringOffersNewTableOnlyWhereTheGridCouldEditIt() async throws {
         let store = try await novel()
         let tree = BinderTreeSectionsState()
@@ -386,9 +382,10 @@ final class ResearchNewTableTests: XCTestCase {
         let back = await pumpUntil(deadline: 5) { tree.offersNewTable }
         XCTAssertTrue(back)
 
-        box.persona = .review
-        let reviewHides = await pumpUntil(deadline: 5) { !tree.offersNewTable }
-        XCTAssertTrue(reviewHides, "Review hides it")
+        box.readThrough = ReadThroughGateFixture.gate(pieces: [ReadThroughGateFixture.pieceA])
+        _ = await pumpUntil(deadline: 5) { tree.figureReadThrough == box.readThrough }
+        XCTAssertEqual(tree.figureReadThrough, box.readThrough, "premise: the gate reached the tree")
+        XCTAssertTrue(tree.offersNewTable, "a piece in read-through still offers New Table")
         FigureSectionWiring.attach(tree, to: nil)
     }
 }

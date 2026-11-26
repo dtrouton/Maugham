@@ -29,6 +29,13 @@ struct TranslationRoundActions {
     /// `refused(sentence)` — it did not, in its own words.
     enum Outcome: Equatable {
         case done(TranslationRound?, String)
+        /// **The verb filed a ruling, and this is where it went** — read off
+        /// the write (`RulingPerformer.rule`'s `FiledDestination`), never a
+        /// literal (shell p4 Task 6; ADR 0037's "Not yet built"). The surface
+        /// says it through `FiledUnder` from its own faces and links to the
+        /// Brief it names; the sentence is the verb's own, for a surface with
+        /// no filed line.
+        case filed(TranslationRound?, FiledDestination, String)
         case refused(String)
     }
 
@@ -38,14 +45,18 @@ struct TranslationRoundActions {
 
     /// "Keep mine": a translator's note against the paragraph, in the writer's
     /// own instruction and with the home they chose.
-    /// `(round, paragraphId, instruction, home)`.
-    var keepMine: (TranslationRound, String, String, TranslatorsNote.Home) async -> Outcome
-        = { _, _, _, _ in .refused(TranslationRoundReport.notWired) }
+    /// `(round, paragraphId, instruction, home, settling)` — `settling` is the
+    /// departure it answers, which the filing settles (controller's ruling,
+    /// shell p4 Task 6 fix round: filing settles a change as Fine does); a
+    /// departure already settled is refused before anything is filed.
+    var keepMine: (TranslationRound, String, String, TranslatorsNote.Home, String?) async -> Outcome
+        = { _, _, _, _, _ in .refused(TranslationRoundReport.notWired) }
 
     /// "Make it a rule": the sentence becomes doctrine for this edition.
-    /// `(round, text)`.
-    var makeRule: (TranslationRound, String) async -> Outcome
-        = { _, _ in .refused(TranslationRoundReport.notWired) }
+    /// `(round, text, settling)` — `settling` as for Keep mine; nil from a
+    /// disagreement row, which settles no departure.
+    var makeRule: (TranslationRound, String, String?) async -> Outcome
+        = { _, _, _ in .refused(TranslationRoundReport.notWired) }
 
     /// The author sides with the translator: the query they minted is settled.
     /// `(round, annotationId)`.
@@ -67,11 +78,13 @@ struct TranslationRoundActions {
     var readersRight: (TranslationRound, String, String, String, String) async -> Outcome
         = { _, _, _, _, _ in .refused(TranslationRoundReport.notWired) }
 
-    /// A glossary proposal, by its index into `round.glossaryProposals`.
-    var adopt: (TranslationRound, Int) async -> Outcome
+    /// A glossary proposal, by its `identity` (term and rendering), resolved
+    /// against the record as it stands at the write — never a position a
+    /// surface held (shell p4 Task 6 fix round).
+    var adopt: (TranslationRound, String) async -> Outcome
         = { _, _ in .refused(TranslationRoundReport.notWired) }
 
-    var skip: (TranslationRound, Int) async -> Outcome
+    var skip: (TranslationRound, String) async -> Outcome
         = { _, _ in .refused(TranslationRoundReport.notWired) }
 
     /// A plain reply on a translator's open question. `(round, annotation, text)`.
@@ -221,37 +234,88 @@ extension TranslationRoundActions {
                            world: DeclaredWorldStore?) -> TranslationRoundActions {
         var actions = TranslationRoundActions()
 
-        // The ledger rewrite the three record-changing verbs share. The round
-        // is a VALUE the surface has been holding, so `update` is what decides
-        // whether the ring still holds it — and its `roundGone` sentence says
-        // so in the writer's terms rather than failing silently.
-        func record(_ round: TranslationRound) -> String? {
+        // **The record verbs' one write: a read-modify-write of the round AS
+        // THE LEDGER HOLDS IT NOW** (shell p4 Task 6 fix round, review C1).
+        // The round the surface holds is only the key — language, piece,
+        // number — so two verbs pressed over one stale copy each change their
+        // own field and neither undoes the other. A write is announced
+        // (`.maughamTranslationRoundChanged`, project-scoped, tripwire 21) so
+        // the tree's mark, Status and every open list or report read again.
+        let rounds = TranslationRoundStore(projectURL: projectURL)
+        //
+        // **The ledger is decoded and written off the main actor** (fix round
+        // 2, N5: a 200-chapter ledger is ~3 MB), **on the project's one
+        // ledger queue, in the order pressed** (fix round 3): enqueued here,
+        // on the main actor, at the press, so a second verb on another row,
+        // the pipeline's append and an MCP read are each before or after it
+        // — never between its load and its write. The announcement is posted
+        // on the main actor once the write has landed.
+        func mutate(_ round: TranslationRound,
+                    _ change: @escaping @Sendable (inout TranslationRound) throws -> Void)
+        async -> Result<TranslationRound, Error> {
+            let result: Result<TranslationRound, Error>
             do {
-                try TranslationRoundStore(projectURL: projectURL).update(round)
-                return nil
+                result = .success(try await rounds.mutateInOrder(
+                    language: round.language, docId: round.docId, number: round.number, change))
             } catch {
-                return error.localizedDescription
+                result = .failure(error)
+            }
+            if case .success = result { MaughamEvent.postTranslationRoundChanged(projectURL: projectURL) }
+            return result
+        }
+        /// The round as it stands, for a verb that must decide before it
+        /// files — read on the ledger queue, behind every write already asked.
+        func current(_ round: TranslationRound) async -> TranslationRound? {
+            await rounds.recordInOrder(language: round.language, docId: round.docId, number: round.number)
+        }
+        /// Whether `departureId` is still a change to look at in the stored
+        /// round — nil when the round or the departure is gone.
+        func stillToLookAt(_ round: TranslationRound, _ departureId: String) async -> Bool? {
+            guard let stored = await current(round),
+                  let departure = stored.departures.first(where: { $0.id == departureId })
+            else { return nil }
+            return EditionStatusRows.isToLookAt(departure)
+        }
+        /// **A filing's outcome, settling `departureId`**: dismissed AND
+        /// ruled. Filed but not settled says so in words (fix round 2, N3),
+        /// never `.filed` over a change still listed that a second press
+        /// would file again.
+        func settled(_ round: TranslationRound, _ departureId: String?,
+                     _ destination: FiledDestination, _ sentence: String) async -> Outcome {
+            guard let departureId else { return .filed(nil, destination, sentence) }
+            switch await mutate(round, { stored in
+                guard let index = stored.departures.firstIndex(where: { $0.id == departureId })
+                else { throw TranslationRoundVerbRefusal.rowGone }
+                stored.departures[index].dismissed = true
+                stored.departures[index].ruled = true
+            }) {
+            case .success(let written): return .filed(written, destination, sentence)
+            case .failure(let error):
+                return .refused(TranslationRoundReport.filedButNotSettled(reason: error.localizedDescription))
             }
         }
 
         // MARK: Fine
 
         actions.dismiss = { round, departureId in
-            var updated = round
-            guard let index = updated.departures.firstIndex(where: { $0.id == departureId })
-            else { return .refused(TranslationRoundReport.rowGone) }
             // **Beside the translator's fact, never over it.** `outcome` holds
             // what the translator did — the rewrite, the reason they declined —
             // and Fine is offered on every row, so writing the disposition there
             // would erase a before/after or a decline reason on one click.
-            updated.departures[index].dismissed = true
-            if let refusal = record(updated) { return .refused(refusal) }
-            return .done(updated, TranslationRoundReport.dismissedLine)
+            switch await mutate(round, { stored in
+                guard let index = stored.departures.firstIndex(where: { $0.id == departureId })
+                else { throw TranslationRoundVerbRefusal.rowGone }
+                stored.departures[index].dismissed = true
+            }) {
+            case .success(let written): return .done(written, TranslationRoundReport.dismissedLine)
+            case .failure(TranslationRoundVerbRefusal.rowGone): return .refused(TranslationRoundReport.rowGone)
+            case .failure(let error): return .refused(error.localizedDescription)
+            }
         }
 
         // MARK: Keep mine
 
-        actions.keepMine = { [weak store, weak world] round, paragraphId, instruction, home in
+        actions.keepMine = { [weak store, weak world] round, paragraphId, instruction, home, settling in
             guard let store else { return .refused(TranslationRoundReport.notWired) }
             let words = instruction.trimmingCharacters(in: .whitespacesAndNewlines)
             // The translator's-note voice, because this IS that act reached
@@ -259,9 +323,28 @@ extension TranslationRoundActions {
             // to a translator, and a blank directive would be briefed to every
             // later round as though it did.
             guard !words.isEmpty else { return .refused(TranslatorsNoteCopy.emptyRefusal) }
+            // A change already settled — here or on another surface — files
+            // nothing a second time.
+            // **Claimed first, before any await, then checked against the
+            // stored round** (fix round 2, N3): a second press anywhere in
+            // this app finds the claim; one after the first ends finds the
+            // change settled.
+            let claim = settling.map { TranslationRoundActions.claimKey(round, "departure/" + $0) }
+            if let claim, !TranslationRoundActions.claim(claim) {
+                return .refused(TranslationRoundReport.alreadySettledLine)
+            }
+            defer { claim.map(TranslationRoundActions.release) }
+            if let settling {
+                switch await stillToLookAt(round, settling) {
+                case nil: return .refused(TranslationRoundReport.rowGone)
+                case false?: return .refused(TranslationRoundReport.alreadySettledLine)
+                case true?: break
+                }
+            }
             let (kind, scope) = TranslatorsNote.destination(home: home, docId: round.docId)
+            let destination: FiledDestination
             do {
-                try await RulingPerformer.rule(
+                destination = try await RulingPerformer.rule(
                     Ruling.directiveText(paragraphId: paragraphId, words),
                     provenance: TranslationRoundReport.provenance(round: round,
                                                                   verb: "keep mine"),
@@ -270,18 +353,31 @@ extension TranslationRoundActions {
             } catch {
                 return .refused(error.localizedDescription)
             }
-            return .done(nil, TranslationRoundReport.keptLine(home: home))
+            return await settled(round, settling, destination, TranslationRoundReport.keptLine(home: home))
         }
 
         // MARK: Make it a rule
 
-        actions.makeRule = { [weak store] round, text in
+        actions.makeRule = { [weak store] round, text, settling in
             guard let store else { return .refused(TranslationRoundReport.notWired) }
+            let claim = settling.map { TranslationRoundActions.claimKey(round, "departure/" + $0) }
+            if let claim, !TranslationRoundActions.claim(claim) {
+                return .refused(TranslationRoundReport.alreadySettledLine)
+            }
+            defer { claim.map(TranslationRoundActions.release) }
+            if let settling {
+                switch await stillToLookAt(round, settling) {
+                case nil: return .refused(TranslationRoundReport.rowGone)
+                case false?: return .refused(TranslationRoundReport.alreadySettledLine)
+                case true?: break
+                }
+            }
+            let destination: FiledDestination
             do {
                 // Unanchored on purpose: a rule made from a round is doctrine
                 // for the edition, not a directive about one paragraph. An
                 // empty one is refused by `RulingPerformer` in its own words.
-                try await RulingPerformer.rule(
+                destination = try await RulingPerformer.rule(
                     text,
                     provenance: TranslationRoundReport.provenance(round: round,
                                                                   verb: "make it a rule"),
@@ -290,7 +386,12 @@ extension TranslationRoundActions {
             } catch {
                 return .refused(error.localizedDescription)
             }
-            return .done(nil, TranslationRoundReport.ruledLine(language: round.language))
+            // **Where it went, read off the write** (shell plan 3 Task 6): the
+            // report draws this sentence under the row's own section.
+            return await settled(round, settling, destination, FiledUnder.sentence(
+                destination, faces: .edition(language: round.language),
+                structure: store.manifest.structure, projectType: store.manifest.type,
+                firstReaderName: FirstReaderRuling.readerName(in: store.manifest)))
         }
 
         // MARK: The translator was right
@@ -358,21 +459,36 @@ extension TranslationRoundActions {
 
         // MARK: Glossary
 
-        actions.adopt = { [weak store] round, index in
+        actions.adopt = { [weak store] round, identity in
             guard let store else { return .refused(TranslationRoundReport.notWired) }
-            guard round.glossaryProposals.indices.contains(index) else {
-                return .refused(TranslationRoundReport.rowGone)
+            // **Decided over the STORED record** (review C1): a proposal
+            // already adopted or skipped — here, in the report, on another
+            // Mac — files no second glossary ruling. Every copy of the pair
+            // is one proposal (fix round 2, N2): one still open answers.
+            // **Claimed first, before any await** (fix round 2, N3): a second
+            // press — this surface, the report, another window — finds the
+            // claim; one after the first ends finds the proposal answered.
+            let claim = TranslationRoundActions.claimKey(round, "glossary/" + identity)
+            guard TranslationRoundActions.claim(claim) else {
+                return .refused(TranslationRoundReport.alreadyAnsweredLine)
             }
-            let proposal = round.glossaryProposals[index]
+            defer { TranslationRoundActions.release(claim) }
+            guard let stored = await current(round),
+                  stored.glossaryProposals.contains(where: { $0.identity == identity })
+            else { return .refused(TranslationRoundReport.rowGone) }
+            guard let proposal = stored.glossaryProposals.first(where: {
+                $0.identity == identity && ResolveEditionItems.isOpen($0)
+            }) else { return .refused(TranslationRoundReport.alreadyAnsweredLine) }
             guard !proposal.term.trimmingCharacters(in: .whitespaces).isEmpty,
                   !proposal.rendering.trimmingCharacters(in: .whitespaces).isEmpty
             else { return .refused(TranslationRoundReport.emptyGlossaryTerm) }
+            let destination: FiledDestination
             do {
                 // `Ruling.Provenance.glossary`, not the round's own line: a
                 // glossary entry is read back BY SHAPE (`Ruling.glossary`) and
                 // its provenance is the one word every briefing recognises it
                 // by, whichever round proposed it.
-                try await RulingPerformer.rule(
+                destination = try await RulingPerformer.rule(
                     Ruling.glossaryText(term: proposal.term,
                                         rendering: proposal.rendering,
                                         note: proposal.reason),
@@ -382,23 +498,39 @@ extension TranslationRoundActions {
             } catch {
                 return .refused(error.localizedDescription)
             }
-            var updated = round
-            updated.glossaryProposals[index].adopted = true
-            if let refusal = record(updated) {
+            switch await mutate(round, { stored in
+                let matches = stored.glossaryProposals.indices.filter {
+                    stored.glossaryProposals[$0].identity == identity
+                }
+                guard !matches.isEmpty else { throw TranslationRoundVerbRefusal.rowGone }
+                for index in matches { stored.glossaryProposals[index].adopted = true }
+            }) {
+            case .success(let written):
+                return .filed(written, destination, TranslationRoundReport.adoptedLine)
+            case .failure(let error):
                 return .refused(TranslationRoundReport.adoptedButNotRecorded(
-                    term: proposal.term, reason: refusal))
+                    term: proposal.term, reason: error.localizedDescription))
             }
-            return .done(updated, TranslationRoundReport.adoptedLine)
         }
 
-        actions.skip = { round, index in
-            guard round.glossaryProposals.indices.contains(index) else {
-                return .refused(TranslationRoundReport.rowGone)
+        actions.skip = { round, identity in
+            switch await mutate(round, { stored in
+                let matches = stored.glossaryProposals.indices.filter {
+                    stored.glossaryProposals[$0].identity == identity
+                }
+                guard !matches.isEmpty else { throw TranslationRoundVerbRefusal.rowGone }
+                // An adopted proposal is a ruling already filed: Skip over it
+                // would say the opposite of what the brief holds.
+                guard !matches.contains(where: { stored.glossaryProposals[$0].adopted })
+                else { throw TranslationRoundVerbRefusal.alreadyAnswered }
+                for index in matches { stored.glossaryProposals[index].skipped = true }
+            }) {
+            case .success(let written): return .done(written, TranslationRoundReport.skippedLine)
+            case .failure(TranslationRoundVerbRefusal.rowGone): return .refused(TranslationRoundReport.rowGone)
+            case .failure(TranslationRoundVerbRefusal.alreadyAnswered):
+                return .refused(TranslationRoundReport.alreadyAnsweredLine)
+            case .failure(let error): return .refused(error.localizedDescription)
             }
-            var updated = round
-            updated.glossaryProposals[index].skipped = true
-            if let refusal = record(updated) { return .refused(refusal) }
-            return .done(updated, TranslationRoundReport.skippedLine)
         }
 
         // MARK: Answering a translator
@@ -445,4 +577,29 @@ extension TranslationRoundActions {
 
         return actions
     }
+}
+
+/// Why a record verb refused inside its read-modify-write (shell p4 Task 6
+/// fix round): the row is no longer in the stored round, or it was already
+/// answered there.
+enum TranslationRoundVerbRefusal: Error, Equatable {
+    case rowGone
+    case alreadyAnswered
+}
+
+// MARK: - One filing at a time (fix round 2, N3)
+
+extension TranslationRoundActions {
+    /// The filings in flight, by round and row: a verb that files across an
+    /// `await` claims its row first, so a second press anywhere in this app —
+    /// the list, the report, another window — files nothing while it runs.
+    @MainActor private static var inFlight: Set<String> = []
+
+    static func claimKey(_ round: TranslationRound, _ row: String) -> String {
+        "\(round.language.lowercased())/\(round.docId)#\(round.number)/\(row)"
+    }
+
+    /// True when the claim was taken; false when a filing already holds it.
+    @MainActor static func claim(_ key: String) -> Bool { inFlight.insert(key).inserted }
+    @MainActor static func release(_ key: String) { inFlight.remove(key) }
 }

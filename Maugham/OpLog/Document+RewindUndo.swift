@@ -202,7 +202,7 @@ extension Document {
                         try await doc.appendTaskRewindCloser(
                             originalRewindOpId: originalRewindOpId)
                     } catch {
-                        documentLog.error("restoreToOpUndoable undo: task-window closer append failed (\(error.localizedDescription, privacy: .public)) — pane tasks stay rewound")
+                        documentLog.error("restoreToOpUndoable undo: to-do window closer append failed (\(error.localizedDescription, privacy: .public)) — project to-dos stay rewound")
                     }
                 }
                 // Re-accept each reopened suggestion status-only (empty changes;

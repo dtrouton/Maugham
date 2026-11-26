@@ -177,6 +177,29 @@ final class RulingsSectionTests: XCTestCase {
         XCTAssertEqual(comps.year, 2026)
     }
 
+    /// `render` writes a dated ruling with no provenance as `text — ruled
+    /// <date>` (no comma); it must read back DATED, with no provenance.
+    func test_aDatedRulingWithNoProvenanceRoundTripsDated() throws {
+        let date = try makeDate(day: 7, month: 8, year: 2026)
+        let md = RulingsSection.render(
+            essay: "Essay.", rulings: [Ruling(id: "", text: "Kelly never lies", ruledOn: date, provenance: nil)])
+        XCTAssertTrue(md.contains("- Kelly never lies — ruled 7 Aug 2026\n"), "premise: the written form")
+        let rulings = RulingsSection.parse(md).rulings
+        XCTAssertEqual(rulings.count, 1)
+        XCTAssertEqual(rulings.first?.text, "Kelly never lies")
+        XCTAssertEqual(rulings.first?.ruledOn, date)
+        XCTAssertNil(rulings.first?.provenance)
+        XCTAssertEqual(RulingsSection.render(essay: "Essay.", rulings: rulings), md, "and renders back byte-identical")
+        // A hand-typed comma-less line in the file (not from `render`) is dated too.
+        let typed = RulingsSection.parse("E.\n\n## Rulings\n\n- ¶zzzz: one sentence — ruled 28 Aug 2026\n").rulings
+        XCTAssertEqual(typed.first?.ruledOn, try makeDate(day: 28, month: 8, year: 2026))
+        XCTAssertNil(typed.first?.provenance)
+        // CONTROL: a `ruled` suffix whose remainder is not a date stays provenance.
+        let notADate = RulingsSection.parse("E.\n\n## Rulings\n\n- K — ruled by Denver\n").rulings
+        XCTAssertNil(notADate.first?.ruledOn)
+        XCTAssertEqual(notADate.first?.provenance, "ruled by Denver")
+    }
+
     func test_parse_emDashSuffixThatIsNotADate_becomesWholeProvenanceNilDate() throws {
         let md = """
         Essay.

@@ -179,8 +179,8 @@ final class ProductionRoleStoreTests: XCTestCase {
 
     /// **A tag that is still not a language tag once lowercased is refused at
     /// the store rather than by each caller** (issue #43, F-F). Every shipped
-    /// caller lowercases and validates upstream today — `DepartmentPaneHost`
-    /// `.addLanguage` and `DepartmentCastSheet` both do — so this guard is
+    /// caller lowercases and validates upstream today — `EditionCastVerbs`
+    /// `.addLanguage` and `EditionCastSheet` both do — so this guard is
     /// unreachable through the surfaces as they stand. That is the reason it
     /// belongs here and not there: the tag flows on into `editions/<lang>.md`,
     /// where a path character would escape the folder, and the next caller to
@@ -221,7 +221,7 @@ final class ProductionRoleStoreTests: XCTestCase {
     /// The project this protects is the one that needs it most: a manifest
     /// hand-edited, or written by a build without the guard, carrying a tag no
     /// lowercasing rescues. The desk's Rename reaches this verb
-    /// (`DepartmentPaneHost` → `nameTranslator` → `translatorRole`), so gating
+    /// (`EditionCastVerbs.nameCast` → `translatorRole`), so gating
     /// before the find would refuse to hand the row back and leave the writer
     /// no way to repair it from inside the app — a validation that turns a
     /// recoverable state into a permanent one.

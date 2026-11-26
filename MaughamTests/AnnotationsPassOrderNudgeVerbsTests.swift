@@ -9,15 +9,16 @@ import MaughamCore
 /// Denver's smoke: the queue's advisory nudge — "Structural still open on
 /// this piece" — named a problem with no verb attached. Closing the earlier
 /// pass meant leaving the queue for the Inspector's ladder or the board's
-/// chip context menu. `PassOrderNudgeRow` (`AnnotationsPaneStrips.swift`) now draws
+/// chip context menu. `PassOrderNudgeRow` (`Resolve/ResolveHead.swift` since shell plan 2 Task 5) now draws
 /// two small trailing buttons, Mark done and Skip, that write the NAMED
-/// earlier pass's state through `AnnotationsPane.onSetPassState` — the same
+/// earlier pass's state through `ResolvePane.onSetPassState` — the same
 /// closure-threading shape `onSetActivePass` already uses, landing at the
 /// same `ProjectWindow` call site that writes the board's chip verb.
 ///
-/// This suite mounts the real `AnnotationsPane`, wired exactly as
-/// `ProjectWindow` wires it, and checks that the nudge draws its caption and
-/// both verbs. What each verb WRITES is asserted without a window, against
+/// This suite mounts the real `ResolvePane` (To resolve's head draws the
+/// nudge since shell plan 2 Task 7 deleted the Annotations pane), wired
+/// exactly as `RightColumn` wires it, and checks that the nudge draws its
+/// caption and both verbs. What each verb WRITES is asserted without a window, against
 /// `PassOrderAdvice` itself: the press-and-poll cases that drove the buttons
 /// through `accessibilityPerformPress` and waited on the manifest were the
 /// flaky shape, and were culled.
@@ -41,6 +42,7 @@ final class AnnotationsPassOrderNudgeVerbsTests: XCTestCase {
         let store: ProjectStore
         let documentStore: DocumentStore
         let document: Document
+        let pieceId: String
     }
 
     /// A real project on disk with one chapter open — presets' four passes,
@@ -67,29 +69,32 @@ final class AnnotationsPassOrderNudgeVerbsTests: XCTestCase {
         }
 
         return Harness(store: store, documentStore: documentStore,
-                       document: document)
+                       document: document, pieceId: item.id)
     }
 
     // MARK: - Mounting, wired exactly as `ProjectWindow` wires it
 
     /// `onSetPassState` here is `ProjectWindow`'s own closure, byte for byte
     /// (the `Task { try? await store.setPassState(...) }` at its
-    /// `DetailPaneToggle(...)` call site) — so a pass with this wiring but no
+    /// `RightColumn` mount) — so a pass with this wiring but no
     /// production caller would still go undetected. It doesn't: this is the
     /// production wiring, mounted directly.
     private func mountPane(_ fx: Harness) -> NSWindow {
-        let view = AnnotationsPane(
-            document: fx.document,
+        let view = ResolvePane(
             store: fx.store,
             documentStore: fx.documentStore,
-            scope: .constant(.document),
-            onTravel: { _ in },
-            orchestrator: nil,
+            subject: WindowSubject(open: .item(fx.pieceId), faces: .item(fx.pieceId)),
+            script: nil,
             diagnostics: nil,
-            onSetActivePass: { _, _ in },
+            orchestrator: nil,
+            world: nil,
+            compilerModel: .standard,
+            onCompilerModelChange: { _ in },
             onSetPassState: { pieceId, passId, state in
                 Task { try? await fx.store.setPassState(id: pieceId, passId: passId, state) }
-            })
+            },
+            onSetActivePass: { _, _ in },
+            request: .constant(nil), onSelectionShown: { _ in }, figureTree: nil)
             .environment(UserPreferences(
                 defaults: UserDefaults(suiteName: "PassOrderNudgeVerbs-\(UUID())")!))
 
@@ -162,7 +167,7 @@ final class AnnotationsPassOrderNudgeVerbsTests: XCTestCase {
         let fx = try await makeHarness()
         let window = mountPane(fx)
 
-        XCTAssertTrue(caption(in: window, contains: "Structural still open on this piece"),
+        XCTAssertTrue(caption(in: window, contains: "Structural still open on this chapter"),
                       "premise: the nudge must be showing before its buttons are")
         _ = try button(labelled: "Mark done", in: window)
         _ = try button(labelled: "Skip", in: window)

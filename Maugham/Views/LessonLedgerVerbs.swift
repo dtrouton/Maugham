@@ -115,18 +115,26 @@ enum LessonLedgerVerbs {
     /// already standing returns having written nothing — a success, because
     /// the writer's sentence IS in the ledger and reporting an error over the
     /// state they asked for would be the app arguing with them.
+    ///
+    /// Returns where the heading stands: the ledger the write went to, or —
+    /// for a heading already standing — the ledger it already stands in.
+    @discardableResult
     static func keepAsLesson(
         _ heading: String, provenance: String,
         store: ProjectStore, world: DeclaredWorldStore?
-    ) async throws {
+    ) async throws -> FiledDestination {
         let standing = LessonsLedger.parse(ledgerText(store: store) ?? "").entries
         guard !standing.contains(where: {
             LessonsLedger.matches(heading, heading: $0.heading)
-        }) else { return }
-        try await RulingPerformer.rule(
+        }) else { return ledger }
+        return try await RulingPerformer.rule(
             heading, provenance: provenance,
             kind: .lessons, forScope: .project, store: store, world: world)
     }
+
+    /// The ledger's own place, for a heading that already stands there:
+    /// nothing was written (`alreadyStood`).
+    static let ledger = FiledDestination(kind: .lessons, scope: .project, alreadyStood: true)
 
     /// File a habit as a settled choice — the negative space of a lesson (spec
     /// §6). The marker is `LessonsLedger.choiceText`'s and never a second
@@ -157,16 +165,17 @@ enum LessonLedgerVerbs {
     /// deliberately not caught here: those are different rows saying different
     /// things, and collapsing them would silently swallow the writer moving a
     /// habit from one to the other.
+    @discardableResult
     static func makeChoice(
         _ heading: String, provenance: String,
         store: ProjectStore, world: DeclaredWorldStore?
-    ) async throws {
+    ) async throws -> FiledDestination {
         guard !heading.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         else { throw RulingFailure.emptyRuling }
         let standing = LessonsLedger.choices(in: ledgerText(store: store) ?? "")
         guard !standing.contains(where: { LessonsLedger.matches(heading, heading: $0) })
-        else { return }
-        try await RulingPerformer.rule(
+        else { return ledger }
+        return try await RulingPerformer.rule(
             LessonsLedger.choiceText(heading), provenance: provenance,
             kind: .lessons, forScope: .project, store: store, world: world)
     }
@@ -182,15 +191,21 @@ enum LessonLedgerVerbs {
     /// ledger as a whole one. The count of what landed rides on the error
     /// because the act is plural — a writer told only that it failed would not
     /// know whether pressing again duplicates what already went in.
+    /// Returns where the choices stand (nil for no headings): "already
+    /// stood" only when every one of them did.
+    @discardableResult
     static func makeChoices(
         _ headings: [String], provenance: String,
         store: ProjectStore, world: DeclaredWorldStore?
-    ) async throws {
+    ) async throws -> FiledDestination? {
         var landed = 0
+        var filed: FiledDestination?
         for heading in headings {
             do {
-                try await makeChoice(
+                let one = try await makeChoice(
                     heading, provenance: provenance, store: store, world: world)
+                // "Already in" only when every choice already stood.
+                if filed == nil || filed?.alreadyStood == true { filed = one }
                 landed += 1
             } catch {
                 throw LessonLedgerFailure.someChoicesFiled(
@@ -198,6 +213,7 @@ enum LessonLedgerVerbs {
                     reason: error.localizedDescription)
             }
         }
+        return filed
     }
 
     /// **Retire a lesson in place, dated** (spec §6).
@@ -381,7 +397,7 @@ extension LessonOffer {
     /// host is drawing the letter** — `TurnClauseOffer.handler`'s shape, one
     /// verb per offer instead of one.
     ///
-    /// Author's Diagnostics pane and Review's round cockpit both draw
+    /// The Diagnostics pane and the round cockpit both draw
     /// `LetterSection`, and each of them could spell three `Task { try await
     /// … }` closures of its own. Three closures × two hosts is six places to
     /// get the provenance, the date or the refusal channel subtly different,
@@ -407,13 +423,14 @@ extension LessonOffer {
     /// not read under the first one's refusal.
     @MainActor
     static func handlers(
-        letter: Letter, run: CompilerRun?,
+        letter: Letter, run: CompilerRun?, docId: String?,
         store: ProjectStore?, world: DeclaredWorldStore?,
         voice: String,
         postureOf: (Statement.Kind, Statement.Scope) -> Posture,
         now: @escaping () -> Date = Date.init,
         onFiled: @escaping () -> Void,
-        onFailure: @escaping (String?) -> Void
+        onFailure: @escaping (String?) -> Void,
+        filedUnder: @escaping (FiledDestination) -> Void = { _ in }
     ) -> LessonLedgerHandlers {
         let ledgerText = store.flatMap { LessonLedgerVerbs.ledgerText(store: $0) }
         // **No press where this device may not write the ledger** (P3c Task
@@ -428,16 +445,20 @@ extension LessonOffer {
                 onAllChoices: nil, onRetire: nil)
         }
         let provenance = LessonLedgerVerbs.provenance(
-            voice: voice, lane: LetterKeep.laneLine(for: run, store: store))
+            voice: voice, lane: LetterKeep.laneLine(for: run, docId: docId, store: store))
         // One wrapper for all three, so the refusal channel, the log line and
         // the re-read cannot be wired differently for one verb than another.
-        func file(_ what: String, _ write: @escaping () async throws -> Void) -> () -> Void {
+        // `write` hands back where it filed, nil for a verb that files
+        // nothing new (Retire edits a row in place).
+        func file(_ what: String,
+                  _ write: @escaping () async throws -> FiledDestination?) -> () -> Void {
             return {
                 onFailure(nil)
                 Task {
                     do {
-                        try await write()
+                        let destination = try await write()
                         onFiled()
+                        if let destination { filedUnder(destination) }
                     } catch {
                         documentLog.error("\u{201C}\(what, privacy: .public)\u{201D} refused: \(error.localizedDescription, privacy: .public)")
                         onFailure(error.localizedDescription)
@@ -449,13 +470,13 @@ extension LessonOffer {
             ledgerText: ledgerText,
             onKeepAsLesson: { habit in
                 file(LetterSection.keepAsLessonTitle) {
-                    try await LessonLedgerVerbs.keepAsLesson(
+                    return try await LessonLedgerVerbs.keepAsLesson(
                         lessonHeading(for: habit), provenance: provenance,
                         store: store, world: world)
                 }()
             },
             onAllChoices: file(LetterSection.allChoicesTitle) {
-                try await LessonLedgerVerbs.makeChoices(
+                return try await LessonLedgerVerbs.makeChoices(
                     letter.habits.map { lessonHeading(for: $0) },
                     provenance: provenance, store: store, world: world)
             },
@@ -463,6 +484,7 @@ extension LessonOffer {
                 file(LetterSection.retireTitle) {
                     try await LessonLedgerVerbs.retire(
                         heading, on: now(), store: store, world: world)
+                    return nil
                 }()
             })
     }

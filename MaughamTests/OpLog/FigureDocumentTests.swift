@@ -729,7 +729,7 @@ final class FigureDocumentTests: XCTestCase {
 
         let state = BinderTreeSectionsState()
         FigureSectionWiring.attach(state, to: documentStore)
-        let actions = BinderTreeVerbs(store: store, state: state, selectedSubject: .constant(nil)).bundle
+        let actions = BinderTreeVerbs(store: store, state: state, subject: .constant(.book)).bundle
         await actions.performFigureVerb(item)?.value
 
         XCTAssertEqual(state.pendingError, "This Mac may not make a figure here, so nothing was made.")

@@ -330,7 +330,7 @@ final class PostureSurfaceTests: XCTestCase {
         }
 
         XCTAssertEqual(said, [
-            "Couldn't change that note — this Mac can no longer answer notes in this piece."])
+            "Couldn't change that note — this Mac can no longer answer notes here."])
         XCTAssertEqual(h.doc._opLogMirror.count, before, "the undo appended nothing")
         XCTAssertEqual(annotation(h.doc, comment)?.status, .accepted)
 
@@ -344,7 +344,7 @@ final class PostureSurfaceTests: XCTestCase {
             await h.doc.awaitPendingUndoWork()
         }
         XCTAssertEqual(saidOnRedo, [
-            "Couldn't change that note — this Mac can no longer answer notes in this piece."])
+            "Couldn't change that note — this Mac can no longer answer notes here."])
         XCTAssertEqual(h.doc._opLogMirror.count, before, "the redo appended nothing")
     }
 
@@ -367,7 +367,7 @@ final class PostureSurfaceTests: XCTestCase {
         }
 
         XCTAssertEqual(said, [
-            "Couldn't change that note — this Mac can no longer answer notes in this piece."])
+            "Couldn't change that note — this Mac can no longer answer notes here."])
         XCTAssertEqual(h.doc._opLogMirror.count, before)
         XCTAssertEqual(h.doc.displayText, accepted, "the accepted words stay")
         XCTAssertEqual(annotation(h.doc, suggestion)?.status, .accepted)
@@ -379,7 +379,7 @@ final class PostureSurfaceTests: XCTestCase {
     /// permanent, so it has a sentence of its own (neither the note door's nor
     /// the restore door's).
     private static let yieldRefusal =
-        "Couldn't undo the suggestion — this Mac can't change this piece's text right now."
+        "Couldn't undo the suggestion — this Mac can't change this text right now."
 
     private func aSuggestion(_ h: Harness) async throws -> String {
         try await h.doc.addAnnotation(
@@ -673,8 +673,12 @@ final class PostureSurfaceTests: XCTestCase {
     }
 
     /// **Review focus #2.** An author of piece A, looking at B in the window,
-    /// sees A's note carry its verbs and B's carry none — side by side in the
-    /// cross-document queue — and a promotion brings B's back with no reopen.
+    /// sees neither note carry a verb in the cross-document queue: A's because
+    /// A is not the open piece (read anywhere, act only on the open piece —
+    /// shell plan 2 Task 4, Denver's 2026-11-18 ruling), B's because B's own
+    /// posture refuses it. A promotion brings B's back with no reopen, and A's
+    /// stay hidden: the open piece's row is judged by ITS posture, and no
+    /// other piece's row acts at all.
     func test_theProjectQueueJudgesEachRowByItsOwnDocument() async throws {
         let projectURL = try makeTwoPieceProject()
         let identities = beASigningMac(projectURL)
@@ -707,26 +711,38 @@ final class PostureSurfaceTests: XCTestCase {
                        "premise: not her piece")
 
         // The window shows B — the piece she may NOT answer — so a row judged
-        // by the window's posture would lose A's verbs too.
-        let view = AnnotationsPane(
-            document: docs[1], store: store, documentStore: documentStore,
-            scope: .constant(.project(focusPiece: nil)),
-            onTravel: { _ in }, orchestrator: nil, diagnostics: nil,
-            onSetActivePass: { _, _ in }, onSetPassState: { _, _, _ in })
+        // by the window's posture would lose A's verbs too. To resolve at the
+        // Book's scope (the old queue's project scope, shell plan 2 Task 7).
+        let view = ResolvePane(
+            store: store, documentStore: documentStore,
+            subject: WindowSubject(open: .item("doc-b"), faces: .project),
+            script: nil, diagnostics: nil, orchestrator: nil, world: nil,
+            compilerModel: .standard, onCompilerModelChange: { _ in },
+            onSetPassState: { _, _, _ in }, onSetActivePass: { _, _ in },
+            request: .constant(nil), onSelectionShown: { _ in }, figureTree: nil)
             .environment(UserPreferences(
                 defaults: UserDefaults(suiteName: "PostureSurface-\(UUID())")!))
         let window = TestWindow.mount(AnyView(view), size: CGSize(width: 360, height: 700))
         windows.append(window)
         pump()
 
-        XCTAssertEqual(try waitForButtons(labelled: "Got it", count: 1, in: window), 1,
-                       "A's note is answerable and B's is not, in one queue")
+        // Review M7: the zero below means something only once A's row is
+        // drawn — wait for its text first.
+        _ = try buttons(labelled: "Got it", in: window)
+        waitUntil({ ((try? self.axTexts(in: window)) ?? []).contains { $0.contains("note on doc-a") } })
+        XCTAssertTrue(try axTexts(in: window).contains { $0.contains("note on doc-a") },
+                      "premise: A's row is drawn")
+        XCTAssertEqual(try buttons(labelled: "Got it", in: window), 0,
+                       "A's note is on a piece that is not open, and B's posture refuses")
 
         try await rootChangesMyPermit(
             to: .bookAuthor, root: root, identities: identities,
             projectURL: projectURL, store: documentStore)
-        XCTAssertEqual(try waitForButtons(labelled: "Got it", count: 2, in: window), 2,
+        XCTAssertEqual(try waitForButtons(labelled: "Got it", count: 1, in: window), 1,
                        "the promotion brings B's verbs back with no reopen")
+        pump(0.3)
+        XCTAssertEqual(try buttons(labelled: "Got it", in: window), 1,
+                       "and A's stay hidden: A is not the open piece")
 
         for doc in docs { await doc.close() }
     }
@@ -768,12 +784,12 @@ final class PostureSurfaceTests: XCTestCase {
         XCTAssertTrue(menu(.settling).states.isEmpty)
     }
 
-    /// **The ladder's write is withheld where the posture forbids a ruling**,
-    /// in both inspector arms — `nil` is what draws the ladder read-only.
-    func test_theInspectorsLadderWriteFollowsThePosture() async throws {
-        let projectURL = try makeTwoPieceProject()
-        let store = try await ProjectStore.load(from: projectURL)
-        let metrics = EditorMetrics(wordCount: 0, characterCount: 0, readingMinutes: 0)
+    /// **The ladder's write is withheld where the posture forbids a ruling**
+    /// — `nil` is what draws the ladder read-only. The ladder's one host is To
+    /// resolve's head since the inspectors went (shell plan 3 Task 9), for a
+    /// piece that is open and one that is not: a pass state is a manifest
+    /// write, so the posture alone decides.
+    func test_theHeadsLadderWriteFollowsThePosture() throws {
         for (posture, offered, why) in [
             (reviewer, false, "a reviewer"),
             (piecesAuthorInB, false, "a pieces-author outside her piece"),
@@ -781,16 +797,24 @@ final class PostureSurfaceTests: XCTestCase {
             (piecesAuthorInA, true, "a pieces-author in her piece"),
             (bookAuthor, true, "a book author"),
         ] {
-            let document = InspectorView(
-                store: store, selectedItemId: "doc-a", metrics: metrics,
-                onOpenProjectSettings: {}, posture: posture)
-            let piece = PieceInspector(
-                store: store, pieceId: "doc-a", format: .markdown, posture: posture)
-            XCTAssertEqual(document.passLadderWrite(on: "doc-a") != nil, offered,
-                           "InspectorView, \(why)")
-            XCTAssertEqual(piece.passLadderWrite(on: "doc-a") != nil, offered,
-                           "PieceInspector, \(why)")
+            for open in [true, false] {
+                XCTAssertEqual(ResolveHead.offers(mayAct: open, posture: posture).rulesOnPasses,
+                               offered, "\(why), piece \(open ? "open" : "not open")")
+            }
+            XCTAssertEqual(posture.allows(.setPassState), offered,
+                           "premise: \(why) is asked of the one permission table")
         }
+        // The head hands the ladder its write only where the offer stands —
+        // and no other view mounts a ladder.
+        let head = try SourceTree.sourceOfType("ResolveHeadView", under: ["Maugham"])
+        let flat = SourceScan.codeLines(of: head).joined(separator: " ")
+            .components(separatedBy: .whitespaces).filter { !$0.isEmpty }.joined(separator: " ")
+        XCTAssertTrue(flat.contains(
+            "PassLadder( item: item, passes: passes, onSet: offers.rulesOnPasses "
+            + "? { passId, state in onSetPassState(docId, passId, state) } : nil)"),
+            "the ladder's write is the posture's offer, else nil: \(flat.prefix(400))")
+        XCTAssertEqual(try SourceTree.codeOccurrences(of: "PassLadder(").values.reduce(0, +), 1,
+                       "one host for the ladder: To resolve's head")
     }
 
     private func controls(role: String, in window: NSWindow) throws -> [AnyObject] {
@@ -860,7 +884,7 @@ final class PostureSurfaceTests: XCTestCase {
 
         func mount(_ verbs: Bool) -> NSWindow {
             let window = TestWindow.mount(AnyView(PassOrderNudgeRow(
-                pass: ReviewPass(id: "structural", name: "Structural"),
+                pass: ReviewPass(id: "structural", name: "Structural"), noun: .chapter,
                 onMarkDone: verbs ? {} : nil, onSkip: verbs ? {} : nil)),
                 size: CGSize(width: 360, height: 80))
             windows.append(window)
@@ -883,8 +907,9 @@ final class PostureSurfaceTests: XCTestCase {
             StructureItem(id: "doc-a", title: "A", type: .document, path: "manuscript/a.md"),
         ]
         let window = TestWindow.mount(AnyView(ReviewBoardPane(
-            title: "T", structure: structure, passes: [boardPass],
-            openNotes: [:], unreadableDocIds: [],
+            structure: structure, passes: [boardPass], noun: .chapter,
+            openNotes: [:], unreadableDocIds: [], openToDos: [:],
+            onOpen: { _ in }, onOpenToDos: { _ in },
             onOpenNotes: { _ in }, onNavigate: { _, _ in },
             onSetState: { _, _, _ in }, onRunRound: { _, _ in },
             posture: { _ in self.reviewer })),
@@ -1009,12 +1034,14 @@ final class PostureSurfaceTests: XCTestCase {
         let diagnostics = DiagnosticsStore(
             projectRoot: projectURL, device: DeviceSlug.make(from: "test-mac"))
         func mount(_ doc: Document) -> NSWindow {
-            let view = AnnotationsPane(
-                document: doc, store: store, documentStore: documentStore,
-                scope: .constant(.document),
-                onTravel: { _ in }, orchestrator: CompilerOrchestrator(),
-                diagnostics: diagnostics,
-                onSetActivePass: { _, _ in }, onSetPassState: { _, _, _ in })
+            // To resolve's head carries the cockpit (shell plan 2 Task 7).
+            let view = ResolvePane(
+                store: store, documentStore: documentStore,
+                subject: WindowSubject(open: .item(doc.docId), faces: .item(doc.docId)),
+                script: nil, diagnostics: diagnostics, orchestrator: CompilerOrchestrator(),
+                world: nil, compilerModel: .standard, onCompilerModelChange: { _ in },
+                onSetPassState: { _, _, _ in }, onSetActivePass: { _, _ in },
+                request: .constant(nil), onSelectionShown: { _ in }, figureTree: nil)
                 .environment(UserPreferences(
                     defaults: UserDefaults(suiteName: "PostureSurface-\(UUID())")!))
             let window = TestWindow.mount(AnyView(view), size: CGSize(width: 360, height: 700))
@@ -1072,6 +1099,49 @@ final class PostureSurfaceTests: XCTestCase {
         }
     }
 
+    /// **The edition cast's verbs ask the statement the cast belongs to**
+    /// (shell p4 Task 7): an edition's cast its brief, the designer the
+    /// visual language, Add Language the book's own statements. The book
+    /// author is offered each and the acts land; a reviewer is offered none,
+    /// and each act — asked again of the SETTLED posture — writes nothing.
+    func test_theEditionCastVerbsAskTheirStatementsPosture() async throws {
+        let h = try await makeStatementHarness()
+        let store = h.store, documentStore = h.documentStore
+        XCTAssertTrue(EditionCastVerbs.mayCast(language: "es", store: store, documentStore: documentStore))
+        XCTAssertTrue(EditionCastVerbs.mayNameTheDesigner(store: store, documentStore: documentStore))
+        XCTAssertTrue(EditionCastVerbs.mayAddLanguage(documentStore: documentStore))
+
+        try await become(.reviewer, h)
+        await documentStore.postureSettled()
+        XCTAssertFalse(EditionCastVerbs.mayCast(language: "es", store: store, documentStore: documentStore),
+                       "a reviewer is offered no cast change")
+        XCTAssertFalse(EditionCastVerbs.mayNameTheDesigner(store: store, documentStore: documentStore))
+        XCTAssertFalse(EditionCastVerbs.mayAddLanguage(documentStore: documentStore))
+        let roles = store.manifest.productionRoles
+        let added = await EditionCastVerbs.addLanguage(
+            answer: EditionCastAnswer(language: "it", name: "Calvino"),
+            store: store, documentStore: documentStore)
+        XCTAssertEqual(added, .refused(EditionCastCopy.mayNotCast))
+        let renamed = await EditionCastVerbs.confirmRename(
+            EditionCastAnswer(language: nil, name: "Borges"),
+            prompt: EditionCastVerbs.renamePrompt(language: "es", in: store.manifest),
+            store: store, documentStore: documentStore)
+        XCTAssertEqual(renamed, EditionCastCopy.mayNotCast)
+        let designer = await EditionCastVerbs.confirmRename(
+            EditionCastAnswer(language: nil, name: "Bringhurst"),
+            prompt: EditionCastVerbs.designerPrompt(store: store),
+            store: store, documentStore: documentStore)
+        XCTAssertEqual(designer, EditionCastCopy.mayNotCast)
+        XCTAssertEqual(store.manifest.productionRoles, roles, "a reviewer's cast verbs wrote nothing")
+
+        try await become(.bookAuthor, h)
+        await documentStore.postureSettled()
+        let landed = await EditionCastVerbs.addLanguage(
+            answer: EditionCastAnswer(language: "it", name: "Calvino"),
+            store: store, documentStore: documentStore)
+        XCTAssertEqual(landed, .added(language: "it", warning: nil), "the book author's Add lands")
+    }
+
     /// **The letter's statement-writing offers ask the DESTINATION** — the
     /// intent the clause would land in and the project's ledger — never the
     /// piece the letter is about.
@@ -1098,42 +1168,11 @@ final class PostureSurfaceTests: XCTestCase {
         XCTAssertTrue(LessonOffer.mayWriteTheLedger(author))
     }
 
-    /// **Author's Diagnostics pane (controller ruling Q)**: Got it / Not this
-    /// follow the piece's `.acceptOrReject`, Answer the piece intent's
-    /// `.editStatement`, both directions.
-    func test_theDiagnosticsPanesVerbsFollowThePosture() {
-        func pane(_ document: Posture, _ statement: Posture) -> DiagnosticsPostures {
-            DiagnosticsPostures(document: document, statement: { _, _ in statement })
-        }
-        let theReviewer = pane(reviewer, reviewerOnAPieceStatement)
-        XCTAssertFalse(DiagnosticsPane.offersDisposal(theReviewer))
-        XCTAssertFalse(DiagnosticsPane.offersAnAnswer(docId: "doc-a", posture: theReviewer))
-        let herPiece = pane(piecesAuthorInA, piecesAuthorOnHerPieceStatement)
-        XCTAssertTrue(DiagnosticsPane.offersDisposal(herPiece))
-        XCTAssertTrue(DiagnosticsPane.offersAnAnswer(docId: "doc-a", posture: herPiece))
-        let theirPiece = pane(piecesAuthorInB, piecesAuthorOnAnotherPieceStatement)
-        XCTAssertFalse(DiagnosticsPane.offersDisposal(theirPiece))
-        XCTAssertFalse(DiagnosticsPane.offersAnAnswer(docId: "doc-b", posture: theirPiece))
-        let author = pane(bookAuthor, bookAuthor)
-        XCTAssertTrue(DiagnosticsPane.offersDisposal(author))
-        XCTAssertTrue(DiagnosticsPane.offersAnAnswer(docId: "doc-a", posture: author))
-
-        // The answer asks the statement it WRITES — `.document(docId)`'s
-        // intent — and nothing else.
-        var asked: [String] = []
-        let recording = DiagnosticsPostures(document: bookAuthor, statement: { kind, scope in
-            asked.append("\(kind.rawValue)|\(scope.rawValue)")
-            return self.bookAuthor
-        })
-        _ = DiagnosticsPane.offersAnAnswer(docId: "doc-a", posture: recording)
-        XCTAssertEqual(asked, ["intent|\(Statement.Scope.document("doc-a").rawValue)"])
-    }
-
     /// **The rulings are drawn for a reviewer; their verbs are not** — drawn
     /// or absent, never pressed (tripwire 33).
     func test_theRulingsStratumDrawsItsRowsAndHidesItsVerbs() async throws {
         let fixture = try await StatementMountFixture.novel(named: "posture-rulings")
-        defer { fixture.tearDown() }
+        addTeardownBlock { await fixture.closeAndTearDown() }
         let rulings = [Ruling(id: "r1", text: "No flashbacks.", ruledOn: nil,
                               provenance: nil)]
         func mount(_ posture: Posture) -> NSWindow {
@@ -1523,9 +1562,9 @@ final class PostureSurfaceTests: XCTestCase {
         let h = try await makeStatementHarness()
         let a = try XCTUnwrap(TreeWalk.find(id: "doc-a", in: h.store.manifest.structure))
         let b = try XCTUnwrap(TreeWalk.find(id: "doc-b", in: h.store.manifest.structure))
-        let binder = BinderView(store: h.store, selectedSubject: .constant(nil),
+        let binder = TreeHostFixture.binderView(store: h.store, subject: .constant(.book),
                                 treeState: BinderTreeSectionsState())
-        let pieces = CollectionPiecesPane(store: h.store, selectedSubject: .constant(nil),
+        let pieces = TreeHostFixture.collectionView(store: h.store, subject: .constant(.book),
                                           renamingItemId: .constant(nil),
                                           treeState: BinderTreeSectionsState())
 
@@ -1557,26 +1596,23 @@ final class PostureSurfaceTests: XCTestCase {
     /// **A task is judged by ITS document**: the project's tasks by the
     /// project stream, a chapter's by the chapter — and an inline task's toggle
     /// or archive, which edits the manuscript, needs the words as well.
-    func test_theTasksPaneOffersTaskVerbsByTheTasksOwnDocument() {
+    func test_theTodoVerbsAreOfferedByTheTodosOwnDocument() {
         let none = TaskRowVerbs(toggle: false, archive: false, delete: false, move: false)
         for kind in [TaskKind.paneCreated, .inlineMarkdown, .fountainBoneyard] {
             XCTAssertEqual(TaskRowVerbs.decide(kind: kind, posture: reviewer), none,
-                           "a reviewer's tasks pane is read-only: \(kind)")
+                           "a reviewer's to-dos are read-only: \(kind)")
             XCTAssertEqual(TaskRowVerbs.decide(kind: kind, posture: bookAuthor), .unrestricted)
             XCTAssertEqual(TaskRowVerbs.decide(kind: kind, posture: piecesAuthorInA),
                            .unrestricted, "her piece: \(kind)")
             XCTAssertEqual(TaskRowVerbs.decide(kind: kind, posture: piecesAuthorInB), none,
                            "not her piece: \(kind)")
         }
-        // The project stream takes her tasks but not her words: a pane task
-        // is hers there, and anything that would edit text is not.
         let projectStream = posture(.author(.pieces(["doc-a"])), in: .projectStream)
         XCTAssertEqual(TaskRowVerbs.decide(kind: .paneCreated, posture: projectStream),
                        .unrestricted, "task create on __project__ is allowed (R3's pair)")
         XCTAssertEqual(TaskRowVerbs.decide(kind: .inlineMarkdown, posture: projectStream),
                        TaskRowVerbs(toggle: false, archive: false, delete: true, move: true),
                        "an inline toggle also needs .writeText")
-
         XCTAssertEqual(TaskCreationScopes.decide(document: reviewer, project: reviewer),
                        TaskCreationScopes(document: false, project: false))
         XCTAssertEqual(TaskCreationScopes.decide(document: piecesAuthorInB, project: projectStream),
@@ -1585,14 +1621,58 @@ final class PostureSurfaceTests: XCTestCase {
                        TaskCreationScopes(document: true, project: true))
         XCTAssertEqual(TaskCreationScopes.decide(document: nil, project: bookAuthor),
                        TaskCreationScopes(document: false, project: true))
+    }
 
-        // Ruling U: Promote to Task and Accept as task ask `.task` of THIS
-        // document.
-        let pane = { (doc: Posture) in DiagnosticsPostures(document: doc, statement: { _, _ in doc }) }
-        XCTAssertFalse(DiagnosticsPane.offersATask(pane(reviewer)))
-        XCTAssertFalse(DiagnosticsPane.offersATask(pane(piecesAuthorInB)))
-        XCTAssertTrue(DiagnosticsPane.offersATask(pane(piecesAuthorInA)))
-        XCTAssertTrue(DiagnosticsPane.offersATask(pane(bookAuthor)))
+    /// **A check's finding in To resolve follows the posture** (controller
+    /// rulings Q and U, re-pointed from the deleted Diagnostics pane's statics
+    /// onto the live gate, `ResolvePane.findingOffers`): Answer asks
+    /// `.editStatement` of the piece's OWN intent, Promote asks `.task` of the
+    /// piece, and only on the open piece; one-gesture Not this on a check's
+    /// note asks `.acceptOrReject` of the piece (`ResolvePane.offersNotThis`).
+    func test_aFindingsVerbsFollowThePosture() {
+        let strain = Diagnostic(
+            id: "d1", docId: "doc-a", anchor: Diagnostic.Anchor(paragraphId: "abcd", anchorText: "x"),
+            body: "Pulls against the clause.", category: nil, runId: "run-1",
+            kind: .conformanceStrain)
+        func offers(_ docId: String, piece: Posture, statement: Posture, mayAct: Bool = true)
+            -> (answer: Bool, promote: Bool) {
+            ResolvePane.findingOffers(.finding(docId: docId, strain), mayAct: mayAct,
+                                      posture: piece, statementDoor: { _, _ in statement },
+                                      durable: true)
+        }
+        let reviewers = offers("doc-a", piece: reviewer, statement: reviewerOnAPieceStatement)
+        XCTAssertFalse(reviewers.answer); XCTAssertFalse(reviewers.promote)
+        let hers = offers("doc-a", piece: piecesAuthorInA, statement: piecesAuthorOnHerPieceStatement)
+        XCTAssertTrue(hers.answer); XCTAssertTrue(hers.promote)
+        let theirs = offers("doc-b", piece: piecesAuthorInB, statement: piecesAuthorOnAnotherPieceStatement)
+        XCTAssertFalse(theirs.answer); XCTAssertFalse(theirs.promote)
+        let author = offers("doc-a", piece: bookAuthor, statement: bookAuthor)
+        XCTAssertTrue(author.answer); XCTAssertTrue(author.promote)
+        let elsewhere = offers("doc-a", piece: bookAuthor, statement: bookAuthor, mayAct: false)
+        XCTAssertFalse(elsewhere.promote, "Promote writes the open piece's Document only")
+
+        // The answer asks the statement it WRITES and nothing else.
+        var asked: [String] = []
+        _ = ResolvePane.findingOffers(
+            .finding(docId: "doc-a", strain), mayAct: true, posture: bookAuthor,
+            statementDoor: { kind, scope in
+                asked.append("\(kind.rawValue)|\(scope.rawValue)"); return self.bookAuthor
+            }, durable: true)
+        XCTAssertEqual(asked, ["intent|\(Statement.Scope.document("doc-a").rawValue)"])
+
+        // Not this: a check's open note, on the open piece, by `.acceptOrReject`.
+        let checkNote = Annotation(
+            id: "n1", kind: .query, paragraphId: "abcd", body: "Whose coat?",
+            suggestedText: nil, priorText: nil, createdAt: Date(timeIntervalSince1970: 0),
+            createdBySession: nil, status: .open, userResponse: nil, resolvedAt: nil,
+            isStale: false, compilerRunId: "run-1")
+        let item = ResolveItem.note(ProjectAnnotation(docId: "doc-a", annotation: checkNote))
+        XCTAssertTrue(ResolvePane.offersNotThis(item, localName: "Denver", mayAct: true, posture: bookAuthor))
+        XCTAssertTrue(ResolvePane.offersNotThis(item, localName: "Denver", mayAct: true, posture: piecesAuthorInA))
+        XCTAssertFalse(ResolvePane.offersNotThis(item, localName: "Denver", mayAct: true, posture: reviewer))
+        XCTAssertFalse(ResolvePane.offersNotThis(item, localName: "Denver", mayAct: true, posture: piecesAuthorInB))
+        XCTAssertFalse(ResolvePane.offersNotThis(item, localName: "Denver", mayAct: false, posture: bookAuthor),
+                       "off the open piece: nothing to settle it through")
     }
 
     /// **The task door**: a task op the stamp refuses is never appended, and
@@ -1621,7 +1701,7 @@ final class PostureSurfaceTests: XCTestCase {
         XCTAssertEqual(doc._opLogMirror.count, ops, "nothing appended")
         XCTAssertEqual(doc.displayText, text, "the inline archive spliced nothing")
         XCTAssertEqual(said, [
-            "Couldn't change 3 tasks — this Mac can no longer file tasks in this piece."])
+            "Couldn't change 3 to-dos — this Mac can no longer file to-dos here."])
 
         doc.stamp(localWritePermit: .unrestricted)
         doc.setTaskStatus(id: pane.id, status: .done)
@@ -1800,7 +1880,7 @@ final class PostureSurfaceTests: XCTestCase {
         XCTAssertTrue(section(hers).mayPurge)
     }
 
-    /// **Removing an orphan is the author's own translation write** and asks
+    /// **Clearing a left-over translation is the author's own translation write** and asks
     /// the author's key the same door: refused, nothing appended.
     func test_anOrphanPurgeIsRefusedWhereTheAuthorMayNotTranslate() async throws {
         let h = try await makeStatementHarness()
@@ -1810,7 +1890,7 @@ final class PostureSurfaceTests: XCTestCase {
         try await writeTranslation("doc-a", h)  // and of her own A
         let before = translationBytes("doc-b", h.projectURL)
         do {
-            try await TranslationReviewPaneLogic.purgeOrphans(
+            try await ResolvePieceInLanguage.clear(
                 ["zz99"], docId: "doc-b", language: "es", identities: h.identities,
                 deviceState: try XCTUnwrap(Document.deviceStateForTesting),
                 projectURL: h.projectURL)
@@ -1820,7 +1900,7 @@ final class PostureSurfaceTests: XCTestCase {
         }
         XCTAssertEqual(translationBytes("doc-b", h.projectURL), before)
         let aBefore = translationBytes("doc-a", h.projectURL)
-        try await TranslationReviewPaneLogic.purgeOrphans(
+        try await ResolvePieceInLanguage.clear(
             ["zz99"], docId: "doc-a", language: "es", identities: h.identities,
             deviceState: try XCTUnwrap(Document.deviceStateForTesting),
             projectURL: h.projectURL)
@@ -1832,12 +1912,12 @@ final class PostureSurfaceTests: XCTestCase {
     /// piece, the same answer for every language.
     func test_theDeskDrawsRunOnlyWhereItsTranslatorMay() {
         func offers(_ permit: Permit, target: String?, book: [String] = ["doc-a", "doc-b"])
-            -> DepartmentTranslationOffers {
+            -> TranslationRunOffers {
             let p = postures(permit)
-            return DepartmentTranslationOffers.decide(
+            return TranslationRunOffers.decide(
                 target: target, book: book, mayTranslate: { p($0).allows(.translate) })
         }
-        let none = DepartmentTranslationOffers(run: false, runBook: false)
+        let none = TranslationRunOffers(run: false, runBook: false)
         XCTAssertEqual(offers(.reviewer, target: "doc-a"), none, "a reviewer: no Run at all")
         XCTAssertEqual(offers(.reviewer, target: nil), none)
         XCTAssertEqual(offers(.reviewer, target: nil, book: []), none)
@@ -1846,16 +1926,16 @@ final class PostureSurfaceTests: XCTestCase {
                        "nothing to judge: the book's own stream answers, and it is hers")
         let pieces = Permit.author(.pieces(["doc-a"]))
         XCTAssertEqual(offers(pieces, target: "doc-a"),
-                       DepartmentTranslationOffers(run: true, runBook: true))
+                       TranslationRunOffers(run: true, runBook: true))
         XCTAssertEqual(offers(pieces, target: "doc-b"),
-                       DepartmentTranslationOffers(run: false, runBook: true),
+                       TranslationRunOffers(run: false, runBook: true),
                        "B is not hers; the book run will leave B out and say so")
         XCTAssertEqual(offers(pieces, target: nil, book: ["doc-b"]), none)
         XCTAssertEqual(
-            DepartmentPaneHost.notTranslatable(titles: ["B"]),
+            TranslationRunStart.notTranslatable(titles: ["B"]),
             "Your part in this book doesn\u{2019}t reach \u{201C}B\u{201D}, so it was not translated.")
         XCTAssertEqual(
-            DepartmentPaneHost.notTranslatable(titles: ["B", "C"]),
+            TranslationRunStart.notTranslatable(titles: ["B", "C"]),
             "Your part in this book doesn\u{2019}t reach \u{201C}B\u{201D} and \u{201C}C\u{201D}, "
                 + "so they were not translated.")
     }
@@ -1888,14 +1968,14 @@ final class PostureSurfaceTests: XCTestCase {
         XCTAssertFalse(hand.allows(.translate),
                        "ruling H: the writer's hand yields on the piece's translation too")
 
-        let translator = DepartmentPaneHost.postureOfTheTranslator(forPiece: "doc-a", in: store)
+        let translator = TranslationRunStart.postureOfTheTranslator(forPiece: "doc-a", in: store)
         XCTAssertNil(translator.yieldingTo)
         XCTAssertTrue(translator.allows(.translate), "the translator is not yielded")
         XCTAssertEqual(
-            DepartmentTranslationOffers.decide(
+            TranslationRunOffers.decide(
                 target: "doc-a", book: ["doc-a", "doc-b"],
                 mayTranslate: {
-                    DepartmentPaneHost.postureOfTheTranslator(forPiece: $0, in: store)
+                    TranslationRunStart.postureOfTheTranslator(forPiece: $0, in: store)
                         .allows(.translate)
                 }),
             .unrestricted, "the root's desk keeps Run over Sam's chapter")
@@ -1911,7 +1991,7 @@ final class PostureSurfaceTests: XCTestCase {
         beAReviewer(h.doc)
         var returned: String?
         let said = await notices {
-            returned = await TranslationReviewPaneLogic.reply(
+            returned = await ResolveNoteVerbs.reply(
                 to: query, with: "usted", in: h.doc, undoManager: nil)
         }
         let sentence = try XCTUnwrap(returned, "the refusal comes back")
@@ -1919,7 +1999,7 @@ final class PostureSurfaceTests: XCTestCase {
         XCTAssertEqual(annotation(h.doc, query)?.status, .open, "the query still stands")
 
         h.doc.stamp(localWritePermit: .unrestricted)
-        let accepted = await TranslationReviewPaneLogic.reply(
+        let accepted = await ResolveNoteVerbs.reply(
             to: query, with: "usted", in: h.doc, undoManager: nil)
         XCTAssertNil(accepted, "promotion: the reply files")
         XCTAssertEqual(annotation(h.doc, query)?.status, .accepted)
@@ -1961,7 +2041,7 @@ final class PostureSurfaceTests: XCTestCase {
         let structure = h.store.manifest.structure
         func start(_ ids: [String]) async -> (started: [[String]], notice: String?) {
             var started: [[String]] = []
-            let notice = await DepartmentPaneHost.startTranslating(
+            let notice = await TranslationRunStart.startTranslating(
                 ids, in: h.documentStore, structure: structure) { started.append($0) }
             return (started, notice)
         }
@@ -1969,19 +2049,19 @@ final class PostureSurfaceTests: XCTestCase {
         try await become(.author(.pieces(["doc-a"])), h)
         let refused = await start(["doc-b"])
         XCTAssertEqual(refused.started, [], "a refused piece starts nothing")
-        XCTAssertEqual(refused.notice, DepartmentPaneHost.notTranslatable(titles: ["B"]),
+        XCTAssertEqual(refused.notice, TranslationRunStart.notTranslatable(titles: ["B"]),
                        "and is named")
         let allowed = await start(["doc-a"])
         XCTAssertEqual(allowed.started, [["doc-a"]], "her piece starts")
         XCTAssertNil(allowed.notice)
         let book = await start(["doc-a", "doc-b"])
         XCTAssertEqual(book.started, [["doc-a"]], "the book run leaves B out")
-        XCTAssertEqual(book.notice, DepartmentPaneHost.notTranslatable(titles: ["B"]))
+        XCTAssertEqual(book.notice, TranslationRunStart.notTranslatable(titles: ["B"]))
 
         try await become(.reviewer, h)
         let reviewer = await start(["doc-a", "doc-b"])
         XCTAssertEqual(reviewer.started, [], "a reviewer starts nothing")
-        XCTAssertEqual(reviewer.notice, DepartmentPaneHost.notTranslatable(titles: ["A", "B"]))
+        XCTAssertEqual(reviewer.notice, TranslationRunStart.notTranslatable(titles: ["A", "B"]))
 
         try await become(.bookAuthor, h)
         let promoted = await start(["doc-a", "doc-b"])
@@ -2049,23 +2129,38 @@ final class PostureSurfaceTests: XCTestCase {
         let pieces = TranslationAuthorVerbs.decide(
             document: piecesAuthorInA, editionBrief: piecesAuthorOnTheBrief,
             pieceIntent: piecesAuthorOnAsIntent)
-        XCTAssertEqual(DepartureRowView.offers(isSettled: false, verbs: pieces), [.keepMine],
-                       "her own piece's intent may take the note; the brief may not take a rule")
+        XCTAssertEqual(DepartureRowView.offers(isSettled: false, verbs: pieces), [.fine, .keepMine],
+                       "her own piece's intent may take the note; the brief may not take a rule; "
+                       + "Fine is a disposition on her own piece (shell p4 Task 6 fix round)")
+        // The glossary and the design, in To resolve (shell p4 Task 6 fix
+        // round): a reviewer and a pieces author decide neither — the brief
+        // and the Visual Language statement are the whole book's.
+        XCTAssertFalse(TranslationRoundReport.glossaryOffers(none).adopt)
+        XCTAssertFalse(TranslationRoundReport.glossaryOffers(none).skip)
+        XCTAssertFalse(TranslationRoundReport.glossaryOffers(pieces).adopt)
+        XCTAssertFalse(DesignGate.mayDecide(reviewerOnTheBrief))
+        XCTAssertFalse(DesignGate.mayDecide(piecesAuthorOnTheBrief))
+        XCTAssertTrue(DesignGate.mayDecide(posture(.author(.book), in: .projectStatement)))
+        // The centre's gate asks the same predicate (fix round 2, M10).
+        XCTAssertEqual(DesignGate.verbs(status: .pending, hasOpenProposalRound: true,
+                                        mayDecide: DesignGate.mayDecide(reviewerOnTheBrief)), [])
+        XCTAssertEqual(DesignGate.verbs(status: .approved, hasOpenProposalRound: false,
+                                        mayDecide: DesignGate.mayDecide(piecesAuthorOnTheBrief)), [])
         XCTAssertEqual(pieces.keepMineHome(language: "es"), .everyEdition,
                        "the sheet opens on the home she may write")
 
         let unsaid = TranslationAuthorVerbs.decide(
             document: piecesAuthorInA, editionBrief: piecesAuthorOnTheBrief)
-        XCTAssertEqual(DepartureRowView.offers(isSettled: false, verbs: unsaid), [],
+        XCTAssertEqual(DepartureRowView.offers(isSettled: false, verbs: unsaid), [.fine],
                        "a host that names no intent posture gets the narrower answer")
 
         let all = TranslationAuthorVerbs.decide(
             document: bookAuthor, editionBrief: bookAuthor, pieceIntent: bookAuthor)
         XCTAssertEqual(DepartureRowView.offers(isSettled: false, verbs: all),
-                       [.keepMine, .makeRule], "the promotion back offers both")
+                       [.fine, .keepMine, .makeRule], "the promotion back offers both, and Fine")
         XCTAssertEqual(all.keepMineHome(language: "es"), .edition("es"))
         XCTAssertEqual(DepartureRowView.offers(isSettled: true, verbs: all), [],
-                       "a settled row offers neither again")
+                       "a settled row — ruled or fine — offers nothing again (fix round 2, N6)")
     }
 
     /// **Keep mine's sheet offers only the homes that may be written** (P3c
@@ -2161,25 +2256,27 @@ final class PostureSurfaceTests: XCTestCase {
         }
     }
 
-    /// **"Archive all done" asks the SCOPE's own stream** — project scope the
-    /// project stream, never whichever document the window shows.
-    func test_archiveAllDoneAsksTheScopesOwnStream() {
-        typealias Pane = TasksPane
-        XCTAssertTrue(Pane.offersArchiveAllDone(
-            in: .project, document: reviewer, project: bookAuthor),
-            "a reviewer's shown chapter does not hide the project's own archive")
-        XCTAssertFalse(Pane.offersArchiveAllDone(
-            in: .project, document: bookAuthor, project: reviewer),
-            "…nor does an allowed chapter lend the project stream its answer")
-        XCTAssertFalse(Pane.offersArchiveAllDone(
-            in: .project, document: nil, project: reviewer))
-        XCTAssertTrue(Pane.offersArchiveAllDone(
-            in: .document, document: piecesAuthorInA, project: reviewer))
-        XCTAssertFalse(Pane.offersArchiveAllDone(
-            in: .document, document: piecesAuthorInB, project: bookAuthor))
-        XCTAssertFalse(Pane.offersArchiveAllDone(
-            in: .document, document: nil, project: bookAuthor),
-            "no document shown: nothing in document scope")
+    /// **"Archive all done" asks the SCOPE's own stream** — the Book's
+    /// Settled the project stream, the piece's Settled the open piece, never
+    /// whichever document the window shows. Re-pointed from the Tasks pane to
+    /// To resolve's two Settled sections (shell plan 2 Task 7).
+    func test_archiveAllDoneAsksTheScopesOwnStream() throws {
+        XCTAssertTrue(ResolveSettled.offersArchiveAllDone(posture: bookAuthor, doneCount: 2))
+        XCTAssertFalse(ResolveSettled.offersArchiveAllDone(posture: reviewer, doneCount: 2))
+        XCTAssertTrue(ResolveSettled.offersArchiveAllDone(posture: piecesAuthorInA, doneCount: 1))
+        XCTAssertFalse(ResolveSettled.offersArchiveAllDone(posture: piecesAuthorInB, doneCount: 1))
+        XCTAssertFalse(ResolveSettled.offersArchiveAllDone(posture: bookAuthor, doneCount: 0),
+                       "nothing done: nothing to archive")
+        // Each section is handed ITS stream's posture: the Book's the project
+        // stream's, the piece's the open piece's — never the shown chapter's
+        // for the Book, nor the project's for the piece.
+        let pane = try SourceTree.sourceOfType("ResolvePane", under: ["Maugham"])
+        let book = try XCTUnwrap(pane.range(of: "ResolveBookSettledSection("))
+        XCTAssertTrue(pane[book.upperBound...].prefix(400)
+                        .contains("posture: documentStore.posture(forDocId: ProjectStore.projectTasksDocId)"))
+        let piece = try XCTUnwrap(pane.range(of: "ResolveSettledSection("))
+        XCTAssertTrue(pane[piece.upperBound...].prefix(400)
+                        .contains("posture: documentStore.posture(forDocId: acting.docId)"))
     }
 
     /// **Only a collection's window says anything about starting a piece** —
@@ -2217,8 +2314,8 @@ final class PostureSurfaceTests: XCTestCase {
             $0.activePassMemory.record(piece: "doc-a", passId: "line")
         }
         var written: [(String, String, PassState?)] = []
-        func decide(_ docId: String, project: Bool = false) -> AnnotationsPane.PassOrderNudgeDecision? {
-            AnnotationsPane.passOrderNudgeDecision(
+        func decide(_ docId: String, project: Bool = false) -> ResolveHead.PassOrderNudgeDecision? {
+            ResolveHead.passOrderNudgeDecision(
                 isProjectScope: project, docId: docId,
                 memory: h.documentStore.uiState.activePassMemory,
                 passes: h.store.manifest.effectiveReviewPasses,
@@ -2256,14 +2353,11 @@ final class PostureSurfaceTests: XCTestCase {
         try await h.store.setPassState(id: "doc-a", passId: "structural", .done)
         XCTAssertNil(decide("doc-a"), "the earlier pass is closed: the nudge goes")
 
-        // And the pane draws exactly this decision.
-        let pane = try String(contentsOf: URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent().deletingLastPathComponent()
-            .deletingLastPathComponent().appendingPathComponent("Maugham/Views/AnnotationsPane.swift"),
-            encoding: .utf8)
-        let nudge = try XCTUnwrap(pane.range(of: "private var passOrderNudge: some View {"))
-        let body = String(pane[nudge.upperBound...].prefix(600))
-        XCTAssertTrue(body.contains("Self.passOrderNudgeDecision("))
+        // And To resolve's head draws exactly this decision (shell plan 2
+        // Task 7; the Annotations pane that drew it was deleted).
+        let head = try SourceTree.sourceOfType("ResolveHeadView", under: ["Maugham"])
+        let nudge = try XCTUnwrap(head.range(of: "ResolveHead.passOrderNudgeDecision("))
+        let body = String(head[nudge.lowerBound...].prefix(600))
         XCTAssertTrue(body.contains("documentStore.posture(forDocId:"))
     }
 }

@@ -366,7 +366,7 @@ final class LetterMarkdownTests: XCTestCase {
     // MARK: - Never a paragraph id
 
     /// **The renderer never emits a paragraph id** (spec §3.6's own rule, and
-    /// `DiagnosticsPane.jumpExcerpt`'s one layer out). The id is a join key;
+    /// `CheckNarrative.jumpExcerpt`'s one layer out). The id is a join key;
     /// a kept letter is prose the writer reads.
     ///
     /// Asserted with the tripwire's own regex rather than a literal, so a

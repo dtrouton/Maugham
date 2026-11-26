@@ -1,6 +1,6 @@
 # Compiler — area guide
 
-The `claude -p` runs Maugham spawns and everything they read and answer. ⌘R (⌘⇧R for a cold read) sends the piece to a warm session: in Author a **check** over what changed since the last check, in Review a **round** over the whole piece by the pass's named editor (`RunKind`, ADR 0031). Each finding lands where its nature says (ADR 0029): a conformance strain stays a ¶-anchored diagnostic in the Diagnostics pane; a continuity question, reader's report or letter question mints as an annotation; a fact lands in the bible. The same rails carry the translator, the designer and the seven-leg translation pipeline's cold sessions. The one rule from CLAUDE.md: **the compiler reads and never writes; Maugham writes at ingest. A new `claude` service joins `AgentRoster`, the one teardown.** The area carries tripwires 2, 3, 6, 11, 17, 20, 21, 24 and 34. Each rule's why and history: `docs/history/compiler.md`.
+The `claude -p` runs Maugham spawns and everything they read and answer. ⌘R (⇧⌘R cold) asks a warm session for a **check** over what changed since the last check; ⌃⌘R (⌃⇧⌘R cold) for a **round** over the whole piece by the pass's named editor (`RunCommand`). Each finding lands where its nature says (ADR 0029): a conformance strain stays a ¶-anchored diagnostic in the Diagnostics pane; a continuity question, reader's report or letter question mints as an annotation; a fact lands in the bible. The same rails carry the translator, the designer and the seven-leg translation pipeline's cold sessions. The one rule from CLAUDE.md: **the compiler reads and never writes; Maugham writes at ingest. A new `claude` service joins `AgentRoster`, the one teardown.** The area carries tripwires 2, 3, 6, 11, 17, 20, 21, 24 and 34. Each rule's why and history: `docs/history/compiler.md`.
 
 ## Map
 
@@ -17,7 +17,7 @@ Every file in `Maugham/Compiler/` appears once.
 ### The compiler's run
 - `CompilerOrchestrator.swift` — **the run**: delta → prompt → session → parse → mint → store. `runRequested`, `beginRun`, `finish`, `record(...)`, `resolveWorld`, `shutdown()`/`detach()`/`retireSession()`. Closure-`Environment`, no store named (tripwires 2, 3, 6).
 - `CompilerEnvironment+Project.swift` — the production wiring: one window's stores as the orchestrator's closures, every capture weak. Holds the mint loop (`mintAnnotations`) and `pinnedListing`.
-- `RunKind.swift` — `.check`/`.round`, minted from the persona at the keystroke (tripwire 34).
+- `RunKind.swift` — `.check`/`.round`, and `RunCommand`: the File menu's four run commands, each naming its kind (tripwire 34).
 - `DeltaBuilder.swift` — what changed since the check's marker, in `sequence` order; a round is built `since: nil`.
 - `CompilerPrompt.swift` — the message: `checkMessage`/`roundMessage` over `runMessageV2`, `briefingHashInput`, the frame sections, `sectionSchema(judgesIntentDrift:)`, the preamble.
 - `ProcessSignals.swift` — the writer's process, pure over `(ops, sequence, now)`: sessions, frontier, churn, `daysAway`, `noteworthy`.
@@ -69,17 +69,16 @@ Every file in `Maugham/Compiler/` appears once.
 - `GlossBriefing.swift` / `GlossReport.swift` — the gloss spot-check; no source field.
 - `SpotCheck.swift` — Gloss and Ask the Collator: `gloss`, `askTheCollator`, `neighbours(of:in:)`, `narrow(_:to:)`.
 - `BriefingDoctrine.swift` — directives and the glossary read off statement markdown (`Directives`, `GlossaryTable`).
-- `TranslationPreflight.swift` — the desk's "7 legs · ~N words briefed" figure (`budgets`, `budget`, `wordCount`, `cellWords`: the briefed table cells).
+- `TranslationPreflight.swift` — "7 legs · ~N words briefed" (`budgets`, `cellWords`); Run Whole Book's figure is `editionBudget`, off the main actor, cached, idle-only (`refillsBudgets`).
 
 ### `Maugham/Models/` files routed here
 - `Maugham/Models/AuthorReader.swift` — who reads a CHECK: the coach, a first reader, or nobody (tripwire 34).
 - `Maugham/Models/RoundEditor.swift` — which pass runs a ROUND, or a refusal (tripwire 34).
 - `Maugham/Models/ActivePassMemory.swift` — which lane a piece is parked in; the round loop's memory only.
 - `Maugham/Models/CompilerModelChoice.swift` — the depth menu; `exhaustive` (`fable`) is last in the enum and the menu.
-- `Maugham/Models/RunMenuTitles.swift` — the per-persona run menu titles.
 
 ### Outside this folder
-- Views (`Maugham/Views/AREA.md`): `CompilerRunModifier.swift` (run keys, two teardown arms), `DiagnosticsPane.swift`, `Maugham/Views/Review/ReviewRoundCockpit.swift`, `LetterKeep.swift`, `LetterSection.swift`, `LessonLedgerVerbs.swift` (with `LessonOffer`), `FirstReaderRuling.swift`, `BibleStratum.swift`, `RulingsStratum.swift`; the desk's `Maugham/Views/Publish/DepartmentPaneHost.swift`, `Maugham/Views/Publish/DepartmentRunState.swift` (`DepartmentRunSession`, `TranslationRunLog`) and `Maugham/Views/Publish/DesignGateVerbs.swift`.
+- Views (`Maugham/Views/AREA.md`): `CompilerRunModifier.swift` (run keys, two teardown arms), `Maugham/Views/Resolve/CheckNarrative.swift`, `Maugham/Views/Review/ReviewRoundCockpit.swift`, `LetterKeep.swift`, `LetterSection.swift`, `LessonLedgerVerbs.swift` (with `LessonOffer`), `FirstReaderRuling.swift`, `BibleStratum.swift`, `RulingsStratum.swift`; `Maugham/Views/Publish/TranslationRunStart.swift`, `Maugham/Views/Publish/TranslationRunState.swift` (`TranslationRunSession`, `TranslationRunLog`) and `Maugham/Views/Publish/DesignGateVerbs.swift`.
 - Publish: `Maugham/Publish/ElementCensus.swift`, `Maugham/Publish/SamplePageSelection.swift`, `Maugham/Publish/SampleCompiler.swift`, `Maugham/Publish/ProposalPromotion.swift` (the designer's other four files; documented here).
 - Stores: `Maugham/Stores/ProjectSession.swift` (owns the roster; `attachWindow` configures every service), `Maugham/Stores/ProjectSessionRegistry.swift`, `Maugham/Stores/DesignProposalStore.swift`, `Maugham/Stores/TranslationRoundStore.swift`.
 - MCP: `Maugham/MCP/Tools/TranslationWritePipeline.swift`, the translator's one word door.
@@ -111,7 +110,7 @@ Every file in `Maugham/Compiler/` appears once.
 - **`RoundEditor` never reaches for the coach's seat or the first reader** (tripwire 34): no `effectiveCoach` or `firstReaderName` in `RoundEditor.swift` or the wiring, and the `roundEditor` closure does not name `authorReader` either: `TripwireGrepTests.test_theRoundEditorNeverReachesForTheCoachsSeat`, controls in `test_theTwoReaderCensusesFireOnPlantedOffenders`.
 
 ### Two loops, two readers
-- **`RunKind.of(persona:)` is called in exactly one production file**, `CompilerRunModifier.swift`; every other caller of `runRequested` belongs to one loop and says so literally (`TripwireGrepTests.test_theRunKindIsMintedFromThePersonaInOneFile`).
+- **Every run names its kind**: a literal `.check`/`.round`, or the command's own (`request.kind`) in `CompilerRunModifier.swift` alone (`TripwireGrepTests.test_everyRunNamesItsKindLiterallyOrByItsCommand`).
 - **Two closures, two answer types**: `Environment.authorReader(docId)` → `AuthorReader`, `Environment.roundEditor(docId)` → `ActivePass?`, so asking the other loop's question does not type-check. Never collapse them into one closure taking the kind.
 - **A check's reader is per project**: `ProjectManifest.authorReader(choice:statementText:)` takes the roster choice (`UIState.authorReaderChoice`) while its subject exists, else the coach while her seat is held, else a first reader, else nobody. *A reader is not a lane.*
 - **The first reader's description is read from her statement at the keystroke**, cached nowhere.
@@ -170,7 +169,7 @@ Every file in `Maugham/Compiler/` appears once.
 - **Dosage is enforced at both ends**: `LetterDosage.short` caps questions at 1, drops the exercise and reads `scenes` as `nil` at ingest whatever the model wrote, and `stageSection` states it. A cold read and a round are `.full`; the ask's answer is never dosed.
 - **`LetterDosage.reader` keeps `answer`, `about`, `working` and one question**, and drops `one_thing`, habits, the exercise, scenes, `retired` and `process` at ingest (`allowsOneThing`/`allowsHabits`/`allowsProcess`).
 - **The first reader's four kinds are `DiagnosticIngest.readerKinds`** (`dream_break`, `belief`, `drag`, `lost`), named in that order by `firstReaderInstruction` (`test_theReaderInstructionNamesTheFourKindsInTheSchemasOrder`); `CompilerNote.readerKindLabel` is the other half.
-- **The lane word has one source, `DraftStage.laneWord`, read by exactly `LetterKeep.swift` and `LetterSection.swift`** (`TripwireGrepTests.test_theStageWordIsReadFromTwoViewFilesOnly`). Review's lane line does not show a stage.
+- **The lane word has one source, `DraftStage.laneWord`, read by exactly `LetterKeep.swift` and `LetterSection.swift`** (`TripwireGrepTests.test_theStageWordIsReadFromTwoViewFilesOnly`). The round cockpit's lane line does not show a stage.
 - **`LetterKeep.stageWord` appends the stage only beside a NAMED round; `LetterSection.signature` whenever one was derived** (`LetterSectionTests.test_theSignatureCarriesTheStageTheRunDerived`). `LetterKeep.laneLine` reads the letter's own stamp; `QueueLedgerVerbs.provenance` passes `stage: nil`.
 - **Nothing about the signals reaches the footer, the tree or the editor**: Statistics' Practice section and the letter's `process` line are the only surfaces (`TripwireGrepTests.test_theProcessSignalsNameThemselvesOnTwoSurfacesOnly`).
 
@@ -183,7 +182,7 @@ Every file in `Maugham/Compiler/` appears once.
 - **The ledger folds in as the RENDERED `lessonsSection`, never its markdown**, so a retirement does not re-embed everything; a retired entry is briefed to nobody.
 - **Standing instruction text is budgeted**: `letterInstruction`'s `process` sentence rides every run and counts toward the 715-word budget (`CompilerPromptTests.test_theStandingPerRunInstructionAdditionsStayUnderAWordBudget`); `stageSection`/`processSection` themselves do not.
 - **`pinnedListing` carries the `PinnedShelf`'s grouping**: one `pinnedListingLine` per pin, `## <title>` over each titled section only; an empty section is omitted.
-- **`PinnedReferences.pinned` is one pure function with two production callers**, the run's context and the Author surfaces; neither may re-derive it. `linkedResearchIds`, never `StructureItem.links`, is the field a caller names (`PinnedReferencesTests`). The assistant column studies the shelf in Author and Review only (`Persona.studiesPinnedReferences`).
+- **`PinnedReferences.pinned` is one pure function, called for the run's context** (`PinnedReferenceResolver`); nothing re-derives it. `linkedResearchIds`, never `StructureItem.links`, is the field a caller names (`PinnedReferencesTests`).
 - **The scene position is derived app-side and stated, never inferred**: `ScenePosition.derive` reads the project type, the WHOLE intent statement (not `StatementEssay.half(of:)`: Add-to-intent files under `## Rulings`) and the verb's brief (`CompilerRunCommandTests.test_theDerivationReadsTheRulingsHalfAndNotJustTheEssay`).
 - **For a check only `AuthorReader.brief` (the coach's) is a form brief**, never a first reader's statement. The writer's explicit scene-table opt-out beats everything, even a turn clause in the same statement.
 - **`strongDeclared` vs `strongDefault`**: a turn-less scene is a strain ONLY when the writer's own words carry the clause (conformance keys on a `clause_quote`, never synthesised); otherwise an observation. `ScenePosition` raw values are a disk format.
@@ -208,12 +207,12 @@ Every file in `Maugham/Compiler/` appears once.
 - **`Letter` decodes every part but `about` as optional; ask `isEmpty`, never `letter != nil`.** `scenes == nil` (does not move by scenes) differs from `[]` (a table with no rows).
 - **`LetterMarkdown.scrubbed` is the one gate every emitted string passes**, so a leaked anchor cannot ride into a research note. Where a kept letter lands is `LetterKeep` and `ResearchScope.route`, not this area's.
 - **`intent_drift` is a verdict, not a `Diagnostic`**: `holds`/`drifted` and nothing else; an unrecognised word reads as no verdict, never an `unknown` case. Its one sentence is read and DROPPED (ADR 0027): the mark is app-authored.
-- **"Drift" names two things that must never merge**: `DriftDetector` is the clause-strain PATTERN across runs (`DiagnosticsPane.driftNote`, not a `Diagnostic`, gone when the pattern breaks); `intent_drift` is the per-run judgement on `CompilerRun.intentDriftVerdict`.
-- **The sidecar holds TWO standing runs, one per `RunKind`**: `FileContent.check` and `FileContent.round`, each replaced only by its own kind (`CompilerRun.effectiveKind`). `lastCheck` is Author's, `lastRound` the cockpit's.
+- **"Drift" names two things that must never merge**: `DriftDetector` is the clause-strain PATTERN across runs (`CheckNarrative.driftNote`, not a `Diagnostic`, gone when the pattern breaks); `intent_drift` is the per-run judgement on `CompilerRun.intentDriftVerdict`.
+- **The sidecar holds TWO standing runs, one per `RunKind`**: `FileContent.check` and `FileContent.round`, each replaced only by its own kind (`CompilerRun.effectiveKind`). `lastCheck` is the check header's, `lastRound` the cockpit's.
 - **`lastOpId`, `live`, `dismiss` and the unread badge (`unreadCount`, `markRead(docId:kind:)`) are the check's; `standingRound`/`latestRound` and the round ring are the round's.** `lastRun` (the newer) answers only `IntentDrift.mayTrailDraft`.
 - **`effectiveKind` is a two-clause rule**: a legacy top-level `run`/`diagnostics` pair loads into the slot its kind names, and a legacy `passId: "workshop"` record loads as a CHECK (`RunKindTests`, `DiagnosticsStoreTests`' fixtures under `MaughamTests/Fixtures/`).
 - **A round's conformance strains are stored in the round slot and drawn nowhere**; its findings reach the writer as annotations.
-- **The round ring is the DOCUMENT's and ROUNDS only**: `FileContent.rounds`, capped at `roundHistoryDepth` (5), every pass filing into it; a check contributes nothing. The document remembers six finished rounds: the ring plus the standing round, filed in only when superseded.
+- **The round ring is the DOCUMENT's and ROUNDS only**: `FileContent.rounds`, capped at `roundHistoryDepth` (5), every pass filing into it; a check contributes nothing. The document remembers six finished rounds: the ring plus the standing round. `latestRoundByPass` keeps each pass's superseded round, letter included (`latestRounds(docId:)`).
 - **The ring is written only by `replace`, for the run being SUPERSEDED**: `RoundRecord(run:)` is built from `finishedStanding(docId:kind:)`, which reads the shadow `finishedBeforePreview` while a preview stands in. That shadow is keyed by `SlotKey` in `previewing`, never by its nil-ness.
 - **`latestRound(forPass:docId:)` reads the round slot directly, never the shadow** (its readers want the round in flight), then walks the ring newest-first. A lane aged out of the ring answers `nil` and mints round 1.
 - **`RoundFingerprint` is the one round-over-round join key** (section + clause quote + anchor + reader category, never prose); its `stringValue` is the dedupe key and a synced format. `RoundRecord.fingerprints` is written empty.
@@ -221,8 +220,8 @@ Every file in `Maugham/Compiler/` appears once.
 - **The mint answers `MintOutcome` (`minted`, `openInOtherLanes`, `openInOtherLanesNoteIds`)**: distinct findings refused where NO lane holding them is the round's own, and their open notes. The mint loop's `taken` map is fingerprint → SET of lanes, because one fingerprint can be held by two open notes. The match is made there alone (a second scan could disagree with the mint; `SinceLastRound.compute` is lane-local). Both ride `CompilerRun` as optional fields.
 - **`reopenAnnotation` has no fingerprint-collision guard and must not grow one**: reopening takes a note back; it claims nothing about any other note.
 - **The cross-lane clause is one live projection, `RoundNarrative.openElsewhere`**, for `sinceLastRoundLine`, `freshEyesHeader` and the pane's seal: recorded notes still open, per finding, own lane winning, lanes named by `laneDisplayName`. A count-only record keeps its past-tense sentence.
-- **Neither round sentence draws in Author's pane**: `sinceLastRoundLine` refuses a check, and both sentences live in the cockpit (`AnnotationsRoundCockpit.cockpitReportLine`) (`DiagnosticsPaneTests.test_neitherRoundSentenceIsDrawnOverAColdCheck`).
-- **`DiagnosticsPane.content` forks on `hasReport`; anything an intentless run must show renders in BOTH arms**, as `thisCheckSection` does (`test_theLetterLeadsBothArmsAndPrecedesThisCheck`).
+- **Neither round sentence draws in the check header**: `sinceLastRoundLine` refuses a check, and both sentences live in the cockpit (`RoundCockpitMount`).
+- **To resolve's head draws the latest letter whatever the run raised**; an intentless run's notes are rows in the list (`ResolveHeadTests`).
 - **`CompilerRun.mintedNotes` stops the pane claiming a clean check over queued notes.** `headerState` is fed `strains.count`, never `rows.count`: legacy rows the pane refuses to draw would call a legacy sidecar clean.
 - **`headerCopy`'s `.clean` arm opens with `queuedNotesSentence` only when `wetInk == .none`**; the "Notes in your queue" empty state is ordered above the discarded-notes arm.
 - **The sidecar is derived state**: a missing or corrupt file reads as empty, there is no repair path, and the next run repopulates it.
@@ -234,7 +233,7 @@ Every file in `Maugham/Compiler/` appears once.
 - **A chunk is not a line**: `receivePartial` reads only what a newline closed.
 - **The result REPLACES the preview, never folds into it**: `finish` runs `parseAll` and calls `replace` (`test_theFinalResultReconcilesTheStream`).
 - **`DiagnosticsStore.preview` never persists, never touches the drift ring, never raises the badge.** Every run ending without an answer calls `discardPreview` (a re-read of the sidecar): `finish`'s failure and unusable-output arms, `cancel()` and `shutdown()`.
-- **A preview's rows carry no fates**: `DiagnosticsPane.offersDurableActions(state:)` withholds Answer and Promote while this document's check is `.running`.
+- **A preview's rows carry no fates**: `CheckNarrative.offersDurableActions(state:)` withholds Answer and Promote while this document's check is `.running`.
 - **`DiagnosticsStore.dismiss` refuses while `previewing.contains(docId)`**, in memory and on disk, so a future per-note mutator inherits it (`test_aDismissalCannotReachAPreview_soTheSidecarSurvivesACancelByteIdentical`).
 - **`RunState`'s run cases carry a `RunKind`**: `headerState` matches `.check`, `ReviewRoundCockpit.phase` `.round`; `otherLoopLine` names the other loop's run or one elsewhere; Run refuses, Cancel offered.
 - **A check note is answerable mid-round only because `persist` writes each previewing slot's FINISHED answer** (`finishedBeforePreview`), never a half-report.
@@ -243,7 +242,7 @@ Every file in `Maugham/Compiler/` appears once.
 - **Superseded**: the next run replaces the strains and `clauseStatuses` wholly; un-promoted strains drop.
 - **Stale**: its paragraph's text changed, so `DiagnosticsStore.live` drops it (an anchorless strain never goes stale).
 - **Promoted**: kept as an op-logged task (`DiagnosticPromotion`, strains only; `sectionLabel` keeps old tasks' labels).
-- **Answered**: a ruling on the PIECE's intent statement (never the project's, minted if absent) via `RulingPerformer.rule` from `DiagnosticsPane.commitAnswer`, carrying the strain's `clauseQuote` trimmed to `driftQuoteMaxLength` (`answeredNoteProvenance`); the note dismisses.
+- **Answered**: a ruling on the PIECE's intent statement (never the project's, minted if absent) via `RulingPerformer.rule` from `CheckNarrative.commitAnswer`, carrying the strain's `clauseQuote` trimmed to `driftQuoteMaxLength` (`answeredNoteProvenance`); the note dismisses.
 - **Continuity questions, reader reports and letter questions have no fates here**: they are annotations from the moment they mint and follow that layer's verbs and undo (ADR 0023). `RulingPerformer` never sees one.
 
 ### The writer-owned layer
@@ -287,9 +286,9 @@ Every file in `Maugham/Compiler/` appears once.
 - **Words first; a rejected batch mints no queries** (queries have no fingerprint to dedupe).
 - **Queries mint through `Document.addAnnotation`, signed by the translator and language-tagged in `toolArgs`**; an anchorless one is a doc-scoped `.craftNote` with a `Translation query (<lang>) — ` prefix. The tag, not the kind, re-briefs and counts it.
 - **The translator identity is resolved before the briefing** (`ProjectStore.translatorRole(for:)`, find-or-create; read paths never mint a role), so the role frame and the signature name the same row.
-- **The translator has no run keys** (⌘R and ⌘⇧R are the compiler's) and starts on the desk's Run alone.
-- **Translation runs only on the OPEN document** (`DepartmentRunTarget.resolve`; `test_theBriefingAbandonIsClosedByTheOpenDocumentGate`). One round runs at a time across every language (`DepartmentRunSession.busy`).
-- **A translator is named only through the cast sheet** (`DepartmentCastSheet.swift`: Name & Run, Add Language…, Rename …): `translatorRole(for:)` + `renameProductionRole`.
+- **The translator has no run keys** (⌘R and ⌘⇧R are the compiler's) and starts on an edition head's Run alone.
+- **Translation runs only on the OPEN document** (`TranslationRunTarget.resolve`; `test_theBriefingAbandonIsClosedByTheOpenDocumentGate`). One round runs at a time across every language (`TranslationRunSession.busy`).
+- **A translator is named only through the cast sheet** (`EditionCastSheet.swift`; `EditionCastVerbs`): `translatorRole(for:)` + `renameProductionRole`.
 
 ### The designer
 - **The designer is a third conformer, warm per PROJECT** (retired only by a model change or `shutdown()`); `requestChanges` iterates on that session. A round stays OPEN (`hasOpenProposalRound`) until a fresh `runDesign` send (closed before the answer), `retireSession`, or `sessionEpoch` moving.
@@ -321,8 +320,8 @@ Every file in `Maugham/Compiler/` appears once.
 - **`onRunAbandoned` is not a summary**: the briefing answered `nil`, so the leg fails with `unbriefableSentence(role:)`, never `nothingToTranslate`.
 - **A declined note's reply lives in the query BODY** (`declinedBody`), authored by the reader or collator who raised it. No reply `OpKind` or `AnnotationKind`.
 - **The book queue stops on a failed round**; it never skips a chapter.
-- **The desk's busy gate reads `TranslationPipeline.Status` first** (`DepartmentRunSession.read(runState:isRunning:pipeline:)`), on the body path, never through `ReloadKey` (language only).
-- **`TranslationRoundStore` keeps the newest `ringSize` (10) rounds per language**, numbered per language across documents by a `nextNumber` that outlives the ring. `append` is this area's only write; `update(_:)` belongs to the round report.
+- **The edition head's busy gate reads `TranslationPipeline.Status` first** (`TranslationRunSession.read(runState:isRunning:pipeline:)`), on the body path, never through `ReloadKey` (language only).
+- **`TranslationRoundStore` keeps `ringSize` (10) rounds per language, plus each piece's latest finished**, numbered past the ring. `append` is this area's only write; `mutateInOrder` is the round's verbs' (the report, To resolve), on the project's queue.
 - **`TranslationPreflight.budgets` opens each document ONCE** for every language; an empty answer means nothing could be read, distinct from a zero.
 
 ## Recipes
@@ -334,7 +333,7 @@ Every file in `Maugham/Compiler/` appears once.
 4. Join the roster in `Maugham/Compiler/AgentRoster.swift`: a stored property and an `init` parameter; its `shutdown()` in `shutdownAll()` and `detach()` in `detachAll()`, after the pipeline; `updateModel` if step 1 added it.
 5. A member holding no runner gets a `nonHoldingMembers` entry (and `noTeardownMembers` if it has no teardown) in `MaughamTests/TranslatorEnvironmentTests.swift`. Hold the runner directly: a collection of runners is invisible to the census.
 6. Wire it in `Maugham/Stores/ProjectSession.swift`'s `attachWindow` (never `open`), and add its `configure(` token to the list in `test_everyWindowEndingPathShutsEverySessionDown`.
-7. If a pane needs it, read it in `Maugham/Views/DetailPaneToggle.swift` through `@Environment(AgentRoster.self)`, and add its tokens to that test's `DetailPaneToggle` list.
+7. If a pane needs it, read it in `Maugham/Views/RightColumn.swift` off the roster the column injects, and add its tokens to that test's `RightColumn` list.
 8. Test fixtures over `.production` replace `writeMCPConfig` too.
 
 Checks: `TranslatorEnvironmentTests`, `AgentRosterTests`, `ClaudeCLISessionTests`, the spawn-flag censuses in `TripwireGrepTests`.
@@ -360,10 +359,10 @@ Checks: `DiagnosticIngestTests`, `CompilerPromptTests`, `DiagnosticsStoreTests`.
 Follow Core's recipe, "Add a Statement.Kind" in `Packages/MaughamCore/Sources/MaughamCore/AREA.md`. In this area: `RulingPerformer`'s `noun` switch, and one production file naming the kind to `RulingPerformer` with its own census. If nothing derives a world from it, its callers pass `world: nil`.
 
 ## Pointers
-- ADRs: 0027 (the compiler and the editor boundary), 0028 (Maugham goes outbound: the toggle, two-flag confinement, the read-only allowlist, the warm session and `--resume`, billing), 0029 (the report is materialised), 0030 (three people, seven legs, directives as rulings), 0031 (the persona is an input to the run), 0018/0019 (derived reads), 0021 (scoped events), 0023 (undo conventions).
+- ADRs: 0027 (the compiler and the editor boundary), 0028 (Maugham goes outbound: the toggle, two-flag confinement, the read-only allowlist, the warm session and `--resume`, billing), 0029 (the report is materialised), 0030 (three people, seven legs, directives as rulings), 0031 (the persona is an input to the run), 0038 (round letters per piece and per pass), 0018/0019 (derived reads), 0021 (scoped events), 0023 (undo conventions).
 - Specs (`docs/superpowers/specs/`): `2026-08-04-m2-author-compiler-design.md`, `2026-08-07-compiler-second-draft-design.md`, `2026-08-17-one-loop-two-tempos-design.md`, `2026-09-05-two-loops-two-readers-design.md`, `2026-08-19-publish-department-design.md`.
 - `docs/tripwires.md` rows 2, 3, 6, 11, 17, 20, 21, 24 and 34.
 - Tests worth knowing (the suites are the specification): `CompilerRunCommandTests` (⌘R's real path), `CompilerAllowlistTests`, `ClaudeCLISessionTests`, `CompilerPromptTests`, `DiagnosticIngestTests`, `DiagnosticsStoreTests`, `DiagnosticsPaneTests`, `RulingPerformerTests`, `StatementPaneStrataTests`, `DeclaredWorldDeriverTests`, `BibleStoreTests`, `LetterMarkdownTests`, `TranslatorEnvironmentTests`, `TranslationPipelineTests`, `AgentRosterTests`.
-- Known gap: the reply field's commit-on-Return and Escape are asserted at the source (`DiagnosticsPaneTests.test_theReplyFieldCommitsOnReturnAndCancelsOnEscape`); `DiagnosticsPane.commitAnswer` is a `static` so the rest runs for real.
-- Neighbouring guides: `Maugham/Views/AREA.md` (the panes, the cockpit, the desk; its Rules → "Publish and translation" covers the department desk), `Maugham/Stores/AREA.md` (project sessions, `DesignProposalStore`, `TranslationRoundStore`), `Maugham/MCP/AREA.md` (`write_translation`), `Maugham/Publish/AREA.md`.
+- Known gap: the reply field's commit-on-Return and Escape are asserted at the source (`DiagnosticsPaneTests.test_theReplyFieldCommitsOnReturnAndCancelsOnEscape`); `CheckNarrative.commitAnswer` is a `static` so the rest runs for real.
+- Neighbouring guides: `Maugham/Views/AREA.md` (the panes, the cockpit; its Rules → "Publish and translation"), `Maugham/Stores/AREA.md` (project sessions, `DesignProposalStore`, `TranslationRoundStore`), `Maugham/MCP/AREA.md` (`write_translation`), `Maugham/Publish/AREA.md`.
 - `docs/history/compiler.md` — the whole previous guide: why each rule exists, the smoke finds and reviews behind them, the walk of the third door, the atomic switch.

@@ -1,7 +1,7 @@
 import SwiftUI
 
 /// The label every project row draws — the head row that names the project
-/// itself (persona shell spec §3.3).
+/// itself (the 2026-08-01 shell spec, §3.3).
 ///
 /// **One definition because there are three of them.** `BinderView`,
 /// `CollectionPiecesPane` and `SceneNavigatorPane` each carry a project row,
@@ -38,6 +38,8 @@ struct ProjectRowLabel: View {
     static let childIndent: CGFloat = 14
 
     let title: String
+    /// Whether the Book has something to resolve (`ResolvePresence`).
+    @Environment(\.resolvePresence) private var presence
 
     var body: some View {
         HStack(spacing: 6) {
@@ -48,6 +50,7 @@ struct ProjectRowLabel: View {
                 .lineLimit(1)
                 .truncationMode(.middle)
             Spacer()
+            ResolvePresenceMark(ResolvePresence.rowMark(.book, in: presence))
         }
         .contentShape(Rectangle())
     }

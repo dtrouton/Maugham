@@ -21,7 +21,7 @@ final class StatementEditorMountTests: XCTestCase {
     private var fixtures: [StatementMountFixture] = []
 
     override func tearDown() async throws {
-        for fixture in fixtures { fixture.tearDown() }
+        for fixture in fixtures { await fixture.closeAndTearDown() }
         fixtures.removeAll()
         try await super.tearDown()
     }
@@ -526,7 +526,7 @@ final class StatementEditorMountTests: XCTestCase {
     /// reach the stack. If the context filter were bypassed, or a future
     /// observer registered without a context, the mechanism test still passes
     /// and this one does not.
-    func test_toggleReviewModeReachesTheManuscriptEditorAndNotTheStatementPane() async throws {
+    func test_theReadThroughKeyReachesTheManuscriptEditorAndNotTheStatementPane() async throws {
         let fixture = try await fixture(named: "ReviewToggleCrossTalk")
         try await fixture.store.createStatement(kind: .intent, scope: .project)
 
@@ -554,22 +554,26 @@ final class StatementEditorMountTests: XCTestCase {
                       + "`.keyWindow`-scoped post reaches neither editor and this "
                       + "test would prove nothing")
 
-        XCTAssertFalse(manuscript.isReviewMode)
-        XCTAssertFalse(statementPane.isReviewMode)
+        XCTAssertFalse(manuscript.isInReadThrough)
+        XCTAssertFalse(statementPane.isInReadThrough)
 
-        MaughamEvent.post(.maughamToggleReviewMode, to: .keyWindow)
-        // One post, both observers: the delivery that flips the manuscript is
-        // the same one that must leave the statement pane alone, so waiting for
-        // the positive half settles the negative one too.
-        await fixture.pumpUntil(deadline: 5) { manuscript.isReviewMode }
+        // ⌘⌥⇧R's post, synchronous: the manuscript flips (the positive half,
+        // so the negative one is not a post that went nowhere) and the pane,
+        // which does not respond to window commands, does not.
+        let piece = try XCTUnwrap(manuscript.documentId)
+        // The pane claims the same piece for the length of the post, so only
+        // `respondsToWindowCommands` can keep it out.
+        let paneDocument = statementPane.documentId
+        statementPane.documentId = piece
+        ReadThrough.post(.init(docId: piece, on: true))
+        statementPane.documentId = paneDocument
 
-        XCTAssertTrue(manuscript.isReviewMode,
-                      "⌘⌥R did not reach the manuscript editor, so the assertion "
+        XCTAssertTrue(manuscript.isInReadThrough,
+                      "⌘⌥⇧R did not reach the manuscript editor, so the assertion "
                       + "below cannot tell scoping from a post that went nowhere")
-        XCTAssertFalse(statementPane.isReviewMode,
-                       "⌘⌥R flipped the statement pane into review posture: the "
-                       + "intent editor gains crafted-render chrome and a "
-                       + "Comment/Query/Suggest toolbar wired to nothing")
+        XCTAssertFalse(statementPane.isInReadThrough,
+                       "⌘⌥⇧R flipped the statement pane: the intent editor gains "
+                       + "review chrome and a Comment/Query/Suggest toolbar wired to nothing")
     }
 
     // MARK: - A superseded load must not bind (whole-branch review, C1)

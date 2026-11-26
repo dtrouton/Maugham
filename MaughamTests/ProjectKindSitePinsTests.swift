@@ -57,9 +57,9 @@ final class ProjectKindSitePinsTests: XCTestCase {
         }
     }
 
-    func test_inspectorRoute_offCanvas_isThePieceInspectorForACollectionOnly() {
+    func test_inspectorRoute_offCanvas_isTheCollectionPieceRouteForACollectionOnly() {
         for type in everyKind {
-            XCTAssertEqual(ProjectWindow.inspectorRoute(persona: .author, projectType: type),
+            XCTAssertEqual(ProjectWindow.inspectorRoute(subject: .book, projectType: type),
                            holdsPiecesExpected(type) ? .collectionPiece : .document, "\(type)")
         }
     }
@@ -67,11 +67,11 @@ final class ProjectKindSitePinsTests: XCTestCase {
     func test_editorRoute_offCanvas_showsTheReferencePlaceholderForACollectionOnly() {
         for type in everyKind {
             XCTAssertEqual(
-                ProjectWindow.editorRoute(persona: .author, projectType: type,
+                ProjectWindow.editorRoute(subject: .book, projectType: type,
                                           selectedPieceIsReference: true),
                 holdsPiecesExpected(type) ? .collectionReference : .editor, "\(type)")
             XCTAssertEqual(
-                ProjectWindow.editorRoute(persona: .author, projectType: type,
+                ProjectWindow.editorRoute(subject: .book, projectType: type,
                                           selectedPieceIsReference: false),
                 .editor, "\(type)")
         }
@@ -100,7 +100,7 @@ final class ProjectKindSitePinsTests: XCTestCase {
     func test_sharedResearchRoots_dropPieceScopedRootsInACollectionOnly() {
         for type in everyKind {
             let roots = TreeSectionDerivation.sharedResearchRoots(
-                research: [pieceNote, sharedNote], projectType: type)
+                structure: [piece], research: [pieceNote, sharedNote], projectType: type)
             XCTAssertEqual(roots.map(\.id),
                            holdsPiecesExpected(type) ? ["res-shared"] : ["res-piece", "res-shared"],
                            "\(type)")

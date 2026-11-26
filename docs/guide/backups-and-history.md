@@ -8,7 +8,7 @@ Three things keep your work safe, and they do different jobs:
 
 A checkpoint helps when you want last Tuesday's version of a chapter back. A backup helps when the project itself is in trouble.
 
-Research notes, tables and palette cards keep earlier versions of their own, which you restore from the inspector's **Versions** section (see [Research](research.md#earlier-versions-of-a-research-note)). Pictures, PDFs and audio are covered by your backups, not by versions.
+Research notes, tables and palette cards keep earlier versions of their own, which you restore from the **Versions** section of their details (see [Research](research.md#earlier-versions-of-a-research-note)). Pictures, PDFs and audio are covered by your backups, not by versions.
 
 ## Checkpoints
 
@@ -18,14 +18,14 @@ Research notes, tables and palette cards keep earlier versions of their own, whi
 
 In a piece you may not change (see [People & Devices](people-and-devices.md#what-their-mac-shows-them)), ⌘⇧S doesn't open the sheet. It says why instead: *"This text isn’t yours to change, so a checkpoint here would mark nothing of yours."* If you've set a backup destination, your backups still run.
 
-## The History pane (⌘⌥H)
+## History
 
-The History pane shows the history of the document you have open, newest first: your typing, Claude's and your own notes, and your checkpoints. Filter it with the chips across the top:
+A chapter's History is its story, newest first: your typing, Claude's and your own notes, and your checkpoints. Pull it up beside your text with **View ▸ Pull Up History** (⌃⌘H), **History** in the chapter's row menu, or **History** at the foot of its Brief. With no chapter picked, ⌃⌘H pulls up the project's History. Filter it with the chips across the top:
 
 - **All** — everything.
 - **Checkpoints** — just the checkpoints.
 - **Edits** — your writing, grouped into bursts. A new burst appears about every 30 seconds while you work.
-- **Annotations** — every note and suggestion, and every answer you gave one.
+- **Notes** — every note and suggestion, and every answer you gave one.
 
 Each filter has its own empty state, such as *No checkpoints* or *No edits*, so an empty list never leaves you guessing which one you're looking at. Edits made to the `.md` file outside Maugham aren't kept, so History has nothing to show for them.
 
@@ -42,7 +42,7 @@ When the checkpoint was made inside a document, that document is chosen for you.
 
 Reverting also answers the suggestions on a document's tables, and only where it rewrites the suggested cell. A suggestion you accepted since the checkpoint is reopened where the revert writes its cell back; one whose accept you had taken back is returned to **Accepted** where the revert puts its value back again; one on a cell the revert doesn't touch keeps its status; and one whose row or column didn't exist at the checkpoint is archived. The sheet counts them before you press **Revert** and reports them afterwards.
 
-Reverting adds to the history rather than erasing it. Everything you wrote after the checkpoint is still in the History pane, and you can rewind back to it.
+Reverting adds to the history rather than erasing it. Everything you wrote after the checkpoint is still in History, and you can rewind back to it.
 
 ### Rewinding one document
 
@@ -54,9 +54,13 @@ The Rewind window is headed **REWINDING**. Drag the scrubber to go back through 
 - **Snapshot here…** — make a named checkpoint at that moment, so you can find it again.
 - **Restore here…** — put the document back as it was then. It asks first: *Restore <document> to this point?* → **Restore**.
 
-Press ⌘Z straight after a restore and the whole thing is undone, including any suggestions it reopened. See [Annotations & Suggestions → Rewinding with suggestions](annotations-and-suggestions.md#rewinding-with-suggestions).
+Press ⌘Z straight after a restore and the whole thing is undone, including any suggestions it reopened. See [Notes & Suggestions → Rewinding with suggestions](annotations-and-suggestions.md#rewinding-with-suggestions).
 
-**Revert here…**, the back-arrow button, **Snapshot here…** and **Restore here…** only appear where this Mac may change the piece's text. In a piece you're reviewing, History is something to read.
+**Rewinding is for the chapter open in the centre.** History pulled up for another chapter is there to read, and says *Open this chapter to rewind it*, which opens it and keeps its History up.
+
+**Revert here…**, the back-arrow button, **Snapshot here…** and **Restore here…** only appear where this Mac may change the chapter's text. In a chapter you're reviewing, History is something to read.
+
+A [read-through](annotations-and-suggestions.md#read-through) starts with a checkpoint named for the chapter, so you can always compare with the version you read and go back to it.
 
 ### Other things History tells you
 
@@ -81,7 +85,7 @@ The tab's own advice is worth following:
 
 - **The whole project folder is copied** — manuscript, research, the canvas, your project's history, everything in it. Several projects can share one destination, because each gets its own folder there.
 - **The copy is checked before it counts.** It's written under a temporary name, checked, and only then joins your backups. A copy that was cut short never looks like a finished one.
-- **Nothing is written if nothing has changed.** Pressing ⌘S (or ⌘⇧S) ten times without writing a word makes one backup, not ten. Things like which document you had selected or which persona you were in don't count as changes.
+- **Nothing is written if nothing has changed.** Pressing ⌘S (or ⌘⇧S) ten times without writing a word makes one backup, not ten. Things like which chapter you had open or which view you were in don't count as changes.
 - **Old backups are cleared down to the destination's Keep number** each time a new one is made, oldest first. A backup that checks out is kept ahead of a damaged one.
 
 ### When backups pause

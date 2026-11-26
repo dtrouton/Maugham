@@ -36,7 +36,24 @@ enum SampleProjectBuilder {
         // of user content; a copy is fine).
         try fm.copyItem(at: seed, to: dest)
         await PublishStarter.installIfMissing(into: dest)
+        // Best-effort, as every UI-state write is: a failed seed opens the
+        // sample on the Book, and never leaves a copied sample orphaned on
+        // disk behind a thrown build (shell closing A10).
+        try? openOnFirstPiece(dest)
         return dest
+    }
+
+    /// **A sample opens on its first piece, not on the Book** (shell p5 Task 9
+    /// fix round 1, I1): its text is written from inside that piece ("the
+    /// chapter open in the centre"), where an ordinary project opens on the
+    /// Book's Outline (`UIState`'s defaults, unchanged). Seeded through the
+    /// one UI-state door, read back by `DocumentStore.open`.
+    static func openOnFirstPiece(_ project: URL) throws {
+        let data = try Data(contentsOf: project.appendingPathComponent(ProjectManifest.fileName))  // adr-0018-ok: the sample's own manifest, just copied
+        let manifest = try ProjectManifest.makeDecoder().decode(ProjectManifest.self, from: data)
+        guard let first = TreeWalk.collect(in: manifest.structure, where: { $0.type == .document }).first else { return }
+        let piece = BinderSubject.item(first.id)
+        try UIState(windowSubject: WindowSubject(open: piece, faces: piece)).write(toProject: project)
     }
 
     /// Production convenience: bundled seeds + ~/Documents.

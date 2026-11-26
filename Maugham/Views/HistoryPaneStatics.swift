@@ -653,6 +653,99 @@ extension HistoryPane {
         posture?.allows(.writeText) ?? false
     }
 
+    /// **Whether this History offers Rewind at all** (shell p3 final wave,
+    /// C1): where the text may be written AND its piece is the one open in
+    /// the editor. A pulled-up History keeps its piece while the faces move;
+    /// a rewind of a piece that is not open would either reach the wrong
+    /// sheet or do nothing, so the toolbar's Rewind… and every row's
+    /// *Rewind to before this…* are not drawn. The project's History has no
+    /// piece and offers none; its checkpoint Revert is the picker's.
+    static func offersRewind(_ posture: Posture?, documentIsOpen: Bool) -> Bool {
+        documentIsOpen && offersRewind(posture)
+    }
+
+    /// **What stands where Rewind… would** (owner's answer 13, 2026-11-22):
+    /// Rewind stays the open piece's; over a pulled-up History of a piece
+    /// that is NOT open, where this Mac may write its text, the slot says how
+    /// to get it — "Open this chapter to rewind it", a button that opens the
+    /// piece and keeps its History up. `pieceNoun` is nil where the History
+    /// is not a manuscript piece's (the project's, a figure's): nothing
+    /// stands. Pure.
+    enum RewindSlot: Equatable {
+        case rewind
+        case openToRewind(String)
+        case none
+    }
+
+    static func rewindSlot(_ posture: Posture?, documentIsOpen: Bool, pieceNoun: String?) -> RewindSlot {
+        if offersRewind(posture, documentIsOpen: documentIsOpen) { return .rewind }
+        guard !documentIsOpen, let pieceNoun, offersRewind(posture) else { return .none }
+        return .openToRewind(openToRewindLine(noun: pieceNoun))
+    }
+
+    static func openToRewindLine(noun: String) -> String {
+        "Open this \(noun) to rewind it"
+    }
+
+    /// The piece's word (`PieceNoun`), where `docId` is a manuscript piece
+    /// the editor can open; nil otherwise.
+    @MainActor
+    static func rewindablePiece(docId: String, store: ProjectStore) -> String? {
+        guard let item = TreeWalk.find(id: docId, in: store.manifest.structure),
+              EditorHost.loadsAsAManuscript(item) else { return nil }
+        return PieceNoun.of(item, in: store.manifest).singular
+    }
+
+    /// **What every rewind post carries** — its own piece, as `jump` does,
+    /// and for a row the moment to open at. The one builder: the receiver
+    /// presents for the piece named here, never for the window's faces
+    /// (`RewindModifier.rewindTarget`).
+    static func rewindPayload(docId: String, before: Op?) -> [String: Any] {
+        var payload: [String: Any] = [ManuscriptNavigation.docIdKey: docId]
+        if let before {
+            payload["scrub_op_id"] = before.opId
+            payload["scrub_op_at"] = before.at
+        }
+        return payload
+    }
+
+    /// **What a checkpoint row's *Compare…* posts** — `rewindPayload`'s keys,
+    /// the scrubber at the piece's own pointer in the checkpoint (the last
+    /// content op before its breadcrumb, which `.atOp` derives inclusively),
+    /// and the sheet opening on Diff. So the diff is exactly "since then".
+    /// nil where the checkpoint holds no pointer for the piece.
+    static func comparePayload(docId: String, checkpoint: Checkpoint) -> [String: Any]? {
+        guard let opId = checkpoint.docPointers[docId] else { return nil }
+        var payload = rewindPayload(docId: docId, before: nil)
+        payload["scrub_op_id"] = opId
+        payload["scrub_op_at"] = checkpoint.at
+        payload[RewindWindow.initialPreviewKey] = RewindWindow.PreviewMode.diff.rawValue
+        return payload
+    }
+
+    /// **What a checkpoint row's *Compare…* is** — drawn on a checkpoint whose
+    /// subject is this History's piece and which holds a pointer for it, only
+    /// while that piece is open: the sheet is Rewind's, and Rewind is the open
+    /// piece's (owner ruling 13, 2026-11-22). Where the pointer's op is not in
+    /// the piece's loaded history, Rewind's derive would fall back to now and
+    /// the diff would read "no change", so Compare… is drawn disabled and says
+    /// why (`compareUnavailableHelp`).
+    enum CompareOffer: Equatable {
+        case absent
+        case compare
+        case unavailable
+    }
+
+    static let compareUnavailableHelp =
+        "This checkpoint’s version of the piece is no longer in its history, so it can’t be compared."
+
+    static func compareOffer(_ checkpoint: Checkpoint, docId: String, documentIsOpen: Bool,
+                             holdsOp: (String) -> Bool) -> CompareOffer {
+        guard documentIsOpen, checkpoint.activeDoc == docId,
+              let opId = checkpoint.docPointers[docId] else { return .absent }
+        return holdsOp(opId) ? .compare : .unavailable
+    }
+
     /// **Whether a checkpoint row offers *Revert here…*** — only where the
     /// picker it opens would list at least one document this Mac may write
     /// (`PartialRestorePicker.offeredDocIds`), asked through the picker's own

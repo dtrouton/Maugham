@@ -137,11 +137,13 @@ extension ProjectStore {
             return
         }
         do {
-            let doc = try await Document.load(
+            let doc = try await DocumentStore.loadManuscript(
+                path: path,
                 url: try resolvedProjectPath(path),
                 actor: .author,
                 session: "restore-\(UUID().uuidString.prefix(8))",
-                presenter: documentStore?.presenter)
+                presenter: documentStore?.presenter,
+                through: documentStore)
             do { try await doc.performAutosave() } catch {
                 projectStoreLog.error(
                     "restore: render of \(path, privacy: .public) failed: \(error.localizedDescription, privacy: .public)")

@@ -87,13 +87,13 @@ final class BinderTreeIndentationTests: XCTestCase {
 
         let (window, probe) = try await hostCollection(store: store)
         let outline = try XCTUnwrap(outlineView(in: window))
-        try expandRow(1, in: outline)
+        try expandRow(1 + TreeFurniture.topRows, in: outline)
 
-        try await assertIdentity(row: 1, is: .item(piece.id), in: outline, probe: probe)
-        try await assertIdentity(row: 2, is: .research(note.id), in: outline, probe: probe)
+        try await assertIdentity(row: 1 + TreeFurniture.topRows, is: .item(piece.id), in: outline, probe: probe)
+        try await assertIdentity(row: 2 + TreeFurniture.topRows, is: .research(note.id), in: outline, probe: probe)
 
-        let parent = try contentInk(ofRow: 1, in: outline)
-        let child = try contentInk(ofRow: 2, in: outline)
+        let parent = try contentInk(ofRow: 1 + TreeFurniture.topRows, in: outline)
+        let child = try contentInk(ofRow: 2 + TreeFurniture.topRows, in: outline)
         XCTAssertGreaterThan(
             child, parent + minimumStep,
             "a piece's research is drawn UNDER that piece, so it has to start "
@@ -112,13 +112,13 @@ final class BinderTreeIndentationTests: XCTestCase {
 
         let (window, probe) = try await hostBinder(store: store)
         let outline = try XCTUnwrap(outlineView(in: window))
-        try expandRow(1, in: outline)
+        try expandRow(1 + TreeFurniture.topRows, in: outline)
 
-        try await assertIdentity(row: 1, is: .item(chapter.id), in: outline, probe: probe)
-        try await assertIdentity(row: 2, is: .research(note.id), in: outline, probe: probe)
+        try await assertIdentity(row: 1 + TreeFurniture.topRows, is: .item(chapter.id), in: outline, probe: probe)
+        try await assertIdentity(row: 2 + TreeFurniture.topRows, is: .research(note.id), in: outline, probe: probe)
 
-        let parent = try contentInk(ofRow: 1, in: outline)
-        let child = try contentInk(ofRow: 2, in: outline)
+        let parent = try contentInk(ofRow: 1 + TreeFurniture.topRows, in: outline)
+        let child = try contentInk(ofRow: 2 + TreeFurniture.topRows, in: outline)
         XCTAssertGreaterThan(child, parent + minimumStep,
                              "measured parent \(parent), child \(child)")
     }
@@ -138,16 +138,16 @@ final class BinderTreeIndentationTests: XCTestCase {
 
         let (window, probe) = try await hostCollection(store: store)
         let outline = try XCTUnwrap(outlineView(in: window))
-        try expandRow(1, in: outline)   // the piece
-        try expandRow(2, in: outline)   // the group inside its fold
+        try expandRow(1 + TreeFurniture.topRows, in: outline)   // the piece
+        try expandRow(2 + TreeFurniture.topRows, in: outline)   // the group inside its fold
 
-        try await assertIdentity(row: 1, is: .item(piece.id), in: outline, probe: probe)
-        try await assertIdentity(row: 2, is: .research(group.id), in: outline, probe: probe)
-        try await assertIdentity(row: 3, is: .research(child.id), in: outline, probe: probe)
+        try await assertIdentity(row: 1 + TreeFurniture.topRows, is: .item(piece.id), in: outline, probe: probe)
+        try await assertIdentity(row: 2 + TreeFurniture.topRows, is: .research(group.id), in: outline, probe: probe)
+        try await assertIdentity(row: 3 + TreeFurniture.topRows, is: .research(child.id), in: outline, probe: probe)
 
-        let piece_ = try contentInk(ofRow: 1, in: outline)
-        let group_ = try contentInk(ofRow: 2, in: outline)
-        let leaf = try contentInk(ofRow: 3, in: outline)
+        let piece_ = try contentInk(ofRow: 1 + TreeFurniture.topRows, in: outline)
+        let group_ = try contentInk(ofRow: 2 + TreeFurniture.topRows, in: outline)
+        let leaf = try contentInk(ofRow: 3 + TreeFurniture.topRows, in: outline)
         XCTAssertGreaterThan(group_, piece_ + minimumStep,
                              "the group is inside the piece's fold")
         XCTAssertGreaterThan(leaf, group_ + minimumStep,
@@ -171,15 +171,15 @@ final class BinderTreeIndentationTests: XCTestCase {
         let (window, probe) = try await hostCollection(store: store)
         let outline = try XCTUnwrap(outlineView(in: window))
 
-        try await assertIdentity(row: 1, is: .item(alpha.id), in: outline, probe: probe)
-        try await assertIdentity(row: 2, is: .item(bravo.id), in: outline, probe: probe)
-        XCTAssertTrue(try isExpandable(row: 1, in: outline),
+        try await assertIdentity(row: 1 + TreeFurniture.topRows, is: .item(alpha.id), in: outline, probe: probe)
+        try await assertIdentity(row: 2 + TreeFurniture.topRows, is: .item(bravo.id), in: outline, probe: probe)
+        XCTAssertTrue(try isExpandable(row: 1 + TreeFurniture.topRows, in: outline),
                       "precondition: Alpha carries a chevron")
-        XCTAssertFalse(try isExpandable(row: 2, in: outline),
+        XCTAssertFalse(try isExpandable(row: 2 + TreeFurniture.topRows, in: outline),
                        "precondition: Bravo does not")
 
-        let withChevron = try contentInk(ofRow: 1, in: outline)
-        let without = try contentInk(ofRow: 2, in: outline)
+        let withChevron = try contentInk(ofRow: 1 + TreeFurniture.topRows, in: outline)
+        let without = try contentInk(ofRow: 2 + TreeFurniture.topRows, in: outline)
         XCTAssertEqual(withChevron, without, accuracy: 1,
                        "two pieces are siblings whatever their research; the "
                        + "triangle lives in the gutter and must not move the "
@@ -207,15 +207,15 @@ final class BinderTreeIndentationTests: XCTestCase {
         let (window, probe) = try await hostBinder(store: store)
         let outline = try XCTUnwrap(outlineView(in: window))
 
-        try await assertIdentity(row: 1, is: .item(linked.id), in: outline, probe: probe)
-        try await assertIdentity(row: 2, is: .item(plain.id), in: outline, probe: probe)
-        XCTAssertTrue(try isExpandable(row: 1, in: outline),
+        try await assertIdentity(row: 1 + TreeFurniture.topRows, is: .item(linked.id), in: outline, probe: probe)
+        try await assertIdentity(row: 2 + TreeFurniture.topRows, is: .item(plain.id), in: outline, probe: probe)
+        XCTAssertTrue(try isExpandable(row: 1 + TreeFurniture.topRows, in: outline),
                       "precondition: the linked chapter carries a chevron")
-        XCTAssertFalse(try isExpandable(row: 2, in: outline),
+        XCTAssertFalse(try isExpandable(row: 2 + TreeFurniture.topRows, in: outline),
                        "precondition: the other does not")
 
-        XCTAssertEqual(try contentInk(ofRow: 1, in: outline),
-                       try contentInk(ofRow: 2, in: outline), accuracy: 1,
+        XCTAssertEqual(try contentInk(ofRow: 1 + TreeFurniture.topRows, in: outline),
+                       try contentInk(ofRow: 2 + TreeFurniture.topRows, in: outline), accuracy: 1,
                        "two chapters are siblings whatever is linked to them")
     }
 
@@ -238,7 +238,7 @@ final class BinderTreeIndentationTests: XCTestCase {
 
         let (window, probe) = try await hostBinder(store: store)
         let outline = try XCTUnwrap(outlineView(in: window))
-        let outerRow = store.manifest.structure.count
+        let outerRow = store.manifest.structure.count + TreeFurniture.topRows
         try expandRow(outerRow, in: outline)
         try expandRow(outerRow + 1, in: outline)
 
@@ -271,10 +271,10 @@ final class BinderTreeIndentationTests: XCTestCase {
         let (window, probe) = try await hostCollection(store: store)
         let outline = try XCTUnwrap(outlineView(in: window))
         try await assertIdentity(row: 0, is: .project, in: outline, probe: probe)
-        try await assertIdentity(row: 1, is: .item(piece.id), in: outline, probe: probe)
+        try await assertIdentity(row: 1 + TreeFurniture.topRows, is: .item(piece.id), in: outline, probe: probe)
 
         XCTAssertGreaterThan(
-            try contentInk(ofRow: 1, in: outline),
+            try contentInk(ofRow: 1 + TreeFurniture.topRows, in: outline),
             try contentInk(ofRow: 0, in: outline) + minimumStep,
             "a piece is below the project in the hierarchy and has to read "
             + "that way")
@@ -438,9 +438,9 @@ private struct IndentBinderProbeView: View {
     let treeState = BinderTreeSectionsState()
 
     var body: some View {
-        BinderView(store: store,
-                   selectedSubject: Binding(get: { probe.subject },
-                                            set: { probe.subject = $0 }),
+        TreeHostFixture.binder(store: store,
+                   subject: .tree(Binding(get: { probe.subject },
+                                            set: { probe.subject = $0 })),
                    treeState: treeState)
     }
 }
@@ -453,10 +453,10 @@ private struct IndentCollectionProbeView: View {
     let treeState = BinderTreeSectionsState()
 
     var body: some View {
-        CollectionPiecesPane(
+        TreeHostFixture.collection(
             store: store,
-            selectedSubject: Binding(get: { probe.subject },
-                                     set: { probe.subject = $0 }),
+            subject: .tree(Binding(get: { probe.subject },
+                                     set: { probe.subject = $0 })),
             renamingItemId: $renaming,
             treeState: treeState)
     }

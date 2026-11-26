@@ -25,12 +25,12 @@ final class TranslationReviewEventTests: XCTestCase {
     func test_enterTranslationReview_deliversLanguagePayload() {
         var received: String?
         let token = MaughamEvent.observe(
-            .maughamEnterTranslationReview,
+            .maughamReadInLanguage,
             context: { [self] in keyContext(true) },
             handler: { received = $0.userInfo?["language"] as? String })
         defer { NotificationCenter.default.removeObserver(token) }
 
-        MaughamEvent.post(.maughamEnterTranslationReview, to: .keyWindow,
+        MaughamEvent.post(.maughamReadInLanguage, to: .keyWindow,
                           payload: ["language": "es"])
 
         XCTAssertEqual(received, "es",
@@ -40,12 +40,12 @@ final class TranslationReviewEventTests: XCTestCase {
     func test_exitTranslationReview_delivers() {
         var fired = 0
         let token = MaughamEvent.observe(
-            .maughamExitTranslationReview,
+            .maughamReadInSource,
             context: { [self] in keyContext(true) },
             handler: { _ in fired += 1 })
         defer { NotificationCenter.default.removeObserver(token) }
 
-        MaughamEvent.post(.maughamExitTranslationReview, to: .keyWindow)
+        MaughamEvent.post(.maughamReadInSource, to: .keyWindow)
 
         XCTAssertEqual(fired, 1, "exit must deliver to the key-window receiver")
     }
@@ -58,33 +58,20 @@ final class TranslationReviewEventTests: XCTestCase {
         // window (the confirmationDialog picker) must mutate state directly
         // instead of self-posting a .keyWindow event — while a dialog/sheet is
         // presented, ITS window holds key status, so a synchronous self-post
-        // lands right here and is dropped. See TranslationReviewModifier's
+        // lands right here and is dropped. See ReadingLanguageModifier's
         // dialog buttons.
         var fired = 0
         let token = MaughamEvent.observe(
-            .maughamEnterTranslationReview,
+            .maughamReadInLanguage,
             context: { [self] in keyContext(false) },
             handler: { _ in fired += 1 })
         defer { NotificationCenter.default.removeObserver(token) }
 
-        MaughamEvent.post(.maughamEnterTranslationReview, to: .keyWindow,
+        MaughamEvent.post(.maughamReadInLanguage, to: .keyWindow,
                           payload: ["language": "fr"])
 
         XCTAssertEqual(fired, 0,
             "a non-key window must not enter translation review on a key-window post")
-    }
-
-    func test_showTranslationPicker_delivers() {
-        var fired = 0
-        let token = MaughamEvent.observe(
-            .maughamShowTranslationPicker,
-            context: { [self] in keyContext(true) },
-            handler: { _ in fired += 1 })
-        defer { NotificationCenter.default.removeObserver(token) }
-
-        MaughamEvent.post(.maughamShowTranslationPicker, to: .keyWindow)
-
-        XCTAssertEqual(fired, 1, "the picker command must reach the key window")
     }
 
     // MARK: - I1: translation-did-update refresh event (project-scoped)
@@ -131,18 +118,18 @@ final class TranslationReviewEventTests: XCTestCase {
     // MARK: - Indicator display-label helper (pure)
 
     func test_displayLabel_formatsLocalizedNameWithTag() {
-        let label = TranslationReviewIndicator.displayLabel(forLanguageTag: "en")
+        let label = LanguageName.labelled("en")
         XCTAssertTrue(label.contains("(en)"),
             "the raw tag must always be visible in parentheses: \(label)")
         if let localized = Locale.current.localizedString(forLanguageCode: "en") {
-            XCTAssertEqual(label, "\(localized) (en)")
+            XCTAssertEqual(label, "\(localized.capitalized(with: Locale.current)) (en)")
         }
     }
 
     func test_displayLabel_fallsBackToRawTagWhenNoLocalizedName() {
         // A tag with no localized name falls back to the raw tag alone.
         let nonsense = "zzzz"
-        let label = TranslationReviewIndicator.displayLabel(forLanguageTag: nonsense)
+        let label = LanguageName.labelled(nonsense)
         XCTAssertTrue(label.contains(nonsense),
             "the raw tag must survive into the label even with no localized name")
         if Locale.current.localizedString(forLanguageCode: nonsense) == nil {
@@ -160,7 +147,7 @@ final class TranslationReviewEventTests: XCTestCase {
             TranslationBadgeLayout.Entry(paragraphId: "c", text: "z", status: .stale),
             TranslationBadgeLayout.Entry(paragraphId: "d", text: "w", status: .missing),
         ]
-        XCTAssertEqual(TranslationReviewIndicator.staleCount(in: entries), 2)
-        XCTAssertEqual(TranslationReviewIndicator.staleCount(in: []), 0)
+        XCTAssertEqual(ReadingLanguageLine.counts(entries), .init(stale: 2, missing: 1))
+        XCTAssertEqual(ReadingLanguageLine.counts([]), .init(stale: 0, missing: 0))
     }
 }

@@ -9,7 +9,7 @@ extension ProjectWindow {
     /// **What the window does about a subject that names a research item**
     /// (shell-finish stage-2a Task 5, spec §4).
     ///
-    /// Task 4 gave every persona's tree a Research and a Palette section, so
+    /// Task 4 gave every tree a Research and a Palette section, so
     /// every tree can now make a research item the window's subject. This is
     /// the answer to *"and then what?"* — and it is ONE value read by BOTH
     /// columns, rather than a rule in the centre and a second one in the right
@@ -17,29 +17,22 @@ extension ProjectWindow {
     ///
     /// The two columns differ, and the difference is the whole type:
     ///
-    /// - `takesTheCentre` — the item is the centre column, and the right column
-    ///   inspects it. Author and Review, whose left column is the manuscript
-    ///   home and nothing else.
-    /// - `besideTheCanvas` — Plan. The canvas STAYS MOUNTED
-    ///   (`Persona.centresTheCanvas`) and the right column previews the
-    ///   item instead. `CanvasTreeSegmentMountTests` measured what a second
-    ///   centre-column branch costs: the camera back to origin at zoom 1, every
-    ///   scrap layout re-measured, the thumbnail cache emptied — on every
-    ///   research click.
-    /// - `nothingMoves` — neither column has anything to do about it. Two
-    ///   populations reach it: a subject that is not research at all, and — as
-    ///   of shell-finish stage 3b Task 5 — a research subject in **Publish**,
-    ///   which is spec §4's "—" row. Publish has no rendering for a note or a
-    ///   card, and the centre it does have is the compiled book; so the subject
-    ///   falls through to the manuscript arm, which shows the book if there is
-    ///   one and the project at altitude if there is not ("Review/Publish
-    ///   degrade gracefully… the centre never renders nothing").
+    /// - `takesTheCentre` — the item is the subject's `open`: the centre column
+    ///   shows it, and the right column inspects it.
+    /// - `beside` — the item is the subject's `beside` (a click): the centre is
+    ///   left alone and the right column previews the item under its Open in
+    ///   Centre and close controls (`BesideHeader`), **whatever the centre is**
+    ///   — a research item open in the centre included, which the case carries
+    ///   as `centre`. The canvas STAYS MOUNTED; `CanvasTreeSegmentMountTests`
+    ///   measured what a second centre-column branch costs (the camera back to
+    ///   origin, every scrap layout re-measured, the thumbnail cache emptied).
+    /// - `nothingMoves` — the subject names no research item in either place.
     ///
     /// A third case, `.segmentStands`, guarded against a left column that was
     /// not the tree: a research item taking a column while nothing on screen
     /// could point the window anywhere else is a room with no door, which is the
     /// Critical stage 2a's final review found. Shell-finish stage 2b Task 7
-    /// made the tree the whole left column in every persona, so the trap is not
+    /// made the tree the whole left column, whatever is open, so the trap is not
     /// expressible and the guard went with the enum it was asked of. Its
     /// successor question is about the find OVERLAY — with the panel over the
     /// column there is no row to click — and the answer is asserted rather than
@@ -50,7 +43,8 @@ extension ProjectWindow {
     /// is deliberately NOT a term here.
     enum ResearchSubjectPlacement: Equatable {
         case takesTheCentre(String)
-        case besideTheCanvas(String)
+        /// The item beside, and the research item the centre shows, if any.
+        case beside(String, centre: String? = nil)
         /// The subject names no research item. It was `.segmentStands` while
         /// there were segments for one to stand.
         case nothingMoves
@@ -58,24 +52,27 @@ extension ProjectWindow {
         /// The item the CENTRE column shows, or `nil` when the centre is not
         /// the research subject's to take.
         var centreItemID: String? {
-            if case .takesTheCentre(let id) = self { return id }
-            return nil
+            switch self {
+            case .takesTheCentre(let id): return id
+            case .beside(_, let centre): return centre
+            case .nothingMoves: return nil
+            }
         }
 
         /// The item the RIGHT column shows, or `nil`.
         var inspectedItemID: String? {
             switch self {
-            case .takesTheCentre(let id), .besideTheCanvas(let id): return id
+            case .takesTheCentre(let id), .beside(let id, _): return id
             case .nothingMoves: return nil
             }
         }
 
         /// Whether the right column also PREVIEWS the item's content rather
-        /// than only inspecting it — true exactly when the centre column is not
-        /// showing the item, because otherwise the writer has no way to read
-        /// what they just selected.
+        /// than only inspecting it — true exactly when the item is beside,
+        /// which is never what the centre shows, because otherwise the writer
+        /// has no way to read what they just pulled up.
         var previewsInTheRightColumn: Bool {
-            if case .besideTheCanvas = self { return true }
+            if case .beside = self { return true }
             return false
         }
     }
@@ -85,75 +82,113 @@ extension ProjectWindow {
     /// spelled inside a `@ViewBuilder` where no test could be exhaustive over
     /// it.
     ///
-    /// **Two guards stood in front of this and both are gone**, each in the task
-    /// that made it unable to decide anything.
-    ///
-    /// `keepsItsOwnResearchSelection` went in stage 2b Task 6 — it asked whether
-    /// the centre was already about a research item, and the trap guard beside
-    /// it was strictly wider, so it never decided a case the other did not
-    /// decide the same way.
-    ///
-    /// The trap guard itself went in Task 7 with the enum it was asked of: it
-    /// refused every left column that was not the tree, and every left column is
-    /// the tree now. See `ResearchSubjectPlacement` for the successor question —
-    /// the find overlay — and why the answer is asserted rather than made a term
-    /// here.
-    static func researchSubjectPlacement(
-        persona: Persona, subject: BinderSubject?
-    ) -> ResearchSubjectPlacement {
-        guard let id = subject?.researchID else { return .nothingMoves }
-        // **Publish acts on it in neither column** (stage 3b Task 5, spec §4's
-        // "—" row). Asked FIRST because the two questions below it are both
-        // about which column takes the item, and Publish's answer is that
-        // neither does: its centre is the book, and a note previewed beside a
-        // book is a reference view Publish does not have. Asked through
-        // `previewsThePublishedBook` rather than by name — the ONE spelling.
-        guard !persona.previewsThePublishedBook else { return .nothingMoves }
-        // **The persona decides which column.** Plan keeps the board in the
-        // centre and previews beside it; everyone else hands the centre over.
-        return persona.centresTheCanvas ? .besideTheCanvas(id) : .takesTheCentre(id)
+    /// **Asked of the subject's two places.** A research item in `beside` (a
+    /// click) previews in the right column whatever the centre is — the canvas
+    /// keeps its one mount, the editor its document, and a research item open
+    /// in the centre stays there (`centre`). A research item in `open` (a
+    /// double-click, Open in Centre) takes the centre and, with nothing else
+    /// beside, the right column inspects it. The same item in both places is
+    /// the centre's: one card or grid is never mounted twice.
+    static func researchSubjectPlacement(subject: WindowSubject) -> ResearchSubjectPlacement {
+        let centre = subject.open.researchID
+        if let id = subject.beside?.researchID, id != centre {
+            return .beside(id, centre: centre)
+        }
+        if let centre { return .takesTheCentre(centre) }
+        return .nothingMoves
     }
 
-    /// **Showing the column the placement chose** (stage 2b final review's
-    /// Critical) — for a research item or a figure alike: a figure beside the
-    /// canvas (`figureSubjectPlacement`) reveals the same column.
+    /// **Open in Centre** — the beside view's control: the click rule's
+    /// `.openInCentre` on what is beside, so the thing beside becomes `open`
+    /// and the faces, and leaves `beside`. Nothing beside moves nothing.
+    static func openingBesideInCentre(_ subject: WindowSubject,
+                                      structure: [StructureItem],
+                                      projectType: ProjectType) -> WindowSubject {
+        guard let beside = subject.beside else { return subject }
+        if let row = beside.treeSubject {
+            return ClickRule.resolve(row, gesture: .openInCentre, current: subject,
+                                     structure: structure, projectType: projectType)
+        }
+        // Not a tree row: a canvas card opens the canvas, where it is edited
+        // (it is read-only beside, `PulledUp.isEditableBeside`); a statement or
+        // History opens what it belongs to, and the caller draws it as the
+        // centre's cover (`PulledUp.centreItem`, Task 7). Either way it leaves
+        // the pulled-up position, as Open in Centre on a row does.
+        var next: WindowSubject
+        if let item = beside.centreItem {
+            next = openingInCentre(item, subject: subject)
+        } else {
+            next = subject
+            next.open = .canvas
+            next.faces = .canvas
+        }
+        next.beside = nil
+        return next
+    }
+
+    /// **Whether the right column shows what is pulled up** (`PulledUpView`):
+    /// a research item or a figure by its placement (never the item the centre
+    /// shows), and every other kind — a canvas card, a statement, History —
+    /// whenever it is pulled up. One answer for the column and its reveal.
+    static func pulledUpIsShownBeside(subject: WindowSubject) -> Bool {
+        guard let pulled = subject.beside else { return false }
+        switch pulled {
+        case .research:
+            return researchSubjectPlacement(subject: subject).previewsInTheRightColumn
+        case .figure:
+            return figureSubjectPlacement(subject: subject).besideFigureID != nil
+        case .canvasScrap, .canvasPhoto, .canvasRegion, .lessons, .firstReader, .visualLanguage,
+             .history:
+            return true
+        }
+    }
+
+    /// **Close** — the beside view's other control: what is beside is put
+    /// away, and nothing else moves.
+    static func closingBeside(_ subject: WindowSubject) -> WindowSubject {
+        ClickRule.putAway(current: subject)
+    }
+
+    /// **Showing what is pulled up** — the column, on the pulled-up position.
     ///
-    /// `besideTheCanvas` says the right column previews the item (or figure). It does not
-    /// make that column VISIBLE, and in Plan it is not: `Persona.panes` opens
-    /// Plan on `.inbox`, and `ResearchSubjectInspector` is mounted by
-    /// `DetailPaneToggle`'s `.inspector` arm alone. So every correct piece of
-    /// the routing — the tree writes the subject, the placement sends it beside
-    /// the board, the right column knows what to draw — composed into a research
-    /// row that put nothing anywhere: the board does not dim, the pane does not
-    /// change, and the writer's click is silently nothing. Three tasks' choices,
-    /// each right on its own.
+    /// The subject's observer (`ResearchRevealModifier`) covers a subject that
+    /// CHANGES; the two forced entries (`openResearchItem`,
+    /// `handleShowLatestMCPNote`) call this because Open on an item already
+    /// pulled up changes nothing, so no observer fires.
     ///
-    /// **What it does NOT do is decide anything about the columns.** Where the
-    /// centre takes the item (Author, Review) — and where nothing moves at all
-    /// (Publish, whose centre is the book) — this writes nothing, so a writer's
-    /// pane choice in those personas is never moved by a research click; the
-    /// guard is the placement's own answer, asked rather than a second
-    /// `centresTheCanvas` test. The Publish half of that list read "the centre
-    /// takes the item" for a slice after stage 3b Task 5 made it `.nothingMoves`
-    /// — the right conclusion (nothing is written) from a false premise.
-    ///
-    /// `inout` and static so the whole rule is drivable without a window, and so
-    /// the three sites that reveal — the subject observer
-    /// (`ResearchRevealModifier`, which a figure subject inherits) and the two forced entries (`openResearchItem`,
-    /// `handleShowLatestMCPNote`) — cannot come to disagree about what revealing
-    /// means.
-    static func revealResearchColumn(persona: Persona,
-                                     subject: BinderSubject?,
-                                     showInspector: inout Bool,
-                                     detailSegment: inout DetailSegment) {
-        // A figure beside the canvas reveals the same column
-        // (`figureSubjectPlacement`, report plan 8a Task 5).
-        guard researchSubjectPlacement(persona: persona, subject: subject)
-            .previewsInTheRightColumn
-            || figureSubjectPlacement(persona: persona, subject: subject)
-                .besideFigureID != nil else { return }
+    /// **Where the centre takes the item this writes nothing**
+    /// (`pulledUpIsShownBeside`, the placement's own answer, asked rather than
+    /// restated), so a writer's position is never moved by an item they can
+    /// already see.
+    static func revealPulledUp(subject: WindowSubject,
+                               showInspector: inout Bool,
+                               position: inout RightColumnPosition) {
+        guard pulledUpIsShownBeside(subject: subject) else { return }
         showInspector = true
-        detailSegment = .inspector
+        position = .pulledUp
+    }
+
+    /// The position the column goes back to from the pulled-up one, seeded
+    /// from a restored position: that position, or To resolve where the
+    /// window was left on the pulled-up one.
+    static func previousFace(restoring position: RightColumnPosition) -> RightColumnPosition {
+        position == .pulledUp ? .resolve : position
+    }
+
+    /// **Escape on a dimmed canvas** (spec §4.1: the keyboard spelling of the
+    /// project row): the faces go to the Book and the canvas stays. What is
+    /// pulled up is put away only where it is what dims the board — a tree row
+    /// clicked last (`WindowSubject.lastClicked`). A statement, History, a
+    /// canvas card, or a row pulled up before the faces last moved is not the
+    /// canvas's own preview and stays where the writer put it.
+    static func leavingTheCanvasDim(_ subject: WindowSubject) -> WindowSubject {
+        var next = subject
+        let dimsFromBeside = subject.besideIsLatest && subject.beside?.treeSubject != nil
+        // Faces first: writing them clears `besideIsLatest`, so what stays
+        // pulled up no longer lights the board.
+        next.faces = .project
+        if dimsFromBeside { next.beside = nil }
+        return next
     }
 
     /// Whether the window's subject resolves to a manuscript document — the only
@@ -239,15 +274,18 @@ struct ResearchSubjectCentre: View {
     /// is `.missing`, which is the empty state.
     let itemID: String?
     let previewVisible: Bool
-    /// **Threaded from the mount off `Persona.editsResearchInTheCentre`**
-    /// (shell-finish stage 3b Task 6) — never re-derived here, so this view
-    /// cannot answer a different question than the persona did. True only in
-    /// Review: the `.paletteCard` arm mounts `PaletteCardReadView` instead of
-    /// `PaletteCardEditor`, and the `.note` arm locks `ResearchNoteEditor`
-    /// rather than leaving it editable. `.preview` and `.missing` are
+    /// **Threaded from the mount off `ReadThroughGate.refusal(.research(id))`**
+    /// (shell read-through Task 4; the window's Lock and Review's read-only
+    /// centre before it) — never re-derived here. Non-nil only while the
+    /// item's piece is in read-through: the line over it names the piece and
+    /// resumes it (`ReadThroughLine`), the `.paletteCard` arm mounts
+    /// `PaletteCardReadView` instead of `PaletteCardEditor`, and the `.note`
+    /// arm locks `ResearchNoteEditor`. `.preview` and `.missing` are
     /// unaffected — both were already read-only. The `.table` arm's grid reads
-    /// the table and refuses its edits.
-    let readOnly: Bool
+    /// the table and refuses its edits, naming the piece.
+    let readThrough: ReadThroughRefusal?
+    /// Read-only exactly while a piece's read-through refuses it.
+    var readOnly: Bool { readThrough != nil }
     /// The share is view-only: a Research table's grid reads, never writes.
     var shareIsReadOnly: Bool = false
     /// The grid's typography and the window's Format ▸ Table presence.
@@ -256,12 +294,21 @@ struct ResearchSubjectCentre: View {
     var window: NSWindow? = nil
 
     var body: some View {
+        VStack(spacing: 0) {
+            if let readThrough {
+                ReadThroughLine(offer: readThrough.resumeOffer, window: window)
+            }
+            surface.frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+    }
+
+    @ViewBuilder
+    private var surface: some View {
         switch ProjectWindow.researchCentreRoute(id: itemID, in: store.manifest) {
         case .paletteCard(let cardID):
-            if readOnly {
-                PaletteCardReadHost(store: store, cardId: cardID)
-            } else {
-                PaletteCardEditor(store: store, cardId: cardID)
+            switch PaletteCardSurface.of(readOnly: readOnly) {
+            case .read: PaletteCardReadHost(store: store, cardId: cardID)
+            case .edit: PaletteCardEditor(store: store, cardId: cardID)
             }
         case .note(let item, let path):
             ResearchNoteEditor(
@@ -275,7 +322,7 @@ struct ResearchSubjectCentre: View {
         case .table(let item, _):
             ResearchTableGrid(
                 itemId: item.id, title: item.title, store: store, documentStore: documentStore,
-                typography: typography, readOnly: readOnly, shareIsReadOnly: shareIsReadOnly,
+                typography: typography, readThrough: readThrough, shareIsReadOnly: shareIsReadOnly,
                 presence: presence, window: window)
                 .id(item.id)
         case .preview(let item):
@@ -317,35 +364,51 @@ struct ResearchSubjectInspector: View {
     /// For the panel's verb toward Figures (`InspectorResearchPanel.figureTree`).
     var figureTree: BinderTreeSectionsState? = nil
     var figureWritesRefused: Bool = false
-    /// What a Research table's grid needs beside the canvas (Plan): the
-    /// window's `DocumentStore` (nil previews the table as text), the
-    /// persona's and share's answers, the typography.
+    /// What a Research table's grid needs beside the canvas: the window's
+    /// `DocumentStore` (nil previews the table as text), the read-only and
+    /// share answers, the typography.
     var documentStore: DocumentStore? = nil
-    var readOnly: Bool = false
+    /// The preview half reads, never edits: the centre shows the item, or
+    /// its piece is in read-through. Required, so it cannot disagree with
+    /// `readThrough` by default.
+    let readOnly: Bool
+    /// The item's piece in read-through, named (`ReadThroughGate.refusal`):
+    /// the line over the preview names it and resumes it, the panel's fields
+    /// read and its Versions refuse Restore with that reason. Distinct from
+    /// `readOnly`, which can also mean the centre shows the item.
+    let readThrough: ReadThroughRefusal?
     var shareIsReadOnly: Bool = false
     var typography: TypographySettings = .defaults
     /// The project window, whose close writes the grid's last edit, and its
     /// Format ▸ Table presence, armed while the grid has the keys.
     var window: NSWindow? = nil
     var presence: FigureGridPresence? = nil
+    /// **A note is EDITED in the preview half** — the pulled-up view's
+    /// (shell p3 Task 7): `ResearchNoteEditor` as a second editor, locked by
+    /// `readOnly`, where it previewed read-only before. Needs `documentStore`
+    /// (the note door); without one, or false, a note previews.
+    var editsNotes: Bool = false
 
     var body: some View {
         if let itemID, let item = TreeWalk.find(id: itemID, in: store.manifest.research) {
             if showsPreview {
                 VStack(spacing: 0) {
+                    if let readThrough {
+                        ReadThroughLine(offer: readThrough.resumeOffer, window: window)
+                    }
                     preview(of: item)
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                     Divider()
                     InspectorResearchPanel(store: store, item: item, figureTree: figureTree,
                                            figureWritesRefused: figureWritesRefused,
                                            documentStore: documentStore, shareIsReadOnly: shareIsReadOnly,
-                                           reviewing: readOnly)
+                                           readThrough: readThrough)
                 }
             } else {
                 InspectorResearchPanel(store: store, item: item, figureTree: figureTree,
                                            figureWritesRefused: figureWritesRefused,
                                            documentStore: documentStore, shareIsReadOnly: shareIsReadOnly,
-                                           reviewing: readOnly)
+                                           readThrough: readThrough)
             }
         } else {
             ContentUnavailableView(
@@ -361,16 +424,18 @@ struct ResearchSubjectInspector: View {
     /// rendering this column has always shown and the right one for a preview:
     /// the writer is looking at the item beside a canvas, not editing it.
     ///
-    /// `.paletteCard` reaches `PaletteCardEditor`, and that choice is the one
-    /// worth defending. There is no read-only card rendering to reuse —
+    /// `.paletteCard` reaches `PaletteCardEditor` — or, while it reads,
+    /// `PaletteCardReadHost`, asking the same `readOnly` the centre's
+    /// card asks through the same route (`PaletteCardSurface`; carried from
+    /// shell plan 1, where the beside card stayed editable under Lock). The
+    /// editor is the choice worth defending. There is no read-only card rendering to reuse —
     /// `PaletteCardTile` takes a loaded `PaletteCard` and a pre-loaded
     /// thumbnail, neither of which this column has, and giving it a loader of
     /// its own would be per-render I/O in a column that re-renders with the
     /// window (tripwire 4). `PaletteCardEditor` owns that load (`.task(id:
     /// cardId)`) and its debounced save, and it is the app's one card surface.
     /// It is never mounted twice for one card: this half is shown only where the
-    /// placement is `.besideTheCanvas`, and there the centre column is the
-    /// canvas.
+    /// placement is `.beside`, which is never the item the centre shows.
     ///
     /// `.table` reaches the same grid the centre mounts (`ResearchTableGrid`,
     /// report plan 8b Task 7) — never twice, for the card's reason.
@@ -379,18 +444,37 @@ struct ResearchSubjectInspector: View {
         switch ProjectWindow.researchCentreRoute(id: item.id,
                                                  in: store.manifest) {
         case .paletteCard(let cardID):
-            PaletteCardEditor(store: store, cardId: cardID)
+            switch PaletteCardSurface.of(readOnly: readOnly) {
+            case .read: PaletteCardReadHost(store: store, cardId: cardID)
+            case .edit: PaletteCardEditor(store: store, cardId: cardID)
+            }
         case .table(let item, _):
             if let documentStore {
                 ResearchTableGrid(
                     itemId: item.id, title: item.title, store: store, documentStore: documentStore,
-                    typography: typography, readOnly: readOnly, shareIsReadOnly: shareIsReadOnly,
+                    typography: typography, readThrough: readThrough, shareIsReadOnly: shareIsReadOnly,
                     presence: presence, window: window)
                     .id(item.id)
             } else {
                 ResearchPreview(projectURL: store.url, item: item)
             }
-        case .note(let item, _), .preview(let item):
+        case .note(let item, let path):
+            if editsNotes, let documentStore {
+                // Pulled up beside the manuscript: a SECOND editor (its own
+                // undo stack, none of the window's commands), read-only in
+                // read-through or a view-only share exactly as in the centre. Never the
+                // note the centre shows — this half is drawn only where the
+                // placement is `.beside`.
+                ResearchNoteEditor(
+                    store: store, documentStore: documentStore, path: path,
+                    itemId: item.id, previewVisible: false,
+                    lockEditing: readOnly, shareIsReadOnly: shareIsReadOnly,
+                    isSecondEditor: true)
+                    .id(item.id)
+            } else {
+                ResearchPreview(projectURL: store.url, item: item)
+            }
+        case .preview(let item):
             ResearchPreview(projectURL: store.url, item: item)
         case .missing:
             // Unreachable — the caller found this item in the same manifest the
@@ -401,4 +485,15 @@ struct ResearchSubjectInspector: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
     }
+}
+
+/// **Which surface a palette card gets in a research column** — the one
+/// answer the centre's card and the beside card both ask, so read-through
+/// reaches both (`readOnly`, threaded from the mount). Hidden, not disabled:
+/// a read-only card mounts the read view.
+enum PaletteCardSurface: Equatable {
+    case read
+    case edit
+
+    static func of(readOnly: Bool) -> PaletteCardSurface { readOnly ? .read : .edit }
 }

@@ -11,18 +11,18 @@ final class DocBudgetTests: XCTestCase {
 
     /// Repo-relative path → the most words it may hold.
     static let wordCeilings: [String: Int] = [
-        "CLAUDE.md": 3_087,  // hard cap 4,000 words
-        "docs/tripwires.md": 7_782,
+        "CLAUDE.md": 3_080,  // hard cap 4,000 words
+        "docs/tripwires.md": 7_931,
         "docs/testing/TROUBLESHOOTING.md": 4_506,
         "docs/INDEX.md": 466,
         "Maugham/Canvas/AREA.md": 7_951,
-        "Maugham/OpLog/AREA.md": 7_995,
-        "Maugham/Views/AREA.md": 7_994,
-        "Maugham/Compiler/AREA.md": 7_951,
-        "Maugham/Stores/AREA.md": 7_992,
+        "Maugham/OpLog/AREA.md": 7_989,
+        "Maugham/Views/AREA.md": 7_979,
+        "Maugham/Compiler/AREA.md": 7_934,
+        "Maugham/Stores/AREA.md": 7_988,
         "Maugham/MCP/AREA.md": 6_856,
         "MaughamPhone/AREA.md": 4_359,
-        "Maugham/Editor/AREA.md": 6_814,
+        "Maugham/Editor/AREA.md": 6_807,
         "Maugham/Updates/AREA.md": 3_997,
         "Maugham/Publish/AREA.md": 3_895,
         "Packages/MaughamCore/Sources/MaughamCore/AREA.md": 5_276,

@@ -69,8 +69,11 @@ extension TranslationPipeline.Environment {
                 return await mintDeclined(mint, store: store, projectURL: projectURL)
             },
             nextRoundNumber: { TranslationRoundStore(projectURL: projectURL).nextNumber(language: $0) },
+            // On the project's ledger queue, in order, behind any verb already
+            // pressed (shell p4 Task 6 fix round 3); the next round's number
+            // and every later read queue behind it.
             saveRound: { round in
-                do { try TranslationRoundStore(projectURL: projectURL).append(round) } catch {
+                TranslationRoundStore(projectURL: projectURL).appendInOrder(round) { error in
                     pipelineEnvLog.error("round \(round.number, privacy: .public) for \(round.language, privacy: .public) could not be saved: \(error, privacy: .public)")
                 }
             },
@@ -166,13 +169,13 @@ extension TranslationPipeline.Environment {
     /// **The author's language is the book's own** — nothing else in the
     /// project names it — resolved through the imprint the desk is standing
     /// on exactly as the compile sheet resolves it
-    /// (`DepartmentPaneHost.sourceLanguage`, the one spelling), then named in
+    /// (`PublishImprint.sourceLanguage`, the one spelling), then named in
     /// English for the briefing's role frame.
     @MainActor
     static func authorLanguage(store: ProjectStore, documentStore: DocumentStore?,
                                projectURL: URL) -> String {
         let config = (try? PublishConfigStore.read(in: projectURL)) ?? nil
-        let tag = DepartmentPaneHost.sourceLanguage(
+        let tag = PublishImprint.sourceLanguage(
             imprint: documentStore?.uiState.publishImprint, in: config,
             pieceIDs: EditionStatus.manuscriptDocumentIds(in: store.manifest))
         return languageName(tag: tag)

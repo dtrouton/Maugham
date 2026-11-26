@@ -67,14 +67,14 @@ extension ProjectStore {
     /// here that is what keeps a bad row REPAIRABLE.** A project carrying a
     /// role under a never-valid tag — hand-edited, or written by a build
     /// before this guard — is exactly the project whose writer needs to reach
-    /// it, and the desk's Rename goes `DepartmentPaneHost` → `nameTranslator` →
+    /// it, and an edition Brief's Change… goes `EditionCastVerbs.nameCast` →
     /// this verb. Gating first would refuse to hand back the row and leave the
     /// writer no way to fix it from inside the app: a validation that turns a
     /// recoverable state into a permanent one. The gate is over what this verb
     /// *mints*, so an invalid tag with nothing stored still throws.
     ///
     /// Every shipped caller lowercases and validates before it gets here
-    /// (`DepartmentPaneHost.addLanguage`, `DepartmentCastSheet`), so this is a
+    /// (`EditionCastVerbs.addLanguage`, `EditionCastSheet`), so this is a
     /// guard the surfaces make unreachable rather than one they depend on —
     /// which is the reason for putting it at the store: the next caller
     /// inherits it instead of having to remember it.
@@ -230,6 +230,33 @@ extension ProjectStore {
             try await saveManifest()
         } catch {
             manifest.productionRoles = previousRoles
+            manifest.modified = previouslyModified
+            throw error
+        }
+    }
+
+    // MARK: - Removing an edition (shell p4 closing round)
+
+    /// **Hide or show the edition in `language`** (owner's answer 1,
+    /// 2026-11-22): the one write of `ProjectManifest.removedEditions`.
+    /// Removing touches nothing else — translations, round ledgers, the
+    /// edition's brief and cast, compiled books all stay — so showing it again
+    /// brings every one of them back. Idempotent; a failed save restores the
+    /// list (`commitProductionRoles`' reason).
+    func setEdition(_ language: String, removed: Bool) async throws {
+        let tag = language.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !tag.isEmpty else { throw ProjectStoreError.productionRoleLanguageEmpty }
+        guard manifest.isEditionRemoved(tag) != removed else { return }
+        let previous = manifest.removedEditions
+        let previouslyModified = manifest.modified
+        var next = (manifest.removedEditions ?? []).filter { $0.caseInsensitiveCompare(tag) != .orderedSame }
+        if removed { next.append(tag) }
+        manifest.removedEditions = next.isEmpty ? nil : next.sorted()
+        manifest.modified = Date()
+        do {
+            try await saveManifest()
+        } catch {
+            manifest.removedEditions = previous
             manifest.modified = previouslyModified
             throw error
         }

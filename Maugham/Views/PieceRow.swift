@@ -26,6 +26,16 @@ struct PieceRow: View {
     /// and no file URL (`DropClassification`). Returns whether it was accepted,
     /// like `onDrop`.
     let onExternalDrop: (_ providers: [NSItemProvider], _ position: DropIntent.Position) -> Bool
+
+    /// **What this row shows while a drag is over it** (shell p4 Task 10):
+    /// its caller's answers at each drop position, decided by the same rules
+    /// its drop performs (`BinderTreeVerbs.dropAnswers(on:)`).
+    var dropAnswers: () -> TreeDropAnswers = { .none }
+    @State private var internalDropTargeted = false
+    @State private var externalDropTargeted = false
+    /// The row's REAL height — what a drop's location is read against
+    /// (`DropIntent.Position.of`), never an assumed 22 pt.
+    @State private var rowHeight: CGFloat = 22
     /// **The figures this piece's text uses** ("2 tables, 1 figure"; report
     /// plan 8a Task 4, D8-1), nil at none — `BinderTreeSectionsState
     /// .figureCountText`. Pressing it filters the Figures section to this
@@ -34,6 +44,10 @@ struct PieceRow: View {
     var figureCount: String? = nil
     var onShowFigures: () -> Void = {}
 
+    /// Which rows have something to resolve (`ResolvePresence`).
+    @Environment(\.resolvePresence) private var presence
+    /// Which pieces are in read-through (`BinderTreeSectionsState.readThrough`).
+    @Environment(\.readThroughPieces) private var readThroughPieces
     @State private var draftTitle: String = ""
     @FocusState private var isRenameFieldFocused: Bool
 
@@ -95,8 +109,14 @@ struct PieceRow: View {
                             legacyStatus: piece.status)))
                         .frame(width: 6, height: 6)
                 }
+                // The read-through lock, after the stage dot and before the
+                // presence dot (a set lookup, tripwire 4).
+                ReadThroughMark(isOn: readThroughPieces.contains(piece.id))
+                // After the stage dot, at the trailing edge (`ResolvePresence`).
+                ResolvePresenceMark(ResolvePresence.rowMark(.item(piece.id), in: presence))
             }
             .contentShape(Rectangle())
+            .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { rowHeight = $0 }
             .draggable(piece.id) {
                 Text(piece.title)
                     .padding(6)
@@ -107,23 +127,24 @@ struct PieceRow: View {
                     return false
                 }
                 // Top half = above this row; bottom half = below.
-                let rowHeight: CGFloat = 22
-                let position: DropIntent.Position =
-                    location.y < rowHeight / 2 ? .top : .bottom
+                let position = DropIntent.Position.of(y: location.y, height: rowHeight,
+                                                      halves: true)
                 // The caller's answer, never a literal — see `onDrop`.
                 return onDrop(droppedId, position)
-            }
+            } isTargeted: { internalDropTargeted = $0 }
             // After the string destination, always: AppKit offers a drag to the
             // innermost drop modifier only, and in a table-dispatched List row
             // this order works, as measured on the binder's rows (#109).
-            .onDrop(of: [.fileURL, .image], isTargeted: nil) { providers, location in
+            .onDrop(of: [.fileURL, .image], isTargeted: $externalDropTargeted) { providers, location in
                 guard !providers.isEmpty else { return false }
-                let rowHeight: CGFloat = 22
-                let position: DropIntent.Position =
-                    location.y < rowHeight / 2 ? .top : .bottom
+                let position = DropIntent.Position.of(y: location.y, height: rowHeight,
+                                                      halves: true)
                 // The caller's answer, never a literal — see `onDrop`.
                 return onExternalDrop(providers, position)
             }
+            // Its feedback, asked once as a drag arrives (`TreeDropHover`).
+            .treeDropHover(internalTargeted: internalDropTargeted,
+                           externalTargeted: externalDropTargeted, halves: true, answers: dropAnswers)
         }
     }
 

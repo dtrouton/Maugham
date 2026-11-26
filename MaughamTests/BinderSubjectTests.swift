@@ -39,7 +39,7 @@ final class BinderSubjectTests: XCTestCase {
 
     /// The sentinel has one home. The panes that compare against it read it
     /// from here rather than each carrying the literal — the shape that let
-    /// `DetailPaneToggle` re-substitute a value already substituted upstream.
+    /// the pane picker re-substitute a value already substituted upstream.
     func test_theSentinelIsTheValueTheExistingPanesAlreadyCompareAgainst() {
         XCTAssertEqual(BinderSubject.noDocumentSubject, "__no-selection__")
         XCTAssertEqual(StatementPane.noSelectionSentinel,
@@ -49,8 +49,8 @@ final class BinderSubjectTests: XCTestCase {
     // MARK: - The codec, on real files
 
     /// **A `ui-state.json` on disk holds a bare id.** Every project opened by
-    /// every shipped build has one, so a decode that cannot read a plain string
-    /// silently resets the writer's selection on upgrade.
+    /// every build before shell p1 has one, so a decode that cannot read a
+    /// plain string silently resets the writer's selection on upgrade.
     func test_anOldFileHoldingABarePlainStringStillDecodes() throws {
         let json = Data("""
         {"schemaVersion":5,"selectedItemId":"doc-1","isNoChromeOn":false,
@@ -59,141 +59,97 @@ final class BinderSubjectTests: XCTestCase {
          "isReviewModeOn":false,"persona":"author"}
         """.utf8)
         let decoded = try JSONDecoder().decode(UIState.self, from: json)
-        XCTAssertEqual(decoded.selectedSubject, .item("doc-1"))
+        XCTAssertEqual(decoded.windowSubject.open, .item("doc-1"))
     }
 
-    /// The pre-persona shape too — the oldest file we still claim to read.
+    /// The oldest file we still claim to read.
     func test_aV1FileHoldingABarePlainStringStillDecodes() throws {
         let json = Data(#"{"schemaVersion":1,"selectedItemId":"doc-9"}"#.utf8)
         let decoded = try JSONDecoder().decode(UIState.self, from: json)
-        XCTAssertEqual(decoded.selectedSubject, .item("doc-9"))
+        XCTAssertEqual(decoded.windowSubject.open, .item("doc-9"))
     }
 
-    func test_aFileWithNoSelectionAtAllDecodesToNil() throws {
+    func test_aFileWithNoSelectionAtAllDecodesToTheBook() throws {
         let json = Data(#"{"schemaVersion":5}"#.utf8)
         let decoded = try JSONDecoder().decode(UIState.self, from: json)
-        XCTAssertNil(decoded.selectedSubject)
+        XCTAssertEqual(decoded.windowSubject, .book)
+    }
+
+    /// Each legacy selection key decodes to its subject.
+    func test_everyLegacySelectionKeyDecodesToItsSubject() throws {
+        let cases: [(String, BinderSubject)] = [
+            (#""selectedSubjectIsProject":true"#, .project),
+            (#""selectedItemId":"doc-1""#, .item("doc-1")),
+            (#""selectedResearchItemId":"r-7""#, .research("r-7")),
+            (#""selectedFigureId":"fig-0a1b2c3d""#, .figure("fig-0a1b2c3d")),
+        ]
+        for (key, subject) in cases {
+            let json = Data("{\"schemaVersion\":5,\(key)}".utf8)
+            let decoded = try JSONDecoder().decode(UIState.self, from: json)
+            XCTAssertEqual(decoded.windowSubject, WindowSubject(open: subject, faces: subject),
+                           key)
+        }
     }
 
     func test_everySubjectRoundTrips() throws {
         for subject in [BinderSubject.project, .item("doc-1"), .research("r-1"),
-                        .figure("fig-0a1b2c3d"), nil]
-            as [BinderSubject?] {
+                        .figure("fig-0a1b2c3d"), .inbox, .canvas, .palette,
+                        .edition(language: "es")] {
             var state = UIState.empty
-            state.selectedSubject = subject
+            state.windowSubject = WindowSubject(open: subject, faces: subject)
             let data = try JSONEncoder().encode(state)
             let decoded = try JSONDecoder().decode(UIState.self, from: data)
-            XCTAssertEqual(decoded.selectedSubject, subject,
-                           "\(String(describing: subject)) did not survive the codec")
+            XCTAssertEqual(decoded.windowSubject.open, subject,
+                           "\(subject) did not survive the codec")
         }
     }
 
-    /// **The third key touches neither legacy key.** A research subject is
-    /// written under its own `selectedResearchItemId`, so an older build sees
-    /// no selection at all and falls to the first document — the same landing
-    /// every other subject an older build cannot read already gets.
-    func test_theResearchSubjectTouchesNeitherLegacyKey() throws {
-        var state = UIState.empty
-        state.selectedSubject = .research("r-1")
-        let object = try JSONSerialization.jsonObject(
-            with: try JSONEncoder().encode(state)) as? [String: Any]
-        XCTAssertNil(object?["selectedItemId"])
-        XCTAssertNil(object?["selectedSubjectIsProject"])
-        XCTAssertEqual(object?["selectedResearchItemId"] as? String, "r-1")
+    /// **The legacy selection keys are read, never written** (shell p1 Task
+    /// 6): `windowSubject` is the one stored answer, and a second key beside
+    /// it would be a second answer an older build restores instead.
+    func test_noSubjectWritesALegacySelectionKey() throws {
+        for subject in [BinderSubject.project, .item("doc-1"), .research("r-1"),
+                        .figure("fig-0a1b2c3d")] {
+            var state = UIState.empty
+            state.windowSubject = WindowSubject(open: subject, faces: subject)
+            let object = try JSONSerialization.jsonObject(
+                with: try JSONEncoder().encode(state)) as? [String: Any]
+            for key in ["selectedItemId", "selectedSubjectIsProject",
+                        "selectedResearchItemId", "selectedFigureId"] {
+                XCTAssertNil(object?[key], "\(subject) wrote \(key)")
+            }
+            XCTAssertNotNil(object?["windowSubject"])
+        }
     }
 
-    /// **The fourth key, the same way** (report plan 8a): a figure subject is
-    /// written under its own `selectedFigureId` and under none of the other
-    /// three, so a build that predates figures restores no selection and lands
-    /// on the project row rather than on a row that shares the id.
-    func test_theFigureSubjectWritesItsOwnKeyAndNoOther() throws {
-        var state = UIState.empty
-        state.selectedSubject = .figure("fig-0a1b2c3d")
-        let object = try JSONSerialization.jsonObject(
-            with: try JSONEncoder().encode(state)) as? [String: Any]
-        XCTAssertNil(object?["selectedItemId"])
-        XCTAssertNil(object?["selectedSubjectIsProject"])
-        XCTAssertNil(object?["selectedResearchItemId"])
-        XCTAssertEqual(object?["selectedFigureId"] as? String, "fig-0a1b2c3d")
-    }
-
-    /// A file written before figure subjects — a research subject, no
-    /// `selectedFigureId` — still decodes to what it said.
-    func test_aFileFromBeforeFigureSubjectsStillDecodes() throws {
-        let json = Data(#"{"schemaVersion":5,"selectedResearchItemId":"r-7"}"#.utf8)
-        let decoded = try JSONDecoder().decode(UIState.self, from: json)
-        XCTAssertEqual(decoded.selectedSubject, .research("r-7"))
-        XCTAssertNil(decoded.selectedSubject?.figureID)
-    }
-
-    /// An older build's file — no `selectedResearchItemId` key at all — must
-    /// decode to no selection, not crash and not invent one.
-    func test_aFileWithNoResearchKeyDecodesToNoSelectionForThatCase() throws {
-        let json = Data("""
-        {"schemaVersion":5,"isNoChromeOn":false,
-         "binderSegment":"manuscript","researchPreviewVisible":false,
-         "detailSegment":"inspector","outlineLayout":"table",
-         "isReviewModeOn":false,"persona":"author"}
-        """.utf8)
-        let decoded = try JSONDecoder().decode(UIState.self, from: json)
-        XCTAssertNil(decoded.selectedSubject)
-    }
-
-    /// **What an older build sees.** The project subject is written under its
-    /// own key and NOT under `selectedItemId`, so a build that has never heard
-    /// of it reads no selection at all and falls to the first document — the
-    /// same landing a deleted item already gets. Writing a reserved string into
-    /// `selectedItemId` instead would have an old build restore a selection to
-    /// an id that is in no structure.
-    func test_theProjectSubjectIsNotWrittenIntoTheOldKey() throws {
-        var state = UIState.empty
-        state.selectedSubject = .project
-        let object = try JSONSerialization.jsonObject(
-            with: try JSONEncoder().encode(state)) as? [String: Any]
-        XCTAssertNil(object?["selectedItemId"],
-                     "an older build would restore a selection that is in no structure")
-
-        // And the converse: an item subject keeps using the old key, so an
-        // older build restores it exactly as it always did.
-        state.selectedSubject = .item("doc-1")
-        let itemObject = try JSONSerialization.jsonObject(
-            with: try JSONEncoder().encode(state)) as? [String: Any]
-        XCTAssertEqual(itemObject?["selectedItemId"] as? String, "doc-1")
-    }
-
-    /// No schema bump: the representation is additive on one new key, and both
-    /// directions of the version skew read cleanly.
+    /// No schema bump.
     func test_theNewCaseDidNotCostASchemaBump() {
         XCTAssertEqual(UIState.currentSchemaVersion, 5)
     }
 
     /// **What the hand-written encoder makes newly possible, guarded.**
     ///
-    /// `UIState`'s `encode(to:)` used to be synthesized, so a field added to the
-    /// struct persisted itself. It is hand-written now — the subject is not
-    /// stored the way it is spelled — and a field added without a line in that
-    /// method would silently stop being saved, with `Codable` conformance intact
-    /// and every existing round-trip test still green because each pins one
-    /// field.
+    /// `UIState`'s `encode(to:)` is hand-written — the legacy keys are
+    /// decode-only — and a field added without a line in that method would
+    /// silently stop being saved, with `Codable` conformance intact and every
+    /// existing round-trip test still green because each pins one field.
     ///
     /// This one sets **every** field away from its default and asserts whole-
     /// struct equality, so the omission is what fails rather than the feature
     /// that later depends on it.
     func test_everyFieldSurvivesTheHandWrittenEncoder() throws {
-        var original = UIState(
+        let original = UIState(
             schemaVersion: UIState.currentSchemaVersion,
-            selectedSubject: .item("doc-1"),
+            windowSubject: WindowSubject(open: .canvas, faces: .item("doc-1"),
+                                         beside: .research("r-1")),
+            bookView: .cards,
             isNoChromeOn: true,
             researchPreviewVisible: true,
-            detailSegment: .history,
-            outlineLayout: .cards,
-            isReviewModeOn: true,
-            persona: .plan,
+            rightColumnPosition: .pulledUp,
             compilerModel: .deep,
             // Away from the default, and inside the clamp — a value the
             // initialiser would correct is not a test of the encoder.
             detailColumnWidth: UIState.defaultDetailColumnWidth + 40)
-        original.personaMemory.record(persona: .review, detailSegment: .annotations)
 
         let decoded = try JSONDecoder().decode(
             UIState.self, from: try JSONEncoder().encode(original))
@@ -289,5 +245,14 @@ final class BinderSubjectTests: XCTestCase {
             .filter { SourceScan.namesInCode(#""__no-selection__""#, in: $0.text) }
             .map(\.name)
             .sorted()
+    }
+
+    func test_theFourNewCasesNameNoDocumentResearchOrFigure() {
+        for s in [BinderSubject.inbox, .canvas, .palette, .edition(language: "es")] {
+            XCTAssertNil(s.itemID)
+            XCTAssertNil(s.researchID)
+            XCTAssertNil(s.figureID)
+            XCTAssertEqual(BinderSubject.activeDocId(for: s), BinderSubject.noDocumentSubject)
+        }
     }
 }

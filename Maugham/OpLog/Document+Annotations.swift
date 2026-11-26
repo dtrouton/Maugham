@@ -84,8 +84,8 @@ extension Document {
         /// was made (M3 P2 Task 8), or nil for a note that belongs to no pass.
         /// Defaulted so every caller that has not been taught about passes
         /// keeps writing unstamped notes rather than inventing one — and an
-        /// unstamped note appears in EVERY pass's queue, so nothing is hidden
-        /// by the default. Resolution is each caller's: the editor asks the
+        /// unstamped note is still listed (To resolve files it under Mine or
+        /// Others), so nothing is hidden by the default. Resolution is each caller's: the editor asks the
         /// window, the MCP tools ask `activeReviewPassId`, and both go through
         /// `ActivePassMemory.validatedActivePass`.
         reviewPassId: String? = nil,
@@ -212,6 +212,14 @@ extension Document {
                 compilerFingerprint: compilerFingerprint,
                 compilerLessonHeading: compilerLessonHeading))
         try await opStore.append(op)
+        // Shell p5 Task 1: the stream this went to is the key that will seal
+        // it — the same lookup `OpLogStore.append` signs by — so what its seal
+        // will say is known now. A key that cannot sign never seals: the line
+        // stays uncovered, exactly what a reload will read.
+        if let writer = opStore.identities.identity(forDeviceId: op.device) {
+            noteSealReadingsAppendedHere[op.opId] = writer.canSign
+                ? .sealed(writer.actor, ofThisWriter: true) : .uncovered
+        }
         appendToMirror(op)
         _hasAnyAnnotationOps = true
         invalidateAnnotationsCache()
@@ -361,7 +369,7 @@ extension Document {
         // manuscript text, so no removeAllActions / coherent-flag choreography
         // (unlike accept).
         OpUndoRegistrar.register(
-            undoManager, actionName: "Edit Annotation", target: self,
+            undoManager, actionName: "Edit Note", target: self,
             workTaskSink: { [weak self] in self?._lastUndoWorkTask = $0 },
             undo: { doc in
                 // Fire-time drift guard: only revert if the annotation still
@@ -449,7 +457,7 @@ extension Document {
         // Redo re-withdraws with the LIVE undo manager so ⇧⌘Z re-arms a fresh
         // undo pair (accept's precedent).
         OpUndoRegistrar.register(
-            undoManager, actionName: "Withdraw Annotation", target: self,
+            undoManager, actionName: "Withdraw Note", target: self,
             workTaskSink: { [weak self] in self?._lastUndoWorkTask = $0 },
             undo: { doc in
                 // The reopen that undoes a withdrawal follows OWNERSHIP
@@ -528,7 +536,7 @@ extension Document {
         // Silent to the writer by design: on the device that clicked, nothing
         // they can see said this annotation existed.
         if isWithdrawn(annotationId: id) {
-            documentLog.error("acceptAnnotation: \(id, privacy: .public) was withdrawn — refusing to rewrite the manuscript for a deleted annotation")
+            documentLog.error("acceptAnnotation: \(id, privacy: .public) was withdrawn — refusing to rewrite the manuscript for a deleted note")
             return
         }
 
@@ -973,7 +981,7 @@ extension Document {
         // ⌘Z puts back what the rejection displaced; ⇧⌘Z re-rejects with the
         // original userResponse (fdbf12f precedent).
         registerResolutionUndo(
-            undoManager, actionName: "Reject Annotation", id: id,
+            undoManager, actionName: "Reject Note", id: id,
             settled: .rejected, drifted: .reject, prior: prior,
             redo: { doc, undoManager in
                 try await doc.rejectAnnotation(
@@ -1041,7 +1049,7 @@ extension Document {
         // ⌘Z puts back what the stet displaced (#41 A2); ⇧⌘Z re-stets with
         // the original userResponse.
         registerResolutionUndo(
-            undoManager, actionName: "Stet Annotation", id: id,
+            undoManager, actionName: "Stet Note", id: id,
             settled: .stetted, drifted: .stet, prior: prior,
             redo: { doc, undoManager in
                 try await doc.stetAnnotation(
@@ -1061,7 +1069,7 @@ extension Document {
             userResponse: nil)
 
         registerResolutionUndo(
-            undoManager, actionName: "Archive Annotation", id: id,
+            undoManager, actionName: "Archive Note", id: id,
             settled: .archived, drifted: .archive, prior: prior,
             redo: { doc, undoManager in
                 try await doc.archiveAnnotation(id: id, undoManager: undoManager)
@@ -1195,7 +1203,7 @@ extension Document {
         // pair (reject's precedent — indefinite cycling; `[weak undoManager]`
         // because NSUndoManager retains the closure).
         OpUndoRegistrar.register(
-            undoManager, actionName: "Triage Annotation", target: self,
+            undoManager, actionName: "Triage Note", target: self,
             workTaskSink: { [weak self] in self?._lastUndoWorkTask = $0 },
             undo: { doc in
                 // Fire-time re-check with a LOUD decline (RULING-22,
@@ -1329,7 +1337,7 @@ extension Document {
         // projection, because that is where the kind lives.
         guard let creation = _opLogMirror.first(where: { $0.opId == id }),
               let kind = AnnotationKind.fromOpKind(creation.kind) else {
-            documentLog.error("reopenAcceptedTextlessAnnotation: \(id, privacy: .public) is not an annotation creation op — ignoring")
+            documentLog.error("reopenAcceptedTextlessAnnotation: \(id, privacy: .public) is not a note creation op — ignoring")
             return
         }
         // One exception, checked rather than trusted: a suggestion whose
@@ -1377,7 +1385,7 @@ extension Document {
                 || priorStatus == .stetted else { return }
         let priorResponse = prior?.userResponse
         OpUndoRegistrar.register(
-            undoManager, actionName: "Reopen Annotation", target: self,
+            undoManager, actionName: "Reopen Note", target: self,
             workTaskSink: { [weak self] in self?._lastUndoWorkTask = $0 },
             undo: { doc in
                 // The re-apply lands only over the `.open` this Reopen left
@@ -1466,7 +1474,7 @@ extension Document {
     internal struct AutomationNotPermitted: LocalizedError {
         let kind: OpKind
         var errorDescription: String? {
-            "this Mac may not write \(kind.rawValue) in this piece, "
+            "this Mac may not write \(kind.rawValue) here, "
                 + "so the app made no repair of its own"
         }
     }
@@ -1520,7 +1528,7 @@ extension Document {
             case .deletedAgainElsewhere:
                 return Self.deletedAgainElsewhereSentence
             case .notPermitted:
-                return "this Mac may not write \(kind.rawValue) in this piece, "
+                return "this Mac may not write \(kind.rawValue) here, "
                     + "so \(leftAsItWas) was left as it was"
             }
         }
@@ -1707,7 +1715,7 @@ extension Document {
         } catch let refusal as PostureRefusal {
             declineUndo(refusal.undoDecline)
         } catch {
-            documentLog.error("annotation undo/redo failed: \(error.localizedDescription, privacy: .public)")
+            documentLog.error("note undo/redo failed: \(error.localizedDescription, privacy: .public)")
         }
     }
 

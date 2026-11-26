@@ -44,8 +44,8 @@ extension MCPError {
     public static func taskNotFound(taskId: String) -> MCPError {
         .toolError(payload: .init(
             error: "task_not_found",
-            message: "Task '\(taskId)' is not in the project's current task set.",
-            hint: "Call list_tasks (scope=\"project\") to refresh the task ids and retry. Task ids are stable across reorder/parent changes but disappear when the underlying op is rewound or the inline checkbox/boneyard text is removed.",
+            message: "No task '\(taskId)' is in the project's current task set.",
+            hint: "Call list_tasks (scope=\"project\") to refresh the task ids and retry. The ids are stable across reorder/parent changes but disappear when the underlying op is rewound or the inline checkbox/boneyard text is removed.",
             fields: ["task_id": .string(taskId)]))
     }
 
@@ -75,12 +75,13 @@ public enum ListTasksTool: MCPTool {
 
     public static let method = "list_tasks"
     public static let description =
-        "List tasks in a project. Aggregates inline `- [ ]` markdown " +
-        "checkboxes, Fountain `[[todo:]]` boneyards, and pane-created " +
-        "tasks. `scope`: \"document\" (requires document_id) or " +
-        "\"project\" (every open doc + project-scope pane tasks). " +
+        "List the writer's to-dos in a project (a task, on the wire). Aggregates inline `- [ ]` markdown " +
+        "checkboxes, Fountain `[[todo:]]` boneyards, and the writer's own " +
+        "to-dos added in To resolve. `scope`: \"document\" (requires document_id) or " +
+        "\"project\" (every open doc + the project's own to-dos). " +
         "`statuses` defaults to [\"open\"]; pass [\"open\",\"done\",\"archived\"] " +
-        "to see everything. Read-only — task writes belong to the writer."
+        "to see everything. Read-only — only the writer makes, ticks or archives a to-do, " +
+        "in the text or in To resolve (Mine, ⌘⌥T)."
     public static let inputSchemaJSON =
         #"{"type":"object","properties":{"project_id":{"type":"string"},"scope":{"type":"string","enum":["document","project"]},"document_id":{"type":"string"},"statuses":{"type":"array","items":{"type":"string","enum":["open","done","archived"]}}},"required":["project_id","scope"]}"#
 
@@ -146,10 +147,19 @@ public enum ListTasksTool: MCPTool {
         }
         let docURL = try ProjectStore.resolvedProjectPath(path, under: projectEntry.url)
         // Anything arriving through MCP is the assistant's (constraint 6).
-        let doc = try await Document.load(
-            url: docURL, actor: .assistant,
-            session: "mcp-\(UUID().uuidString.prefix(8))",
-            presenter: nil)
+        // A reader skips a piece a promotion is moving: no tasks to list
+        // from a file mid-move (shell p4 Task 11 fix round 1, I1).
+        let doc: Document
+        do {
+            doc = try await DocumentStore.loadManuscript(
+                path: path, title: item.title,
+                url: docURL, actor: .assistant,
+                session: "mcp-\(UUID().uuidString.prefix(8))",
+                presenter: nil,
+                through: projectEntry.store.documentStore)
+        } catch is ManuscriptBeingPromoted {
+            return []
+        }
         let result = doc.tasks(filter: filter)
         Task { await doc.close() }
         return result
@@ -166,8 +176,8 @@ public enum GetTaskTool: MCPTool {
 
     public static let method = "get_task"
     public static let description =
-        "Return the full record for a single task by id. Searches across " +
-        "every open document plus the project-scope pane-task log. Errors " +
+        "Return the full record for a single to-do (a task, on the wire) by id. Searches across " +
+        "every open document plus the project's own to-do log. Errors " +
         "with `task_not_found` if no derived task currently matches the id."
     public static let inputSchemaJSON =
         #"{"type":"object","properties":{"project_id":{"type":"string"},"task_id":{"type":"string"}},"required":["project_id","task_id"]}"#

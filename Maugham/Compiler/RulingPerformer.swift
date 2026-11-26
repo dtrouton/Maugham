@@ -1,6 +1,21 @@
 import Foundation
 import MaughamCore
 
+/// **Where a ruling was filed** — the `(kind, scope)` of the statement
+/// `RulingPerformer.rule` actually wrote, read off that statement after the
+/// write rather than assumed from what the caller asked for. Every verb that
+/// files something the writer decided (Answer, Add to intent, Keep as lesson,
+/// a choice, Make it a rule, Confirm) hands this to its caller on success, and
+/// the caller says where it went (`FiledUnder`, shell plan 3 Task 6).
+struct FiledDestination: Equatable, Sendable {
+    let kind: Statement.Kind
+    let scope: Statement.Scope
+    /// True when the write found the words already standing there and wrote
+    /// nothing (the ledger's find-or-create, `LessonLedgerVerbs`): the line
+    /// then says "Already in", never "Filed under".
+    var alreadyStood = false
+}
+
 /// What a ruling refused to do, in the writer's words.
 ///
 /// The two an append had — nothing to say, and a destination that cannot be
@@ -181,9 +196,14 @@ enum RulingPerformer {
     /// changed, and the symptom surfaces a run later with nothing red. A
     /// defaulted parameter would let a new call site skip it in silence; `nil`
     /// has to be written and meant.
+    ///
+    /// Returns where the ruling went: the written statement's own kind and
+    /// scope (`FiledDestination`).
+    @discardableResult
     static func rule(_ text: String, provenance: String, kind: Statement.Kind,
                      forScope scope: Statement.Scope,
-                     store: ProjectStore, world: DeclaredWorldStore?) async throws {
+                     store: ProjectStore, world: DeclaredWorldStore?,
+                     undo: StatementWriteUndo = .plain) async throws -> FiledDestination {
         let words = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !words.isEmpty else { throw RulingFailure.emptyRuling }
         // Asked BEFORE the mint as well as before the op: a refused ruling
@@ -206,10 +226,11 @@ enum RulingPerformer {
         // One op, carrying its own prior text. The inverse — when this call is
         // a writer's gesture rather than a run's arrival — is registered by
         // `RulingsStratum`, never here; see the type doc.
-        try await store.mutateStatementText(of: statement, session: session) { markdown in
+        try await store.mutateStatementText(of: statement, session: session, undo: undo) { markdown in
             RulingsSection.appending(words, provenance: provenance, on: now, to: markdown)
         }
         invalidate(scope, in: world)
+        return FiledDestination(kind: statement.kind, scope: statement.scope)
     }
 
     // MARK: - revoke
@@ -219,9 +240,10 @@ enum RulingPerformer {
     /// essay-only file rather than a heading over nothing (`RulingsSection`).
     static func revoke(rulingId: String, kind: Statement.Kind,
                        forScope scope: Statement.Scope,
-                       store: ProjectStore, world: DeclaredWorldStore?) async throws {
+                       store: ProjectStore, world: DeclaredWorldStore?,
+                       undo: StatementWriteUndo = .plain) async throws {
         try await refuseUnlessTheStatementIsYours(kind, scope, store: store)
-        try await mutate(kind, scope, store: store, world: world) { markdown in
+        try await mutate(kind, scope, store: store, world: world, undo: undo) { markdown in
             guard RulingsSection.parse(markdown).rulings
                 .contains(where: { $0.id == rulingId }) else {
                 throw RulingFailure.unknownRuling(rulingId)
@@ -256,7 +278,8 @@ enum RulingPerformer {
     /// markdown.
     static func edit(rulingId: String, newText: String, kind: Statement.Kind,
                      forScope scope: Statement.Scope,
-                     store: ProjectStore, world: DeclaredWorldStore?) async throws {
+                     store: ProjectStore, world: DeclaredWorldStore?,
+                     undo: StatementWriteUndo = .plain) async throws {
         let words = newText.trimmingCharacters(in: .whitespacesAndNewlines)
         // An edit that empties a ruling is a revocation wearing the wrong verb,
         // and silently performing one would delete a line the writer meant to
@@ -264,7 +287,7 @@ enum RulingPerformer {
         guard !words.isEmpty else { throw RulingFailure.emptyRuling }
         try await refuseUnlessTheStatementIsYours(kind, scope, store: store)
 
-        try await mutate(kind, scope, store: store, world: world) { markdown in
+        try await mutate(kind, scope, store: store, world: world, undo: undo) { markdown in
             let (essay, rulings) = RulingsSection.parse(markdown)
             guard let index = rulings.firstIndex(where: { $0.id == rulingId }) else {
                 throw RulingFailure.unknownRuling(rulingId)
@@ -305,9 +328,10 @@ enum RulingPerformer {
     /// refusal there would lose the line the writer is asking for back.
     static func restore(_ ruling: Ruling, at index: Int, kind: Statement.Kind,
                         forScope scope: Statement.Scope,
-                        store: ProjectStore, world: DeclaredWorldStore?) async throws {
+                        store: ProjectStore, world: DeclaredWorldStore?,
+                        undo: StatementWriteUndo = .plain) async throws {
         try await refuseUnlessTheStatementIsYours(kind, scope, store: store)
-        try await mutate(kind, scope, store: store, world: world) { markdown in
+        try await mutate(kind, scope, store: store, world: world, undo: undo) { markdown in
             let (essay, rulings) = RulingsSection.parse(markdown)
             var updated = rulings
             updated.insert(ruling, at: min(max(index, 0), rulings.count))
@@ -382,6 +406,7 @@ enum RulingPerformer {
     private static func mutate(
         _ kind: Statement.Kind, _ scope: Statement.Scope,
         store: ProjectStore, world: DeclaredWorldStore?,
+        undo: StatementWriteUndo,
         _ transform: (String) throws -> String
     ) async throws {
         guard let statement = store.statement(kind: kind, scope: scope) else {
@@ -391,7 +416,7 @@ enum RulingPerformer {
         // One op each, and the inverse each needs is its own — `RulingsStratum`
         // registers it when the act was a writer's gesture (see the type doc).
         try await store.mutateStatementText(
-            of: statement, session: session, transform: transform)
+            of: statement, session: session, undo: undo, transform: transform)
         invalidate(scope, in: world)
     }
 

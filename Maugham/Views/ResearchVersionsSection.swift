@@ -26,11 +26,12 @@ enum ResearchVersionsModel {
     static let beforeAssistantMark = "Before the assistant’s change"
 
     /// Why Restore is off, nil when it is on: a view-only share first, then
-    /// Review (whose grid reads the table and refuses its edits) — the grid's
-    /// own reasons and sentences (`FigureGridGate.Reason`).
-    static func restoreRefusal(shareIsReadOnly: Bool, reviewing: Bool) -> FigureGridGate.Reason? {
+    /// the item's piece in read-through (whose grid reads the table and
+    /// refuses its edits) — the grid's own reasons and sentences
+    /// (`FigureGridGate.Reason`).
+    static func restoreRefusal(shareIsReadOnly: Bool, readThrough: ReadThroughRefusal?) -> FigureGridGate.Reason? {
         if shareIsReadOnly { return .viewOnlyShare }
-        if reviewing { return .reviewMode }
+        if let readThrough { return .readThrough(readThrough) }
         return nil
     }
 
@@ -106,8 +107,9 @@ struct ResearchVersionsSection: View {
     var kind: ResearchVersionPayload = .table
     /// What a refusal calls it (`ResearchVersionsModel.noun(for:)`).
     var noun: String = "table"
-    /// The persona reads Research without changing it (Review).
-    var reviewing: Bool = false
+    /// The item's piece in read-through, named (`ReadThroughGate.refusal`):
+    /// read, not changed, and Restore's reason says which piece.
+    let readThrough: ReadThroughRefusal?
 
     /// Nil until the first listing lands.
     @State private var rows: [ResearchVersionsModel.Row]?
@@ -115,7 +117,8 @@ struct ResearchVersionsSection: View {
     @State private var isRestoring = false
 
     var body: some View {
-        let refusal = ResearchVersionsModel.restoreRefusal(shareIsReadOnly: shareIsReadOnly, reviewing: reviewing)
+        let refusal = ResearchVersionsModel.restoreRefusal(shareIsReadOnly: shareIsReadOnly,
+                                                           readThrough: readThrough)
         VStack(alignment: .leading, spacing: 8) {
             HStack {
                 Text("Versions").font(.headline)

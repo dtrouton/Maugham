@@ -1,12 +1,13 @@
 import SwiftUI
 import AppKit
+import MaughamCore
 
 /// **The run keys' delivery path, and every way the session has to die.**
 ///
 /// Extracted from `ProjectWindow.body` for that file's standing reason (the
 /// SwiftUI type-checker ceiling), but the grouping is real: the things below
-/// are one subject — the two run keys (⌘R's delta and ⌘⇧R's cold read of the
-/// whole piece), and the three moments at which the `claude` subprocess must
+/// are one subject — the four run commands (`RunCommand`: a check or a round,
+/// each warm or read cold), and the three moments at which the `claude` subprocess must
 /// stop existing. Fresh eyes retires the session too, but from the inside:
 /// it is a run rather than a teardown, so the retirement is the
 /// orchestrator's (`runRequested(docId:kind:freshEyes:)`) and not a fourth
@@ -38,58 +39,97 @@ struct CompilerRunModifier: ViewModifier {
     /// The window's `claude` services. The run keys reach the compiler
     /// through it; the teardown arms reach all of them.
     let roster: AgentRoster
-    /// **The window's persona — the loop the writer is standing in.**
-    ///
-    /// The one thing here that is not a session or a subject, and it is here
-    /// because this is the one place a run key is pressed: `RunKind.of` is
-    /// asked exactly once per keystroke, and every other caller of
-    /// `runRequested` belongs to one loop by construction and says so
-    /// literally. `TripwireGrepTests`' census pins that this file is the only
-    /// production site that mints a kind from a persona — a second one would
-    /// be a second answer to which verb a keystroke is.
-    let persona: Persona
     let window: NSWindow?
-    /// The window's subject as a document id, or the no-document sentinel.
-    /// Resolved by the window, not here: this modifier has no opinion about
-    /// what the tree is naming.
-    let activeDocId: String
+    /// The window's subject: what a run reads is `request`'s answer from it,
+    /// not this modifier's.
+    let subject: WindowSubject
+    /// The book's structure, so a Part on the faces is not taken for a piece.
+    let structure: [StructureItem]
+    /// Whether a piece's `Document` is open in this window — the only thing a
+    /// run can read (`CompilerEnvironment`'s `reading`).
+    let isDocumentOpen: (String) -> Bool
+    /// The window's flash, for a run whose piece is not open.
+    let onPieceNotOpen: (RunKind) -> Void
     /// `UserPreferences.mcpEnabled` — the one toggle that governs outbound as
     /// well as inbound (spec §3.5). Passed as a value so `.onChange` sees it;
     /// the session enforces the toggle again on every send, and this is what
     /// kills a session already warm when the writer turns Claude off.
     let mcpEnabled: Bool
 
-    /// **What a run key asks the compiler for** — pure, so which verb a
-    /// keystroke is can be asserted with no window (tripwire 33). Both keys
-    /// mint their kind from the persona here: a cold read in Review is a cold
-    /// ROUND, not an ordinary check.
+    /// **What a run command asks the compiler for** — pure, so which verb a
+    /// keystroke is and which piece it reads can be asserted with no window
+    /// (tripwire 33). The COMMAND names the kind (`RunCommand.kind`): ⌘R is a
+    /// check wherever the writer stands, and a round is asked for by name.
     struct RunKeyRequest: Equatable {
         let docId: String
         let kind: RunKind
         let freshEyes: Bool
     }
 
-    static func request(freshEyes: Bool, persona: Persona, docId: String) -> RunKeyRequest {
-        RunKeyRequest(docId: docId, kind: RunKind.of(persona: persona), freshEyes: freshEyes)
+    /// **The piece a run reads**: the OPEN piece when one is open — that is
+    /// where the writer types, so a Brief link or ⌘⌥K that moved the faces
+    /// elsewhere never turns ⌘R into "open the piece first" (shell closing A3,
+    /// ADR 0035) — else the faces' piece, else none, and with none the run is
+    /// a no-op, as it is with no window in front. So a run with the Canvas, an
+    /// edition or the Inbox open reads the piece the right column faces. A
+    /// Part is not a piece (`ClickRule.isPiece`): a Part falls through.
+    static func runDocId(for subject: WindowSubject, structure: [StructureItem]) -> String? {
+        func piece(_ s: BinderSubject) -> String? {
+            guard let id = s.itemID, ClickRule.isPiece(id, in: structure) else { return nil }
+            return id
+        }
+        return piece(subject.open) ?? piece(subject.faces)
     }
 
-    private func send(_ request: RunKeyRequest) {
-        roster.compiler.runRequested(
-            docId: request.docId, kind: request.kind, freshEyes: request.freshEyes)
+    static func request(_ command: RunCommand, subject: WindowSubject,
+                        structure: [StructureItem]) -> RunKeyRequest? {
+        guard let docId = runDocId(for: subject, structure: structure) else { return nil }
+        return RunKeyRequest(docId: docId, kind: command.kind, freshEyes: command.isFreshEyes)
+    }
+
+    /// **What a run command does** (shell p1 final fix, I2): nothing with no
+    /// piece; a run when the piece's document is open; otherwise the
+    /// `.openThePieceFirst` flash. The faces can sit on a piece no editor has
+    /// loaded (the canvas or an edition in the centre), and the compiler reads
+    /// only an open document — a run there used to do nothing, without a word.
+    enum Decision: Equatable {
+        case nothing
+        case run(RunKeyRequest)
+        case pieceNotOpen(RunKind)
+    }
+
+    static func decision(_ command: RunCommand, subject: WindowSubject,
+                         structure: [StructureItem],
+                         isDocumentOpen: (String) -> Bool) -> Decision {
+        guard let request = request(command, subject: subject, structure: structure) else {
+            return .nothing
+        }
+        return isDocumentOpen(request.docId) ? .run(request) : .pieceNotOpen(request.kind)
+    }
+
+    private func send(_ command: RunCommand) {
+        switch Self.decision(command, subject: subject, structure: structure,
+                             isDocumentOpen: isDocumentOpen) {
+        case .nothing:
+            return
+        case .pieceNotOpen(let kind):
+            onPieceNotOpen(kind)
+        case .run(let request):
+            roster.compiler.runRequested(
+                docId: request.docId, kind: request.kind, freshEyes: request.freshEyes)
+        }
     }
 
     func body(content: Content) -> some View {
         content
-            .onKeyWindowCommand(.maughamRunCompiler, window: window) { _ in
-                send(Self.request(freshEyes: false, persona: persona, docId: activeDocId))
-            }
-            // The cold read (⌘⇧R). A second arm rather than a branch inside
-            // the first: the two keystrokes are two promises, and the
-            // orchestrator is the one place that knows what the difference
-            // costs.
-            .onKeyWindowCommand(.maughamFreshEyesCompiler, window: window) { _ in
-                send(Self.request(freshEyes: true, persona: persona, docId: activeDocId))
-            }
+            // Four arms, one per command, rather than a branch inside one: the
+            // four keystrokes are four promises (a delta or the piece whole, a
+            // check or a round), and the orchestrator is the one place that
+            // knows what each costs.
+            .onKeyWindowCommand(.maughamRunCompiler, window: window) { _ in send(.checkWriting) }
+            .onKeyWindowCommand(.maughamFreshEyesCompiler, window: window) { _ in send(.reread) }
+            .onKeyWindowCommand(.maughamRunRound, window: window) { _ in send(.runRound) }
+            .onKeyWindowCommand(.maughamFreshEyesRound, window: window) { _ in send(.freshEyes) }
             .onGlobalEvent(.maughamAppWillTerminate) { _ in
                 roster.shutdownAll()
             }

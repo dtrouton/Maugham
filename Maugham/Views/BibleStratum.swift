@@ -29,6 +29,11 @@ import MaughamCore
 @MainActor
 enum BibleStratum {
 
+    /// The verb that graduates a reading into the writer's ruling — the
+    /// design's word ("Confirm"; it said "Bless" before shell plan 3). The
+    /// verb itself (`bless`) is unchanged.
+    static let confirmTitle = "Confirm"
+
     // MARK: - Reading
 
     /// Which statements have a bible under them at all.
@@ -143,14 +148,17 @@ enum BibleStratum {
     /// **Bless**: the fact graduates into the writer's layer as a ruling, and
     /// leaves the provisional register in the same act.
     ///
-    /// **The order is the contract, and it is `DiagnosticsPane.answer`'s.**
+    /// **The order is the contract, and it is `CheckNarrative.answer`'s.**
     /// Dismissed first, a refusal would cost the writer both the ruling and the
     /// reading, with nothing left on screen to press again; dismissed after, the
     /// worst case is a fact they bless twice.
     /// (`test_aRefusedBlessLeavesTheFactInTheRegister`.)
+    ///
+    /// Returns where the reading was filed, nil when it was refused.
+    @discardableResult
     static func bless(_ fact: BibleFact, forScope scope: Statement.Scope,
                       store: ProjectStore, bible: BibleStore,
-                      world: DeclaredWorldStore?) async {
+                      world: DeclaredWorldStore?) async -> FiledDestination? {
         await graduate(fact.fact, provenance: blessedProvenance, fact: fact,
                        forScope: scope, store: store, bible: bible, world: world)
     }
@@ -158,9 +166,10 @@ enum BibleStratum {
     /// **Correct**: the same graduation, in the writer's own words. What crosses
     /// the membrane is `amended` — a `String` they typed — so this is the writer
     /// ruling, not Claude's reading promoting itself.
+    @discardableResult
     static func correct(_ fact: BibleFact, to amended: String,
                         forScope scope: Statement.Scope, store: ProjectStore,
-                        bible: BibleStore, world: DeclaredWorldStore?) async {
+                        bible: BibleStore, world: DeclaredWorldStore?) async -> FiledDestination? {
         await graduate(amended, provenance: correctedProvenance, fact: fact,
                        forScope: scope, store: store, bible: bible, world: world)
     }
@@ -168,7 +177,7 @@ enum BibleStratum {
     /// **Dismiss**: the writer says this is not so. Nothing enters their layer.
     ///
     /// **Not undoable, and that is intended rather than missing** — the
-    /// reasoning is `DiagnosticsPane.promote`'s, verbatim in shape: the bible is
+    /// reasoning is `CheckNarrative.promote`'s, verbatim in shape: the bible is
     /// per-device derived state with no undo of its own, and a fact the
     /// manuscript still establishes is recorded again by the next run
     /// (`BibleStore.record`'s doc says so). A ⌘Z that resurrected it would be
@@ -207,18 +216,20 @@ enum BibleStratum {
     /// stratum uses (`RulingsStratum.say`).
     private static func graduate(_ words: String, provenance: String, fact: BibleFact,
                                  forScope scope: Statement.Scope, store: ProjectStore,
-                                 bible: BibleStore, world: DeclaredWorldStore?) async {
+                                 bible: BibleStore, world: DeclaredWorldStore?) async -> FiledDestination? {
+        let destination: FiledDestination
         do {
-            try await RulingPerformer.rule(
+            destination = try await RulingPerformer.rule(
                 words, provenance: provenance, kind: .intent, forScope: scope,
                 store: store, world: world)
         } catch {
             RulingsStratum.say(error, in: store)
-            return
+            return nil
         }
         bible.markGraduated(subject: fact.subject, fact: fact.fact)
         bible.markGraduated(subject: fact.subject, fact: words)
         bible.dismiss(fact.id)
+        return destination
     }
 }
 
@@ -238,6 +249,9 @@ struct BibleStratumView: View {
     /// Correct are drawn where `StatementSurfaceVerbs` offers them — hidden,
     /// never disabled.
     let posture: Posture
+    /// Where a Confirm or a Correct filed, once it landed — the host says so
+    /// (`FiledNotice`, shell plan 3 Task 6).
+    var onFiled: (FiledDestination) -> Void = { _ in }
 
     /// Which row's correction field is open, by fact id. A `BibleFact.id` is a
     /// ULID the store minted and does not move with its text, so it is a stable
@@ -285,7 +299,7 @@ struct BibleStratumView: View {
                 .foregroundStyle(.tertiary)
             HStack(spacing: 12) {
                 if StatementSurfaceVerbs.offered(under: posture) {
-                    Button("Bless") { bless(fact) }
+                    Button(BibleStratum.confirmTitle) { bless(fact) }
                         .buttonStyle(.plain)
                     Button("Correct") { correctingId = fact.id }
                         .buttonStyle(.plain)
@@ -305,8 +319,10 @@ struct BibleStratumView: View {
 
     private func bless(_ fact: BibleFact) {
         Task { @MainActor in
-            await BibleStratum.bless(fact, forScope: scope, store: store,
-                                     bible: bible, world: world)
+            if let filed = await BibleStratum.bless(fact, forScope: scope, store: store,
+                                                    bible: bible, world: world) {
+                onFiled(filed)
+            }
         }
     }
 
@@ -314,8 +330,10 @@ struct BibleStratumView: View {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
         Task { @MainActor in
-            await BibleStratum.correct(fact, to: trimmed, forScope: scope,
-                                       store: store, bible: bible, world: world)
+            if let filed = await BibleStratum.correct(fact, to: trimmed, forScope: scope,
+                                                      store: store, bible: bible, world: world) {
+                onFiled(filed)
+            }
         }
     }
 }

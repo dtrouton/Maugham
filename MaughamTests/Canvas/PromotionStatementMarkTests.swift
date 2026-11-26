@@ -144,16 +144,17 @@ final class PromotionStatementMarkTests: XCTestCase {
 
     // MARK: - Where Open goes
 
-    /// **Open** on a statement mark means the Intent pane. Sent to the Research
-    /// pane instead it selects an id no research tree holds, and the writer's
-    /// intent is nowhere — the pane says "Select an item".
-    func test_openingAStatementMarkGoesToItsOwnPane() async throws {
+    /// **Open** on a statement mark means that intent's Brief — the piece's,
+    /// or the Book's. Sent to Research instead it selects an id no research
+    /// tree holds, and the writer's intent is nowhere.
+    func test_openingAStatementMarkGoesToItsOwnBrief() async throws {
         let store = try await makeProject()
-        for scope: Statement.Scope in [.project, .document("ch-1")] {
-            let statement = try await store.createStatement(kind: .intent, scope: scope)
-            XCTAssertEqual(ProjectWindow.statementPane(forMark: statement.id, in: store),
-                           .intent, "scope: \(scope.rawValue)")
-        }
+        let book = try await store.createStatement(kind: .intent, scope: .project)
+        XCTAssertEqual(ProjectWindow.statementDestination(forMark: book.id, in: store),
+                       .brief(.project))
+        let chapter = try await store.createStatement(kind: .intent, scope: .document("ch-1"))
+        XCTAssertEqual(ProjectWindow.statementDestination(forMark: chapter.id, in: store),
+                       .brief(.item("ch-1")))
     }
 
     /// The control: a research mark still means the Research pane, and so does
@@ -162,8 +163,8 @@ final class PromotionStatementMarkTests: XCTestCase {
     func test_openingAResearchMarkStillGoesToResearch() async throws {
         let store = try await makeProject()
         let note = try await store.addResearchTextNote(parentId: nil, title: "The falls")
-        XCTAssertNil(ProjectWindow.statementPane(forMark: note.id, in: store))
-        XCTAssertNil(ProjectWindow.statementPane(forMark: "res-nope", in: store))
+        XCTAssertNil(ProjectWindow.statementDestination(forMark: note.id, in: store))
+        XCTAssertNil(ProjectWindow.statementDestination(forMark: "res-nope", in: store))
     }
 
     // MARK: - The enumeration

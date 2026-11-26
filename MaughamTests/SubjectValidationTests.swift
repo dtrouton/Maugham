@@ -33,13 +33,13 @@ private struct SubjectValidationProbeView: View {
         Color.clear
             .modifier(SubjectValidationModifier(
                 store: harness.store, documentStore: nil,
-                selectedSubject: Binding(get: { harness.subject },
-                                         set: { harness.subject = $0 })))
+                subject: .bridging(Binding(get: { harness.subject },
+                                           set: { harness.subject = $0 }))))
     }
 }
 
 /// The window's subject must never name a row that is not there
-/// (`SubjectValidationModifier` + `ProjectWindow.validSubject`).
+/// (`SubjectValidationModifier` + `ProjectWindow.validatedSubject`).
 ///
 /// **What made this worth a rule of its own.** The repair used to live in
 /// `BinderView.deleteItem` as `subject == .item(deletedId) ? nil : subject`,
@@ -85,7 +85,7 @@ final class SubjectValidationTests: XCTestCase {
                        "fixture assumption: removing the group removes its child")
 
         XCTAssertEqual(
-            ProjectWindow.validSubject(.item("doc-1"), in: after, research: [], figures: [], parked: []),
+            ProjectWindow.repairedOpen(.item("doc-1"), in: after, research: [], figures: [], parked: []),
             .project,
             "the subject named a row that left with its group")
     }
@@ -109,7 +109,7 @@ final class SubjectValidationTests: XCTestCase {
                        "…and that subject names nothing")
 
         XCTAssertEqual(
-            ProjectWindow.validSubject(.item("doc-1"), in: after, research: [], figures: [], parked: []),
+            ProjectWindow.repairedOpen(.item("doc-1"), in: after, research: [], figures: [], parked: []),
             .project,
             "the rule under test must not agree with the plant here")
     }
@@ -128,7 +128,7 @@ final class SubjectValidationTests: XCTestCase {
         XCTAssertNil(planted(.item("doc-1"), afterDeleting: "doc-1"),
                      "the plant moves the window off the deleted document")
         XCTAssertEqual(
-            ProjectWindow.validSubject(.item("doc-1"), in: after, research: [], figures: [], parked: []),
+            ProjectWindow.repairedOpen(.item("doc-1"), in: after, research: [], figures: [], parked: []),
             .project,
             "and so does the rule — to a subject rather than to none")
     }
@@ -137,7 +137,7 @@ final class SubjectValidationTests: XCTestCase {
     func test_somebodyElsesDeleteLeavesTheSubjectAlone() {
         let after = TreeWalk.remove(id: "doc-2", in: groupedStructure())
         XCTAssertEqual(
-            ProjectWindow.validSubject(.item("doc-1"), in: after, research: [], figures: [], parked: []),
+            ProjectWindow.repairedOpen(.item("doc-1"), in: after, research: [], figures: [], parked: []),
             .item("doc-1"))
     }
 
@@ -147,13 +147,13 @@ final class SubjectValidationTests: XCTestCase {
     /// containment check written the obvious way clears it.
     func test_theProjectSubjectSurvivesADeleteAndAnEmptyStructure() {
         XCTAssertEqual(
-            ProjectWindow.validSubject(.project,
+            ProjectWindow.repairedOpen(.project,
                                        in: TreeWalk.remove(id: "grp",
                                                            in: groupedStructure()),
                                        research: [], figures: [], parked: []),
             .project)
         XCTAssertEqual(
-            ProjectWindow.validSubject(.project, in: [], research: [], figures: [], parked: []), .project)
+            ProjectWindow.repairedOpen(.project, in: [], research: [], figures: [], parked: []), .project)
     }
 
     /// **Plant: containment over the extracted id.** *"Take the subject's item
@@ -185,7 +185,7 @@ final class SubjectValidationTests: XCTestCase {
         // The rule under test asks about the SUBJECT, not about an id extracted
         // from one, which is the whole reason `.project` survives it.
         XCTAssertEqual(
-            ProjectWindow.validSubject(.project, in: structure, research: [], figures: [], parked: []),
+            ProjectWindow.repairedOpen(.project, in: structure, research: [], figures: [], parked: []),
             .project)
     }
 
@@ -213,7 +213,7 @@ final class SubjectValidationTests: XCTestCase {
             CanvasSubject.resolve(plantedAnswer, in: structure, research: []).dimsTheBoard,
             "…and that is what puts the canvas into the dim without a click")
 
-        let real = ProjectWindow.validSubject(.project, in: structure, research: [], figures: [], parked: [])
+        let real = ProjectWindow.repairedOpen(.project, in: structure, research: [], figures: [], parked: [])
         XCTAssertEqual(real, .project)
         XCTAssertFalse(CanvasSubject.resolve(real, in: structure, research: []).dimsTheBoard)
     }

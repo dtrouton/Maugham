@@ -19,9 +19,12 @@ would pass the translation-coverage gate before committing to a full compile.
 
 ## The in-app pipeline
 
-**You are not the only translator on this book.** Maugham's Publish desk has a
-Run of its own, and one press of it is seven legs: the edition's translator
-writes, a **blind reader** (target text only, so it can say the prose does not
+**You are not the only translator on this book.** Each edition in Maugham has a
+round of its own: **Translate Whole Book** at the head of the edition's To
+resolve (the writer clicks the edition under Editions in the binder), or
+**Translate This Chapter** at the head of a chapter's To resolve while the
+writer reads it in that language; File has both. One press is seven legs:
+the edition's translator writes, a **blind reader** (target text only, so it can say the prose does not
 read like this language and can never say it is wrong) reads and notes, the
 translator fixes, the reader reads again, the translator fixes again, a
 **collator** compares both texts and raises departures with a gloss back into
@@ -42,10 +45,11 @@ Two consequences for a session working from outside:
   `edition-brief` skill first — it interviews the writer and proposes one
   they adopt in Maugham — rather than deciding register on your own.
 - **`translation_status`'s `last_round` is where you see what the pipeline
-  already did** for a `(document, language)` pair: the round `number`, the two
-  readers' verdicts (`leg2_verdict`, `leg4_verdict`), the note, departure and
-  declined counts, the round's `summary`, and `stopped_at` for a round that
-  ended early. The same rows name the `reader` and the `collator`. Read it
+  already did** for a `(document, language)` pair: its newest *finished*
+  round (a cancelled round is not reported, even if it wrote text before the
+  cancel), with the round `number`, the two readers' verdicts
+  (`leg2_verdict`, `leg4_verdict`), the note, departure and declined counts,
+  the round's `summary`, and `stopped_at` for a round that failed. The same rows name the `reader` and the `collator`. Read it
   before deciding a document needs work — a round three minutes old has
   already reworked what you were about to rewrite.
 
@@ -80,9 +84,11 @@ Two consequences for a session working from outside:
    orphan's id, by definition, no longer exists in the manuscript) — but
    that exemption is per entry, not per batch: a `text`/`verbatim` entry
    elsewhere in the same call still fails the whole thing if its id is
-   unknown. The writer can also clear orphans by hand from the Translation
-   Review pane, so don't assume every `orphans` count you see is yours to
-   fix.
+   unknown. The writer can also clear orphans by hand: reading a chapter in
+   the language, the head of its To resolve says how many translations are
+   left over from deleted paragraphs and offers **Clear** (a table's are in
+   its details, with **Remove**), so don't assume every `orphans` count you
+   see is yours to fix.
    **A table's labels translate too.** `translation_status`'s `figures`
    section lists each table a reported chapter uses, with its text cells
    counted by freshness per language. Pass the table's id (from
@@ -135,7 +141,7 @@ Two consequences for a session working from outside:
    stops firing the moment that line is translated, with no error to flag
    it. Check a piece's style file for this kind of hook before calling a
    translation pass done, and update it to match the translator's actual
-   word choice, not a guessed cognate. The Playlist ES edition needed a
+   word choice, not a guessed cognate. One Spanish edition needed a
    `Docto` stem probe (matching `Doctor:` and `Doctora:` both) because the
    translator correctly rendered the character as female — "Doctora:" — and
    a probe pinned to `Doctor:` alone would have missed her every time.
@@ -143,7 +149,8 @@ Two consequences for a session working from outside:
    regional variants (`es` vs `es-mx`), a pun that doesn't survive translation
    — raise it with `add_query`, passing `language` so it's tagged as a
    question about this edition rather than a general manuscript query. The
-   writer answers through the same reply flow as any other query.
+   writer answers it in To resolve under **Questions** (⌘⌥L), through the
+   same reply as any other query.
 
 ## Tools
 

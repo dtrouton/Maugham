@@ -104,10 +104,10 @@ struct RegionInspectorPane: View {
             }
         } else {
             // Tripwire 15: the full-frame chain is required, and so is the
-            // enclosing stack's top alignment — `DetailPaneToggle` supplies the
+            // enclosing stack's top alignment — `PulledUpView` supplies the
             // second half (`.frame(…, alignment: .top)` on its own VStack).
             // Without both, SwiftUI sizes to intrinsic content, the stack
-            // collapses, and the segment picker floats to the middle of the
+            // collapses, and the column's control floats to the middle of the
             // window. It has recurred four or more times; `HistoryPane` is the
             // canonical example.
             ContentUnavailableView("Select something on the canvas",
@@ -309,7 +309,7 @@ struct RegionInspector: View {
                         // Safe from this column, and the reason is worth knowing:
                         // a `.keyWindow` post made from inside a SHEET is dropped,
                         // because the sheet's own window holds key status (the
-                        // v0.24.0 "enter does nothing" bug, `TranslationReviewModifier`).
+                        // v0.24.0 "enter does nothing" bug, `ReadingLanguageModifier`).
                         // This button is in the project window itself.
                         MaughamEvent.post(.maughamPromoteCanvasSelection, to: .keyWindow)
                     }

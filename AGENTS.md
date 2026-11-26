@@ -2,7 +2,7 @@
 
 # Maugham — Guidance for Claude
 
-Maugham is a Mac-native focus text editor for serious creative writing (prose, novels, screenplays, mixed collections). Native Swift + SwiftUI + AppKit, designed to live alongside Claude Desktop via a local MCP server. **The user does not write code** — Claude writes all of it. This file is the load-bearing context for that arrangement.
+Maugham is a Mac-native focus text editor for serious creative writing. Native Swift + SwiftUI + AppKit, beside Claude Desktop via a local MCP server. **The user does not write code** — Claude writes all of it.
 
 ## First five minutes of any session
 
@@ -18,7 +18,7 @@ These are non-negotiable. Violating one is a regression even if tests pass.
 - **The op log is the source of truth for manuscripts; the `.md` on disk is a clean derived render** (no `¶id`/`t-` anchors, ADR 0019). Editing appends to the per-doc JSONL op log under `.maugham/ops/`; walk by `sequence`, never raw `paragraphs`. **External `.md` edits are discarded**; sync flows through the op-log merge (ADR 0012). Every line is chained, and sealed by one of four actor keys where the device has one: `author`, `assistant`, `translator`, `maugham` (ADR 0032). Full text: `Maugham/OpLog/AREA.md`.
 - **Plain text on disk, full stop.** Manuscripts live as human-readable `.md` / `.fountain` at the writer's chosen paths. Anything derived (op log, checkpoints, sessions, conflict backups, UI state) goes under `.maugham/`. Don't propose sidecar formats for manuscript content.
 - **MCP never mutates manuscript text directly.** Claude operates in a parallel annotation layer (`add_note`, annotations against paragraph IDs), or writes into `research/` — never the manuscript itself.
-- **Single-file screenplays.** One `.fountain` per screenplay project. Multi-file compound screenplay is dead (Phase 3d abandonment). The Scenes segment is a slugline navigator within that one file.
+- **Single-file screenplays.** One `.fountain` per screenplay project. Multi-file compound screenplay is dead (Phase 3d abandonment). The binder's scene rows navigate the sluglines within that file.
 - **⌘S is a labeled checkpoint, not a save.** Saving is autosave (750ms debounce via `DocumentStore`). ⌘S writes a project-scope checkpoint. Keep the muscle-memory flash.
 - **Every manuscript load goes through `Document.load`**, which runs `Bootstrap.run` to mint the `¶id` anchors the op log joins on; never construct `Document` any other way (`BootstrapWiringTests`). In a narrowed book the load mints only where `LocalWritePermit.mayMintOpening` says, and otherwise refuses with `DocumentLoadError.waitingForPiece`. Everything the load emits on its own account is the author actor's, whoever opened the file (tripwire 38). Full text: `Maugham/OpLog/AREA.md`.
 
@@ -130,6 +130,9 @@ One line each; the why, the history and the full enforcement are in docs/tripwir
 | 56 | An `async` function in the `OpLogStore` split's files says `@MainActor` | `OpLogClassifierIsolationTests` (core) |
 | 57 | No `CanvasView.load()` closure reads a plain stored view property, even through a callee | `TripwireGrepTests.test_theCanvasLoadClosuresReadNoChangingViewValue` +1 |
 | 58 | A synced path or file name reaches the disk only through `SafeRelativePath` (`resolve` to read, `resolveForChange` to change); a locally minted name says `// local-path: <why>` | `TripwireGrepTests.test_syncedPathsReachTheDiskOnlyThroughSafeRelativePath` +1 |
+| 59 | Every manuscript load by path passes the promotion door, `DocumentStore.loadManuscript`; no other production `Document.load(` | `TripwireGrepTests.test_everyManuscriptLoadPassesThePromotionDoor` +1 |
+| 60 | No test writes or pastes from the general pasteboard; it pastes from its own through `paste(from:)` | `TripwireGrepTests.test_noTestWritesTheGeneralPasteboard` +1 |
+| 61 | One answer to "is this in read-through": `ReadThrough.isOn` in the editor, `ReadThroughGate` elsewhere, each asker counted | `ReadThroughResearchSurfaceTests.test_everyReadThroughSiteAsksTheOneAnswer` +1 |
 
 ## Default workflow
 
@@ -164,17 +167,16 @@ Before editing a path, read the area guide its row names. If a path matches seve
 | `Maugham/MCP/**` | `Maugham/MCP/AREA.md` | One catalogue, `MCPToolCatalog.all`; MCP never writes manuscript text. |
 | `Maugham/Publish/**` | `Maugham/Publish/AREA.md`; the emission contract is `Maugham/Resources/PublishStarter/EMISSION.md` (generated) | Edit `EmissionContract.swift`, never `EMISSION.md`; keep `style_file` inside its `\begingroup`. |
 | `Maugham/Updates/**` | `Maugham/Updates/AREA.md` | — |
-| `Maugham/Models/**` | `Maugham/Views/AREA.md` for Persona, DetailSegment, PersonaMemory, BinderSubject, TreePane; `Maugham/Compiler/AREA.md` for AuthorReader, RoundEditor, ActivePassMemory, CompilerModelChoice, RunMenuTitles | A run never resolves its reader from the other loop's memory (tripwire 34). |
+| `Maugham/Models/**` | `Maugham/Views/AREA.md` for WindowSubject, ClickRule, RightColumnPosition, PulledUp, BinderSubject, TreePane; `Maugham/Compiler/AREA.md` for AuthorReader, RoundEditor, ActivePassMemory, CompilerModelChoice | A run never resolves its reader from the other loop's memory (tripwire 34). |
 | `MaughamPhone/**` | `MaughamPhone/AREA.md` | AppKit never; WhisperKit is Mac-only. |
 
-## Inbox + transcription (`Maugham/Stores/` — iPhone-companion Mac side)
+## Inbox + transcription
 
-`InboxStore`, `InboxPane` and the transcription worker are described in `Maugham/Stores/AREA.md`.
-MCP's scope over the inbox is **read + promote only** (no add/trash from MCP).
+The phone's inbox on the Mac: `Maugham/Stores/AREA.md`. MCP over the inbox is **read + promote only**.
 
 ## Behavioural claims + rulings (`register/`)
 
-Claims (verified facts, each pinned by a test) and rulings (Denver's product decisions) live under `register/`; start at `register/START-HERE.md`, and see `register/reconciliation/` for the modules covered.
+Claims (pinned facts) and rulings (Denver's decisions) live under `register/`; start at `register/START-HERE.md`, and see `register/reconciliation/` for the modules covered.
 - **Before changing behaviour in a module that has a claims file, read its filings**, and fixing a filed defect closes the loop in the same branch: fix, pinned production test, claim updated, filing flipped `VIOLATES→COMPLIES`.
 
 ## Questions you do not need to ask
@@ -184,6 +186,4 @@ Claims (verified facts, each pinned by a test) and rulings (Denver's product dec
 - "Should this annotation be paragraph- or doc-scoped?" → Both should work and both need a UI surface.
 - "Should I write a migration for this schema change?" → No, unless the user explicitly asks.
 - "Should we ship one feature first or bundle?" → Bundle, default to ambitious.
-- "How do I cut a release?" → see `docs/RELEASING.md`.
-- "Should I bump version in `project.yml`?" → No. The git tag is the source of truth; CI writes the version into the bundle at build time.
 - "Should dev or stable do X?" → see `Packages/MaughamCore/Sources/MaughamCore/BuildVariant.swift` — one enum, all the seams hang off it.

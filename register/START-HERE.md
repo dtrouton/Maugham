@@ -52,15 +52,15 @@ why. **Read `register/RULINGS.md` and nothing else.**
 | `MaughamCore.TreeWalk` | 61 | 0% | — | `07-summary.md` |
 | `MaughamCore.PaletteCardParser` | 47 | 34% | 16 reached | `07-summary.md` |
 | `MaughamCore.PaletteCardModel` | 40 | 40% | 16 reached | `07-summary.md` |
-| `Stores/TrashStore` + `ProjectStore+Trash` | 70 | 65% | 45 / 0 | `22-trash-reconciliation.md` |
+| `Stores/TrashStore` + `ProjectStore+Trash` | 71 | 63% | 45 / 0 | `22-trash-reconciliation.md` |
 | `OpLog/Document+Rewind` (+`RewindUndo`, `Deriver+Rewind`) | 40 | 62% | 25 / 0 | `24-rewind-reconciliation.md` |
 | `OpLog/Document+Annotations` (+`AnnotationDeriver`, `AnnotationInverse`) | 91 | 42% | 34 / 0 | `28-annotations-reconciliation.md` |
 | `Canvas/Promotion*` (the falsification module) | 78 | 67% | 52 / 0 | `29-promotion-falsification.md` |
-| `Publish/Republisher` (+`PublishOrchestrator`) | 11 | 91% | 10 / 0 | — |
+| `Publish/Republisher` (+`PublishOrchestrator`) | 12 | 83% | 10 / 0 | — |
 | `Stores/InboxStore` (+`InboxTranscriptionWorker`, the promote siblings) | 12 | 75% | 9 / 0 | — |
-| `OpLogStore` read paths + `Document.load`'s refusal (the spine's first slice) | 19 | 95% | 18 / 0 | — |
+| `OpLogStore` read paths + `Document.load`'s refusal (the spine's first slice) | 22 | 82% | 18 / 0 | — |
 
-The three MaughamCore rows are the 148 reconciled claims out of the ledger's 169; the app-layer rows are 321 further claims in their own files. **490 claims in the experiment, 457 reconciled.** The app layer stands at **193 complies / 0 violates** (MaughamCore's pure modules ran 31:1 — the inversion result).
+The three MaughamCore rows are the 148 reconciled claims out of the ledger's 169; the app-layer rows are 326 further claims in their own files. **495 claims in the experiment, 463 reconciled.** The app layer stands at **193 complies / 0 violates** (MaughamCore's pure modules ran 31:1 — the inversion result).
 
 App-layer claims are pinned by the PERMANENT suites in `MaughamTests/Claims/` — every full suite run and CI `mac-tests` re-verifies them; MaughamCore claims run as `register/ExperimentTests` (CI job `behavioural-claims`). Exception: the OpLog row's pins live where their subjects do — `MaughamTests/OpLog/` and the MaughamCore package tests (`core-tests`/`behavioural-claims`) — not under `Claims/`.
 

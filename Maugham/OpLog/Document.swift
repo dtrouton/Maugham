@@ -243,6 +243,53 @@ public final class Document {
     /// the deriver did before P3a.
     internal var annotationAmendments: AnnotationAmendments = .honourEverything
 
+    /// **What the seal over each note's creation line says** (shell p5
+    /// Task 1), as the last load or re-read read it (`LineSigners`). Assigned
+    /// whole by each read through `adoptSealReadings(_:)`, never edited.
+    ///
+    /// Not observed: a change bumps `annotationsVersion`, which is what a
+    /// surface keys its redraw on.
+    @ObservationIgnored internal private(set) var noteSealReadings: [String: SealReading] = [:]
+
+    /// The notes THIS Document appended, under what their seal WILL say —
+    /// first-hand, so a new note's owner is known before that seal lands: the
+    /// actor whose stream (and key) it went to, or `.uncovered` where that
+    /// key cannot sign and no seal will ever come. Consulted only while the
+    /// read has no covering seal to report; dropped once one does.
+    @ObservationIgnored internal var noteSealReadingsAppendedHere: [String: SealReading] = [:]
+
+    /// **Whose note this is** — the one answer the margin asks
+    /// (`NoteOwner.of`, the one reader of a note's stamp, and only where no
+    /// seal covers its line). A seal always wins; `.unknown` is never mine.
+    func noteOwner(_ annotation: Annotation) -> NoteOwner {
+        NoteOwner.of(sealReading(annotation.id), stampedBy: annotation.author)
+    }
+
+    /// The seal reading for one note: the read's, unless it has no covering
+    /// seal yet and this Document appended the note itself.
+    internal func sealReading(_ annotationId: String) -> SealReading? {
+        let read = noteSealReadings[annotationId]
+        guard read == nil || read == .uncovered else { return read }
+        return noteSealReadingsAppendedHere[annotationId] ?? read
+    }
+
+    /// **Take a load's or re-read's readings** (fix round 1, I-2 and M-6).
+    /// A first-hand entry the read now covers with a seal is dropped — the
+    /// seal is the answer from here on, even where it disagrees. Answers
+    /// whether any note's reading changed, so a re-read that applied no new
+    /// op (a seal-only arrival, a retirement) still invalidates the marks.
+    @discardableResult
+    internal func adoptSealReadings(_ readings: [String: SealReading]) -> Bool {
+        let ids = Set(noteSealReadings.keys).union(readings.keys)
+            .union(noteSealReadingsAppendedHere.keys)
+        let before = ids.map { sealReading($0) }
+        noteSealReadings = readings
+        for (id, reading) in readings where reading != .uncovered {
+            noteSealReadingsAppendedHere[id] = nil
+        }
+        return ids.map { sealReading($0) } != before
+    }
+
     /// **Whether this Document's pending file is this Document's to spend**
     /// (P3a Task 8).
     ///
@@ -512,7 +559,7 @@ public final class Document {
             guard count > 1 else { return singular }
             return switch self {
             case .annotationEdit:
-                "Couldn't undo \(count) annotation edits — they changed on another device."
+                "Couldn't undo \(count) note edits — they changed on another device."
             case .acceptNote:
                 "Couldn't undo accepting \(count) notes — they changed on another device."
             case .stet:
@@ -528,20 +575,20 @@ public final class Document {
             case .putBack:
                 "Couldn't put back \(count) notes' earlier resolutions — they're open again."
             case .notPermitted:
-                "Couldn't change \(count) notes — this Mac can no longer answer notes in this piece."
+                "Couldn't change \(count) notes — this Mac can no longer answer notes here."
             case .taskNotPermitted:
-                "Couldn't change \(count) tasks — this Mac can no longer file tasks in this piece."
+                "Couldn't change \(count) to-dos — this Mac can no longer file to-dos here."
             case .restoreNotPermitted:
-                "Couldn't undo \(count) restores — this Mac can no longer change this piece's text."
+                "Couldn't undo \(count) restores — this Mac can no longer change this text."
             case .suggestionNotPermitted:
-                "Couldn't undo \(count) suggestions — this Mac can't change this piece's text right now."
+                "Couldn't undo \(count) suggestions — this Mac can't change this text right now."
             }
         }
 
         private var singular: String {
             switch self {
             case .annotationEdit:
-                "Couldn't undo the annotation edit — it changed on another device."
+                "Couldn't undo the note edit — it changed on another device."
             case .acceptNote:
                 "Couldn't undo accepting the note — it changed on another device."
             case .stet:
@@ -557,13 +604,13 @@ public final class Document {
             case .putBack:
                 "Couldn't put back the note's earlier resolution — it's open again."
             case .notPermitted:
-                "Couldn't change that note — this Mac can no longer answer notes in this piece."
+                "Couldn't change that note — this Mac can no longer answer notes here."
             case .taskNotPermitted:
-                "Couldn't change that task — this Mac can no longer file tasks in this piece."
+                "Couldn't change that to-do — this Mac can no longer file to-dos here."
             case .restoreNotPermitted:
-                "Couldn't undo the restore — this Mac can no longer change this piece's text."
+                "Couldn't undo the restore — this Mac can no longer change this text."
             case .suggestionNotPermitted:
-                "Couldn't undo the suggestion — this Mac can't change this piece's text right now."
+                "Couldn't undo the suggestion — this Mac can't change this text right now."
             }
         }
     }
@@ -1194,6 +1241,23 @@ public final class Document {
         return nil
     }
 
+    /// **Every paragraph's display range, in one pass** (shell p5 Task 2,
+    /// fix round 1): `displayRange(forParagraphId:)` for the whole sequence
+    /// at the cost of one call, so View ▸ Margin places all its marks
+    /// without a walk per mark.
+    public func displayRanges() -> [String: NSRange] {
+        var ranges: [String: NSRange] = [:]
+        ranges.reserveCapacity(sequence.count)
+        var offset = 0
+        for id in sequence {
+            guard let text = paragraphs[id] else { continue }
+            let length = (RenderFilter.stripTaskAnchorsInline(text) as NSString).length
+            if ranges[id] == nil { ranges[id] = NSRange(location: offset, length: length) }
+            offset += length + 2
+        }
+        return ranges
+    }
+
     public func materialize() -> String {
         return Materializer.materialize(
             paragraphs: paragraphs, sequence: sequence)
@@ -1405,7 +1469,7 @@ public final class Document {
 
         // Intentionally NO per-keystroke annotation work here. Earlier
         // attempts to invalidate the annotation cache and schedule a sweep
-        // on every keystroke created an observable-write storm: AnnotationsPane
+        // on every keystroke created an observable-write storm: Annotations pane
         // observes `annotations(filter:)`, whose evaluation transitively
         // observes `paragraphs` on the @Observable Document. Bumping
         // `annotationsVersion` on every keystroke triggered cascading
@@ -1678,8 +1742,13 @@ public final class Document {
             // promise one keystroke later, and the load has already told the
             // writer they are safe. So the buffer is forgotten and the file is
             // left: `clearInMemoryOnly` is the same reset minus the unlink.
+            //
+            // Compare-and-clear (#146): `close()` reaches this after the
+            // append's suspension, and a same-path Document reopened meanwhile
+            // may have written its own file there. A live Document's file is
+            // its own last write, so the compare removes it as before.
             if mayWriteThePendingFile {
-                try await pending.clear()
+                try await pending.clearIfUnchanged()
             } else {
                 pending.clearInMemoryOnly()
             }
@@ -1887,7 +1956,7 @@ public final class Document {
             if rePersisted { try? await pending.flushToDisk() }
             closeBurstFlushFailures += 1
             documentLog.error(
-                "close() burst flush failed for doc \(self.docId, privacy: .public); \(rePersisted ? "pending buffer re-flushed to disk for crash recovery" : "pending buffer NOT re-flushed: this device may not write this piece, and the file holds an earlier session's keystrokes", privacy: .public): \(error.localizedDescription, privacy: .public)")
+                "close() burst flush failed for doc \(self.docId, privacy: .public); \(rePersisted ? "pending buffer re-flushed to disk for crash recovery" : "pending buffer NOT re-flushed: this device may not write this document, and the file holds an earlier session's keystrokes", privacy: .public): \(error.localizedDescription, privacy: .public)")
         }
         // Flush any pending autosave so the .md reflects the final state, then
         // wait for every run already queued (a scheduler-fired one has no
@@ -1979,8 +2048,10 @@ public final class Document {
         // AFTER `isClosed` (#143 Q2): an autosave queued during the seals
         // re-creates the mirror, so only a clear no run can follow removes it:
         // from here on `performAutosave` and `runAutosave` stop at `isClosed`.
+        // Compare-and-clear (#146): a same-path Document reopened while this
+        // close was in flight may have written its own file; it stays.
         if burstFlushSucceeded && mayWriteThePendingFile {
-            try? await pending.clear()
+            try? await pending.clearIfUnchanged()
         }
         huskInMemoryState()
     }
@@ -2031,7 +2102,7 @@ public final class Document {
     internal func rejectTextWriteIfNotPermitted(_ site: StaticString) -> Bool {
         guard !mayWriteItsText else { return false }
         documentLog.error(
-            "\(site, privacy: .public) refused on \(self.docId, privacy: .public): this device may not write this piece's text; no-op")
+            "\(site, privacy: .public) refused on \(self.docId, privacy: .public): this device may not write this document's text; no-op")
         return true
     }
 

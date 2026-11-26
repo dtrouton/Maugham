@@ -733,6 +733,11 @@ extension ProjectStore {
     /// `FigureLineRetargetRefused` with the text as it was.
     func retargetFigureLine(piece: String, lineIndex: Int, oldPath: String, newPath: String,
                             label: ManuscriptLabel?) async throws {
+        // An edit to that piece's own text, not a sweep: refused while the
+        // piece is in read-through, naming it (ADR 0039 §4).
+        if let refusal = readThroughGate().refusal(.piece(piece)) {
+            throw ProjectStoreError.inReadThrough(title: refusal.title)
+        }
         let held = try await holdManuscriptsForFigureText(
             .retargetLine(piece: piece, lineIndex: lineIndex, oldPath: oldPath, newPath: newPath, label: label))
         do { _ = try held.write() } catch {

@@ -2,7 +2,7 @@ import Foundation
 import MaughamCore
 import PDFKit
 
-/// **What the Publish persona's centre column has to show** — an answer with a
+/// **What the centre has to show while an edition is open** — an answer with a
 /// REASON attached, never a bare optional.
 ///
 /// The two non-`ready` cases degrade to the same surface (the project at
@@ -123,6 +123,16 @@ enum PublishPreviewResolver {
             // sentence for every error that can arrive.
             return .unreadableCatalog(reason: error.localizedDescription)
         }
+        // Every row's file is stat'ed and OPENED: off the main actor (shell
+        // p5a closing round B), so a slow folder never holds a frame.
+        let readable = await Task.detached(priority: .userInitiated) {
+            Self.drawable(rows, in: projectURL)
+        }.value
+        return readable.isEmpty ? .nothingCompiled : .ready(newestFirst: readable)
+    }
+
+    /// The rows whose file exists and opens as a PDF, newest first.
+    nonisolated static func drawable(_ rows: [Publication], in projectURL: URL) -> [Publication] {
         var readable: [Publication] = []
         for row in rows.reversed() where row.format == .pdf {
             guard let file = fileURL(of: row, in: projectURL),
@@ -130,7 +140,7 @@ enum PublishPreviewResolver {
             guard PDFDocument(url: file) != nil else { continue }
             readable.append(row)
         }
-        return readable.isEmpty ? .nothingCompiled : .ready(newestFirst: readable)
+        return readable
     }
 
     /// **Which of the readable books the centre actually draws** — the writer's
@@ -153,6 +163,39 @@ enum PublishPreviewResolver {
             ?? publications.first
     }
 
+    // MARK: - An edition's own books (shell p4 Task 5)
+
+    /// **The books one edition shows**: a translated edition those whose
+    /// language names its tag, a bilingual book (`"en+sr"`, how
+    /// `PublishOrchestrator` records a multi-body compile's `language` —
+    /// `LanguageSet.identity`) in each of its languages' editions, and the
+    /// Source edition the books with no language or the source tag among
+    /// theirs. Case-insensitive, as an edition's tag is everywhere. With none
+    /// left the edition has never been compiled — `.nothingCompiled`, the
+    /// notice that is now true per edition; an unreadable catalog stays one.
+    nonisolated static func edition(_ resolution: PublishPreviewResolution,
+                                    language: String,
+                                    sourceLanguage: String) -> PublishPreviewResolution {
+        guard case .ready(let rows) = resolution else { return resolution }
+        let own = rows.filter {
+            bodyTag(of: $0, edition: language, sourceLanguage: sourceLanguage) != nil
+        }
+        return own.isEmpty ? .nothingCompiled : .ready(newestFirst: own)
+    }
+
+    /// **The tag this edition's body carries inside `publication`**, as the
+    /// compile spelled it — the `<tag>` of its `p-<tag>-<¶id>` anchors — or
+    /// nil when the book holds no body of this edition. A source book with no
+    /// language carries the source tag.
+    nonisolated static func bodyTag(of publication: Publication, edition language: String,
+                                    sourceLanguage: String) -> String? {
+        let isSource = language.caseInsensitiveCompare(sourceLanguage) == .orderedSame
+        guard let identity = publication.language else { return isSource ? sourceLanguage : nil }
+        return identity.split(separator: "+").map(String.init).first {
+            $0.caseInsensitiveCompare(language) == .orderedSame
+        }
+    }
+
     /// `Publication.outputPath` is documented relative to the project root, and
     /// the absolute-prefix branch is `PublicationTools`' idiom rather than an
     /// invention here — the records a republish wrote before the field was
@@ -160,7 +203,7 @@ enum PublishPreviewResolver {
     ///
     /// A relative path that leaves the project answers nil (tripwire 58): the
     /// record is synced.
-    static func fileURL(of publication: Publication, in projectURL: URL) -> URL? {
+    nonisolated static func fileURL(of publication: Publication, in projectURL: URL) -> URL? {
         publication.outputPath.hasPrefix("/")
             ? URL(fileURLWithPath: publication.outputPath)
             : try? SafeRelativePath.resolve(publication.outputPath, under: projectURL)

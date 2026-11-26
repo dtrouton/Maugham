@@ -25,7 +25,7 @@ import MaughamCore
 /// deallocating a `Process` neither signals nor reaps the child. An
 /// un-shut-down session leaks a real, billing, API-calling process for as long
 /// as it survives its closed stdin. Every teardown path Tasks 6–7 wire —
-/// toggle-off, project close, app quit, window/persona teardown, and error
+/// toggle-off, project close, app quit, window teardown, and error
 /// paths — has to reach `shutdown()`; this type cannot defend itself.
 @MainActor
 final class ClaudeCLISession: CompilerRunner {

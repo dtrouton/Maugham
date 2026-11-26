@@ -90,6 +90,26 @@ final class SelectionToolbarView: NSView {
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) not used") }
 
+    // What it offers is `AnnotationOffer.kinds` — the right-click's answer
+    // too (shell p5 Task 7 fix round 1, I3); this view only draws it.
+
+    /// Shows exactly `kinds`, resized to them. No-op when unchanged.
+    func show(_ kinds: [Kind]) {
+        var changed = false
+        for case let button as NSButton in stack.arrangedSubviews {
+            let hidden = !kinds.contains(Kind.allCases[button.tag])
+            if button.isHidden != hidden { button.isHidden = hidden; changed = true }
+        }
+        guard changed else { return }
+        stack.layoutSubtreeIfNeeded()
+        setFrameSize(stack.fittingSize)
+    }
+
+    /// The kinds drawn now.
+    var shownKinds: [Kind] {
+        stack.arrangedSubviews.compactMap { ($0 as? NSButton).flatMap { $0.isHidden ? nil : Kind.allCases[$0.tag] } }
+    }
+
     /// Re-resolve the layer's dynamic colours against the current effective
     /// appearance. Layer CGColors carry no appearance binding, so they must be
     /// re-set here (on first display and on every light/dark switch).

@@ -16,12 +16,6 @@ final class StatementProbeModel {
     /// SCOPE CHANGE on one live pane — the case that must close the outgoing
     /// `Document` before the incoming one loads.
     var subject: BinderSubject?
-    /// Which right-hand pane the toggle is showing. Settable so a test can drive
-    /// `⌘⌥N`/`⌘⌥V` — the route that TEARS THE HOST DOWN rather than reconciling
-    /// it (`segmentContent` gives `.intent` and `.visualLanguage` separate `case`
-    /// arms), which is the other half of what `hostTheBinderBesideThePane`
-    /// exists to exercise.
-    var detailSegment: DetailSegment = .intent
     init() {}
 }
 
@@ -48,6 +42,12 @@ final class StatementMountFixture: RunLoopPumping {
     /// The window's subject, held outside the views — written by the real binder
     /// and read by the real right column. See `hostTheBinderBesideThePane`.
     let subjectProbe = BinderSubjectProbe()
+    /// The right column's position and subject. It opens on Brief — where a
+    /// subject's intent is — and a test moves it with `showVisualLanguage` /
+    /// `showBrief`: the route that TEARS THE INTENT HOST DOWN rather than
+    /// reconciling it (Brief and the pulled-up thing are separate arms of
+    /// `RightColumn`'s one `switch`).
+    let columnProbe = RightColumnFixture.Probe(position: .brief)
 
     private let temp: TempDirectory
     private var windows: [NSWindow] = []
@@ -89,12 +89,29 @@ final class StatementMountFixture: RunLoopPumping {
             temp: temp, defaultsSuite: suite)
     }
 
-    func tearDown() {
+    /// Take the windows down, CLOSE the `DocumentStore`, then remove the
+    /// folder — in that order. A store left open keeps its file presenter
+    /// registered over a folder that is being deleted, and its registry
+    /// callbacks then read `.maugham/people/…` as it vanishes (the
+    /// intermittent "The file “events” couldn’t be opened", shell p3 Task 9).
+    func closeAndTearDown() async {
+        takeTheWindowsDown()
+        await documentStore.close()
+        temp.cleanup()
+    }
+
+    // No synchronous form (shell p3 final wave; Task 9's re-review B): one
+    // closed the store on an unordered `Task` that could run after
+    // `TestTempSession` removed the root, writing into a deleted tree. Every
+    // caller awaits `closeAndTearDown()` — from an async `tearDown`, or
+    // `addTeardownBlock { await fixture.closeAndTearDown() }`, which XCTest
+    // runs before the test is reported finished.
+
+    private func takeTheWindowsDown() {
         for window in windows { window.contentView = NSView(frame: .zero) }
         pump(0.05)
         windows.removeAll()
         UserDefaults.standard.removePersistentDomain(forName: defaultsSuite)
-        temp.cleanup()
     }
 
     // MARK: - Hosting
@@ -136,6 +153,44 @@ final class StatementMountFixture: RunLoopPumping {
             .compactMap { axAttribute($0, "accessibilityValue") as? String
                 ?? axAttribute($0, "accessibilityLabel") as? String }
             .filter { $0.contains(substring) }
+    }
+
+    /// Any view, in a window the column's width, with the fixture's
+    /// preferences — for a surface that may mount no editor at all (Brief's
+    /// reading face), so nothing here waits for one.
+    @discardableResult
+    func hostView(_ view: AnyView, width: CGFloat = 320) -> NSWindow {
+        let window = TestWindow.mount(AnyView(view.environment(preferences)),
+                                      size: CGSize(width: width, height: 900))
+        windows.append(window)
+        pump()
+        return window
+    }
+
+    /// Every accessibility value or label in the window, in tree order.
+    func allStaticTexts(in window: NSWindow) throws -> [String] {
+        try axTree(in: window)
+            .compactMap { axAttribute($0, "accessibilityValue") as? String
+                ?? axAttribute($0, "accessibilityLabel") as? String }
+    }
+
+    /// The screen frames of the accessibility elements identified `identifier`,
+    /// in tree order — a mounted measurement of where a control was laid out.
+    func axFrames(identifiedBy identifier: String, in window: NSWindow) throws -> [NSRect] {
+        try axTree(in: window).compactMap { element in
+            guard axAttribute(element, "accessibilityIdentifier") as? String == identifier,
+                  let frame = axAttribute(element, "accessibilityFrame") as? NSRect else { return nil }
+            return frame
+        }
+    }
+
+    /// The accessibility values of the elements identified `identifier`, in
+    /// tree order — what VoiceOver reads after the label.
+    func axValues(identifiedBy identifier: String, in window: NSWindow) throws -> [String] {
+        try axTree(in: window).compactMap { element in
+            guard axAttribute(element, "accessibilityIdentifier") as? String == identifier else { return nil }
+            return axAttribute(element, "accessibilityValue") as? String ?? ""
+        }
     }
 
     /// `staticTexts` as a predicate, for polling. Swallows the unavailable-tree
@@ -249,12 +304,11 @@ final class StatementMountFixture: RunLoopPumping {
     /// drives a press through the binding and back through this view's state"*.
     ///
     /// What is production here: `BinderView`'s `List(selection:)` and its row
-    /// tags, the `Binding` between the two columns, `DetailPaneToggle`'s picker
-    /// and its `segmentContent` routing, and `StatementPane`'s own resolution.
-    /// The only thing this view supplies is `ProjectWindow`'s boundary
-    /// conversion, and it CALLS that rather than re-spelling it
-    /// (`BinderSubject.itemID` / `BinderSubject.activeDocId(for:)`), so a change
-    /// to the rule reaches this test.
+    /// tags, the `Binding` between the two columns, `RightColumn`'s control
+    /// and its one `switch` over `RightColumnContent`, Brief's scope
+    /// (`BriefScope.of` the faces) and its Going for. The only thing this view
+    /// supplies is the window's subject for a tree selection — the row opened
+    /// and faced, nothing selected being the Book.
     ///
     /// Drive it with `selectBinderRow(_:in:)` and read the answer off
     /// `firstTextView(in:)` — the pane's resolved scope observed as the words it
@@ -262,11 +316,12 @@ final class StatementMountFixture: RunLoopPumping {
     @discardableResult
     func hostTheBinderBesideThePane(subject: BinderSubject?) async -> NSWindow {
         subjectProbe.subject = subject
+        columnProbe.selection = subject
         return await mount(
             AnyView(
                 BinderBesideThePaneProbeView(
                     store: store, documentStore: documentStore,
-                    subjectProbe: subjectProbe, paneProbe: probe)
+                    subjectProbe: subjectProbe, columnProbe: columnProbe)
                 .environment(preferences)))
     }
 
@@ -281,9 +336,22 @@ final class StatementMountFixture: RunLoopPumping {
         await settleWaiting(condition, otherwise: 0.4)
     }
 
-    /// Show another right-hand pane, as `⌘⌥N`/`⌘⌥V` does.
-    func showSegment(_ segment: DetailSegment, until condition: (() -> Bool)? = nil) async {
-        probe.detailSegment = segment
+    /// Pull Visual Language up, as `⌘⌥V` does (`ProjectWindow.pullUp`): the
+    /// column leaves Brief, so the intent's host is torn down.
+    func showVisualLanguage(until condition: (() -> Bool)? = nil) async {
+        pullUpVisualLanguage()
+        await settleWaiting(condition, otherwise: 0.4)
+    }
+
+    /// The same write with no wait, for a test that must act in the same turn.
+    func pullUpVisualLanguage() {
+        columnProbe.subject = ClickRule.pullUp(.visualLanguage, current: columnProbe.subject)
+        columnProbe.position = .pulledUp
+    }
+
+    /// Back to Brief, as `⌘⌥N` does.
+    func showBrief(until condition: (() -> Bool)? = nil) async {
+        columnProbe.position = .brief
         await settleWaiting(condition, otherwise: 0.4)
     }
 
@@ -312,6 +380,19 @@ final class StatementMountFixture: RunLoopPumping {
         // surfaces rather than racing the mount.
         await pumpUntil(deadline: 5) { self.allTextViews(in: window).count >= 2 }
         return window
+    }
+
+    /// **The manuscript editor**, on `control` — the centre's `EditorHost`
+    /// with the arguments `TwoEditorProbeView` passes (each one production's),
+    /// under the window's own top lines as `ProjectWindow.contentColumn`
+    /// stands them (`CentreTopLinesFixture`), so a test reads what stands
+    /// over the text. The lines are held by `lines`, so a test can add them.
+    func hostTheManuscriptEditor(control: EditorControl,
+                                 lines: CentreLinesProbe? = nil) async -> NSWindow {
+        await mount(AnyView(ManuscriptEditorProbeView(
+            store: store, documentStore: documentStore, itemId: documentItemId,
+            control: control, lines: lines ?? CentreLinesProbe())
+            .environment(preferences)))
     }
 
     /// `key: true` mounts in a `KeyTestWindow`, which reports itself key.
@@ -459,57 +540,68 @@ private struct TwoEditorProbeView: View {
     }
 }
 
+/// The window's lines over the centre, held outside the views so a test can
+/// stand them one at a time.
+@Observable
+@MainActor
+final class CentreLinesProbe {
+    var intentLine: String?
+    var standingLine: PostureStandingLine.Line?
+    var shareIsReadOnly = false
+    init() {}
+}
+
+/// The manuscript editor under the window's lines, on a control the test holds.
+@MainActor
+private struct ManuscriptEditorProbeView: View {
+    let store: ProjectStore
+    let documentStore: DocumentStore
+    let itemId: String
+    let control: EditorControl
+    let lines: CentreLinesProbe
+
+    @State private var referenceIndex = ReferenceIndexHost()
+
+    var body: some View {
+        CentreTopLinesFixture.lines(
+            over: EditorHost(
+                store: store, documentStore: documentStore,
+                selectedItemId: itemId, control: control, referenceIndex: referenceIndex),
+            intentLine: lines.intentLine, standingLine: lines.standingLine,
+            documentStore: documentStore, shareIsReadOnly: lines.shareIsReadOnly)
+    }
+}
+
 /// The two columns that share the window's subject, with the subject held
 /// outside both of them.
 ///
-/// **`ProjectWindow`'s boundary, called rather than copied.** The window
-/// converts its typed subject exactly twice on the way to the right column —
-/// `activeItemID` is `selectedSubject?.itemID` (`ProjectWindow.swift:1511`) and
-/// `activeDocId` is `BinderSubject.activeDocId(for:)` (`:1516-1518`) — and both
-/// of those are the type's own accessors. Re-spelling either here would be a
-/// second answer to the question the type exists to have one answer to, and a
-/// test built on a copy of a rule cannot fail when the rule changes.
-///
-/// `EmptyView` for the inspector arm: this probe is about the statement panes,
-/// and mounting the real inspector would drag the whole binder-segment routing
-/// in behind it.
+/// **The right column is `RightColumn` itself** (`RightColumnFixture`), on the
+/// position and the subject the probe holds. The binder writes its selection
+/// to `subjectProbe` (what the tests read) and through it to the column's
+/// subject — the row opened and faced, as a click in the tree does.
 @MainActor
 private struct BinderBesideThePaneProbeView: View {
     let store: ProjectStore
     let documentStore: DocumentStore
     let subjectProbe: BinderSubjectProbe
-    let paneProbe: StatementProbeModel
+    let columnProbe: RightColumnFixture.Probe
     let treeState = BinderTreeSectionsState()
 
     private var subject: Binding<BinderSubject?> {
-        Binding(get: { subjectProbe.subject }, set: { subjectProbe.subject = $0 })
-    }
-
-    private var segment: Binding<DetailSegment> {
-        Binding(get: { paneProbe.detailSegment }, set: { paneProbe.detailSegment = $0 })
+        Binding(get: { subjectProbe.subject },
+                set: {
+                    subjectProbe.subject = $0
+                    columnProbe.selection = $0
+                })
     }
 
     var body: some View {
         HStack(spacing: 0) {
-            BinderView(store: store, selectedSubject: subject,
+            TreeHostFixture.binder(store: store, subject: .tree(subject),
                        treeState: treeState)
                 .frame(width: 260)
-            DetailPaneToggle(
-                store: store,
-                segment: segment,
-                selectedSubject: subject,
-                activeManuscriptItemId: subjectProbe.subject?.itemID,
-                // Plan registers BOTH statement panes, so neither `.intent` nor
-                // `.visualLanguage` is an out-of-persona selection here and
-                // `snapSegmentIntoPicker` has nothing to move. (Author registers
-                // `.intent` only — `.visualLanguage` is `—` for Author.)
-                persona: .plan,
-                projectURL: store.url,
-                activeDocId: BinderSubject.activeDocId(for: subjectProbe.subject),
-                documentStore: documentStore
-            ) {
-                EmptyView()
-            }
+            RightColumnFixture.pane(store: store, documentStore: documentStore,
+                                    probe: columnProbe, width: 440)
         }
     }
 }

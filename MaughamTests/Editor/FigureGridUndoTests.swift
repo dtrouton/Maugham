@@ -155,6 +155,106 @@ final class FigureGridUndoTests: FigureGridMountedTestCase {
         return seen
     }
 
+    // MARK: - Read-through (shell read-through Task 2, review M2)
+
+    /// **A visit step on a window's stack cannot write a figure one of whose
+    /// pieces is in read-through** (branch review M3): a piece in another
+    /// window enters read-through after the visit; ⌘Z here is refused, said
+    /// with the piece, writes nothing and leaves the step; after Resume it
+    /// takes the visit back.
+    func test_aVisitStepCannotWriteAFigureWhosePieceIsInReadThrough() async throws {
+        let windows = FigureWindows()
+        let m = try await mount(rows: 6, windows: windows)
+        let undo = try XCTUnwrap(m.textView.undoManager)
+        let (_, c) = try await expanded(m)
+        let a1 = cell(c, 1, 1)
+        typeCell(m, c, a1, "3")
+        await c.settleWrites()
+        try asOneEvent(m) { c.perform(.done) }
+        await settled(m)
+        undo.groupsByEvent = true
+        let host = c.host
+        XCTAssertEqual(host.state.table[a1]?.content, number(3), "premise: the visit wrote the cell")
+        XCTAssertEqual(undo.undoActionName, FigureVisitUndo.actionName)
+
+        let other = ReadThroughGate(pieces: ["other"], structure: [], research: [], projectType: .novel, figures: [],
+                                    figureLines: [ReadThroughGateFixture.line(c.figureId, in: "other")])
+        windows.setReadThrough(other, from: UUID())
+        let said = await notices {
+            undo.undo()
+            await host.awaitPendingUndoWork()
+            await waitOut(0.3)
+        }
+        XCTAssertEqual(host.state.table[a1]?.content, number(3), "nothing written")
+        XCTAssertTrue(said.contains { $0.contains("\u{201C}other\u{201D} is in read-through") }, "\(said)")
+        XCTAssertTrue(undo.canUndo, "the step stays")
+
+        windows.setReadThrough(.writing, from: UUID())
+        windows.setReadThrough(.writing, from: UUID())
+        XCTAssertFalse(windows.isInReadThrough(c.figureId), "premise: resumed")
+        undo.undo()
+        await waitOut(0.3)
+        await host.awaitPendingUndoWork()
+        XCTAssertNotEqual(host.state.table[a1]?.content, number(3), "after Resume, ⌘Z takes the visit back")
+    }
+
+    /// **The visit steps the editor remembers are bounded by the stack**
+    /// (shell read-through Task 4, carry from Task 2's re-review): three
+    /// folded visits are three live steps; once the stack lets them go, the
+    /// next note forgets them — the list never grows for the editor's life.
+    func test_theRememberedVisitStepsAreBoundedByTheStack() async throws {
+        let m = try await mount(rows: 6)
+        let undo = try XCTUnwrap(m.textView.undoManager)
+        for value in ["3", "4", "5"] {
+            let (_, c) = try await expanded(m)
+            typeCell(m, c, cell(c, 1, 1), value)
+            await c.settleWrites()
+            try asOneEvent(m) { c.perform(.done) }
+            await settled(m)
+        }
+        XCTAssertEqual(m.coordinator.figureVisitSteps.count, 3, "premise: three live steps")
+        undo.removeAllActions()
+        let last = try XCTUnwrap(m.coordinator.lastFigureVisitStep)
+        await last.settled?.value
+        m.coordinator.noteFigureVisitStep(last)
+        XCTAssertEqual(m.coordinator.figureVisitStepRefs.count, 1,
+                       "the steps the stack let go are forgotten; only the one still held remains")
+    }
+
+    /// **Cells typed before read-through are not what ⌘Z reaches in it**: a
+    /// visit folded before the entry, and one still open with an edit typed
+    /// and not committed — the entry folds the open grid (its edit
+    /// committed), registers no step for it, and drops the earlier visit's
+    /// step, so Edit ▸ Undo is off and the cells stay as typed.
+    func test_readThroughLeavesNoGridVisitForCommandZ() async throws {
+        let m = try await mount(rows: 6)
+        let undo = try XCTUnwrap(m.textView.undoManager)
+        let docId = try XCTUnwrap(m.store.manifest.structure.first?.id)
+        m.coordinator.documentId = docId
+        var (_, c) = try await expanded(m)
+        typeCell(m, c, cell(c, 1, 1), "3")
+        await c.settleWrites()
+        try asOneEvent(m) { c.perform(.done) }   // its own event: the step's group is closed
+        await settled(m)
+        XCTAssertEqual(undo.undoActionName, FigureVisitUndo.actionName, "premise: a folded visit's step")
+
+        (_, c) = try await expanded(m)
+        typeCell(m, c, cell(c, 1, 2), "7")
+        c.handle(.click(cell(c, 1, 3), extend: false))
+        type(m, "9")                                    // open, not committed
+        await c.settleWrites()
+        ReadThrough.post(.init(docId: docId, on: true))
+        XCTAssertTrue(m.coordinator.isInReadThrough)
+        XCTAssertNil(m.coordinator.figureGrid, "the entry folds the open grid")
+        await settled(m)
+        let typed = c.host.state.table
+        XCTAssertEqual(typed[cell(c, 1, 3)]?.content, number(9), "its open edit was committed")
+        XCTAssertEqual(typed[cell(c, 1, 1)]?.content, number(3))
+        XCTAssertFalse(undo.canUndo, "no visit step, before or at the entry, is left for ⌘Z: \(undo.undoActionName)")
+        XCTAssertTrue(m.coordinator.figureVisitSteps.isEmpty)
+        XCTAssertEqual(c.host.state.table, typed)
+    }
+
     // MARK: - Review Focus 2
 
     /// **Expand, type in five cells, sort, fold, type a sentence, ⌘Z, ⌘Z**:
@@ -502,16 +602,18 @@ final class FigureGridUndoTests: FigureGridMountedTestCase {
 
     /// **A read-only grid refuses ⌘Z and ⇧⌘Z with the reason line** (R7d-11):
     /// enabled, so the press is answered rather than beeped; nothing undone.
+    /// (Read-through is the one read-only reason that keeps the grid's undo:
+    /// an Accept there is a decision, `ReadThroughDecisionTests`.)
     func test_aReadOnlyGridRefusesUndoAndRedoWithTheReason() async throws {
         let m = try await mount()
         let (_, c) = try await expanded(m)
         typeCell(m, c, cell(c, 1, 1), "3")
         await c.settleWrites()
-        c.setAccess(.readOnly(.reviewMode), captionMayEdit: false)
+        c.setAccess(.readOnly(.viewOnlyShare), captionMayEdit: false)
 
         try press(m)
         await c.settleWrites()
-        XCTAssertEqual(c.bars.reasonMessage, FigureGridGate.Reason.reviewMode.sentence)
+        XCTAssertEqual(c.bars.reasonMessage, FigureGridGate.Reason.viewOnlyShare.sentence)
         XCTAssertEqual(c.host.state.table[cell(c, 1, 1)]?.content, number(3), "nothing undone")
         XCTAssertTrue(c.gridUndo.canUndo, "the step is still there")
 
@@ -519,11 +621,11 @@ final class FigureGridUndoTests: FigureGridMountedTestCase {
         c.undoInGrid()
         await c.settleWrites()
         XCTAssertNil(c.host.state.table[cell(c, 1, 1)], "premise: editable again, it undoes")
-        c.setAccess(.readOnly(.reviewMode), captionMayEdit: false)
+        c.setAccess(.readOnly(.viewOnlyShare), captionMayEdit: false)
         c.bars.showReason(nil)
         try press(m, redo: true)
         await c.settleWrites()
-        XCTAssertEqual(c.bars.reasonMessage, FigureGridGate.Reason.reviewMode.sentence)
+        XCTAssertEqual(c.bars.reasonMessage, FigureGridGate.Reason.viewOnlyShare.sentence)
         XCTAssertNil(c.host.state.table[cell(c, 1, 1)], "nothing redone")
     }
 
@@ -583,7 +685,7 @@ final class FigureGridUndoTests: FigureGridMountedTestCase {
         var step: FigureVisitUndo?
         let said = await notices {
             um.beginUndoGrouping()
-            step = FigureVisitUndo.register(on: um, host: c.host, visit: Task { visit })
+            step = FigureVisitUndo.register(on: um, host: c.host, visit: Task { visit }, readThrough: { nil })
             um.endUndoGrouping()
             XCTAssertEqual(um.undoActionName, FigureVisitUndo.actionName, "registered at once")
             await step?.settled?.value

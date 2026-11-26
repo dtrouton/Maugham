@@ -544,7 +544,7 @@ extension DocumentStore {
     /// read is left out. Costly (trust, an assembly, each pinned figure's
     /// sources): never per keystroke.
     ///
-    /// `language` is the window's translation review (report plan 9e-1 Task
+    /// `language` is the language the window reads in (report plan 9e-1 Task
     /// 7): its fresh cell labels (`FigureUse.freshLabels`, what a body in
     /// that language prints) are read off the main actor and carried, so the
     /// cards show them. Nil — the source — reads no translation file.
@@ -883,7 +883,7 @@ struct FigureCardInputs {
     /// strip's presence; a figure with none or whose stream will not read is
     /// absent.
     var openCellNotes: [String: FigureCellNotes] = [:]
-    /// The window's translation review language (report plan 9e-1 Task 7),
+    /// The window's reading language (report plan 9e-1 Task 7),
     /// nil for the source.
     var language: String? = nil
     /// By figure id, each text cell's fresh translation in `language`; empty

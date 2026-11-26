@@ -52,12 +52,6 @@ final class FigureWindows {
         var caption: String
         var piece: String?
         var typography: TypographySettings
-        /// The opening editor's explicit review mode (⌘⌥⇧R): the window's
-        /// grid is read-only while it is on (final review I2), following
-        /// that editor's toggle (`reviewModeChanged`).
-        var isReviewMode = false
-        /// The editor that handed it over, so its review toggle reaches the window.
-        var from: ObjectIdentifier? = nil
     }
 
     /// **Where a figure's grid is open, seen from another grid's card.**
@@ -360,14 +354,53 @@ final class FigureWindows {
         yieldInPlace(figureId)
     }
 
-    /// **An editor's review toggle flipped**: each window it opened follows
-    /// it — read-only while it is on (final review I2).
-    func reviewModeChanged(_ isReviewMode: Bool, from editor: ObjectIdentifier) {
-        for (figureId, var handoff) in handoffs where handoff.from == editor && handoff.isReviewMode != isReviewMode {
-            handoff.isReviewMode = isReviewMode
-            handoffs[figureId] = handoff
-            for (listener, listening) in listeners where listener.figureId == figureId { listening.access() }
-        }
+    /// **The session's one read-through gate**: the newest gate a project
+    /// window handed over (`ReadThroughModifier.gate`), with every open
+    /// window's figure owners added (`ReadThroughGate.addingOwners`) — so a
+    /// window just opened, whose figure listing has not built, cannot
+    /// unrefuse a figure owned through a line. A figure window's gate, and an
+    /// editor's grid in place, ask it. Observed, so an editor's expanded grid
+    /// asks its gate again when it moves (`EditorCoordinator.observeFigureWindows`).
+    private(set) var readThrough: ReadThroughGate = .writing
+    /// Each project window's last gate, and which was handed last.
+    @ObservationIgnored private var handed: [UUID: ReadThroughGate] = [:]
+    @ObservationIgnored private var newest: UUID?
+
+    init() {}
+
+    /// **Whether a figure refuses edits because one of its pieces is in
+    /// read-through** — the gate's one rule (`ReadThroughGate.refusesEdits`).
+    func isInReadThrough(_ figureId: String) -> Bool {
+        readThrough.refusesEdits(.figure(figureId))
+    }
+
+    /// The piece a figure is refused for, named (`ReadThroughGate.refusal`).
+    func readThroughRefusal(_ figureId: String) -> ReadThroughRefusal? {
+        readThrough.refusal(.figure(figureId))
+    }
+
+    /// **A project window built a new gate** (a Start, a Resume, a figure line
+    /// moved): the session's gate is recombined, and every figure window asks
+    /// its gate again when it moved.
+    func setReadThrough(_ gate: ReadThroughGate, from window: UUID) {
+        handed[window] = gate
+        newest = window
+        recombine()
+    }
+
+    /// A project window went: its gate no longer counts.
+    func dropReadThrough(from window: UUID) {
+        guard handed.removeValue(forKey: window) != nil else { return }
+        if newest == window { newest = handed.keys.first }
+        recombine()
+    }
+
+    private func recombine() {
+        let base = newest.flatMap { handed[$0] } ?? .writing
+        let next = base.addingOwners(of: handed.filter { $0.key != newest }.map(\.value))
+        guard next != readThrough else { return }
+        readThrough = next
+        for listening in listeners.values { listening.access() }
     }
 
     /// What the last grid to open `figureId` in a window left, if any (its
@@ -497,9 +530,9 @@ private final class ResumeOnce {
 ///   again (a park); the gate is asked of the window's door (`.editFigure`,
 ///   observed by the controller), the host (parked, closed) and the share
 ///   as the project windows last told it (`FigureWindows.shareIsReadOnly`).
-///   Review mode is the opening editor's (`Handoff.isReviewMode`): ⤢ from a
-///   review-mode grid opens it read-only, and it follows that editor's
-///   toggle (final review I2).
+///   Read-through is the figure's pieces' (`FigureWindows.readThroughRefusal`):
+///   the grid is read-only while that piece is in read-through, its notes
+///   still answered, and follows each Start and Resume (`setReadThrough`).
 /// - **Done closes the window**, and ⌘W; Esc with nothing to cancel does
 ///   nothing. Send to Research closes it first (R7d-7).
 /// - **Closing ends the visit** (`finish`, from the window's `willClose`):
@@ -510,19 +543,21 @@ private final class ResumeOnce {
 ///
 /// **One type, two frames** (report plan 8a Task 6): the figure window, and
 /// the centre column (`FigureCentreGrid`), which hands it its own `Frame` —
-/// the line from the window's figure listing, its own review and share
+/// the line from the window's figure listing, its own read-through and share
 /// answers, no Done, and the keys left where they are at mount.
 @MainActor
 final class FigureWindowGrid {
     /// **What the frame the grid mounts in supplies**: the bottom bar's line
     /// at open, the piece Send to Research defaults to, the typography, and
-    /// the review and share answers the gate reads each time it is asked.
+    /// the read-through and share answers the gate reads each time it is asked.
     struct Frame {
         var number: String
         var caption: String
         var piece: String?
         var typography: TypographySettings
-        var isReviewMode: @MainActor () -> Bool
+        /// The piece the figure is refused for, if one of its pieces is in
+        /// read-through (`ReadThroughGate.refusal`).
+        var readThrough: @MainActor () -> ReadThroughRefusal?
         var shareIsReadOnly: @MainActor () -> Bool
         /// The grid takes the keys when it mounts (a window); the centre
         /// leaves them where the writer has them (the tree).
@@ -538,13 +573,13 @@ final class FigureWindowGrid {
         var armsTheMenuOnlyWithTheKeys = false
 
         /// A figure window's: what the opening grid handed over, the share
-        /// as the project windows last told it, review mode the opening editor's.
+        /// as the project windows last told it, read-through the figure's piece's.
         @MainActor static func window(_ figureId: String, windows: FigureWindows) -> Frame {
             let handoff = windows.handoff(for: figureId)
             return Frame(
                 number: handoff?.number ?? ElementWords.english.table, caption: handoff?.caption ?? "",
                 piece: handoff?.piece, typography: handoff?.typography ?? .defaults,
-                isReviewMode: { [weak windows] in windows?.handoff(for: figureId)?.isReviewMode ?? false },
+                readThrough: { [weak windows] in windows?.readThroughRefusal(figureId) },
                 shareIsReadOnly: { [weak windows] in windows?.shareIsReadOnly ?? false })
         }
     }
@@ -771,18 +806,18 @@ final class FigureWindowGrid {
     }
 
     /// **The gate, asked again** over the window's door, the host, and the
-    /// frame's share and review answers (a window's: the share as the project
-    /// windows last told it, the opening editor's review mode). The caption
-    /// stays locked (R7d-6).
+    /// frame's share and read-through answers (a window's: the share as the
+    /// project windows last told it, the figure's piece's read-through). The
+    /// caption stays locked (R7d-6).
     func refreshAccess() {
         guard let controller, !isFinished else { return }
         let mode = FigureGridGate.mode(
             figureMayEdit: store?.posture(forDocId: controller.figureId).allows(.editFigure) ?? false,
             parked: controller.host.state.parked != nil, hostClosed: controller.host.isClosed,
             shareIsReadOnly: frame?.shareIsReadOnly() ?? false,
-            isReviewMode: frame?.isReviewMode() ?? false,
-            isTranslationReview: false)
-        // `.noExpand` is translation review's alone, which no frame here is.
+            isInReadThrough: frame?.readThrough() != nil, naming: frame?.readThrough() ?? nil,
+            isReadingTranslation: false)
+        // `.noExpand` is a translation's alone, which no frame here is.
         guard mode != .noExpand, mode != controller.mode || controller.captionMayEdit else { return }
         controller.setAccess(mode, captionMayEdit: false)
     }

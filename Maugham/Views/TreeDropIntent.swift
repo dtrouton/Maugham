@@ -1,10 +1,11 @@
 import Foundation
+import SwiftUI
 import MaughamCore
 
 /// **What a drag onto the binder tree means** (shell-finish stage-2a Task 7,
 /// spec §3).
 ///
-/// The milestone gives every persona ONE left column, so the tree holds
+/// The milestone gives the window ONE left column, so the tree holds
 /// manuscript rows, a shared Research section and — since Task 6 — a research
 /// fold under each piece, all in one `List`. That makes the drag the writer's
 /// verb for scope: a note dropped on a chapter belongs to that chapter, a note
@@ -93,11 +94,12 @@ enum TreeDropIntent {
         /// needs a `linkedResearchIds` reorder the store does not have; that
         /// API is stage 2b's, and until it exists a bounce is what is honest.
         case linkedFoldHasNoOrder
-        /// A novel note linked to more than one chapter, dragged to the shared
-        /// section. The payload is a bare id and says nothing about which fold
-        /// it came from, so unlinking one (or all) would delete a link the
-        /// writer never pointed at.
-        case ambiguousSource
+        /// The row is research a chapter in read-through holds: it is not
+        /// moved out, reordered or unlinked (closing round A, branch I2).
+        case readThrough
+        /// A link the posture does not let this Mac change: the chapter's
+        /// research links are its structure (`TreeStructureVerbs.linkResearch`).
+        case linksNotPermitted
         /// Dropped on Figures, but nothing a figure can be made from: a note,
         /// a link, a group, a manuscript row — or a book that holds none.
         case notAFigureKind
@@ -112,12 +114,13 @@ enum TreeDropIntent {
             case .unknownId: return "the payload is in neither tree"
             case .structureOntoResearch: return "a manuscript row is not research"
             case .sameRow: return "dropped on itself"
-            case .sharedOnly: return "this project keeps all research shared"
+            case .sharedOnly: return "this project keeps all research whole-book"
             case .notAResearchTarget: return "not a research scope target"
             case .alreadyThere: return "already there — the drop changes nothing"
-            case .ambiguousSource: return "linked to more than one document"
+            case .readThrough: return "the text that holds it is in read-through"
+            case .linksNotPermitted: return "this Mac may not change that piece's research links"
             case .linkedFoldHasNoOrder:
-                return "a linked chapter's research has no order of its own to set"
+                return "research linked into a fold has no order of its own to set"
             case .notAFigureKind: return "only a table, picture or PDF from Research becomes a figure"
             case .alreadyInFigures: return "already in Figures"
             case .figuresHaveNoOrder: return "figures are numbered by the text, not by a drag"
@@ -133,7 +136,14 @@ enum TreeDropIntent {
         /// alert rather than here.
         case rescope(ids: [String], to: ResearchMoveTarget)
         case link(researchId: String, toDocumentId: String)
-        case unlink(researchId: String, fromDocumentId: String)
+        /// A note dragged out of one chapter's fold onto another chapter: the
+        /// first link goes, the second comes — a move, as the drag reads
+        /// (shell p5 Task 4a).
+        case moveLink(researchId: String, fromDocumentId: String, toDocumentId: String)
+        /// A row a chapter holds through its group, dropped on another
+        /// chapter: out of the group to the Research root, then linked
+        /// (closing round A) — the second chapter's, no longer the first's.
+        case leaveGroup(researchId: String, toDocumentId: String)
         /// Same scope: the ordinary research reorder every research surface has
         /// always had. The performer computes the insertion index; this case
         /// carries none, because the index needs the drop's vertical position
@@ -155,13 +165,38 @@ enum TreeDropIntent {
 
     /// `figures` is the registry (`manifest.figures`): a payload found there
     /// is a figure row's drag (report plan 8b Task 5).
+    ///
+    /// `sourcePiece`: the piece whose fold the drag started in (the window
+    /// records it as the drag begins, `BinderTreeSectionsState.researchDragSource`),
+    /// nil for a Research-section row or a drag from anywhere else. It is what
+    /// lets a note linked to two chapters leave the one it was dragged from.
     static func classify(
         payloadId: String,
         target: Target,
+        sourcePiece: String?,
         structure: [StructureItem],
         research: [ResearchItem],
         figures: [FigureRecord],
         projectType: ProjectType
+    ) -> Intent {
+        classify(payloadId: payloadId, target: target, sourcePiece: sourcePiece,
+                 structure: structure, research: research, figures: figures,
+                 projectType: projectType,
+                 homes: ResearchHomes.derive(structure: structure, research: research,
+                                             projectType: projectType))
+    }
+
+    /// The same, over the window's own `homes` for these values — what the
+    /// tree's drops pass, so a batch or a hover derives nothing (M3).
+    static func classify(
+        payloadId: String,
+        target: Target,
+        sourcePiece: String?,
+        structure: [StructureItem],
+        research: [ResearchItem],
+        figures: [FigureRecord],
+        projectType: ProjectType,
+        homes: ResearchHomes
     ) -> Intent {
         if let dragged = TreeWalk.find(id: payloadId, in: research) {
             if isFigures(target) {
@@ -170,9 +205,22 @@ enum TreeDropIntent {
                 }
                 return .useInDocument(researchId: dragged.id)
             }
+            // **Where a note is, is whose it is** (closing round A): a row a
+            // chapter holds through the group it stands in goes where it is
+            // dropped and takes that place's home — into another chapter's
+            // group (a file move), onto a chapter (out of its group, then
+            // linked), onto the Research section (out, the book's). Its own
+            // links stay.
+            let throughGroup = homes.chaptersThroughGroup(of: dragged.id)
+            if !throughGroup.isEmpty,
+               let intent = leavingItsGroup(dragged.id, throughGroup: throughGroup, target: target,
+                                            sourcePiece: sourcePiece, homes: homes) {
+                return intent
+            }
             return classifyResearch(
-                dragged: dragged, target: target, structure: structure,
-                research: research, projectType: projectType)
+                dragged: dragged, target: target, sourcePiece: sourcePiece,
+                structure: structure, research: research, projectType: projectType,
+                homes: homes)
         }
         if figures.contains(where: { $0.id == payloadId }) {
             return classifyFigure(payloadId, target: target, structure: structure,
@@ -193,6 +241,35 @@ enum TreeDropIntent {
             }
         }
         return .refuse(.unknownId)
+    }
+
+    /// What a drop does with a row a chapter holds through its group, or nil
+    /// where the ordinary rules answer (a Collection piece's row, a link edit
+    /// from the fold of a chapter that links it directly).
+    private static func leavingItsGroup(_ id: String, throughGroup: [String], target: Target,
+                                        sourcePiece: String?, homes: ResearchHomes) -> Intent? {
+        switch target {
+        case .pieceRow(let documentId):
+            guard homes.takesLinks(documentId) else { return nil }
+            if homes.homes(of: id).contains(documentId) { return .refuse(.alreadyThere) }
+            return .leaveGroup(researchId: id, toDocumentId: documentId)
+        case .foldRow(let rowId, let documentId):
+            guard homes.takesLinks(documentId) else { return nil }
+            guard rowId != id else { return .refuse(.sameRow) }
+            // Beside a row inside a group this chapter holds: a file move
+            // there, the chapter's through that group.
+            if homes.chaptersThroughGroup(of: rowId).contains(documentId) { return .researchReorder }
+            if homes.homes(of: id).contains(documentId) { return .refuse(.linkedFoldHasNoOrder) }
+            return .leaveGroup(researchId: id, toDocumentId: documentId)
+        case .sharedSection:
+            guard sourcePiece.map(throughGroup.contains) ?? true else { return nil }
+            return .rescope(ids: [id], to: .sharedRoot)
+        case .researchRow:
+            guard sourcePiece.map(throughGroup.contains) ?? true else { return nil }
+            return .researchReorder
+        case .figuresSection, .figureRow:
+            return nil
+        }
     }
 
     private static func isFigures(_ target: Target) -> Bool {
@@ -284,15 +361,17 @@ enum TreeDropIntent {
     private static func classifyResearch(
         dragged: ResearchItem,
         target: Target,
+        sourcePiece: String?,
         structure: [StructureItem],
         research: [ResearchItem],
-        projectType: ProjectType
+        projectType: ProjectType,
+        homes: ResearchHomes
     ) -> Intent {
         switch target {
         case .pieceRow(let documentId):
-            return into(documentId: documentId, dragged: dragged,
+            return into(documentId: documentId, dragged: dragged, sourcePiece: sourcePiece,
                         structure: structure, research: research,
-                        projectType: projectType,
+                        projectType: projectType, homes: homes,
                         whenAlreadyLinked: .refuse(.alreadyThere),
                         whenAlreadyContained: .refuse(.alreadyThere))
 
@@ -307,9 +386,9 @@ enum TreeDropIntent {
             // ordinary reorder sets it. A LINKED fold (a novel chapter) draws
             // `linkedResearchIds`, whose order nothing here can change — see
             // `Reason.linkedFoldHasNoOrder`.
-            return into(documentId: documentId, dragged: dragged,
+            return into(documentId: documentId, dragged: dragged, sourcePiece: sourcePiece,
                         structure: structure, research: research,
-                        projectType: projectType,
+                        projectType: projectType, homes: homes,
                         whenAlreadyLinked: .refuse(.linkedFoldHasNoOrder),
                         whenAlreadyContained: .researchReorder)
 
@@ -317,6 +396,14 @@ enum TreeDropIntent {
             guard targetId != dragged.id else { return .refuse(.sameRow) }
             guard TreeWalk.find(id: targetId, in: research) != nil else {
                 return .refuse(.unknownId)
+            }
+            // **A drop on the Research section means whole-book, full stop**
+            // (closing round A2): a note a chapter links, dropped beside a
+            // section row, moves there and its own links go — the tree's
+            // move door unlinks it, asking first where a chapter the drag
+            // did not come from would lose it.
+            if homes.owner(of: dragged.id) == nil, !homes.links(of: dragged.id).isEmpty {
+                return .researchReorder
             }
             let from = owningPieceId(of: dragged.id, structure: structure,
                                      research: research)
@@ -347,8 +434,8 @@ enum TreeDropIntent {
                                           research: research))
 
         case .sharedSection:
-            return outOfScope(dragged: dragged, structure: structure,
-                              research: research, projectType: projectType)
+            return outOfScope(dragged: dragged, sourcePiece: sourcePiece, structure: structure,
+                              research: research, homes: homes)
 
         case .figuresSection, .figureRow:
             // `classify` answers Figures before it asks here.
@@ -372,9 +459,11 @@ enum TreeDropIntent {
     private static func into(
         documentId: String,
         dragged: ResearchItem,
+        sourcePiece: String?,
         structure: [StructureItem],
         research: [ResearchItem],
         projectType: ProjectType,
+        homes: ResearchHomes,
         whenAlreadyLinked: Intent,
         whenAlreadyContained: Intent
     ) -> Intent {
@@ -389,11 +478,18 @@ enum TreeDropIntent {
         case .sharedOnly:
             return .refuse(.sharedOnly)
         case .sharedPlusLink(let docId):
-            guard !(document.linkedResearchIds ?? []).contains(dragged.id) else {
+            // Already this chapter's — linked, or inside a group it links.
+            guard !homes.homes(of: dragged.id).contains(docId) else {
                 return whenAlreadyLinked
             }
             // The note does not move: a novel chapter's research is a LINK, so
-            // the item stays exactly where it lives in shared research.
+            // the item stays exactly where it lives in shared research. Dragged
+            // out of another chapter's fold, it leaves that chapter.
+            if let sourcePiece, sourcePiece != docId,
+               homes.links(of: dragged.id).contains(sourcePiece) {
+                return .moveLink(researchId: dragged.id, fromDocumentId: sourcePiece,
+                                 toDocumentId: docId)
+            }
             return .link(researchId: dragged.id, toDocumentId: docId)
         case .pieceFolder(let pieceId):
             guard owningPieceId(of: dragged.id, structure: structure,
@@ -408,32 +504,24 @@ enum TreeDropIntent {
     /// A research item dropped on the shared Research section — the reverse of
     /// `into`, and the one place a link is REMOVED by a drag.
     ///
-    /// **Links are answered first.** In a novel every research item lives in
-    /// shared research whether or not a chapter links it, so "is it linked" is
-    /// the only question the drop can be about; a linked note dragged out of a
-    /// fold is asking to leave that chapter, and answering "move it to the
-    /// shared root" instead would leave it sitting in the fold it was dragged
-    /// out of.
+    /// **A piece's own folder is answered first** (a Collection's research is
+    /// its file's place): the drop lifts the file out to shared research, and
+    /// a link any piece holds stays as it was (the dormant-link semantics).
+    /// **Then links** (shell p5 Task 4a): a note a piece links is that piece's,
+    /// drawn only in its fold, so the drop is asking to leave it
+    /// (`leaving`). Anything else is already the book's, and the drop lifts it
+    /// out of the group it is in — or, at the root, changes nothing.
     private static func outOfScope(
         dragged: ResearchItem,
+        sourcePiece: String?,
         structure: [StructureItem],
         research: [ResearchItem],
-        projectType: ProjectType
+        homes: ResearchHomes
     ) -> Intent {
-        // Only documents whose routing actually USES links count — a stray
-        // `linkedResearchIds` on a Collection piece (legacy data; the
-        // Collection's own scope is its folder) must not turn a scope move
-        // into an unlink.
-        let linking = TreeWalk.collect(in: structure) {
-            ($0.linkedResearchIds ?? []).contains(dragged.id)
-        }.filter {
-            if case .sharedPlusLink = try? ProjectStore.researchRouting(
-                for: $0, projectType: projectType) { return true }
-            return false
-        }
-        if linking.count > 1 { return .refuse(.ambiguousSource) }
-        if let only = linking.first {
-            return .unlink(researchId: dragged.id, fromDocumentId: only.id)
+        // A linked note: to the Research root, its links gone (the move
+        // door's, closing round A2) — whole-book and in the section.
+        if homes.owner(of: dragged.id) == nil, !homes.links(of: dragged.id).isEmpty {
+            return .rescope(ids: [dragged.id], to: .sharedRoot)
         }
         // Unlinked: the section IS the shared root, so the drop lifts the item
         // out of a piece's folder or out of whatever group it was in.
@@ -612,5 +700,303 @@ enum TreeDropIntent {
         case .piece(let pieceId): return .importFiles(.piece(pieceId))
         case .sharedRoot: return .importFiles(.sharedGroup(nil))
         }
+    }
+}
+
+// MARK: - What a target shows while a drag is over it (shell p4 Task 10)
+
+/// **Drop-target feedback on the tree** (spec "The tree": the target must say
+/// which drop is about to happen; ADR 0035). Decided from the SAME rules the
+/// drop performs (`TreeDropIntent.classify`, `classifyExternal`,
+/// `DropIntent.classify`, `ResearchSelectionSync.postRemovalInsertionIndex`,
+/// `TreeCanvasRowDrop.verdict`), at the drop's own position
+/// (`DropIntent.Position.of`), so a target that will refuse shows nothing
+/// and one that will accept says how:
+/// - `.into`: the row or section takes the drop into itself.
+/// - `.above` / `.below`: it lands between rows — the insertion line.
+/// - `.beside`: accepted, and where it lands cannot be drawn as a line (into
+///   the row's container, appended; or the position is not known while
+///   hovering). The neutral look.
+/// - `.none`: refused; nothing is drawn, and the drag springs back.
+enum TreeDropFeedback: Equatable {
+    case none, into, above, below, beside
+
+    var accepts: Bool { self != .none }
+
+    static func into(_ accepted: Bool) -> TreeDropFeedback { accepted ? .into : .none }
+
+    /// What an internal drag's classification shows on `target`, where its
+    /// landing does not depend on the drop's position (a reorder's does:
+    /// `BinderTreeVerbs.dropAnswers`). Pure.
+    static func of(_ intent: TreeDropIntent.Intent,
+                   on target: TreeDropIntent.Target) -> TreeDropFeedback {
+        switch intent {
+        case .refuse:
+            return .none
+        case .link, .moveLink, .leaveGroup, .useInDocument:
+            return .into
+        case .researchReorder, .structureReorder:
+            return .beside
+        case .rescope(_, let destination):
+            return names(destination, target) ? .into : .beside
+        case .sendFigureToResearch(_, _, let group):
+            switch target {
+            case .pieceRow, .foldRow, .sharedSection: return .into
+            case .researchRow(let rowId): return group == rowId ? .into : .beside
+            case .figuresSection, .figureRow: return .none
+            }
+        }
+    }
+
+    /// What a Finder file's classification shows on `target` — asked at
+    /// each position, since a group's middle takes it in and its edges
+    /// file it beside (`classifyExternal`). Pure.
+    static func of(_ intent: TreeDropIntent.ExternalIntent,
+                   on target: TreeDropIntent.Target) -> TreeDropFeedback {
+        switch intent {
+        case .refuse:
+            return .none
+        case .importFiles(.piece), .importFiles(.sharedAndLink):
+            return .into
+        case .importFiles(.sharedGroup(let group)):
+            switch target {
+            case .sharedSection: return group == nil ? .into : .beside
+            case .researchRow(let rowId), .foldRow(let rowId, _): return group == rowId ? .into : .beside
+            case .pieceRow, .figuresSection, .figureRow: return .beside
+            }
+        }
+    }
+
+    /// Whether a move's destination is the target itself.
+    private static func names(_ destination: ResearchMoveTarget,
+                              _ target: TreeDropIntent.Target) -> Bool {
+        switch (destination, target) {
+        case (.piece(let piece), .pieceRow(let row)): return piece == row
+        case (.piece(let piece), .foldRow(_, let doc)): return piece == doc
+        case (.group(let group), .researchRow(let row)): return group == row
+        case (.group(let group), .foldRow(let row, _)): return group == row
+        case (.sharedRoot, .sharedSection): return true
+        default: return false
+        }
+    }
+}
+
+/// **A target's feedback at each of the drop's positions** — what the hover
+/// shows once it knows where over the row the pointer is (`look(at:)`).
+struct TreeDropAnswers: Equatable {
+    var top: TreeDropFeedback
+    var middle: TreeDropFeedback
+    var bottom: TreeDropFeedback
+
+    static let none = TreeDropAnswers(same: .none)
+
+    init(top: TreeDropFeedback, middle: TreeDropFeedback, bottom: TreeDropFeedback) {
+        self.top = top
+        self.middle = middle
+        self.bottom = bottom
+    }
+
+    init(same feedback: TreeDropFeedback) {
+        self.init(top: feedback, middle: feedback, bottom: feedback)
+    }
+
+    init(_ at: (DropIntent.Position) -> TreeDropFeedback) {
+        self.init(top: at(.top), middle: at(.middle), bottom: at(.bottom))
+    }
+
+    var accepts: Bool { top.accepts || middle.accepts || bottom.accepts }
+
+    /// **What the hover draws.** At a known position, that position's answer.
+    /// Unknown, it never promises what some third would not do: `.into` only
+    /// when every third goes into, nothing when every third refuses, else the
+    /// neutral `.beside`. Pure.
+    func look(at position: DropIntent.Position?) -> TreeDropFeedback {
+        if let position {
+            switch position {
+            case .top: return top
+            case .middle: return middle
+            case .bottom: return bottom
+            }
+        }
+        let all = [top, middle, bottom]
+        if all.allSatisfy({ $0 == .into }) { return .into }
+        if all.allSatisfy({ $0 == .none }) { return .none }
+        return .beside
+    }
+}
+
+/// **The tree's drop-target look** — one nothing else in the tree uses (the
+/// standing marks are solid: the open row's fill, the faces' and the
+/// pulled-up row's solid outline, the `List`'s selection): a DASHED inset
+/// ring, with a light fill for `.into`; an insertion line with a hollow
+/// leading dot for `.above` / `.below`. On a selected row (raised background
+/// prominence) it is drawn in the selection's own contrast colour. Takes no
+/// hits.
+struct TreeDropHighlight: ViewModifier {
+    let feedback: TreeDropFeedback
+    @Environment(\.backgroundProminence) private var prominence
+
+    static let ringDash: [CGFloat] = [5, 3]
+
+    func body(content: Content) -> some View {
+        let ink = prominence == .increased ? Color.white : Color.accentColor
+        content
+            .background {
+                if feedback == .into {
+                    RoundedRectangle(cornerRadius: 4)
+                        .fill(ink.opacity(0.12))
+                        .padding(-3)
+                        .allowsHitTesting(false)
+                }
+            }
+            .overlay {
+                switch feedback {
+                case .into, .beside:
+                    RoundedRectangle(cornerRadius: 4)
+                        .strokeBorder(ink, style: StrokeStyle(lineWidth: 2, dash: Self.ringDash))
+                        .padding(-3)
+                        .allowsHitTesting(false)
+                case .above, .below:
+                    TreeDropInsertionLine(ink: ink)
+                        .frame(maxHeight: .infinity,
+                               alignment: feedback == .above ? .top : .bottom)
+                        .offset(y: feedback == .above ? -3 : 3)
+                        .allowsHitTesting(false)
+                case .none:
+                    EmptyView()
+                }
+            }
+            .accessibilityHint(Self.spoken(feedback) ?? "")
+    }
+
+    /// What VoiceOver hears while a drop target is shown.
+    static func spoken(_ feedback: TreeDropFeedback) -> String? {
+        switch feedback {
+        case .into: return "Drop here to put it in"
+        case .above: return "Drop here to place it above"
+        case .below: return "Drop here to place it below"
+        case .beside: return "Drop here"
+        case .none: return nil
+        }
+    }
+}
+
+/// The insertion line: a hollow dot at its leading end, then a rule.
+private struct TreeDropInsertionLine: View {
+    let ink: Color
+
+    var body: some View {
+        HStack(spacing: 0) {
+            Circle()
+                .strokeBorder(ink, lineWidth: 2)
+                .frame(width: 7, height: 7)
+            Rectangle()
+                .fill(ink)
+                .frame(height: 2)
+        }
+        .frame(height: 7)
+    }
+}
+
+extension View {
+    func treeDropHighlight(_ feedback: TreeDropFeedback) -> some View {
+        modifier(TreeDropHighlight(feedback: feedback))
+    }
+}
+
+/// **A tree row's hover**: which of its drop modifiers a drag is over, the
+/// target's answers asked once as the drag arrives, and — while it is over
+/// the row — the pointer's place on the row, sampled from `NSEvent
+/// .mouseLocation` against the row's own frame on screen and classified by
+/// the drop's own `DropIntent.Position.of`. The row's drop modifiers are
+/// untouched (#109's measured order); only their `isTargeted` reports land
+/// here. Where the frame cannot be read the position is unknown and
+/// `TreeDropAnswers.look(at: nil)` never over-promises.
+struct TreeDropHover: ViewModifier {
+    let internalTargeted: Bool
+    let externalTargeted: Bool
+    /// Whether the target's drop reads halves (a Collection piece row) or
+    /// thirds (`DropIntent.Position.of`).
+    let halves: Bool
+    /// The target's answers for the drag in flight
+    /// (`BinderTreeVerbs.dropAnswers(on:)` and its kin).
+    let answers: () -> TreeDropAnswers
+    @State private var held: TreeDropAnswers = .none
+    @State private var position: DropIntent.Position?
+    @State private var frame = TreeRowScreenFrame.Box()
+
+    /// How often the pointer is sampled while a drag is over the row.
+    static let sampling: Duration = .milliseconds(40)
+
+    func body(content: Content) -> some View {
+        let targeted = internalTargeted || externalTargeted
+        content
+            .background(TreeRowScreenFrame(box: frame))
+            .treeDropHighlight(targeted ? held.look(at: position) : .none)
+            .onChange(of: targeted) { _, now in
+                held = now ? answers() : .none
+                position = nil
+            }
+            .task(id: targeted) {
+                guard targeted else { return }
+                while !Task.isCancelled {
+                    let next = frame.screenRect().flatMap {
+                        Self.position(mouse: NSEvent.mouseLocation, rowOnScreen: $0, halves: halves)
+                    }
+                    if next != position { position = next }
+                    try? await Task.sleep(for: Self.sampling)
+                }
+            }
+    }
+
+    /// The drop position of a pointer at `mouse` (screen coordinates, origin
+    /// bottom-left) over a row whose frame on screen is `rowOnScreen`; nil
+    /// when the pointer is not over it. Pure.
+    static func position(mouse: CGPoint, rowOnScreen: CGRect,
+                         halves: Bool) -> DropIntent.Position? {
+        guard rowOnScreen.height > 0, mouse.y >= rowOnScreen.minY, mouse.y <= rowOnScreen.maxY
+        else { return nil }
+        return DropIntent.Position.of(y: rowOnScreen.maxY - mouse.y,
+                                      height: rowOnScreen.height, halves: halves)
+    }
+}
+
+extension View {
+    func treeDropHover(internalTargeted: Bool, externalTargeted: Bool = false,
+                       halves: Bool = false,
+                       answers: @escaping () -> TreeDropAnswers) -> some View {
+        modifier(TreeDropHover(internalTargeted: internalTargeted,
+                               externalTargeted: externalTargeted, halves: halves,
+                               answers: answers))
+    }
+}
+
+/// **Where a row is on screen**, for the hover's pointer sampling: an AppKit
+/// view behind the row that answers `nil` from `hitTest(_:)` and registers
+/// for no drag type, so it can never take a click or a drop from the row
+/// (`TreeTravelTargetView`'s arrangement). It only reports its own frame.
+struct TreeRowScreenFrame: NSViewRepresentable {
+    /// A handle on the view, held by the hover's `@State`.
+    final class Box {
+        weak var view: NSView?
+
+        @MainActor func screenRect() -> CGRect? {
+            guard let view, let window = view.window else { return nil }
+            return window.convertToScreen(view.convert(view.bounds, to: nil))
+        }
+    }
+
+    let box: Box
+
+    func makeNSView(context: Context) -> NSView {
+        let view = PassThroughView()
+        box.view = view
+        return view
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) { box.view = nsView }
+
+    private final class PassThroughView: NSView {
+        override func hitTest(_ point: NSPoint) -> NSView? { nil }
     }
 }

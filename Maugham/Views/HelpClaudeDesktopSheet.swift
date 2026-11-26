@@ -116,7 +116,7 @@ struct HelpClaudeDesktopSheet: View {
         switch skillState {
         case .notInstalled:
             Button("Install Claude Code Skill") { installSkill() }
-            Text("Adds a small skill so Claude automatically loads Maugham's workflows (transcription, editing passes).")
+            Text("Adds a small skill so Claude automatically loads Maugham's workflows (editing passes, translation, transcription, publishing).")
                 .font(.callout).foregroundStyle(.secondary)
         case .installedCurrent:
             Label("Maugham skill installed", systemImage: "checkmark.circle")
@@ -162,7 +162,7 @@ struct HelpClaudeDesktopSheet: View {
     private var missingView: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text("Claude Desktop isn't set up yet.").font(.title2).fontWeight(.semibold)
-            Text("Install Claude Desktop, then come back to connect Maugham. Once connected, Claude can read your open projects and create research notes.")
+            Text("Install Claude Desktop, then come back to connect Maugham. Once connected, Claude can read your open projects, leave notes in To resolve and create research notes.")
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
             HStack {
@@ -196,8 +196,9 @@ struct HelpClaudeDesktopSheet: View {
             Text("Claude will be able to:")
                 .foregroundStyle(.secondary)
             VStack(alignment: .leading, spacing: 4) {
-                Label("Read your open projects, outlines, and chapters", systemImage: "book.closed")
+                Label("Read your open projects, their outlines and their text", systemImage: "book.closed")
                 Label("Search across your manuscript and research", systemImage: "magnifyingglass")
+                Label("Leave notes beside your text, in To resolve", systemImage: "text.bubble")
                 Label("Create new research notes for you", systemImage: "doc.badge.plus")
             }
             .font(.callout)
@@ -231,7 +232,7 @@ struct HelpClaudeDesktopSheet: View {
             Label("Maugham is connected to Claude Desktop.", systemImage: "checkmark.circle.fill")
                 .font(.title3).fontWeight(.semibold)
                 .foregroundStyle(.green)
-            Text("Try asking Claude: \"What chapters are in my novel?\"")
+            Text("Try asking Claude: \"What\u{2019}s in my novel\u{2019}s outline?\"")
                 .foregroundStyle(.secondary)
             Text(path).font(.caption).foregroundStyle(.tertiary)
             HStack {

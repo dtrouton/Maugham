@@ -25,13 +25,33 @@ struct ReviewPalette {
 
     /// Capped set of muted editorial "pencil" tones for human reviewers.
     /// Desaturated on purpose — these are marginalia, not highlighter. None of
-    /// them is the reserved terracotta.
-    static let humanTones: [NSColor] = [
+    /// them is the reserved terracotta. **Each adapts to the appearance**
+    /// (shell p5a closing round B2): the dark page takes a lighter pencil,
+    /// so every tone stands at least 3:1 against the editor's page in both
+    /// (`ReviewPaletteTests`). One palette for the margin's dots, the cards
+    /// and To resolve's author dots.
+    static let humanTones: [NSColor] = zip(lightTones, darkTones).map { light, dark in
+        NSColor(name: nil) { appearance in
+            appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua ? dark : light
+        }
+    }
+
+    /// The tones on a light page: blue-pencil, plum, sage, slate, ochre.
+    private static let lightTones: [NSColor] = [
         NSColor(srgbRed: 0.30, green: 0.40, blue: 0.62, alpha: 1.0),  // blue-pencil
         NSColor(srgbRed: 0.52, green: 0.36, blue: 0.55, alpha: 1.0),  // plum
         NSColor(srgbRed: 0.36, green: 0.50, blue: 0.42, alpha: 1.0),  // sage
         NSColor(srgbRed: 0.45, green: 0.45, blue: 0.50, alpha: 1.0),  // slate
         NSColor(srgbRed: 0.58, green: 0.48, blue: 0.30, alpha: 1.0),  // ochre
+    ]
+
+    /// The same pencils on the dark page: each 30% toward white.
+    private static let darkTones: [NSColor] = [
+        NSColor(srgbRed: 0.51, green: 0.58, blue: 0.73, alpha: 1.0),  // blue-pencil
+        NSColor(srgbRed: 0.66, green: 0.55, blue: 0.69, alpha: 1.0),  // plum
+        NSColor(srgbRed: 0.55, green: 0.65, blue: 0.59, alpha: 1.0),  // sage
+        NSColor(srgbRed: 0.62, green: 0.62, blue: 0.65, alpha: 1.0),  // slate
+        NSColor(srgbRed: 0.71, green: 0.64, blue: 0.51, alpha: 1.0),  // ochre
     ]
 
     /// Returns the stable pencil colour for an annotation's author.
@@ -41,11 +61,16 @@ struct ReviewPalette {
         if author?.sourceKind == .claude {
             return Self.claudeTerracotta
         }
-        let key = author?.collaboratorId
-            ?? author?.displayName
-            ?? ""
+        let key = Self.person(author)
         let index = Int(Self.stableHash(key) % UInt64(Self.humanTones.count))
         return Self.humanTones[index]
+    }
+
+    /// **Who a pencil is for**: the author's collaborator id, else their
+    /// name — the key a tone is chosen by, and the one identity the margin
+    /// asks whether a mark is one person's or several (closing round B2).
+    static func person(_ author: AnnotationAuthor?) -> String {
+        author?.collaboratorId ?? author?.displayName ?? ""
     }
 
     /// FNV-1a over the UTF-8 bytes. Deterministic across runs (unlike Swift's

@@ -207,11 +207,12 @@ final class ReviewPassTests: XCTestCase {
         }
     }
 
-    /// Pins the doctrine, not a count: Proof's brief must advise Fresh Eyes.
-    func test_proofsBriefAdvisesFreshEyes() {
+    /// Pins the doctrine, not a count: Proof's brief must advise Fresh Eyes,
+    /// by its own key — ⌃⇧⌘R since shell p1 Task 5; ⇧⌘R is Reread, a check.
+    func test_proofsBriefAdvisesFreshEyesByItsOwnKey() {
         let proof = ReviewPass.presets.first { $0.id == "proof" }!
-        XCTAssertTrue(proof.brief?.contains("Fresh Eyes") == true, proof.brief ?? "nil")
-        XCTAssertTrue(proof.brief?.contains("⌘⇧R") == true, proof.brief ?? "nil")
+        XCTAssertTrue(proof.brief?.contains("Fresh Eyes (⌃⇧⌘R)") == true, proof.brief ?? "nil")
+        XCTAssertFalse(proof.brief?.contains("(⌘⇧R)") == true, proof.brief ?? "nil")
     }
 
     /// A custom pass with the new fields present round-trips byte-stable,

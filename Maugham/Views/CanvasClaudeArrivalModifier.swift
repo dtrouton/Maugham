@@ -7,7 +7,7 @@ import AppKit
 /// Everything before this slice's Task 9 required the writer to already be
 /// looking: a Claude card is tinted, drawn straight, and announced as
 /// `CanvasAccessibility.claudeTerm` — all of it on a surface they may not have
-/// open, in a persona they may not be in. `add_canvas_scraps` posts
+/// open. `add_canvas_scraps` posts
 /// `.maughamCanvasNodesAdded` when a batch lands; this is the receiver.
 ///
 /// **Extracted, and mounted on `ProjectWindow.body` in one line.** That body is at
@@ -42,23 +42,18 @@ struct CanvasClaudeArrivalModifier: ViewModifier {
     /// (tripwire 30's shape, and `RegionInspectorPane`'s whole reason for
     /// existing).
     let model: CanvasModel
-    @Binding var persona: Persona
+    /// The window's subject: Show opens the canvas in the centre
+    /// (`Destination.subject(from:)`). The window persists it.
+    @Binding var subject: WindowSubject
     /// Forced open by Show — see `Destination.opensInspector`.
     @Binding var showInspector: Bool
-    /// **Written beside `showInspector`, and the column is wrong without it.**
-    /// This is the one persona writer that does not go through
-    /// `PersonaModifier`, so nothing else coerces the segment into the persona
-    /// it just moved to. While `DetailPaneToggle` was mounted throughout that
-    /// cost nothing — its own `.onChange(of: persona)` dropped an out-of-persona
-    /// pane — but the study column REPLACES that view, so with a pin studied it
-    /// is unmounted at the moment the persona moves and remounts fresh in Plan
-    /// carrying `.references`: a shelf whose every row is inert, persisted into
-    /// `ui-state.json` by the mount, instead of the Inspector that
-    /// `Destination.opensInspector` exists to reach.
-    @Binding var detailSegment: DetailSegment
-    /// Where the persona lands durably. Nil while the project is still loading,
-    /// which is also when no banner can be on screen.
-    let documentStore: DocumentStore?
+    /// **Written beside `showInspector`, and the column is wrong without it**:
+    /// forcing the column open leaves whatever pane it was on, and with the
+    /// canvas as the centre the Inspector is the region inspector Show exists
+    /// to reach.
+    /// The right column's position: Show lands on the pulled-up position,
+    /// where the canvas's selected region is drawn.
+    @Binding var position: RightColumnPosition
 
     /// What is currently being announced, or nil. Held here rather than on
     /// `ProjectWindow` for `CanvasPromotionModifier.confirmation`'s reason: it is
@@ -132,69 +127,56 @@ struct CanvasClaudeArrivalModifier: ViewModifier {
     /// Where the window has to be for the writer to see what arrived — a value,
     /// so the jump is assertable without hosting SwiftUI.
     ///
-    /// **The persona is the whole of the jump.** Plan is the one persona whose
-    /// centre column is the board (`Persona.centresTheCanvas`), so it is where
-    /// the writer has to be for a revealed region to be on screen at all. It
-    /// used to carry a binder segment beside it, back when Plan's left column
-    /// was a picker and only two of its four tabs drew the board; Task 7 left
-    /// one left column per persona, so there is nothing else to set.
+    /// **The canvas in the centre is the whole of the jump** (shell p1 Task 4;
+    /// it was a window mode while a mode decided the centre).
     struct Destination: Equatable {
-        let persona: Persona
+        /// What the centre opens: always the canvas.
+        let open: BinderSubject
         let selection: CanvasSelection
         /// **A field rather than a bare `showInspector = true` in `show`**, so a
-        /// test pins it. Every other navigation-to-a-pane in `ProjectWindow`
-        /// forces the column open — `PersonaModifier` on *every* persona switch,
-        /// and the detail-segment command with "ensure pane is visible" — and
-        /// without it a writer who has closed the column with ⌘⌥I clicks Show and
-        /// gets a camera move and a selection with nothing naming what arrived.
+        /// test pins it. Every other navigation to the right column forces it
+        /// open, and without it a writer who has closed the column with ⌘⌥0
+        /// clicks Show and gets a camera move and a selection with nothing
+        /// naming what arrived.
         ///
-        /// **It names the pane as well as the column** (2026-08-26): forcing the
-        /// column open while leaving `detailSegment` alone had never actually
-        /// meant the Inspector — Plan's coercion landed the writer on `.inbox` —
-        /// and once the study column can be what is mounted, it landed them on an
-        /// inert References shelf. `show` writes `.inspector` beside the reveal.
+        /// **It names the position as well as the column**: `show` writes the
+        /// pulled-up position beside the reveal — with nothing pulled up
+        /// (Show puts it away) that is the canvas's own details, the region.
         let opensInspector: Bool
+
+        /// The window's subject after Show: the canvas opened in the centre
+        /// as a double-click on the tree's Canvas row opens it (`open` and
+        /// `faces` on the canvas), and whatever was beside put away (shell p1
+        /// final fix, M2): the right column asks what is beside first, so a
+        /// note left there would hide the region inspector Show opens.
+        func subject(from current: WindowSubject) -> WindowSubject {
+            var next = current
+            next.open = open
+            next.faces = open
+            next.beside = nil
+            return next
+        }
     }
 
-    /// **A writer already looking at the canvas is not moved off it** (slice 2),
-    /// and since Task 7 that falls out rather than being arranged.
-    ///
-    /// The rule used to have work to do: Plan offered two segments that drew the
-    /// board and two that did not, so "already there" had to be asked of the
-    /// pair — and answering it wrong swapped the writer's left column out from
-    /// under them and cost them their place in the structure they were
-    /// arranging, which is the one thing Plan's tree exists for. With one left
-    /// column per persona the destination is Plan and nothing else, so a writer
-    /// already in Plan is written the value they already hold.
-    ///
-    /// **`.plan` unconditionally, and it is not a shortcut for
-    /// `centresTheCanvas`.** The predicate answers *"is the board the centre
-    /// column"*; this answers *"where must the writer be to see it"*, and only
-    /// one persona can be named as an answer to that. If a second persona ever
-    /// centres the board, this becomes a real choice and has to be made here
-    /// deliberately.
+    /// **A writer already looking at the canvas is not moved off it** (slice 2):
+    /// the canvas already open is written the value it already holds, and its
+    /// one mount stays (tripwires 27, 30).
     static func destination(forRegion region: CanvasRegionID) -> Destination {
-        Destination(persona: .plan, selection: .region(region),
+        Destination(open: .canvas, selection: .region(region),
                     opensInspector: true)
     }
 
-    /// **The jump does not go through `PersonaModifier`, and that is deliberate.**
-    /// Its handler is a `.keyWindow` command carrying the persona-memory rules,
-    /// and reaching it would mean posting `.maughamSetPersona` and then writing
-    /// the selection on top of whatever that handler restores — a correctness
-    /// argument resting on SwiftUI delivery order, which is tripwire 2's shape.
-    /// The
-    /// remembered position is left alone: it records where the writer *chose* to
-    /// be, and a jump they took to look at something Claude added is not that
-    /// choice. The persona itself is persisted, or the next launch reopens in the
-    /// old persona with the binder already on the canvas.
+    /// The jump writes the window's subject directly — one value, no event
+    /// hop whose delivery order a correctness argument would rest on
+    /// (tripwire 2's shape). The window persists the subject.
     private func show(_ arrival: Arrival) {
         let to = Self.destination(forRegion: arrival.region)
-        persona = to.persona
+        let next = to.subject(from: subject)
+        if next != subject { subject = next }
         model.selection = to.selection
         if to.opensInspector {
             showInspector = true
-            detailSegment = .inspector
+            position = .pulledUp
         }
         // **And the camera, or Show shows nothing.**
         // `CanvasClaudePlacement.looseOrigin` is `occupied.maxX + gutter` over
@@ -206,7 +188,6 @@ struct CanvasClaudeArrivalModifier: ViewModifier {
         // `CanvasModel.onRevealRequested`), and the model parks the request until
         // a canvas is mounted to honour it.
         model.reveal(.region(arrival.region))
-        documentStore?.updateUIState { $0.persona = to.persona }
         self.arrival = nil
     }
 

@@ -19,16 +19,21 @@ import MaughamCore
 // no key glyph.
 
 /// **Where Send to Research puts a table** (plan 7d Task 9, R7d-7): the
-/// piece's own Research by default, or the book's shared Research.
+/// piece's own Research by default, or the book's whole-book Research.
 enum FigureResearchDestination: Hashable, CaseIterable {
     case piece, shared
 
-    var title: String {
+    /// "This Chapter’s Research" — in the project's word for the piece
+    /// (`PieceNoun`) — or "Whole-Book Research", research's own word for
+    /// the book's home (`ResearchHomeMenu.makeWholeBookTitle`).
+    func title(_ noun: PieceNoun) -> String {
         switch self {
-        case .piece: "This Piece\u{2019}s Research"
-        case .shared: "Shared Research"
+        case .piece: "This \(noun.capitalised)\u{2019}s Research"
+        case .shared: Self.wholeBookTitle
         }
     }
+
+    static let wholeBookTitle = "Whole-Book Research"
 }
 
 /// **One table command** — what a menu item asks the expanded grid to do.
@@ -48,7 +53,9 @@ enum FigureTableCommand: Hashable {
     /// send is not undoable (ruling P-8).
     case sendTo(FigureResearchDestination)
 
-    var title: String {
+    /// The item's title; `noun` names the piece Send to Research offers
+    /// (`FigureTableMenuState.noun`).
+    func title(_ noun: PieceNoun) -> String {
         switch self {
         case .format(let choice): choice.title
         case .fewerDecimals: "Fewer Decimal Places"
@@ -78,7 +85,7 @@ enum FigureTableCommand: Hashable {
         case .fillDown: "Fill Down"
         case .fillRight: "Fill Right"
         case .importCSV: "Import from CSV\u{2026}"
-        case .sendTo(let destination): destination.title
+        case .sendTo(let destination): destination.title(noun)
         }
     }
 }
@@ -134,7 +141,7 @@ enum FigureTableMenu {
         let menu = NSMenu(title: "Table")
         menu.autoenablesItems = false
         func item(_ command: FigureTableCommand) -> NSMenuItem {
-            let item = NSMenuItem(title: command.title, action: #selector(FigureTableMenuTarget.perform(_:)),
+            let item = NSMenuItem(title: command.title(state.noun), action: #selector(FigureTableMenuTarget.perform(_:)),
                                   keyEquivalent: "")
             item.target = target
             item.representedObject = FigureTableMenuTarget.Box(command)
@@ -216,10 +223,14 @@ struct FigureTableMenuState: Equatable {
     /// The grid's host may be sent to Research at all (a figure may,
     /// `FigureGridOffers.sendToResearch`).
     var maySend = true
+    /// What the project calls the piece Send to Research offers
+    /// (`PieceNoun`); "piece" until a grid says.
+    var noun: PieceNoun = .piece
 
     static func of(table: FigureTable, selection: FigureGridSelection?, mode: FigureGridGate.Mode,
-                   knowsItsPiece: Bool, maySend: Bool = true) -> Self {
+                   knowsItsPiece: Bool, maySend: Bool = true, noun: PieceNoun) -> Self {
         var state = Self()
+        state.noun = noun
         state.mayEdit = mode == .editable
         state.knowsItsPiece = knowsItsPiece
         state.maySend = maySend

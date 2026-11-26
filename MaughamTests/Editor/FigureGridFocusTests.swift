@@ -90,6 +90,15 @@ final class FigureGridFocusTests: FigureGridMountedTestCase {
         for row in 2...29 { ones[cellKey(c, 2, row)] = Cell(content: .value(.number(1))) }
         try await c.host.setCells(ones, actionName: "Fixture", undoManager: nil)
         XCTAssertEqual(c.bars.addressLabel.stringValue, "A1", "premise: the grid opens on A1")
+        // **The premises, read off the grid as mounted** (shell p4 Task 11:
+        // red once in a full gate, never in 50 runs since). "The viewport
+        // scrolled" means something only if the grid is shorter than its 40
+        // rows, which is the window's layout, not this test's say: laid out
+        // now, synchronously, and asserted, so a short-laid-out or tall grid
+        // fails here by name instead of as a scroll that never happened.
+        m.window.layoutIfNeeded()
+        XCTAssertGreaterThan(c.gridView.layout.maxScroll.y, 0, "premise: the grid shows fewer rows than it holds")
+        XCTAssertTrue(m.window.firstResponder === c.gridView, "premise: the grid has the keys before the arrows")
 
         right(m)
         for _ in 1...29 { down(m) }
@@ -97,6 +106,8 @@ final class FigureGridFocusTests: FigureGridMountedTestCase {
         XCTAssertGreaterThan(c.gridView.scrollOffset.y, 0, "the viewport scrolled to row 30")
         type(m, "=SUM(B2:B29)")
         XCTAssertEqual(c.gridView.cellEditor.stringValue, "=SUM(B2:B29)")
+        XCTAssertTrue(m.window.firstResponder === c.gridView.cellEditor.currentEditor(),
+                      "premise: the typing is in the cell editor, which has the keys before Return")
 
         press(m, "\r", code: 36)
         XCTAssertTrue(m.window.firstResponder === c.gridView, "Return committed: the grid has the keys back")

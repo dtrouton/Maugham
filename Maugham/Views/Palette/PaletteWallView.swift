@@ -100,14 +100,9 @@ struct PaletteWallView: View {
 struct PaletteWallCentre: View {
     let store: ProjectStore
     @Binding var selectedPaletteCardId: String?
+    /// The wall's card is always edited here: a palette card belongs to the
+    /// book, no piece owns it, so read-through never reaches it.
     let onClose: () -> Void
-    /// The persona the wall is opened from, asked directly
-    /// (`Persona.editsResearchInTheCentre`) by the card arm below rather than
-    /// threaded as a pre-computed bool — shell-finish stage 3b Task 6, Denver's
-    /// ruling that Review adjudicates and does not edit from its own columns.
-    /// `ResearchSubjectCentre` reads the same predicate at its own mount; never
-    /// `== .review` at either site.
-    let persona: Persona
 
     @FocusState private var isFocused: Bool
 
@@ -125,11 +120,7 @@ struct PaletteWallCentre: View {
                     }
                     .padding(.horizontal, 12).padding(.vertical, 6)
                     Divider()
-                    if persona.editsResearchInTheCentre {
-                        PaletteCardEditor(store: store, cardId: cardId)
-                    } else {
-                        PaletteCardReadHost(store: store, cardId: cardId)
-                    }
+                    PaletteCardEditor(store: store, cardId: cardId)
                 }
             } else {
                 PaletteWallView(store: store, selectedCardId: $selectedPaletteCardId)

@@ -153,7 +153,9 @@ final class TranslationPipeline {
     /// will), and a run whose owner shut it down and then started another must
     /// NOT: the second run's `.running` is already on screen.
     private var runToken = 0
-    private var queue: [String] = []
+    /// The chapters a book run has still to reach (the running one is in `status`)
+    /// — read by a piece's To resolve head to tell its own run from another's.
+    private(set) var queue: [String] = []
 
     private enum TranslatorLegEnd {
         case refused
@@ -279,6 +281,8 @@ final class TranslationPipeline {
                           environment env: Environment) async -> TranslationRound {
         var round = TranslationRound(number: env.nextRoundNumber(language), language: language,
                                      docId: docId, startedAt: Date())
+        // Signed as the cast reads now; a later rename re-signs nothing (M3).
+        round.translatorName = env.translatorName(language)
         var wroteAnything = false
         var reader: (name: String, roleId: String)?
         var collator: (name: String, roleId: String)?
@@ -397,9 +401,10 @@ final class TranslationPipeline {
                     applyFixOutcomes(outcome, annotationIds: annotationIds, notes: notes, to: &round)
                     if leg == .finalFix {
                         round.summary = outcome.summary
-                        round.glossaryProposals = outcome.glossaryProposals.map {
-                            .init(term: $0.term, rendering: $0.rendering, reason: $0.reason, adopted: false)
-                        }
+                        round.glossaryProposals = TranslationRound.GlossaryProposalRecord.deduped(
+                            outcome.glossaryProposals.map {
+                                .init(term: $0.term, rendering: $0.rendering, reason: $0.reason, adopted: false)
+                            })
                     }
                 }
 
@@ -542,7 +547,7 @@ final class TranslationPipeline {
                 return Self.ran(outcome)
             case .nothingToTranslate: return .skipped(skipReason)
             case .cancelled: return .cancelled
-            case .failed(let failure): return .failed(DepartmentRunState.failureCopy(failure))
+            case .failed(let failure): return .failed(TranslationRunState.failureCopy(failure))
             }
         }
     }

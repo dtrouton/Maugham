@@ -100,7 +100,7 @@ final class CanvasModel {
 
     /// ⌘Z, scoped to the canvas. `@Environment(\.undoManager)` would give a
     /// window-lifetime manager shared with the manuscript editor's op-log stack
-    /// (ADR 0023), and a persona switch mid-drag would leave a half-open group
+    /// (ADR 0023), and leaving the canvas mid-drag would leave a half-open group
     /// on it. `CanvasUndo` is the only thing that ever registers here — the
     /// mounted `NSTextView` has `allowsUndo == false` and registers nothing.
     ///
@@ -205,7 +205,7 @@ final class CanvasModel {
     /// canvas going away: add a research item and `ProjectWindow` hands the view a
     /// fresh index, which the per-body `.onChange(of: itemIndex.fingerprint)`
     /// picks up — while `onSceneChangedExternally` goes on holding the manifest
-    /// the Plan persona first appeared with. **Named symptom:** the writer drags a
+    /// the canvas first appeared with. **Named symptom:** the writer drags a
     /// research image added this session onto the board and the card reads
     /// `CanvasItemFacts.missingTitle` — "No longer in the project." — until they
     /// relaunch, because the drop resolves the node it just made against a
@@ -244,7 +244,7 @@ final class CanvasModel {
     /// one — and the caller is in another column, where the scene it would read
     /// is exactly the one that can be wrong: `add_canvas_scraps` writes the
     /// SIDECAR when this model is not attached (`isAttached`), so a writer who
-    /// has not opened the Plan persona this session holds a scene with no such
+    /// has not opened the canvas this session holds a scene with no such
     /// region in it and would resolve nothing. Handing over the id lets the point
     /// be resolved on the far side of `attach()`, from the scene that has the
     /// region in it.
@@ -256,8 +256,8 @@ final class CanvasModel {
     /// A reveal asked for while no canvas was on screen, kept until one is.
     ///
     /// **This exists because the hook is nil in the ordinary case.** Show sends
-    /// the writer to the Plan persona *and* asks for the reveal, and until that
-    /// persona switch has mounted `CanvasView` there is no hook to call — so the
+    /// the writer to the canvas *and* asks for the reveal, and until that
+    /// subject change has mounted `CanvasView` there is no hook to call — so the
     /// version of this that only called the closure dropped the reveal precisely
     /// when the writer was not already looking at the canvas, which is every time
     /// the banner is the thing that told them. Deferring the call by a run-loop
@@ -281,33 +281,64 @@ final class CanvasModel {
         onRevealRequested(target)
     }
 
+    /// A card or region to select once the scene that holds it is attached —
+    /// Open in Centre on a canvas card or region pulled up beside (shell p3).
+    @ObservationIgnored private var pendingSelection: CanvasRevealTarget?
+
+    /// **Bring a card into sight and select it** — Open in Centre on a canvas
+    /// card pulled up in the right column. The selection lands only against
+    /// a scene that holds the card: now while the canvas is attached, else
+    /// when `load()` takes the parked reveal after `attach`. Never mid-gesture
+    /// territory: it is asked from another column's button.
+    func revealAndSelect(_ id: CanvasNodeID) {
+        revealAndSelect(.node(id))
+    }
+
+    /// The same for a card or a region (a region pulled up beside).
+    func revealAndSelect(_ target: CanvasRevealTarget) {
+        pendingSelection = target
+        if isAttached { applyPendingSelection() }
+        reveal(target)
+    }
+
+    private func applyPendingSelection() {
+        defer { pendingSelection = nil }
+        switch pendingSelection {
+        case .node(let id)? where scene.node(id) != nil: selection = .node(id)
+        case .region(let id)? where scene.region(id) != nil: selection = .region(id)
+        case .node?, .region?, nil: break
+        }
+    }
+
     /// Consume the parked request. `CanvasView.load()` calls this after `attach`,
-    /// which is the first moment the scene is guaranteed to hold the target.
+    /// which is the first moment the scene is guaranteed to hold the target —
+    /// and a parked selection (`revealAndSelect`) lands then too.
     func takePendingReveal() -> CanvasRevealTarget? {
         defer { pendingReveal = nil }
+        if pendingSelection != nil { applyPendingSelection() }
         return pendingReveal
     }
 
     /// Whether this model has a store and a scene read off disk — true between
-    /// `attach(projectRoot:)` and `detach()`, which is to say while the Plan
-    /// persona is actually on screen.
+    /// `attach(projectRoot:)` and `detach()`, which is to say while the canvas
+    /// is actually on screen.
     ///
     /// **This is the discriminator a writer from outside the window must consult,
     /// and "does a `CanvasModel` exist" is not it.** The model is created eagerly
     /// with `ProjectWindow`, while `attach` runs from `CanvasView.onAppear` — so
-    /// a project window whose writer has never opened the Plan persona holds a
+    /// a project window whose writer has never opened the canvas holds a
     /// model that is real, addressable and unusable. Either way a write into an
     /// unattached model is accepted and reports real ids, and either way it
     /// **vanishes**, with nothing red. The two routes there are different and
     /// both are worth knowing:
     ///
     /// - **Never attached:** `store` is nil, so `scheduleSave` is a silent no-op.
-    ///   The scene is written nowhere, and the writer's first visit to the Plan
-    ///   persona calls `attach`, which overwrites it wholesale from disk.
+    ///   The scene is written nowhere, and the writer's first visit to the
+    ///   canvas calls `attach`, which overwrites it wholesale from disk.
     /// - **Attached and then detached:** `store` survives — `detach` flushes it
     ///   and clears its callback but does not release it, and it is only replaced
     ///   by the next `attach` — so a save here really would reach disk. What is
-    ///   stale is the SCENE: it is the snapshot from when the persona closed, and
+    ///   stale is the SCENE: it is the snapshot from when the canvas closed, and
     ///   it cannot see anything written to the sidecar since. A caller that took
     ///   the sidecar route for one call and this one for the next would silently
     ///   drop the first.
@@ -547,7 +578,7 @@ final class CanvasModel {
     /// `model → beforeFlush → CanvasView → model` is a cycle, and
     /// `onSceneReplacedByUndo`, `onSceneChangedExternally` and (1C-c3)
     /// `onRevealRequested` are each the same cycle again. Left set, a
-    /// closed Plan persona never deallocates its `CanvasModel`: the scene, every
+    /// closed canvas never deallocates its `CanvasModel`: the scene, every
     /// scrap's text, the `UndoManager` and the `CanvasStore` all stay alive,
     /// `CanvasStore.deinit` never runs so its `willTerminateNotification`
     /// observer outlives the window, and the captured view's
@@ -563,7 +594,7 @@ final class CanvasModel {
     /// closures, and the manager's retain of the recorder once per step.
     ///
     /// `CanvasView.load()` re-sets both callbacks on the next `.onAppear`, so a
-    /// persona switch back is unaffected.
+    /// return to the canvas is unaffected.
     func detach() {
         // No `beforeFlush?()` of our own: `CanvasStore.flush` calls it first
         // thing, through the `[weak self]` hop `attach` wired. One path, so

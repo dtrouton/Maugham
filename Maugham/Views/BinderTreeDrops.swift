@@ -68,11 +68,12 @@ extension BinderTreeVerbs {
         } ?? .researchRow(target.id)
         let intent = classify(draggedId, on: treeTarget)
         if case .researchReorder = intent {
-            return reorder(
-                draggedId: draggedId,
-                movingIds: batchIds(for: intent, draggedId: draggedId,
-                                    on: treeTarget),
-                position: position, target: target)
+            let moving = batchIds(for: intent, draggedId: draggedId, on: treeTarget)
+            // Where each row was taken from, read before the record goes.
+            let sources = sources(of: moving, fold: nil)
+            state.researchDragSource = nil
+            return reorder(draggedId: draggedId, movingIds: moving,
+                           position: position, target: target, sources: sources)
         }
         // A cross-scope drop still lands WHERE it was aimed: the index is
         // computed against the destination the classifier chose, so an item
@@ -80,8 +81,9 @@ extension BinderTreeVerbs {
         let moving = batchIds(for: intent, draggedId: draggedId, on: treeTarget)
         return apply(intent, movingIds: moving, payload: draggedId,
                      site: "research row \(target.id)",
-                     atIndex: insertionIndex(movingIds: moving, position: position,
-                                             target: target))
+                     landing: insertionIndex(movingIds: moving, position: position,
+                                             target: target) == nil
+                        ? .end : .beside(rowId: target.id, position: position))
     }
 
     /// A drop on the shared Research section — its header, or the placeholder
@@ -128,15 +130,15 @@ extension BinderTreeVerbs {
         providers: [NSItemProvider], position: DropIntent.Position,
         target: TreeDropIntent.Target
     ) -> Bool {
-        let intent = TreeDropIntent.classifyExternal(
-            target: target, position: position,
-            structure: store.manifest.structure,
-            research: store.manifest.research,
-            projectType: store.manifest.type)
-        switch intent {
+        switch externalIntent(on: target, position: position) {
         case .refuse(let reason):
             return refuseDrop(site(of: target), payload: nil, reason: reason)
         case .importFiles(let destination):
+            // A file a chapter takes lands in its fold: open it, so it never
+            // seems to vanish (shell p5 Task 4a).
+            if case .sharedAndLink(let documentId) = destination {
+                state.expandedPieceFolds.insert(documentId)
+            }
             perform {
                 let urls = await DropClassification.fileURLs(from: providers)
                 guard !urls.isEmpty else { return }
@@ -167,10 +169,7 @@ extension BinderTreeVerbs {
             // writer did not aim at, with the chapter's fold unchanged.
             let imported = try await store.importResearchFiles(
                 urls, toParentId: nil)
-            for item in imported {
-                try await store.linkResearch(
-                    researchId: item.id, toDocumentId: documentId)
-            }
+            try await relink(imported.map(\.id), from: [], to: documentId)
         }
     }
 
@@ -185,6 +184,129 @@ extension BinderTreeVerbs {
             return "row \(rowId) in \(documentId)'s fold"
         case .figuresSection: return "the Figures section"
         case .figureRow(let id): return "figure row \(id)"
+        }
+    }
+
+    // MARK: - What a target shows while a drag is over it (shell p4 Task 10)
+
+    /// **The answers a target shows for the drag in flight**, at each of the
+    /// drop's positions — the drop's own rules, read off the drag pasteboard
+    /// as the header's drop reads it (`BinderTreeSections.draggedId`). A drag
+    /// of files or a picture asks the external rule; any other drag the
+    /// internal one, with its id. `refusesStructure`: a host's posture refusal
+    /// of a structure row it may not move (the hosts' `onDrop` ask the same).
+    /// `halves`: a Collection piece row, whose drop reads halves.
+    func dropAnswers(on target: TreeDropIntent.Target,
+                     pasteboard: NSPasteboard = NSPasteboard(name: .drag),
+                     refusesStructure: (String) -> Bool = { _ in false },
+                     halves: Bool = false) -> TreeDropAnswers {
+        let types = (pasteboard.types ?? []).map(\.rawValue)
+        switch ProviderDropRoute.route(typeIdentifiers: types) {
+        case .external:
+            return TreeDropAnswers { externalFeedback(on: target, position: $0) }
+        case .refuse:
+            return .none
+        case .internalPayload:
+            guard let id = BinderTreeSections.draggedId(on: pasteboard) else { return .none }
+            return answers(draggedId: id, on: target, refusesStructure: refusesStructure,
+                           halves: halves)
+        }
+    }
+
+    /// The internal half, by id: `classify`, then — where the landing depends
+    /// on the drop's position — the very rule the drop performs at that
+    /// position (`DropIntent.classify` for a manuscript reorder,
+    /// `CollectionPiecesPane.landsBelow` for a piece, `reorderLanding` for a
+    /// research reorder, `insertionIndex` for a move beside a row).
+    func answers(draggedId: String, on target: TreeDropIntent.Target,
+                 refusesStructure: (String) -> Bool = { _ in false },
+                 halves: Bool = false) -> TreeDropAnswers {
+        let structure = store.manifest.structure
+        if TreeWalk.find(id: draggedId, in: structure) != nil, refusesStructure(draggedId) {
+            return .none
+        }
+        let intent = classify(draggedId, on: target)
+        switch intent {
+        case .structureReorder:
+            guard case .pieceRow(let rowId) = target,
+                  let row = TreeWalk.find(id: rowId, in: structure) else { return .none }
+            if halves {
+                return TreeDropAnswers { CollectionPiecesPane.landsBelow($0) ? .below : .above }
+            }
+            return TreeDropAnswers { position in
+                switch DropIntent.classify(position: position, target: row) {
+                case .insertAbove: return .above
+                case .insertBelow: return .below
+                case .insertChild: return .into
+                }
+            }
+        case .researchReorder:
+            guard let row = researchRow(of: target) else { return .none }
+            let moving = batchIds(for: intent, draggedId: draggedId, on: target)
+            return TreeDropAnswers { reorderLanding(position: $0, target: row, movingIds: moving) }
+        case .rescope:
+            let flat = TreeDropFeedback.of(intent, on: target)
+            guard flat == .beside, let row = researchRow(of: target) else {
+                return TreeDropAnswers(same: flat)
+            }
+            // Beside a leaf: the drop names an index from its position.
+            let moving = batchIds(for: intent, draggedId: draggedId, on: target)
+            return TreeDropAnswers { position in
+                insertionIndex(movingIds: moving, position: position, target: row) == nil
+                    ? .beside : (position == .top ? .above : .below)
+            }
+        default:
+            return TreeDropAnswers(same: TreeDropFeedback.of(intent, on: target))
+        }
+    }
+
+    /// The external half at one position: `routeExternalDrop`'s own
+    /// classification.
+    func externalFeedback(on target: TreeDropIntent.Target,
+                          position: DropIntent.Position) -> TreeDropFeedback {
+        TreeDropFeedback.of(externalIntent(on: target, position: position), on: target)
+    }
+
+    /// **A Finder drop's meaning, its piece's posture asked** (fix round 1,
+    /// I4): a file a chapter would LINK is a link edit — refused, and named,
+    /// where this Mac may not change that chapter's links
+    /// (`mayEditResearchLinks`, tripwire 51). A file filed into a Collection
+    /// piece's own folder is creation, asked exactly what that fold's New
+    /// Note asks — nothing of the link door (fix round 2, NB5).
+    func externalIntent(on target: TreeDropIntent.Target,
+                        position: DropIntent.Position) -> TreeDropIntent.ExternalIntent {
+        let intent = TreeDropIntent.classifyExternal(
+            target: target, position: position,
+            structure: store.manifest.structure,
+            research: store.manifest.research,
+            projectType: store.manifest.type)
+        switch intent {
+        case .importFiles(.sharedAndLink(let piece)):
+            return mayEditResearchLinks(of: piece) ? intent : .refuse(.linksNotPermitted)
+        default:
+            return intent
+        }
+    }
+
+    /// **Where a research reorder lands at `position`** — the rule `reorder`
+    /// performs: a group's middle takes it in; anywhere else beside the row,
+    /// where an index exists for the batch the drag carries
+    /// (`postRemovalInsertionIndex`), else refused. Pure over the manifest.
+    func reorderLanding(position: DropIntent.Position, target: ResearchItem,
+                        movingIds: [String]) -> TreeDropFeedback {
+        if position == .middle, target.type == .group { return .into }
+        guard ResearchSelectionSync.postRemovalInsertionIndex(
+            targetId: target.id, position: position, movingIds: movingIds,
+            siblings: siblings(of: findParentId(of: target.id))) != nil else { return .none }
+        return position == .top ? .above : .below
+    }
+
+    private func researchRow(of target: TreeDropIntent.Target) -> ResearchItem? {
+        switch target {
+        case .researchRow(let id), .foldRow(let id, _):
+            return TreeWalk.find(id: id, in: store.manifest.research)
+        case .pieceRow, .sharedSection, .figuresSection, .figureRow:
+            return nil
         }
     }
 
@@ -222,7 +344,8 @@ extension BinderTreeVerbs {
         switch (lhs, rhs) {
         case (.rescope(_, let a), .rescope(_, let b)): return a == b
         case (.link(_, let a), .link(_, let b)): return a == b
-        case (.unlink(_, let a), .unlink(_, let b)): return a == b
+        case (.moveLink(_, let a, let c), .moveLink(_, let b, let d)): return a == b && c == d
+        case (.leaveGroup(_, let a), .leaveGroup(_, let b)): return a == b
         case (.researchReorder, .researchReorder): return true
         // Everything else disagrees — including a row whose own answer is a
         // refusal or `.alreadyThere`, which is the case this filter exists for.
@@ -235,12 +358,54 @@ extension BinderTreeVerbs {
     private func classify(
         _ payloadId: String, on target: TreeDropIntent.Target
     ) -> TreeDropIntent.Intent {
-        TreeDropIntent.classify(
+        let intent = permitted(TreeDropIntent.classify(
             payloadId: payloadId, target: target,
+            sourcePiece: state.dragSource(of: payloadId),
             structure: store.manifest.structure,
             research: store.manifest.research,
             figures: store.manifest.figures ?? [],
-            projectType: store.manifest.type)
+            projectType: store.manifest.type,
+            // The window's homes, derived once per manifest — never once per
+            // row of a batch, nor per hover (M3).
+            homes: state.researchHomes(in: store.manifest)))
+        // **Read-through holds what a chapter in it holds** (closing round
+        // A, branch I2): such a row is not moved out, reordered or unlinked
+        // by a drag; giving it to another chapter as well is no change to it.
+        switch intent {
+        case .rescope, .moveLink, .leaveGroup, .researchReorder:
+            return readThroughRefusal([payloadId]) == nil ? intent : .refuse(.readThrough)
+        default:
+            return intent
+        }
+    }
+
+    /// **A link edit asks what linking asks** (shell p5 Task 4a): the piece's
+    /// structure door (`TreeStructureVerbs.linkResearch`, the posture's one
+    /// door — what "Link Research…" asks). Refused, it names why, and its hover
+    /// shows nothing.
+    func permitted(_ intent: TreeDropIntent.Intent) -> TreeDropIntent.Intent {
+        switch intent {
+        case .link(_, let piece):
+            return mayEditResearchLinks(of: piece) ? intent : .refuse(.linksNotPermitted)
+        case .moveLink(_, let from, let to):
+            return mayEditResearchLinks(of: from) && mayEditResearchLinks(of: to)
+                ? intent : .refuse(.linksNotPermitted)
+        case .leaveGroup(let id, let to):
+            // Who loses and who gains is the move's own plan (one oracle).
+            let plan = Self.plan([id], to: .sharedRoot, linkTo: to, unlinks: nil, store: store, state: state)
+            let homes = state.researchHomes(in: store.manifest)
+            return plan.losingChapters.union(plan.gainingChapters)
+                .allSatisfy { !homes.takesLinks($0) || mayEditResearchLinks(of: $0) }
+                ? intent : .refuse(.linksNotPermitted)
+        default:
+            return intent
+        }
+    }
+
+    /// Where a link drop's rows land, in sight (`showLanding`).
+    private func land(_ ids: [String], inFoldOf piece: String?) {
+        state.showLanding(of: ids, inFoldOf: piece, structure: store.manifest.structure,
+                          research: store.manifest.research)
     }
 
     /// Performs `intent` for every row the drag carries (stage-2b Task 3). The
@@ -252,31 +417,37 @@ extension BinderTreeVerbs {
     /// task, and a throw stops it and surfaces in the tree's alert.
     private func apply(
         _ intent: TreeDropIntent.Intent, movingIds batch: [String],
-        payload: String, site: String, atIndex: Int? = nil
+        payload: String, site: String, landing: HeldResearchAct.Landing = .end
     ) -> Bool {
+        // Where each row was taken from (closing round A2), then the drag is
+        // over: its record goes (M9).
+        let sources = sources(of: batch.isEmpty ? [payload] : batch, fold: nil)
+        state.researchDragSource = nil
         switch intent {
         case .rescope(let ids, let target):
-            perform { try await store.moveResearchItems(
-                ids: batch.isEmpty ? ids : batch, to: target, atIndex: atIndex) }
-            return true
+            return requestMove(batch.isEmpty ? ids : batch, to: target, landing: landing, sources: sources,
+                               linkTo: nil, unlinks: nil)
         case .link(let researchId, let documentId):
             let batch = batch.isEmpty ? [researchId] : batch
-            perform {
-                for id in batch {
-                    try await store.linkResearch(
-                        researchId: id, toDocumentId: documentId)
-                }
-            }
+            land(batch, inFoldOf: documentId)
+            perform { try await relink(batch, from: [], to: documentId) }
             return true
-        case .unlink(let researchId, let documentId):
+        case .moveLink(let researchId, let from, let to):
+            // Between chapters by their links, through the same oracle: a
+            // single note out of its fold asks nothing; a batch, or a chapter
+            // it was not taken from losing it, asks (closing round A3).
             let batch = batch.isEmpty ? [researchId] : batch
-            perform {
-                for id in batch {
-                    try await store.unlinkResearch(
-                        researchId: id, fromDocumentId: documentId)
-                }
-            }
-            return true
+            var unlinks: [String: [String]] = [:]
+            for id in batch { unlinks[id] = [from] }
+            return requestMove(batch, to: nil, landing: .end, sources: sources,
+                               linkTo: to, unlinks: unlinks)
+        case .leaveGroup(let researchId, let documentId):
+            // Out of the chapter's group to the Research root, then linked:
+            // the second chapter's (closing round A).
+            // One plan, one save, the oracle's question (closing round A3).
+            let batch = batch.isEmpty ? [researchId] : batch
+            return requestMove(batch, to: .sharedRoot, landing: .end, sources: sources,
+                               linkTo: documentId, unlinks: nil)
         case .useInDocument(let researchId):
             return FigureSectionVerbs(store: store, state: state).dropToUse(researchId: researchId) != nil
         case .sendFigureToResearch(let figureId, let scope, let group):
@@ -284,6 +455,10 @@ extension BinderTreeVerbs {
             return FigureSectionVerbs(store: store, state: state)
                 .dropToSend(figureId: figureId, scope: scope, group: group)
         case .refuse(let reason):
+            // A read-through refusal names the piece, as every surface does.
+            if case .readThrough = reason, let refusal = readThroughRefusal([payload]) {
+                state.pendingError = refusal
+            }
             return refuseDrop(site, payload: payload, reason: reason)
         case .researchReorder, .structureReorder:
             // Both belong to a caller that knows the target row and the drop's
@@ -296,59 +471,56 @@ extension BinderTreeVerbs {
     }
 
     /// The ordinary same-scope reorder. Not reinvented: the index is
-    /// `ResearchSelectionSync`'s and the move is `ProjectStore.moveResearchItem`,
-    /// which reparents within a scope and never moves a file between scopes —
-    /// the batch mover would, and a piece-root item whose parent id is `nil`
-    /// would read as "shared root" to it.
+    /// `ResearchSelectionSync`'s, and the move is the tree's one research-move
+    /// door (`requestMove`, fix round 2), one row or a batch alike.
     ///
-    /// **A batch reorders through the plural mover, and its destination is
-    /// named rather than implied** (stage-2b Task 3). `moveResearchItem` takes a
-    /// parent id, where `nil` means the shared root — which is why the single
-    /// case above uses it and the batch cannot: a piece-root item's parent id is
-    /// also `nil`, and handing that to the batch mover as `.sharedRoot` would
-    /// turn a reorder inside a Collection piece into a move of the writer's
-    /// files out of it. `TreeDropIntent.container(ofRow:)` is the rule that
-    /// already answers *"what does beside this row mean"* — `.group`, `.piece`
-    /// or `.sharedRoot` — and it is called here rather than restated.
+    /// **Its destination is named rather than implied** (stage-2b Task 3): a
+    /// piece-root item's parent id is `nil`, and handing that to the mover as
+    /// `.sharedRoot` would turn a reorder inside a Collection piece into a
+    /// move of the writer's files out of it. `TreeDropIntent.container(ofRow:)`
+    /// is the rule that already answers *"what does beside this row mean"* —
+    /// `.group`, `.piece` or `.sharedRoot` — and it is called here rather than
+    /// restated.
     private func reorder(
         draggedId: String, movingIds: [String],
-        position: DropIntent.Position, target: ResearchItem
+        position: DropIntent.Position, target: ResearchItem, sources: [String: String]
     ) -> Bool {
-        let batched = movingIds.count > 1
-        let toParentId: String?
-        let destIndex: Int
+        // The hover's answer at this position, asked here too, so the two
+        // cannot disagree about a refusal (review Minor 3).
+        guard reorderLanding(position: position, target: target,
+                             movingIds: movingIds).accepts else {
+            return refuseDrop("research row \(target.id)", payload: draggedId, reason: .sameRow)
+        }
+        let landing: HeldResearchAct.Landing
         if position == .middle, target.type == .group {
-            // Into the group, at its head — the target is the new parent here,
-            // not a sibling, so there is no insertion index to compute.
-            toParentId = target.id
-            destIndex = 0
+            // Into the group, at its head — the target is the new parent here.
+            landing = .head
         } else {
-            toParentId = findParentId(of: target.id)
-            guard let index = ResearchSelectionSync.postRemovalInsertionIndex(
+            guard ResearchSelectionSync.postRemovalInsertionIndex(
                 targetId: target.id, position: position, movingIds: movingIds,
-                siblings: siblings(of: toParentId)) else {
+                siblings: siblings(of: findParentId(of: target.id))) != nil else {
                 // The target is inside the batch (which includes the dragged row
                 // itself) or is not among the siblings it should be — nothing to
                 // anchor to.
                 return refuseDrop("research row \(target.id)",
                                   payload: draggedId, reason: .sameRow)
             }
-            destIndex = index
+            // Found again where the move is made, after any lift (round 3, c).
+            landing = .beside(rowId: target.id, position: position)
         }
-        guard batched else {
-            perform { try await store.moveResearchItem(
-                id: draggedId, toParentId: toParentId, atIndex: destIndex) }
-            return true
-        }
+        // One door for every research move (fix round 2, NB2): a group
+        // dragged over a piece's note asks as the menu's Move does. The
+        // destination is named, never implied: `container(ofRow:)` is the
+        // rule for what beside this row means, so a piece-root row's nil
+        // parent never reads as the shared root.
         let destination: ResearchMoveTarget = position == .middle
             && target.type == .group
             ? .group(target.id)
             : TreeDropIntent.container(ofRow: target.id,
                                        structure: store.manifest.structure,
                                        research: store.manifest.research)
-        perform { try await store.moveResearchItems(
-            ids: movingIds, to: destination, atIndex: destIndex) }
-        return true
+        return requestMove(movingIds, to: destination, landing: landing, sources: sources,
+                           linkTo: nil, unlinks: nil)
     }
 
     /// Where a cross-scope drop lands within its new container: beside the row

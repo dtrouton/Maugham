@@ -156,6 +156,12 @@ final class FigureGridController: FigureGridDataSource, FigureGridViewDelegate, 
     var foldsOnEscape = true
     /// The piece whose Research Send to Research puts the table in by
     /// default; nil offers Shared alone.
+    /// What the project calls `researchPiece` (`PieceNoun`).
+    private var researchNoun: PieceNoun {
+        guard let manifest = projectStore?.manifest else { return .piece }
+        return PieceNoun.of(researchPiece.flatMap { TreeWalk.find(id: $0, in: manifest.structure) }, in: manifest)
+    }
+
     var researchPiece: String? {
         didSet { refreshMenuState() }
     }
@@ -481,6 +487,11 @@ final class FigureGridController: FigureGridDataSource, FigureGridViewDelegate, 
     func setAccess(_ mode: FigureGridGate.Mode, captionMayEdit: Bool) {
         let reason = mode.readOnlyReason
         if let reason, self.mode.readOnlyReason == nil { closeOpenEdit(because: reason) }
+        // **Entering read-through drops the grid's steps before it**, as the
+        // text drops its typing (owner's ruling, 2026-11-22): from here the
+        // grid's ⌘Z reaches only decisions. The visit's one window step at
+        // the fold is the host's record and keeps the whole visit.
+        if reason?.isReadThrough == true, self.mode.readOnlyReason?.isReadThrough != true { gridUndo.removeAllActions() }
         self.mode = mode
         self.captionMayEdit = captionMayEdit
         bars.setAccess(cellsMayEdit: reason == nil, captionMayEdit: captionMayEdit)
@@ -517,7 +528,8 @@ final class FigureGridController: FigureGridDataSource, FigureGridViewDelegate, 
     /// keys. Typing still open (a cell's, the formula bar's, a caption or
     /// name changed and not yet committed) is cancelled as Esc cancels it
     /// (R7d-4): no field keeps an undo history the writer can reach. A
-    /// read-only grid refuses with the reason line (R7d-11). Otherwise the
+    /// read-only grid refuses with the reason line (R7d-11), except in
+    /// read-through, whose decisions stay undoable. Otherwise the
     /// grid's last step is taken back, in turn behind every write asked
     /// before it, so a ⌘Z never takes back the step under one still landing.
     func undoInGrid() { runUndo(redo: false) }
@@ -529,7 +541,9 @@ final class FigureGridController: FigureGridDataSource, FigureGridViewDelegate, 
 
     private func runUndo(redo: Bool) {
         syncFromHost()
-        if let reason = mode.readOnlyReason { return answer(reason) }
+        // In read-through the stack holds only decisions (the entry dropped
+        // the cell typing before it, `setAccess`), and a decision is undoable.
+        if let reason = mode.readOnlyReason, !reason.isReadThrough { return answer(reason) }
         if hasOpenTyping {
             if !redo { cancelOpenTyping() }
             return
@@ -787,7 +801,8 @@ final class FigureGridController: FigureGridDataSource, FigureGridViewDelegate, 
     private func refreshMenuState() {
         let next = FigureTableMenuState.of(table: values.table, selection: model.selection, mode: mode,
                                            knowsItsPiece: researchPiece != nil,
-                                           maySend: host.offers.sendToResearch)
+                                           maySend: host.offers.sendToResearch,
+                                           noun: researchNoun)
         guard next != menuState else { return }
         menuState = next
         onMenuStateChange?(next)

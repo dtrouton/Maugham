@@ -10,7 +10,7 @@ private final class ResultBox<T>: @unchecked Sendable {
 
 /// Batch "Archive all done" × ⌘Z — the final-review CRITICAL fix.
 ///
-/// `TasksPane.archiveAllDone` opens ONE manual undo group and calls
+/// `ResolveTaskVerbs.archiveAllDone` (the tasks pane's, moved) opens ONE manual undo group and calls
 /// `Document.archiveTask` per done task. An INLINE task's archive splices
 /// manuscript text, whose D1 choreography clears stale native typing actions
 /// (`removeAllActions`) — and a `removeAllActions` INSIDE an open manual group
@@ -75,11 +75,11 @@ final class ArchiveAllDoneUndoTests: XCTestCase {
         return Harness(doc: doc, taskPid: taskPid)
     }
 
-    /// A TasksPane over a stub project with `doc` registered, mirroring
-    /// `TasksPaneIntegrationTests.makePane(for:registering:)` — we never render
-    /// the view; `archiveAllDone` is `internal` exactly so tests can drive the
-    /// REAL batch path.
-    private func makePane(for doc: Document) async throws -> TasksPane {
+    /// The to-do verbs (`ResolveTaskVerbs`, moved out of the tasks pane in
+    /// shell plan 2 Task 4) over a stub project with `doc` registered and open
+    /// in the centre, mirroring `TasksPaneIntegrationTests.makeVerbs(for:)` —
+    /// `archiveAllDone` is called directly so tests drive the REAL batch path.
+    private func makeVerbs(for doc: Document, undoManager: UndoManager?) async throws -> ResolveTaskVerbs {
         let url = TestTemp.root
             .appendingPathComponent("PANE-UNDO-STUB-\(UUID().uuidString)")
         try FileManager.default.createDirectory(
@@ -96,11 +96,9 @@ final class ArchiveAllDoneUndoTests: XCTestCase {
         let ds = try await DocumentStore.open(url: url)
         store.documentStore = ds
         ds.register(document: doc, for: "stub/\(doc.docId).md")
-        return TasksPane(
-            store: store,
-            documentStore: ds,
-            activeDocId: doc.docId,
-            projectURL: url)
+        return ResolveTaskVerbs(
+            store: store, documentStore: ds,
+            openDocId: doc.docId, undoManager: undoManager)
     }
 
     // MARK: - Sync ⟷ async bridges (AnnotationAcceptUndoTests shape)
@@ -141,11 +139,11 @@ final class ArchiveAllDoneUndoTests: XCTestCase {
         let originalTaskParagraph = doc.paragraph(id: h.taskPid)
 
         let um = UndoManager()
-        let pane = try bridge { try await self.makePane(for: doc) }
+        let verbs = try bridge { try await self.makeVerbs(for: doc, undoManager: um) }
         // The real batch path: ONE manual group; the inline member's D1 clear
         // must have fired BEFORE the group opened (a clear inside the group is
         // the T5 NSUndoManager corruption this test pins).
-        pane.archiveAllDone(in: .document, undoManager: um)
+        verbs.archiveAllDone(in: .document)
 
         XCTAssertEqual(status(doc, inlineId), .archived)
         XCTAssertEqual(status(doc, paneTask.id), .archived)
@@ -185,9 +183,9 @@ final class ArchiveAllDoneUndoTests: XCTestCase {
         doc.setTaskStatus(id: "inline:\(doc.docId):aaaaaa", status: .open)
 
         let um = UndoManager()
-        let pane = try bridge { try await self.makePane(for: doc) }
+        let verbs = try bridge { try await self.makeVerbs(for: doc, undoManager: um) }
 
-        pane.archiveAllDone(in: .document, undoManager: um)
+        verbs.archiveAllDone(in: .document)
         pumpFor(0.1)  // fixed window: asserting nothing happens (no group opened)
         XCTAssertFalse(um.canUndo,
             "an empty batch must not open a group / leave a do-nothing ⌘Z entry")

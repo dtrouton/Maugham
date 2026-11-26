@@ -98,11 +98,48 @@ final class SkillIndexTests: XCTestCase {
         // The real bundled content: all skills present with descriptions.
         let index = try SkillIndex.bundled()
         XCTAssertEqual(index.skills.map(\.name),
-                       ["editing-pass", "edition-brief", "transcribing-notebooks", "translation-pass", "visual-language"])
+                       ["editing-pass", "edition-brief", "publishing-setup", "transcribing-notebooks", "translation-pass", "visual-language"])
         XCTAssertNotNil(index.bootstrapTemplate)
         for skill in index.skills {
             XCTAssertFalse(skill.description.isEmpty)
             XCTAssertGreaterThan(skill.body.count, 200)
         }
+    }
+
+    // MARK: - What the served text names (shell p5 Task 9)
+
+    /// Every name the served text sends Claude to load — "`get_help` topic
+    /// `x`", "the `x` skill", "load `x`" — in the order found.
+    static func namedTopics(in text: String) -> [String] {
+        let patterns = [
+            #"topic\s+[`"]([a-z]+(?:-[a-z]+)*)[`"]"#,
+            #"[`"]([a-z]+(?:-[a-z]+)+)[`"]\s+skill"#,
+            #"\bload\s+[`"]([a-z]+(?:-[a-z]+)+)[`"]"#,
+        ]
+        let ns = text as NSString
+        return patterns.flatMap { pattern in
+            try! NSRegularExpression(pattern: pattern)
+                .matches(in: text, range: NSRange(location: 0, length: ns.length))
+                .map { ns.substring(with: $0.range(at: 1)) }
+        }
+    }
+
+    /// **The router and every skill send Claude only to what `get_help`
+    /// serves**: a skill by its name, a guide page by its slug, or "skills".
+    func test_everyTopicTheServedTextNamesIsServed() throws {
+        let skills = try SkillIndex.bundled()
+        let guide = try HelpTopicIndex.bundled()
+        let served = Set(skills.skills.map(\.name) + guide.topics.map(\.slug) + ["skills"])
+        let bodies = skills.skills.map { ($0.name, $0.body) } + [("maugham-bootstrap", skills.bootstrapTemplate?.body ?? "")]
+        let named = bodies.flatMap { name, body in Self.namedTopics(in: body).map { (name, $0) } }
+        XCTAssertTrue(named.contains { $0.1 == "publishing-setup" }, "premise: the router names publishing-setup")
+        XCTAssertEqual(named.filter { !served.contains($0.1) }.map { "\($0.0): \($0.1)" }, [],
+                       "a skill sends Claude to a topic get_help does not serve")
+    }
+
+    func test_theNamedTopicReaderCatchesAPlantedName() {
+        XCTAssertEqual(Self.namedTopics(in: "Call `get_help` with topic `retired-skill`; run the `visual-language` skill; load `transcribing-notebooks`."),
+                       ["retired-skill", "visual-language", "transcribing-notebooks"])
+        XCTAssertEqual(Self.namedTopics(in: "Pass `document_id` and the `a1` key."), [])
     }
 }

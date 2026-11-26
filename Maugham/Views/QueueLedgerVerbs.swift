@@ -226,7 +226,7 @@ enum QueueLedgerVerbs {
     /// The lane resolution is `LetterKeep.laneLine`'s, called rather than
     /// respelled: a lesson filed from the queue and a lesson filed from the
     /// letter must say the same thing about the same round.
-    static func provenance(for annotation: Annotation, store: ProjectStore) -> String {
+    static func provenance(for annotation: Annotation, docId: String?, store: ProjectStore) -> String {
         LessonLedgerVerbs.provenance(
             voice: AnnotationAuthorPresentation.label(for: annotation.author),
             lane: LetterKeep.laneLine(
@@ -237,7 +237,7 @@ enum QueueLedgerVerbs {
                 // delta, and putting it on a row filed from the queue would
                 // attribute one reading of the delta to whatever round
                 // happened to raise this note (global constraint 28).
-                stage: nil, store: store))
+                stage: nil, docId: docId, store: store))
     }
 
     // MARK: - The acts
@@ -250,14 +250,18 @@ enum QueueLedgerVerbs {
     /// refused ruling has changed nothing, and a refused stet has left a
     /// decision in the ledger with the note still open — a writer told only
     /// "that didn't work" would press again and file the row twice.
+    ///
+    /// `filedUnder` hears where the choice went, once both acts landed.
     static func makeChoice(
         _ annotation: Annotation, in document: Document,
-        store: ProjectStore, world: DeclaredWorldStore?, undoManager: UndoManager?
+        store: ProjectStore, world: DeclaredWorldStore?, undoManager: UndoManager?,
+        filedUnder: (FiledDestination) -> Void = { _ in }
     ) async -> String? {
         guard let heading = heading(of: annotation) else { return headinglessRefusal }
+        let destination: FiledDestination
         do {
-            try await LessonLedgerVerbs.makeChoice(
-                heading, provenance: provenance(for: annotation, store: store),
+            destination = try await LessonLedgerVerbs.makeChoice(
+                heading, provenance: provenance(for: annotation, docId: document.docId, store: store),
                 store: store, world: world)
         } catch {
             return error.localizedDescription
@@ -270,6 +274,7 @@ enum QueueLedgerVerbs {
                 + "let stand: \(error.localizedDescription) "
                 + "It is still open \u{2014} stet it without filing again."
         }
+        filedUnder(destination)
         return nil
     }
 
@@ -284,17 +289,18 @@ enum QueueLedgerVerbs {
     /// is the writer-facing refusal, and this is what stops a caller filing an
     /// entry that reads as the writer's commitment to nothing.
     static func keepAsLesson(
-        _ heading: String, from annotation: Annotation,
-        store: ProjectStore, world: DeclaredWorldStore?
+        _ heading: String, from annotation: Annotation, docId: String?,
+        store: ProjectStore, world: DeclaredWorldStore?,
+        filedUnder: (FiledDestination) -> Void = { _ in }
     ) async -> String? {
         let words = heading.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !words.isEmpty else {
             return RulingFailure.emptyRuling.localizedDescription
         }
         do {
-            try await LessonLedgerVerbs.keepAsLesson(
-                words, provenance: provenance(for: annotation, store: store),
-                store: store, world: world)
+            filedUnder(try await LessonLedgerVerbs.keepAsLesson(
+                words, provenance: provenance(for: annotation, docId: docId, store: store),
+                store: store, world: world))
         } catch {
             return error.localizedDescription
         }

@@ -125,13 +125,14 @@ enum CanvasSubject: Hashable {
                         in structure: [StructureItem],
                         research: [ResearchItem]) -> CanvasSubject {
         switch subject {
-        case nil, .project:
+        case nil, .project, .inbox, .canvas, .palette, .edition:
+            // The shell-p1 subjects name no piece or card: the whole board.
             return .wholeProject
         case .figure:
             // A figure lights no card — it has none on the board — and names
             // no piece, so to the canvas it means what the project means: the
-            // whole board, undimmed. The Plan persona keeps the canvas in the
-            // centre beside the figure (report plan 8a).
+            // whole board, undimmed. A figure clicked with the canvas open
+            // keeps the canvas in the centre (report plan 8a).
             return .wholeProject
         case .research(let id):
             // §4: a research item IS a subject and lights its own card. The

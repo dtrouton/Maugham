@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 import MaughamCore
 
 /// The writer's rulings, itemized under their essay — the second stratum of a
@@ -20,8 +21,8 @@ import MaughamCore
 /// Everything a test would want to ask — what the rows are, what a row's caption
 /// says, what each verb does to the file and to the undo stack — is a static on
 /// this enum taking what it touches, so it is asked directly rather than through
-/// a mounted row and a synthesized click. That is `DiagnosticsPane`'s shape and
-/// `TasksPane`'s, and it is what makes the undo assertions possible at all:
+/// a mounted row and a synthesized click. That is the Diagnostics pane's shape and
+/// the Tasks pane's, and it is what makes the undo assertions possible at all:
 /// SwiftUI offers no way to press ⌘Z into a hosted view.
 ///
 /// **Rows are addressed by INDEX, never by the id they were built with.** A
@@ -57,6 +58,13 @@ enum RulingsStratum {
     /// A hand-typed ruling has no date and no provenance, and says so by
     /// showing nothing. "Unknown" would be Maugham inventing a fact about the
     /// writer's own record.
+    /// The caption under a row that also names where it was made (the
+    /// Book's Brief): the origin first, then `caption(for:)`.
+    static func caption(for ruling: Ruling, origin: String?) -> String? {
+        let parts = [origin, caption(for: ruling)].compactMap { $0 }
+        return parts.isEmpty ? nil : parts.joined(separator: " · ")
+    }
+
     static func caption(for ruling: Ruling) -> String? {
         switch (ruling.ruledOn, ruling.provenance) {
         case let (.some(date), .some(provenance)):
@@ -98,7 +106,7 @@ enum RulingsStratum {
         do {
             try await RulingPerformer.revoke(
                 rulingId: ruling.id, kind: kind, forScope: scope, store: store,
-                world: world)
+                world: world, undo: .verb(on: undoManager))
         } catch {
             say(error, in: store)
             return
@@ -106,19 +114,20 @@ enum RulingsStratum {
         OpUndoRegistrar.register(
             undoManager, actionName: "Revoke Ruling", target: store,
             workTaskSink: workTaskSink,
-            undo: { s in
+            undo: { [weak undoManager] s in
                 await refusingLoudly(in: s) {
                     try await RulingPerformer.restore(
                         ruling, at: index, kind: kind, forScope: scope, store: s,
-                        world: world)
+                        world: world, undo: .replay(on: undoManager))
                 }
             },
-            redo: { s in
+            redo: { [weak undoManager] s in
                 guard let id = currentId(at: index, kind: kind, forScope: scope, store: s)
                 else { return }
                 await refusingLoudly(in: s) {
                     try await RulingPerformer.revoke(
-                        rulingId: id, kind: kind, forScope: scope, store: s, world: world)
+                        rulingId: id, kind: kind, forScope: scope, store: s, world: world,
+                        undo: .replay(on: undoManager))
                 }
             })
     }
@@ -141,7 +150,7 @@ enum RulingsStratum {
         do {
             try await RulingPerformer.edit(
                 rulingId: id, newText: newText, kind: kind, forScope: scope,
-                store: store, world: world)
+                store: store, world: world, undo: .verb(on: undoManager))
         } catch {
             say(error, in: store)
             return
@@ -149,22 +158,22 @@ enum RulingsStratum {
         OpUndoRegistrar.register(
             undoManager, actionName: "Edit Ruling", target: store,
             workTaskSink: workTaskSink,
-            undo: { s in
+            undo: { [weak undoManager] s in
                 guard let now = currentId(at: index, kind: kind, forScope: scope, store: s)
                 else { return }
                 await refusingLoudly(in: s) {
                     try await RulingPerformer.edit(
                         rulingId: now, newText: priorText, kind: kind, forScope: scope,
-                        store: s, world: world)
+                        store: s, world: world, undo: .replay(on: undoManager))
                 }
             },
-            redo: { s in
+            redo: { [weak undoManager] s in
                 guard let now = currentId(at: index, kind: kind, forScope: scope, store: s)
                 else { return }
                 await refusingLoudly(in: s) {
                     try await RulingPerformer.edit(
                         rulingId: now, newText: newText, kind: kind, forScope: scope,
-                        store: s, world: world)
+                        store: s, world: world, undo: .replay(on: undoManager))
                 }
             })
     }
@@ -282,6 +291,56 @@ extension RulingsStratum {
     }
 }
 
+/// **Which undo manager a statement verb pressed in a pane registers on**
+/// (Adopt, Revoke, Edit ruling) — asked ONCE, synchronously, at the press:
+/// **the manager ⌘Z will run from where the keys are.**
+///
+/// A button takes no focus, so the window's first responder at the press is
+/// where the writer's next ⌘Z comes from. AppKit sends `undo:` up the
+/// responder chain from there. A statement editor (any statement's — a
+/// second editor with its own stack) answers it itself, on its own manager
+/// (`MaughamTextView.undo:`), so with the keys in one, or in a view inside
+/// one, the verb joins THAT editor's stack — the pressed statement's own
+/// editor or another's. From anywhere else — the manuscript, a research
+/// note's editor, the tree, a field, nothing — the walk reaches the window,
+/// so the verb is the window's. An inline field (Edit ruling) is outside
+/// every editor: the window's while it is open, and the window's after it
+/// commits and closes, when the keys fall to the window itself.
+///
+/// How the verb WRITES is a separate question, answered per write
+/// (`StatementWriteUndo`): undo-coherently only when the chosen manager is
+/// the pressed statement's own holder; plainly on any other.
+@MainActor
+enum StatementVerbUndo {
+    /// `window` is the pane's environment manager, which is its window's;
+    /// that is how the pressed window is found (the key window otherwise —
+    /// a press makes its window key).
+    static func manager(window: UndoManager?) -> UndoManager? {
+        // No environment manager: the key window is the pressed one (a press
+        // makes its window key), and its first responder still decides — the
+        // statement editor holding the keys keeps its own stack (Task 5 M1).
+        guard let window else {
+            let key = NSApp.keyWindow
+            return manager(firstResponder: key?.firstResponder, window: key?.undoManager)
+        }
+        let host = NSApp.windows.first { $0.undoManager === window } ?? NSApp.keyWindow
+        return manager(firstResponder: host?.firstResponder, window: window)
+    }
+
+    /// Pure: the first manager the responder chain from `firstResponder`
+    /// offers `undo:` on, else the window's.
+    static func manager(firstResponder: NSResponder?, window: UndoManager?) -> UndoManager? {
+        var responder = firstResponder
+        while let current = responder {
+            if let editor = current as? MaughamTextView, editor.usesPrivateUndoManager {
+                return editor.privateUndoManager
+            }
+            responder = current.nextResponder
+        }
+        return window
+    }
+}
+
 /// **Whether a statement surface draws its writing verbs** — the ONE rule
 /// the three statement surfaces share (P3c plan 2 Task 9 collapsed three
 /// one-line copies of it): a ruling row's Edit, Revoke and an orphan's Remove
@@ -323,6 +382,17 @@ struct RulingsStratumView: View {
     /// `RulingsStratum.partition`'s doc comment for why that must never read
     /// as "orphaned". `StatementPane` resolves this in a `.task`.
     var liveParagraphIds: Set<String>? = nil
+    /// The rows to draw, in the order to draw them — a subset of `rulings`
+    /// (Brief's Decided draws newest first and folds the rest). Nil draws
+    /// every ruling in file order. The verbs still address a row by its
+    /// position in `rulings`, so `rulings` stays the statement's whole list.
+    var displayed: [Ruling]? = nil
+    /// Draw the stratum's own title ("Rulings"); Brief draws "Decided".
+    var showsTitle: Bool = true
+    /// Where these rows were made, named in each row's caption — the Book's
+    /// Brief gathers decisions from several statements. A piece's origin
+    /// carries `open`, its Brief; nil names nothing (every other mount).
+    var origin: RulingOrigin? = nil
 
     @Environment(\.undoManager) private var undoManager
 
@@ -350,13 +420,15 @@ struct RulingsStratumView: View {
     }
 
     var body: some View {
-        let partition = RulingsStratum.partition(rulings, liveParagraphIds: liveParagraphIds)
+        let partition = RulingsStratum.partition(displayed ?? rulings, liveParagraphIds: liveParagraphIds)
         VStack(alignment: .leading, spacing: 0) {
-            Text(Self.title(for: kind))
-                .font(.caption).bold()
-                .foregroundStyle(.secondary)
-                .padding(.horizontal, 8)
-                .padding(.vertical, 4)
+            if showsTitle {
+                Text(Self.title(for: kind))
+                    .font(.caption).bold()
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+            }
             if !partition.glossary.isEmpty {
                 glossarySection(partition.glossary)
                 Divider()
@@ -463,10 +535,22 @@ struct RulingsStratumView: View {
                     .font(.callout)
                     .fixedSize(horizontal: false, vertical: true)
             }
-            if let caption = RulingsStratum.caption(for: ruling) {
-                Text(caption)
-                    .font(.caption2)
-                    .foregroundStyle(.tertiary)
+            if let caption = RulingsStratum.caption(for: ruling, origin: origin?.title) {
+                if let open = origin?.open {
+                    // `Button(.plain)` and never `.onTapGesture` (tripwire 9).
+                    Button(action: open) {
+                        Text(caption)
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                            .multilineTextAlignment(.leading)
+                    }
+                    .buttonStyle(.plain)
+                    .help(origin?.openHelp ?? "")
+                } else {
+                    Text(caption)
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                }
             }
             if StatementSurfaceVerbs.offered(under: posture) {
                 HStack(spacing: 12) {
@@ -486,11 +570,12 @@ struct RulingsStratumView: View {
     }
 
     private func revoke(_ ruling: Ruling, at index: Int) {
-        let um = undoManager
+        // Chosen now, at the press: where ⌘Z will run from the keys.
+        let undo = StatementVerbUndo.manager(window: undoManager)
         Task { @MainActor in
             await RulingsStratum.revoke(
                 ruling, at: index, kind: kind, forScope: scope, store: store,
-                world: world, undoManager: um, workTaskSink: { _ in })
+                world: world, undoManager: undo, workTaskSink: { _ in })
         }
     }
 
@@ -500,11 +585,11 @@ struct RulingsStratumView: View {
         // `RulingPerformer.edit` refuses it, and closing the field without
         // asking is the honest UI half of that refusal.
         guard !trimmed.isEmpty else { return }
-        let um = undoManager
+        let undo = StatementVerbUndo.manager(window: undoManager)
         Task { @MainActor in
             await RulingsStratum.edit(
                 at: index, to: trimmed, kind: kind, forScope: scope, store: store,
-                world: world, undoManager: um, workTaskSink: { _ in })
+                world: world, undoManager: undo, workTaskSink: { _ in })
         }
     }
 }
@@ -548,4 +633,15 @@ struct StratumEditField: View {
             isFocused = true
         }
     }
+}
+
+/// Where a row of `RulingsStratumView` was made, and — for a piece — the way
+/// to that piece's Brief (shell plan 3 Task 5).
+struct RulingOrigin {
+    let title: String
+    let open: (() -> Void)?
+
+    /// "Open the Brief of “Arrival”" — the origin by its own title (shell
+    /// closing A9: a possessive after a closing quote reads badly).
+    var openHelp: String { "Open the Brief of \u{201C}\(title)\u{201D}" }
 }

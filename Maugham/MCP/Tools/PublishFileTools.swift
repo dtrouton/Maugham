@@ -92,6 +92,18 @@ public enum ListPublishFilesTool: MCPTool {
         var files: [[String: Any]] = []
         var buildArtifacts: [[String: Any]] = []
 
+        // An unreadable folder yields an enumerator that silently produces
+        // nothing; refuse rather than present it as an empty tree (RULING-7).
+        // An ABSENT folder is still an empty tree.
+        var isDirectory: ObjCBool = false
+        if FileManager.default.fileExists(atPath: publishRoot.path, isDirectory: &isDirectory),
+           isDirectory.boolValue,
+           !FileManager.default.isReadableFile(atPath: publishRoot.path) {
+            throw MCPError.toolError(payload: .init(
+                error: "publish_dir_unreadable",
+                message: ".maugham/publish/ exists but cannot be read, so its files cannot be listed.",
+                hint: "Check the folder's permissions; it is not empty-by-design."))
+        }
         if FileManager.default.fileExists(atPath: publishRoot.path),
            let enumerator = FileManager.default.enumerator(
             at: publishRoot,

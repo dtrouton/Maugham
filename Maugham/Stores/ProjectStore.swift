@@ -132,6 +132,10 @@ public enum ProjectStoreError: Error, Equatable {
     /// or its occurrence is gone from the text just read. Refused before
     /// anything is written, never re-aimed at a guessed occurrence.
     case staleSearchMatch
+    /// A single Replace in a piece its writer has put into read-through on
+    /// this Mac (`readThroughPieceIds`): typing is off there, so Replace is
+    /// too. Refused before anything is written.
+    case inReadThrough(title: String)
 }
 
 /// Human-readable messages so `error.localizedDescription` in the pane alerts
@@ -139,6 +143,13 @@ public enum ProjectStoreError: Error, Equatable {
 /// Foundation fallback "(Maugham.ProjectStoreError error N)". `fileSystemError`
 /// carries an already-composed message, so it renders its payload verbatim.
 extension ProjectStoreError: LocalizedError {
+    /// The lead of `researchTextNotSaved`'s sentence, without the “so it is
+    /// as it was” that follows it there: a new note's take-back says what
+    /// happened to the note instead (`takeBackUnsavedNewNote`).
+    static func couldNotSave(_ title: String) -> String {
+        "Maugham couldn’t save “\(title)”"
+    }
+
     public var errorDescription: String? {
         switch self {
         case .manifestNotFound:
@@ -188,11 +199,13 @@ extension ProjectStoreError: LocalizedError {
         case .outsideResearch(let title):
             return "“\(title)” isn’t inside Research, so Maugham didn’t write it."
         case .researchTextNotSaved(let title):
-            return "Maugham couldn’t save “\(title)”, so it is as it was."
+            return Self.couldNotSave(title) + ", so it is as it was."
         case .profileFromNewerBuild:
             return "This project’s profile was set by a newer version of Maugham, so it can’t be changed here."
         case .staleSearchMatch:
             return "That match has changed. Search again."
+        case .inReadThrough(let title):
+            return "Left as it was — “\(title)” is in read-through. Resume writing to replace it."
         case .deletedInPart(let trashed, let removed, let failed, let underlying):
             func quoted(_ titles: [String]) -> String { titles.map { "“\($0)”" }.joined(separator: ", ") }
             var done: [String] = []
@@ -216,6 +229,9 @@ extension ProjectStoreError: LocalizedError {
 public final class ProjectStore {
     public let url: URL
     public internal(set) var manifest: ProjectManifest
+    /// How many times this store has written its manifest — the pin that a
+    /// verb is one save (`relinkResearch`). Never drawn.
+    @ObservationIgnored var manifestSaveCount = 0
     /// One line for the window when `load` put a missing manifest back from
     /// its shadow (#92); nil otherwise. The banner's dismiss clears it, so it
     /// is said once per open.
@@ -274,7 +290,7 @@ public final class ProjectStore {
     /// the live canvas from the sidecar and address the one that is real.
     ///
     /// **Non-nil is not the same as usable.** The model is created eagerly with
-    /// the window and is only attached while the Plan persona is on screen; ask
+    /// the window and is only attached while the canvas is open in the centre; ask
     /// `CanvasModel.isAttached`, whose doc comment spells out what a write into
     /// an unattached one costs.
     weak var liveCanvas: CanvasModel?
@@ -295,6 +311,15 @@ public final class ProjectStore {
     /// never a rendered dependency.
     @ObservationIgnored internal var openStatementDocuments: [String: OpenStatementDocument] = [:]
 
+    /// **Bumped whenever a statement's text may have changed out of a view's
+    /// sight** (shell plan 3): after every write through
+    /// `withStatementDocument` (rulings, proposals, appends, promotion), and
+    /// when a pane forgets its statement `Document` (its typing is flushed by
+    /// then). OBSERVED, unlike `derivedCache`, so a view keying a statement
+    /// read on it re-reads. Typing in a still-open pane is seen through that
+    /// `Document`'s own observable `displayText` (`BriefLine.RefreshKey`).
+    internal(set) var statementTextRevision = 0
+
     /// The statements somebody is currently OPENING a `Document` for, and whoever
     /// is queued behind them. The registry above answers for a `Document` that is
     /// already open; these two cover the window in which one is being opened,
@@ -303,6 +328,14 @@ public final class ProjectStore {
     @ObservationIgnored internal var statementOpensInFlight: Set<String> = []
     @ObservationIgnored internal var statementOpenWaiters:
         [String: [CheckedContinuation<Void, Never>]] = [:]
+    /// Loads waiting for another host to let go of a statement's `Document`
+    /// (`waitForStatementRelease`). Woken on every forget, and on a release
+    /// of the open gate that leaves nothing registered; each re-asks.
+    @ObservationIgnored internal var statementReleaseWaiters:
+        [String: [CheckedContinuation<Void, Never>]] = [:]
+    /// A test's view of the gate's order (`StatementGateEvent`); nil in
+    /// production.
+    @ObservationIgnored internal var onStatementGateEvent: ((StatementGateEvent) -> Void)?
 
     /// **The Research items whose files a structural verb is moving now**
     /// (#142 T2), counted, so two verbs over one item each hold it until
@@ -312,6 +345,10 @@ public final class ProjectStore {
     /// nothing — a timer's text stays pending, any other is kept aside or
     /// not made, and said (`ResearchNoteDoor.write`).
     @ObservationIgnored internal var researchItemsInFlightCounts: [String: Int] = [:]
+    /// The piece a promotion is moving now, if any (`promotePieceToProject`):
+    /// one promotion at a time per Collection (shell p4 Task 11 fix round 1,
+    /// M1).
+    @ObservationIgnored internal var promotionInFlight: String?
 
     /// Per-project cache fronting `DerivedManuscript` for CLOSED docs (F5).
     /// Owned here — not on `DocumentStore` — because every adopter (search,
@@ -407,9 +444,18 @@ public final class ProjectStore {
     /// The query and options the search field last asked for (nil once the
     /// overlay closes): what a Replace's own refresh searches.
     @ObservationIgnored var latestSearchRequest: (query: String, options: SearchOptions)?
+    /// The last few results that landed, newest last: what a click whose
+    /// id a refresh has since retired came from (`ProjectStore+Search
+    /// .listedMatch(for:)`, #147 R1). Emptied by `clearSearch`.
+    @ObservationIgnored var recentlyLandedSearches: [SearchResults] = []
     /// The Replace (single or Replace All) in flight, if any: the next one
     /// waits for it and its refresh, so it is judged against fresh results.
     @ObservationIgnored var replaceTail: Task<Void, Never>?
+    /// **The pieces in read-through on this Mac** — the session's
+    /// `ReadThroughStore`, set by `ProjectSession.open` (a weak capture).
+    /// Replace and Replace All leave such a piece as it was; nothing else
+    /// here reads it. Empty for a store no session opened.
+    @ObservationIgnored var readThroughPieceIds: @MainActor () -> Set<String> = { [] }
     /// Test seam: awaited by every search after it has read the text and
     /// before its results land, with the search's query. Nil in production.
     @ObservationIgnored var searchWillLandForTesting: (@MainActor (String) async -> Void)?

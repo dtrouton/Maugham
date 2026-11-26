@@ -183,7 +183,7 @@ public struct PublishProblem: Sendable, Hashable {
         case .duplicateLabel(let label):
             return "The label \(label.reference) is used more than once; the first one counts."
         case .missingFootnoteDefinition(let label):
-            return "Footnote [^\(label)] has no definition in this piece."
+            return "Footnote [^\(label)] has no definition in the text that uses it."
         case .duplicateFootnoteDefinition(let label):
             return "Footnote [^\(label)] is defined more than once; the first definition counts."
         case .unusedFootnoteDefinition(let label):

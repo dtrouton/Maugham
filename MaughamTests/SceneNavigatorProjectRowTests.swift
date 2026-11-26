@@ -11,18 +11,15 @@ private struct SceneNavigatorProbeView: View {
     let store: ProjectStore
     let script: FountainScript?
     let probe: BinderSubjectProbe
-    let documentID: String?
     let onSelect: (Int) -> Void
     let treeState = BinderTreeSectionsState()
 
     var body: some View {
-        SceneNavigatorPane(
+        TreeHostFixture.scenes(
             store: store,
             script: script,
-            projectTitle: "Screenplay",
-            selectedSubject: Binding(get: { probe.subject },
-                                     set: { probe.subject = $0 }),
-            documentID: documentID,
+            subject: .tree(Binding(get: { probe.subject },
+                                     set: { probe.subject = $0 })),
             treeState: treeState,
             onSelect: onSelect)
     }
@@ -119,7 +116,7 @@ private struct ForeignResearchProjectionOffender: View {
                 case .item(let id): return id == "doc-1" ? .item(id) : nil
                 case .research: return nil   // the Task 1 rule, kept past its date
                 case .figure: return nil      // the offender draws no figure row
-                case .none: return nil
+                case .inbox, .canvas, .palette, .edition, .none: return nil
                 }
             },
             set: { written in
@@ -127,7 +124,7 @@ private struct ForeignResearchProjectionOffender: View {
                 case .project: probe.subject = .project
                 case .item(let id): if id == "doc-1" { probe.subject = .item(id) }
                 case .research: break        // swallowed — the defect
-                case .figure: break
+                case .figure, .inbox, .canvas, .palette, .edition: break
                 case .none: break
                 }
             })) {
@@ -166,12 +163,14 @@ final class SceneNavigatorProjectRowTests: XCTestCase {
     private var windows: [NSWindow] = []
     private var temp: TempDirectory!
     /// A real screenplay project, for the Research and Palette sections the
-    /// pane now carries (stage-2a Task 4). Deliberately NOT the source of
-    /// `documentID` — this suite's whole vocabulary is the literal `"doc-1"`,
-    /// and the script row's subject is an independent parameter of the pane.
-    /// The store is here for the sections, which this fixture leaves empty, so
-    /// each contributes a header and one placeholder row.
+    /// pane now carries (stage-2a Task 4), which this fixture leaves empty, so
+    /// each contributes a header and one placeholder row. **It is also the
+    /// source of the script row's document** (`scriptID`), as
+    /// `BinderPaneToggle` derives it: until shell p4 Task 1 this suite handed
+    /// the pane a literal `"doc-1"` no store held, which production never does.
     private var store: ProjectStore!
+    /// The screenplay's one document, as production derives it.
+    private var scriptID: String!
 
     override func setUp() async throws {
         temp = TempDirectory()
@@ -179,6 +178,8 @@ final class SceneNavigatorProjectRowTests: XCTestCase {
             named: "Nav-\(UUID().uuidString.prefix(6))", in: temp.url)
         store = try await ProjectStore.load(from: url)
         await store.wordCountPopulationTask?.value
+        scriptID = try XCTUnwrap(TreeHostFixture.sceneDocumentID(in: store),
+                                 "premise: a new screenplay holds its one document")
     }
 
     override func tearDown() async throws {
@@ -194,7 +195,7 @@ final class SceneNavigatorProjectRowTests: XCTestCase {
     /// header and its placeholder, a Palette header and its placeholder. Named
     /// once so the counts below read as "what the navigator had, plus the
     /// furniture", which is exactly what Task 4 changed.
-    private let emptySectionRows = (1 + 1) + (1 + 1)
+    private let emptySectionRows = TreeFurniture.topRows + TreeFurniture.emptySections
 
     private static let twoScenes = FountainTokenizer().parse(
         "INT. KITCHEN - DAY\n\nLarry sits.\n\nEXT. ROOF - NIGHT\n\nHe climbs.\n")
@@ -243,7 +244,7 @@ final class SceneNavigatorProjectRowTests: XCTestCase {
         // Row 2 — row 1 is the script row, which IS a subject.
         // fixed window: asserting nothing happens — the subject must still be
         // .project after a scene row's write has had its full chance to arrive.
-        await select(row: 2, in: table)
+        await select(row: 3, in: table)
         XCTAssertEqual(probe.subject, .project,
                        "a scene row is not a subject — selecting one must leave "
                        + "the window's subject exactly where it was")
@@ -282,15 +283,15 @@ final class SceneNavigatorProjectRowTests: XCTestCase {
         XCTAssertEqual(probe.subject, .project, "precondition")
 
         // Row 2 — the first slugline, one below the script row.
-        await click(row: 2, in: table, window: window,
+        await click(row: 3, in: table, window: window,
                     until: { navigations.locations.count == 1
-                             && probe.subject == .item("doc-1") })
+                             && probe.subject == .item(self.scriptID) })
 
         XCTAssertEqual(navigations.locations.count, 1,
                        "the scene row must still navigate — its Button is the "
                        + "pane's whole purpose, and adding a selection to the "
                        + "List must not have eaten the click")
-        XCTAssertEqual(probe.subject, .item("doc-1"),
+        XCTAssertEqual(probe.subject, .item(scriptID),
                        "clicking a slugline while the project row holds the "
                        + "subject must restore the document — otherwise the "
                        + "centre column stays blank and there is nothing to scroll")
@@ -316,18 +317,22 @@ final class SceneNavigatorProjectRowTests: XCTestCase {
                        + "writes through the binding when it is clicked")
         await select(row: 0, in: table, until: { probe.subject == .project })
         XCTAssertEqual(probe.subject, .project)
-        await select(row: 1, in: table, until: { probe.subject == .item("doc-1") })
-        XCTAssertEqual(probe.subject, .item("doc-1"))
+        await select(row: 2, in: table, until: { probe.subject == .item(self.scriptID) })
+        XCTAssertEqual(probe.subject, .item(scriptID))
     }
 
     /// A screenplay with no document at all — nothing for the script row to
     /// name, so it must not be drawn. This is not a state the factory produces;
     /// it is what `documentID == nil` means, and a row tagged with a document
-    /// that does not exist would blank the centre column on click.
+    /// that does not exist would blank the centre column on click. The
+    /// document is removed from the store, so the pane derives `nil` exactly
+    /// as `BinderPaneToggle` would (shell p4 Task 1: no hand-given id).
     func test_aScreenplayWithNoDocumentDrawsNoScriptRow() async throws {
+        try await store.deleteStructureItem(id: scriptID)
+        XCTAssertNil(TreeHostFixture.sceneDocumentID(in: store), "premise: no document left")
         let probe = BinderSubjectProbe()
         let window = try await mount(AnyView(SceneNavigatorProbeView(
-            store: store, script: nil, probe: probe, documentID: nil,
+            store: store, script: nil, probe: probe,
             onSelect: { _ in })))
         let table = try XCTUnwrap(firstTableView(in: window))
 
@@ -397,10 +402,10 @@ final class SceneNavigatorProjectRowTests: XCTestCase {
         await select(row: 0, in: table, until: { probe.subject == .project })
         XCTAssertEqual(probe.subject, .project, "precondition")
 
-        await select(row: 1, in: table, until: { probe.subject == .item("doc-1") })
+        await select(row: 2, in: table, until: { probe.subject == .item(self.scriptID) })
 
         XCTAssertEqual(
-            probe.subject, .item("doc-1"),
+            probe.subject, .item(scriptID),
             "the row directly under the project row must open the script — so "
             + "the navigator reads like every other binder: the project, then "
             + "the project's documents. A subject still on the project means "
@@ -494,81 +499,68 @@ final class SceneNavigatorProjectRowTests: XCTestCase {
             + "so passing it through is safe as well as right")
     }
 
-    /// **The writes the projection has to tell apart.** `.project`, the script's
-    /// own item and any research id are rows; everything else — `nil` from an
-    /// untagged scene row or an untagged section placeholder, and a foreign item
-    /// — leaves the subject alone.
+    /// **The writes the projection has to tell apart** (shell p1 Task 3):
+    /// the shared click rule, with this pane's one refusal — a document it
+    /// draws no row for. `.project`, the script's own item, research and the
+    /// shell's rows are a click; an untagged scene row's empty write and a
+    /// foreign item leave the subject alone.
     func test_onlyThisPanesOwnRowsMoveTheSubjectThroughTheList() {
-        for current: BinderSubject? in [nil, .project, .item("doc-1"), .item("doc-9"),
-                                        .research("r-1")] {
-            let where_ = "current: \(String(describing: current))"
-            XCTAssertEqual(
-                SceneNavigatorPane.subject(current, whenListWrites: .project,
-                                           documentID: "doc-1"),
-                .project, where_)
-            XCTAssertEqual(
-                SceneNavigatorPane.subject(current, whenListWrites: .item("doc-1"),
-                                           documentID: "doc-1"),
-                .item("doc-1"),
-                "the script row must move the subject onto the document — this "
-                + "is the way back off the project row, and on a screenplay "
-                + "with no sluglines it is the ONLY one (\(where_))")
-            XCTAssertEqual(
-                SceneNavigatorPane.subject(current, whenListWrites: nil,
-                                           documentID: "doc-1"),
-                current,
-                "a nil from an untagged scene row must leave the subject alone "
-                + "(\(where_))")
-            XCTAssertEqual(
-                SceneNavigatorPane.subject(current, whenListWrites: .item("doc-9"),
-                                           documentID: "doc-1"),
-                current,
-                "this pane draws no row for another document — such an item "
-                + "arriving through the List is not a signal it can act on "
-                + "(\(where_))")
-            XCTAssertEqual(
-                SceneNavigatorPane.subject(current, whenListWrites: .research("r-1"),
-                                           documentID: "doc-1"),
-                .research("r-1"),
-                "the Research and Palette sections are this pane's own rows now "
-                + "— a research write must move the subject exactly as the "
-                + "script row's does, or the sections are decoration (\(where_))")
+        let structure = [StructureItem(id: "doc-1", title: "Scene 1", type: .document,
+                                       path: "script.fountain")]
+        func write(_ written: Set<BinderSubject>, over current: WindowSubject) -> WindowSubject {
+            BinderTreeSelection.resolved(
+                written: written, stored: [],
+                shown: BinderTreeSelection.shown([], subject: current, clickedAt: nil),
+                subject: current, structure: structure,
+                research: [], figures: [], projectType: .screenplay,
+                accepts: { SceneNavigatorPane.listSelection(for: $0, documentID: "doc-1") != nil }
+            ).subject
+        }
+        for current in [WindowSubject.book, SubjectSamples.opened(.item("doc-1")),
+                        SubjectSamples.opened(.canvas)] {
+            let where_ = "current: \(current)"
+            for row: BinderSubject in [.project, .item("doc-1"), .research("r-1"),
+                                       .inbox, .canvas, .palette] {
+                XCTAssertEqual(
+                    write([row], over: current),
+                    ClickRule.resolve(row, gesture: .click, current: current,
+                                      structure: structure, projectType: .screenplay),
+                    "\(row) is this pane's own row — a click (\(where_))")
+            }
+            XCTAssertEqual(write([], over: current), current,
+                           "an untagged scene row's empty write moves nothing (\(where_))")
+            XCTAssertEqual(write([.item("doc-9")], over: current), current,
+                           "this pane draws no row for another document — such an "
+                           + "item arriving through the List is not a signal it can "
+                           + "act on (\(where_))")
         }
     }
 
+    /// **A scene click opens the script** from every subject whose centre is
+    /// not a document, through the click rule; a document already open is left
+    /// alone.
     func test_aSceneClickRestoresTheDocumentFromEverySubjectThatIsNotADocument() {
-        XCTAssertEqual(
-            SceneNavigatorPane.subject(.project, whenNavigatingTo: "doc-1"),
-            .item("doc-1"))
-        XCTAssertEqual(
-            SceneNavigatorPane.subject(nil, whenNavigatingTo: "doc-1"),
-            .item("doc-1"))
-        XCTAssertEqual(
-            SceneNavigatorPane.subject(.item("doc-2"), whenNavigatingTo: "doc-1"),
-            .item("doc-2"),
-            "the navigator does not know better than the window which document "
-            + "is open")
-        XCTAssertEqual(
-            SceneNavigatorPane.subject(.project, whenNavigatingTo: nil),
-            .project,
-            "a screenplay with no document at all has nothing to restore to")
-        XCTAssertEqual(
-            SceneNavigatorPane.subject(.research("r-1"), whenNavigatingTo: "doc-1"),
-            .item("doc-1"),
-            "**the stage-2a Task 4 ruling.** Task 1 left this arm with `.item`'s "
-            + "posture and said the task that gave research a home in this pane "
-            + "would decide it. It has one now, and a research subject is a "
-            + "`.project` subject in every way that matters here: the centre "
-            + "column is showing a note, not the script, so the "
-            + "`maughamNavigateToScene` post that follows reaches no editor and "
-            + "the click does nothing the writer can see. `.item` is left alone "
-            + "for the opposite reason — an editor IS mounted, and the "
-            + "navigator does not know better than the window which document is "
-            + "in it")
-        XCTAssertEqual(
-            SceneNavigatorPane.subject(.research("r-1"), whenNavigatingTo: nil),
-            .research("r-1"),
-            "…and with no document there is still nothing to restore to")
+        let structure = [StructureItem(id: "doc-1", title: "Scene 1", type: .document,
+                                       path: "script.fountain")]
+        func navigate(_ current: WindowSubject, to doc: String?) -> WindowSubject {
+            SceneNavigatorPane.subject(current, whenNavigatingTo: doc,
+                                       structure: structure, projectType: .screenplay)
+        }
+        XCTAssertEqual(navigate(.book, to: "doc-1"), SubjectSamples.opened(.item("doc-1")))
+        XCTAssertEqual(navigate(SubjectSamples.opened(.item("doc-2")), to: "doc-1"),
+                       SubjectSamples.opened(.item("doc-2")),
+                       "the navigator does not know better than the window which "
+                       + "document is open")
+        XCTAssertEqual(navigate(.book, to: nil), .book,
+                       "a screenplay with no document at all has nothing to restore to")
+        XCTAssertEqual(navigate(SubjectSamples.opened(.research("r-1")), to: "doc-1"),
+                       SubjectSamples.opened(.item("doc-1")),
+                       "a note in the centre: the scene post would reach no editor")
+        XCTAssertEqual(navigate(SubjectSamples.opened(.inbox), to: "doc-1"),
+                       SubjectSamples.opened(.item("doc-1")))
+        XCTAssertEqual(navigate(SubjectSamples.opened(.canvas), to: "doc-1"),
+                       WindowSubject(open: .canvas, faces: .item("doc-1")),
+                       "with the canvas open a piece click moves the faces")
     }
 
     // MARK: - Hosting and driving
@@ -589,7 +581,6 @@ final class SceneNavigatorProjectRowTests: XCTestCase {
             store: store,
             script: script,
             probe: probe,
-            documentID: "doc-1",
             onSelect: { navigations.locations.append($0) })))
         return (window, probe, navigations)
     }
@@ -598,6 +589,7 @@ final class SceneNavigatorProjectRowTests: XCTestCase {
         let window = TestWindow.mount(root, size: CGSize(width: 320, height: 600))
         windows.append(window)
         await pumpUntil(deadline: 5) { self.firstTableView(in: window) != nil }
+        await pumpUntil(deadline: 2) { TreeFurniture.isSettled(in: self.firstTableView(in: window)) }
         return window
     }
 
@@ -655,7 +647,14 @@ final class SceneNavigatorProjectRowTests: XCTestCase {
         guard let content = window.contentView else { return nil }
         let rect = table.rect(ofRow: row)
         let centre = CGPoint(x: rect.midX, y: rect.midY)
-        return content.hitTest(content.convert(centre, from: table))
+        // `hitTest(_:)` takes a point in the receiver's SUPERVIEW's
+        // coordinates. The hosting content view is flipped and its superview
+        // is not, so converting into the content view mirrored every row
+        // top-to-bottom — invisible while the overlay sat centred (shell p1
+        // Task 3 moved it to the column's foot).
+        let point = content.superview.map { $0.convert(centre, from: table) }
+            ?? content.convert(centre, from: table)
+        return content.hitTest(point)
     }
 
     private func firstTableView(in window: NSWindow) -> NSTableView? {

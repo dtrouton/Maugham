@@ -79,11 +79,10 @@ struct IntentStrip: View {
 
     var body: some View {
         Button {
-            // Scope follows the binder selection, which the Intent pane already
-            // reads (`StatementPane.effectiveScope`) — see the mounting site in
-            // `ProjectWindow` for the one case where the two can differ and why
-            // that is left alone rather than fixed here.
-            MaughamEvent.postDetailSegment(.intent)
+            // The line is about the open piece: the key window moves its
+            // faces there and shows that piece's Brief
+            // (`ProjectWindow.showBriefOfTheOpenPiece`).
+            MaughamEvent.postBriefOfTheOpenPiece()
         } label: {
             HStack(spacing: 5) {
                 Text(line)
@@ -106,7 +105,7 @@ struct IntentStrip: View {
         .buttonStyle(.plain)
         .onHover { isHovering = $0 }
         .help("Open Intent")
-        .accessibilityHint("Opens the Intent pane")
+        .accessibilityHint("Opens the piece\u{2019}s intent in Brief")
     }
 
     /// The mark itself — glyph and fixed words, inside the one affordance.
@@ -140,15 +139,27 @@ struct IntentStrip: View {
     /// text: a line to draw, or nothing to mount.
     ///
     /// Pure and asked over the product of its inputs rather than the one path
-    /// the plan named. Author alone, because the strip is a writing surface's
-    /// running head and the other three personas are not writing; and it goes
-    /// with the chrome under ⌘\, because a writer who asked for nothing but
-    /// their prose asked for that too.
+    /// the plan named. Only where the subject's `open` is a piece, because the
+    /// strip is a writing surface's running head and nothing else in the centre
+    /// is being written; and it goes with the chrome under ⌘\, because a writer
+    /// who asked for nothing but their prose asked for that too.
     static func line(
-        persona: Persona, isNoChromeOn: Bool, statementText: String?
+        subject: WindowSubject, structure: [StructureItem],
+        isNoChromeOn: Bool, statementText: String?
     ) -> String? {
-        guard persona.showsIntentStrip, !isNoChromeOn else { return nil }
+        guard shows(subject: subject, structure: structure), !isNoChromeOn else { return nil }
         return line(from: statementText)
+    }
+
+    /// **The piece the strip and its drift mark are about: the open one**
+    /// (shell closing A2) — `WindowSubject.openDocId`, whatever the faces are on.
+    static func docId(of subject: WindowSubject) -> String { subject.openDocId }
+
+    /// Whether the window shows a strip at all: its `open` is a piece — a
+    /// document the editor is showing, never the Book, a Part, the canvas or
+    /// an edition, whatever the faces are on.
+    static func shows(subject: WindowSubject, structure: [StructureItem]) -> Bool {
+        ProjectWindow.selectionIsDocument(subject.open, in: structure)
     }
 
     /// The same decision, resolved against a project: the intent that applies
@@ -176,13 +187,32 @@ struct IntentStrip: View {
     /// roadmap's left-open list; do not write "the strip observes the
     /// statement" without the open-in-a-pane clause.
     ///
-    /// The gates are checked first so a persona with no strip reads no
+    /// The gates are checked first so a window with no strip reads no
     /// statement at all.
+    ///
+    /// **The piece is the OPEN one, read here and never handed in** (shell
+    /// closing A2): the strip sits over the text being typed, so a Brief link
+    /// or ⌘⌥K that moved the faces must not move the line. The caller used to
+    /// pass the faces' id, and the strip quoted another piece's line — or,
+    /// with the faces on an edition, the Book's.
     @MainActor
     static func line(
-        store: ProjectStore, docId: String, persona: Persona, isNoChromeOn: Bool
+        store: ProjectStore, subject: WindowSubject, isNoChromeOn: Bool
     ) -> String? {
-        guard persona.showsIntentStrip, !isNoChromeOn else { return nil }
+        guard shows(subject: subject, structure: store.manifest.structure),
+              !isNoChromeOn else { return nil }
+        let docId = self.docId(of: subject)
+        // **The Brief in a sentence** (shell plan 3): the piece's stored line
+        // (`StructureItem.synopsis`) wins, and the intent's opening is the
+        // fallback — `BriefLine.display`, the one rule the corkboard, the
+        // outline and the MCP listing share. A stored line needs no statement
+        // read at all. **The fallback here is the EFFECTIVE intent** (piece,
+        // else book) — today's running head, kept by ruling (2026-11-18); the
+        // corkboard, outline and MCP listing fall back to the piece's OWN
+        // intent only (`BriefLine.index`), since the book's sentence on every
+        // card is noise.
+        let synopsis = TreeWalk.find(id: docId, in: store.manifest.structure)?.synopsis
+        if let stored = BriefLine.stored(synopsis) { return stored }
         guard let statement = store.effectiveIntent(forDocId: docId) else { return nil }
         // **The ESSAY stratum, not the whole statement** (declared-world Task
         // 6). `line(from:)` walks blocks and takes the first paragraph, list
@@ -198,7 +228,7 @@ struct IntentStrip: View {
         // unreadable statement shows no line, exactly as an absent one does;
         // the Intent pane's editor owns surfacing the refusal.
         guard let text = try? store.statementText(of: statement) else { return nil }
-        return line(from: StatementEssay.half(of: text))
+        return BriefLine.display(synopsis: synopsis, intentEssay: StatementEssay.half(of: text))
     }
 
     // MARK: - The line rule (pure)

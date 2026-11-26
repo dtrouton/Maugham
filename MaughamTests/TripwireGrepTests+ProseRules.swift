@@ -275,9 +275,11 @@ extension TripwireGrepTests {
     func test_noTapGestureInASidebarListFile() throws {
         let scope = try Self.sidebarTapGestureScope(in: SourceTree.productionRootURLs)
         let names = Set(scope.sidebarFiles.map(\.name))
-        XCTAssertTrue(names.isSuperset(of: ["BinderView.swift", "TasksPane.swift"]),
+        // The Tasks pane's sidebar list went with the pane (shell plan 2
+        // Task 7); To resolve is no `List` (its own census, `ResolvePaneTests`).
+        XCTAssertTrue(names.isSuperset(of: ["BinderView.swift"]),
             "the sidebar-list scope lost the panes it guards: \(names.sorted())")
-        XCTAssertTrue(scope.rowTypes.isSuperset(of: ["BinderRow", "TaskRow"]),
+        XCTAssertTrue(scope.rowTypes.isSuperset(of: ["BinderRow"]),
             "the row types the sidebar lists build were not found: \(scope.rowTypes.sorted())")
         XCTAssertEqual(scope.offenders, [],
             "a tap gesture in a sidebar list or one of its row types (tripwire 9):\n"

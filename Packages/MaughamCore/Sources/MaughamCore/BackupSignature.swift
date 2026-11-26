@@ -9,7 +9,7 @@ import Foundation
 /// `checkpoints.jsonl`, and — *when the window's subject is one of the
 /// project's documents* — appends a `.checkpoint` breadcrumb op to that
 /// document's op log. (The subject may be a group or the project row, and since
-/// the persona shell's slice 1 the breadcrumb is skipped entirely for those; the
+/// shell slice 1 (2026-08-03) the breadcrumb is skipped entirely for those; the
 /// `checkpoints.jsonl` entry is written either way. Skipping it only removes
 /// churn this signature was already filtering.) So this signature deliberately
 /// ignores that churn:
@@ -37,8 +37,8 @@ public enum BackupSignature {
     /// `ui-state.json`. Neither matched `rel == $0` nor `rel.hasPrefix($0)`, so
     /// both contributed their full content hash and every UI-state change wrote
     /// a whole new backup generation. That was invisible for as long as
-    /// `ui-state.json` only tracked selection and focus mode; the persona work
-    /// (2026-07-25) put `persona` and `personaMemory` in it, so every ⌘1–⌘4
+    /// `ui-state.json` only tracked selection and focus mode; the window-mode
+    /// work (2026-07-25) put a mode and its pane memory in it, so every ⌘1–⌘4
     /// press started minting a generation. Keep the directory forms so a future
     /// move to a subdirectory does not silently reopen this.
     ///

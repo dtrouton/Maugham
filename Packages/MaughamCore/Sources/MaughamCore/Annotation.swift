@@ -194,7 +194,7 @@ extension AnnotationKind {
         }
     }
 
-    /// SF Symbol name for this kind. SINGLE SOURCE — both the Mac AnnotationsPane
+    /// SF Symbol name for this kind. SINGLE SOURCE — both the Mac's To resolve rows (`AnnotationRow`)
     /// and the iOS AnnotationsList/Detail consume this so the icon never differs
     /// across surfaces. (Cross-surface contract; see docs/superpowers/notes/cross-surface-contracts.md.)
     public var systemImageName: String {

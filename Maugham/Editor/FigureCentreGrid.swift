@@ -44,12 +44,13 @@ final class FigureCentreMount {
     @ObservationIgnored private(set) var line: (number: String, caption: String)
     @ObservationIgnored private(set) var piece: String?
     @ObservationIgnored private(set) var typography: TypographySettings
-    @ObservationIgnored private(set) var isReviewMode: Bool
+    @ObservationIgnored private(set) var readThrough: ReadThroughRefusal?
     @ObservationIgnored private(set) var shareIsReadOnly: Bool
 
     init(figureId: String, windows: FigureWindows, presence: FigureGridPresence,
          store: DocumentStore, projectStore: ProjectStore, line: (number: String, caption: String),
-         piece: String?, typography: TypographySettings, isReviewMode: Bool, shareIsReadOnly: Bool) {
+         piece: String?, typography: TypographySettings, readThrough: ReadThroughRefusal?,
+         shareIsReadOnly: Bool) {
         self.figureId = figureId
         self.windows = windows
         self.presence = presence
@@ -58,7 +59,7 @@ final class FigureCentreMount {
         self.line = line
         self.piece = piece
         self.typography = typography
-        self.isReviewMode = isReviewMode
+        self.readThrough = readThrough
         self.shareIsReadOnly = shareIsReadOnly
     }
 
@@ -89,7 +90,7 @@ final class FigureCentreMount {
         grid.container.show(message: "Opening \(name)\u{2026}")
         let frame = FigureWindowGrid.Frame(
             number: line.number, caption: line.caption, piece: piece, typography: typography,
-            isReviewMode: { [weak self] in self?.isReviewMode ?? true },
+            readThrough: { [weak self] in self?.readThrough ?? nil },
             shareIsReadOnly: { [weak self] in self?.shareIsReadOnly ?? true },
             takesTheKeysAtMount: false, offersDone: false, listensForTheLine: false,
             armsTheMenuOnlyWithTheKeys: true)
@@ -198,9 +199,9 @@ final class FigureCentreMount {
     }
 
     /// The view's inputs changed: the bottom bar follows the listing, the gate
-    /// is asked again over the review and share answers.
+    /// is asked again over the read-through and share answers.
     func update(line: (number: String, caption: String), piece: String?,
-                isReviewMode: Bool, shareIsReadOnly: Bool) {
+                readThrough: ReadThroughRefusal?, shareIsReadOnly: Bool) {
         if line != self.line {
             self.line = line
             grid?.refreshLine(number: line.number, caption: line.caption)
@@ -209,9 +210,9 @@ final class FigureCentreMount {
             self.piece = piece
             grid?.controller?.researchPiece = piece
         }
-        if isReviewMode != self.isReviewMode || shareIsReadOnly != self.shareIsReadOnly {
-            self.isReviewMode = isReviewMode
-            self.shareIsReadOnly = shareIsReadOnly
+        if readThrough != self.readThrough || shareIsReadOnly != self.shareIsReadOnly {
+            self.readThrough = readThrough
+                self.shareIsReadOnly = shareIsReadOnly
             grid?.refreshAccess()
         }
     }
@@ -224,10 +225,10 @@ final class FigureCentreMount {
 }
 
 /// **The centre figure view**: a table figure's grid in the centre column (or
-/// Plan's right column), its bottom bar's number and caption from the window's
+/// the right column beside the canvas), its bottom bar's number and caption from the window's
 /// figure listing (the caption read-only, R7d-6; an unused figure shows its
-/// name and "—"), the gate asked over the figure's posture, the share and
-/// review (the window's ⌘⌥⇧R, or a persona that does not edit figures).
+/// name and "—"), the gate asked over the figure's posture, the share, the
+/// figure's pieces' read-through (`ReadThroughGate`), each with its own sentence.
 /// Mount it with `.id(figureId)`: one mount per figure.
 struct FigureCentreGrid: View {
     let figureId: String
@@ -238,7 +239,9 @@ struct FigureCentreGrid: View {
     let presence: FigureGridPresence
     let listing: FigureListingModel
     let typography: TypographySettings
-    let isReviewMode: Bool
+    /// The piece the figure is refused for, if one of its pieces is in
+    /// read-through (`ReadThroughGate.refusal`), named in the grid's reason.
+    let readThrough: ReadThroughRefusal?
     let shareIsReadOnly: Bool
     /// The project window, whose key-window posts reach this grid.
     let window: NSWindow?
@@ -254,11 +257,11 @@ struct FigureCentreGrid: View {
     }
     private var inputs: Inputs {
         Inputs(number: line.number, caption: line.caption, piece: piece,
-               isReviewMode: isReviewMode, shareIsReadOnly: shareIsReadOnly)
+               readThrough: readThrough, shareIsReadOnly: shareIsReadOnly)
     }
     private struct Inputs: Equatable {
         let number: String, caption: String, piece: String?
-        let isReviewMode: Bool, shareIsReadOnly: Bool
+        let readThrough: ReadThroughRefusal?, shareIsReadOnly: Bool
     }
     /// What the project's grids look like for this figure, observed.
     private var holders: Holders {
@@ -287,14 +290,16 @@ struct FigureCentreGrid: View {
             let mount = FigureCentreMount(
                 figureId: figureId, windows: figureWindows, presence: presence,
                 store: documentStore, projectStore: store, line: line, piece: piece,
-                typography: typography, isReviewMode: isReviewMode, shareIsReadOnly: shareIsReadOnly)
+                typography: typography, readThrough: readThrough,
+                shareIsReadOnly: shareIsReadOnly)
             self.mount = mount
             mount.take()
         }
         .onDisappear { mount?.leave() }
         .onChange(of: inputs) { _, next in
             mount?.update(line: (next.number, next.caption), piece: next.piece,
-                          isReviewMode: next.isReviewMode, shareIsReadOnly: next.shareIsReadOnly)
+                          readThrough: next.readThrough,
+                          shareIsReadOnly: next.shareIsReadOnly)
         }
         .onChange(of: holders) { _, _ in mount?.reconsider() }
         .onChange(of: figureWindows.sendsRefused[figureId]) { _, _ in mount?.sendWasRefused() }

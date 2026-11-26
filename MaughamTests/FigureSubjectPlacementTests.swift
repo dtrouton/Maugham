@@ -2,64 +2,71 @@ import XCTest
 import MaughamCore
 @testable import Maugham
 
-/// **A figure subject's placement and centre route** (report plan 8a Task 5).
+/// **A figure subject's placement and centre route** (report plan 8a Task 5),
+/// asked of the window's subject: a figure in `open` takes the centre, one in
+/// `beside` shows in the right column, and the centre is otherwise untouched.
 @MainActor
 final class FigureSubjectPlacementTests: XCTestCase {
 
-    private func route(_ persona: Persona, _ subject: BinderSubject?) -> CentreRoute {
+    private func route(_ subject: WindowSubject) -> CentreRoute {
         ProjectWindow.centreRoute(
-            persona: persona, subject: subject, projectType: .novel,
-            structure: CentreRouteTests.structure, showsPaletteWall: false,
-            preview: .nothingCompiled)
+            subject: subject, bookView: .outline, projectType: .novel,
+            structure: CentreRouteTests.structure, preview: .nothingCompiled)
     }
 
-    func test_placementPerPersona() {
-        let subject = BinderSubject.figure("f1")
-        XCTAssertEqual(ProjectWindow.figureSubjectPlacement(persona: .author, subject: subject),
-                       .takesTheCentre("f1"))
-        XCTAssertEqual(ProjectWindow.figureSubjectPlacement(persona: .review, subject: subject),
-                       .takesTheCentre("f1"))
-        XCTAssertEqual(ProjectWindow.figureSubjectPlacement(persona: .plan, subject: subject),
-                       .besideTheCanvas("f1"))
-        XCTAssertEqual(ProjectWindow.figureSubjectPlacement(persona: .publish, subject: subject),
-                       .nothingMoves)
-        for persona in Persona.allCases {
-            XCTAssertEqual(ProjectWindow.figureSubjectPlacement(persona: persona, subject: .project),
-                           .nothingMoves)
-            XCTAssertEqual(ProjectWindow.figureSubjectPlacement(persona: persona, subject: .research("r")),
-                           .nothingMoves)
+    func test_placementPerPlace() {
+        XCTAssertEqual(ProjectWindow.figureSubjectPlacement(
+            subject: SubjectSamples.opened(.figure("f1"))), .takesTheCentre("f1"))
+        XCTAssertEqual(ProjectWindow.figureSubjectPlacement(
+            subject: WindowSubject(open: .canvas, faces: .canvas, beside: .figure("f1"))),
+                       .pulledUp("f1"))
+        // Only a figure moves anything: every other kind, in either place.
+        for open in SubjectSamples.everyOpen where open.figureID == nil {
+            XCTAssertEqual(ProjectWindow.figureSubjectPlacement(
+                subject: SubjectSamples.opened(open)), .nothingMoves, "\(open)")
+            XCTAssertEqual(ProjectWindow.figureSubjectPlacement(
+                subject: WindowSubject(open: .project, faces: .project,
+                                       beside: PulledUp(treeSubject: open))),
+                           .nothingMoves, "\(open) beside")
         }
     }
 
-    func test_centreRoutePerPersona() {
-        let subject = BinderSubject.figure("f1")
-        XCTAssertEqual(route(.author, subject), .figure(id: "f1"))
-        XCTAssertEqual(route(.review, subject), .figure(id: "f1"))
-        // Plan: the canvas stays the single mount.
-        XCTAssertEqual(route(.plan, subject), .canvas)
-        // Publish: nothing moves — the project at altitude, as for `.project`.
-        XCTAssertEqual(route(.publish, subject), route(.publish, .project))
+    /// **The click rule gives a clicked figure the centre** — a figure is
+    /// manuscript content — and the route shows it, whatever was open.
+    func test_aClickedFigureTakesTheCentreWhateverWasOpen() {
+        for open in SubjectSamples.everyOpen {
+            let clicked = ClickRule.resolve(.figure("f1"), gesture: .click,
+                                            current: SubjectSamples.opened(open),
+                                            structure: CentreRouteTests.structure,
+                                            projectType: .novel)
+            XCTAssertEqual(route(clicked), .figure(id: "f1"), "from \(open)")
+        }
     }
 
-    func test_planRevealsTheRightColumnForAFigure() {
+    func test_aFigureBesideRevealsTheRightColumnAndOneInTheCentreDoesNot() {
         var show = false
-        var segment = DetailSegment.inbox
-        ProjectWindow.revealResearchColumn(persona: .plan, subject: .figure("f1"),
-                                           showInspector: &show, detailSegment: &segment)
+        var position = RightColumnPosition.brief
+        ProjectWindow.revealPulledUp(
+            subject: WindowSubject(open: .canvas, faces: .canvas, beside: .figure("f1")),
+            showInspector: &show, position: &position)
         XCTAssertTrue(show)
-        XCTAssertEqual(segment, .inspector)
-        for persona in [Persona.author, .review, .publish] {
-            show = false; segment = .inbox
-            ProjectWindow.revealResearchColumn(persona: persona, subject: .figure("f1"),
-                                               showInspector: &show, detailSegment: &segment)
-            XCTAssertFalse(show, "\(persona)")
-            XCTAssertEqual(segment, .inbox, "\(persona)")
-        }
+        XCTAssertEqual(position, .pulledUp)
+        // The subject's observer answers the same for the figure arriving.
+        XCTAssertEqual(RightColumnContent.positionAfterSubjectChange(
+            .brief, from: SubjectSamples.opened(.canvas),
+            to: WindowSubject(open: .canvas, faces: .canvas, beside: .figure("f1")),
+            previousFace: .brief, structure: CentreRouteTests.structure, projectType: .novel),
+            .pulledUp)
+        show = false; position = .brief
+        ProjectWindow.revealPulledUp(subject: SubjectSamples.opened(.figure("f1")),
+                                     showInspector: &show, position: &position)
+        XCTAssertFalse(show, "the centre already shows it")
+        XCTAssertEqual(position, .brief)
     }
 
     func test_theStatusFooterIsHiddenWhereAFigureTakesTheCentre() {
         XCTAssertFalse(ProjectWindow.showsStatusFooter(
-            persona: .author, subject: .figure("f1"), showsPaletteWall: false,
+            subject: SubjectSamples.opened(.figure("f1")),
             structure: CentreRouteTests.structure))
     }
 }

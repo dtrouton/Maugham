@@ -4,6 +4,8 @@
 
 The full list lives in the in-app cheatsheet: **⌘/** → Keyboard tab.
 
+**Keys that moved.** Coming from the last release, four keys do something else now. ⌘⌥H is macOS's own **Hide Others**, so pressing it for History hides your other apps: History is ⌃⌘H. ⌘R is always a check, of the piece you're typing in (with the Canvas or an edition in the centre, of the piece the right column is about); a round is ⌘⌃R (**Run the round**). ⌘⇧R is **Reread**, the check read cold. ⌘4 does nothing: editions are rows under **Editions** in the binder.
+
 The ones you'll use most:
 
 | Shortcut | Action |
@@ -12,17 +14,19 @@ The ones you'll use most:
 | `⌘O` | Open project |
 | `⌘S` | Checkpoint, and back up if you've set a backup destination — autosave is automatic (see [Backups & History](backups-and-history.md)) |
 | `⌘⇧S` | Save Checkpoint As… — a named checkpoint you can find again, and back up as ⌘S does |
-| `⌘R` | **Check Writing** in Author — notes on what you've written since the last check; **Run Round** in Review — a numbered round in the piece's pass. In an expanded table, ⌘R is Format ▸ Table ▸ **Fill Right** instead: the selection's left column copied across it |
-| `⌘⇧R` | **Reread** in Author, **Fresh Eyes** in Review — ends the warm session and reads the whole piece cold |
-| `⌘⇧↩` | Promote… — turn the canvas selection into a durable artifact |
-| `⌘Z` | Undo (text, annotation action, task, checkbox, or History Rewind) |
+| `⌘R` | **Check Writing** — notes on what you've written since the last check. In an expanded table, ⌘R is Format ▸ Table ▸ **Fill Right** instead: the selection's left column copied across it |
+| `⌘⇧R` | **Reread** — the check read cold: ends the warm session and reads the whole piece |
+| `⌘⌃R` | **Run the round** — a numbered round in the piece's pass; File names whose ("Run Gould's Round") |
+| `⌘⌃⇧R` | **The round with fresh eyes** — the round read cold |
+| `⌘⇧↩` | Promote Canvas Selection… — turn the canvas selection into a durable artifact |
+| `⌘Z` | Undo (text, a note's answer, a to-do, a checkbox, or a History Rewind) |
 | `⌘⇧Z` | Redo |
 | `⌘,` | Settings |
 | `⌘⇧,` | Project Settings |
 | `⌘F` | Find in editor |
 | `⌘G` / `⌘⇧G` | Find next / previous |
 | `⌘⌥F` | Find in project |
-| `⌘⌥A` | Show Annotations pane |
+| `⌘⇧K` | Edit ▸ Comment… — a comment on the selected words, without starting a read-through; right-clicking a selection offers it too |
 | `⌘⌥C` | Translator's Note… — a directive on the paragraph under the caret, into the piece's craft intent (every edition) or one edition's brief |
 | `⌘⌥Z` | Restore last deletion |
 | `⌘⇧T` | Insert ▸ Table — a 3×3 table figure with a header row in the project's `figures/` folder, with its figure line written at the caret and "Caption" selected; one ⌘Z takes back the line and the figure |
@@ -36,34 +40,41 @@ The ones you'll use most:
 | `⌘⌥←` | Format ▸ Table ▸ Insert Column Left |
 | `⌘⌥→` | Format ▸ Table ▸ Insert Column Right |
 | `⌘D` | Format ▸ Table ▸ Fill Down — in an expanded table, the selection's top row copied down it, formulas adjusted as Excel's are; one cell fills from the cell above |
-| `⌘\` | Toggle focus mode (on the canvas, also collapses both side columns) |
-| `⌘⇧F` | Toggle full-screen focus (turns focus mode on, so the canvas collapses too) |
-| `⌘1` | Plan persona |
-| `⌘2` | Author persona |
-| `⌘3` | Review persona |
-| `⌘4` | Publish persona |
-| `⌘⌥⇧R` | Toggle Review Mode — the annotate-only posture, see [Annotations & Suggestions](annotations-and-suggestions.md#review-mode--reading-your-own-draft-cold) |
-| `⌘⌥I` | Inspector pane |
-| `⌘⌥R` | Open the tree's Research section, scrolled into view (no-op while Find in Project covers the tree) |
-| `⌘⌥O` | Select the project row — corkboard/outline in Author, the review board (pieces × passes) in Review, the planning canvas in Plan, the compiled book in Publish once you've made one (corkboard/outline there too, before you have) |
-| `⌘⌥H` | History pane |
-| `⌘⌥T` | Tasks pane |
-| `⌘⌥B` | Inbox pane |
-| `⌘⌥P` | Open the tree's Palette section, scrolled into view (no-op while Find in Project covers the tree) |
-| `⌘⌥L` | Translation pane |
-| `⌘⌥N` | Intent pane |
-| `⌘⌥G` | What I've Learned pane — the lessons ledger, across the whole project |
-| `⌘⌥Y` | First Reader pane — who reads this project, and what she knows |
-| `⌘⌥V` | Visual Language pane |
-| `⌘⌥D` | Diagnostics pane — the compiler's notes on what you've written |
-| `⌘⌥E` | References pane — what this piece is pinned to |
-| `⌘⌥K` | Department pane — Publish's desk: the book's design and its language editions |
-| `⌘⌥0` | Toggle inspector column |
-| `⌘⇧P` | Toggle Research preview |
-| `⌘/` | Syntax + keyboard reference |
+| `⌘\` | View ▸ Focus Mode (on the canvas, also collapses both side columns) |
+| `⌘⇧F` | View ▸ Full-Screen Focus (turns Focus Mode on, so the canvas collapses too) |
+| `⌘⌥⇧R` | View ▸ Start Read-through / Resume Writing — the open piece read as a reader would, its words locked until you resume |
+| `⌘⇧P` | View ▸ Show or Hide Research Preview |
+| `⌘⌥0` | View ▸ Show or Hide Right Column |
+| `⌘⌃L` | View ▸ Read In Next Language — Source, then each translation, then Source again |
+| `⌘⌃⇧L` | View ▸ Show Source Under Translation |
+| `⌘1` | To Resolve — what has been raised about what you picked in the binder |
+| `⌘⌥D` | To Resolve: Checks — the check's findings |
+| `⌘⌥A` | To Resolve: Rounds — the rounds' notes |
+| `⌘⌥T` | To Resolve: Mine — your own notes and to-dos |
+| `⌘⌥L` | To Resolve: Questions — a translator's questions; where there are none, it says so |
+| `⌘⌥K` | To Resolve: Spanish Edition — the To resolve of the edition you are reading, else the Source's |
+| `⌘2` | Brief |
+| `⌘⌥I` | Write the Line — Brief, with the cursor in the piece's line |
+| `⌘⌥N` | Write Going For — Brief, with the cursor in what the piece is going for |
+| `⌘3` | Pulled Up — the thing pulled up beside the centre |
+| `⌘⌥G` | Pull Up What I've Learned — the lessons ledger, across the whole project |
+| `⌘⌥Y` | Pull Up First Reader — who reads this project, and what she knows |
+| `⌘⌥V` | Pull Up Visual Language |
+| `⌘⌃H` | Pull Up History — the piece's history (the project's, with no piece) |
+| `⌘[` | Back: pull up again what was pulled up before (View ▸ Back) |
+| `⌘⌥E` | Show the piece's fold in the binder — what it is pinned to |
+| `⌘⌥O` | Go to the Book — the Book row, its cards, outline and status |
+| `⌘⌥R` | Go to Research — the binder's Research section, scrolled into view (no-op while Find in Project covers the binder) |
+| `⌘⌥P` | Go to Palette — the binder's Palette section, scrolled into view (no-op while Find in Project covers the binder) |
+| `⌘⌥B` | Go to Inbox |
+| `⌘⌃1` | View as Cards (an edition: its Book) |
+| `⌘⌃2` | View as Outline |
+| `⌘⌃3` | View as Status |
+| `⌘↓` | In the binder: Open in Centre — the selected row, in the centre (View ▸ Open in Centre) |
+| `⌘/` | Syntax & Keyboard Shortcuts |
 | `⌘?` | Maugham Help — this guide |
 
-**Two different things are called "review", and only the shortcut tells them apart.** `⌘3` is the **Review persona** — a window layout that leads with the Annotations pane. `⌘⌥⇧R` is **Toggle Review Mode** — a posture of the *editor* that makes your manuscript read-only and puts you in the reviewer's seat. They're independent: you can turn Review Mode on in any persona, and the Review persona doesn't turn it on for you.
+**⌘1, ⌘2 and ⌘3 are the right column's three places**, wherever you are; the ⌘⌥ keys open one of them on something particular. **⌃⌘1–3 are the centre's views.** **⌘⌥⇧R is per chapter**: it starts or ends the open chapter's [read-through](annotations-and-suggestions.md#read-through), and the toolbar's padlock does the same.
 
 ## On-disk layout
 
@@ -90,7 +101,7 @@ My Novel/
 ├── canvas.md               # the words on your planning canvas
 ├── canvas_assets/          # photographs you put on the canvas
 ├── Exports/                # the PDFs and EPUBs you compile
-├── notes/                  # made with every project; nothing is kept here today
+├── notes/                  # made with every project; Maugham keeps nothing in it
 ├── .trash/                 # what you deleted, kept for 30 days
 └── .maugham/               # Maugham's own working files
     ├── ops/                # each document's history — what your manuscript is made from
@@ -120,7 +131,7 @@ The on-disk filenames have a numeric prefix (`01-chapter-1.md`) so manuscripts s
 
 **My project won't open.** The window says *Couldn't open project* and gives the reason. If it says the project was made by a newer version of Maugham, update Maugham (**Maugham → Check for Updates…**). Otherwise fix what it names if you can and open the project again. **File → Restore from Backup…** works from that window. If the project's settings file is the problem, Maugham finds its backups through its safety copy; if it still finds none, press **Show All Backups** to pick from every backup by title. See [Backups & History → Restoring from a backup](backups-and-history.md#restoring-from-a-backup).
 
-**How do I get an older version back?** For a chapter, open the History pane (⌘⌥H) and use **Revert here…** on a checkpoint, or **Rewind** to any moment. For the whole project, restore a copy from a backup. Both are explained in [Backups & History](backups-and-history.md).
+**How do I get an older version back?** For a chapter, pull up its History (⌃⌘H) and use **Revert here…** on a checkpoint, or **Rewind** to any moment. For the whole project, restore a copy from a backup. Both are explained in [Backups & History](backups-and-history.md).
 
 **A document I had open is now showing different text.** iCloud detected an outside change (e.g., from another Mac). A banner offers Keep mine / Use cloud. The losing version is archived under `.maugham/conflicts/`.
 
@@ -134,7 +145,7 @@ The on-disk filenames have a numeric prefix (`01-chapter-1.md`) so manuscripts s
 
 **My screenplay's page count looks off.** Maugham uses Final Draft's wrap heuristic. If you're using a non-monospace screen font, the on-screen layout may not match the printed page count.
 
-**A binder item I deleted is gone forever.** Try ⌘⌥Z — it restores the most-recent deletion. If you've moved on since, open **Trash** at the very foot of the tree and right-click the item → **Restore**; deleted items stay there for 30 days (on disk, they're in the project's `.trash/` folder). If you didn't delete it and it isn't in Trash — another Mac saved an older outline over it — look under **Removed Elsewhere** at the foot of the binder.
+**A binder item I deleted is gone forever.** Try ⌘⌥Z — it restores the most-recent deletion. If you've moved on since, open **Trash** at the foot of the binder and right-click the item → **Restore**; deleted items stay there for 30 days (on disk, they're in the project's `.trash/` folder). If you didn't delete it and it isn't in Trash — another Mac saved an older outline over it — look under **Removed Elsewhere** at the foot of the binder.
 
 ## Updates
 

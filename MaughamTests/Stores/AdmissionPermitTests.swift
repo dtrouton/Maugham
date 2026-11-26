@@ -723,7 +723,7 @@ final class AdmissionPermitTests: XCTestCase {
                            "and names who it is waiting for — the starter, "
                            + "never this Mac's own root label (fix round 1, M2)")
             XCTAssertEqual(
-                Document.waitingSentence(error, docId: x.id, in: projectURL),
+                Document.waitingSentence(error, docId: x.id, in: projectURL, noun: .piece),
                 "Waiting for this piece to arrive from Sam.")
         }
         XCTAssertTrue(OpLogStore.opLogFileURLs(forDocId: x.id, in: projectURL).isEmpty,

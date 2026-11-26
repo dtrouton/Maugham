@@ -58,6 +58,25 @@ final class ProductionRoleTests: XCTestCase {
 
     // MARK: - Role: the single-string on-disk form
 
+    // MARK: - Removed editions (shell p4 closing round)
+
+    /// **A removed edition is a hidden tag, additive and absent-tolerant**: a
+    /// manifest with no key opens with none removed and writes no key; a
+    /// removed tag round-trips and is asked case-insensitively.
+    func test_removedEditionsAreAnAbsentTolerantListAskedCaseInsensitively() throws {
+        let plain = try ProjectManifest.decodeGuardingSchema(manifestJSON(schemaVersion: 9))
+        XCTAssertNil(plain.removedEditions)
+        XCTAssertFalse(plain.isEditionRemoved("es"))
+        XCTAssertFalse(try wire(plain).contains("removedEditions"), "no key written for none removed")
+        var removed = plain
+        removed.removedEditions = ["es"]
+        XCTAssertTrue(removed.isEditionRemoved("ES"))
+        XCTAssertFalse(removed.isEditionRemoved("sr"))
+        let back = try ProjectManifest.decodeGuardingSchema(Data(try wire(removed).utf8))
+        XCTAssertEqual(back.removedEditions, ["es"])
+        XCTAssertEqual(back, removed)
+    }
+
     func test_theDesignerRoleIsASingleStringOnTheWire() throws {
         XCTAssertEqual(try rawOnTheWire(.designer), #""designer""#)
         XCTAssertEqual(try roundTrip(.designer), .designer)

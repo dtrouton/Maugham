@@ -1,7 +1,7 @@
 import Foundation
 
-/// A named editing pass on the manifest's `reviewPasses` list — the Review
-/// persona's column headers on the board (M3 P1).
+/// A named editing pass on the manifest's `reviewPasses` list — the column
+/// headers on the Book's status board (M3 P1).
 ///
 /// Position is array order; there is no separate order field, so reordering
 /// is rewriting the array (Task 9's editor). `id` is stable identity: piece
@@ -191,7 +191,7 @@ public struct ReviewPass: Codable, Equatable, Identifiable, Sendable {
     Typos and layout artifacts, nothing else — the pass runs last, after \
     everything else has been decided, so there is nothing left to weigh \
     in on but the surface. Argus advises that its rounds be run as Fresh \
-    Eyes (⌘⇧R): a reader who remembers the manuscript stops seeing its \
+    Eyes (⌃⇧⌘R): a reader who remembers the manuscript stops seeing its \
     surface, reading intent instead of the actual character on the page, \
     and a proofing pass run from memory misses exactly the errors it \
     exists to catch. Argus leaves the letter empty — there is nothing left \

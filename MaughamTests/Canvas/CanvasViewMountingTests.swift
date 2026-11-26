@@ -80,10 +80,28 @@ class CanvasViewMountingCase: XCTestCase {
     /// an eaten Escape is exactly the defect these tests are about.
     var probeTokens: [Any] = []
 
+    /// The worker's armed Escape monitors when this test began.
+    private var armedAtSetUp = 0
+
+    override func setUp() {
+        super.setUp()
+        armedAtSetUp = MainActor.assumeIsolated { WindowEscapeArbiter.armedWindowCount }
+    }
+
     override func tearDown() {
         for token in probeTokens { NSEvent.removeMonitor(token) }
         probeTokens.removeAll()
+        // Closed, not only dropped: a window shown `.key` stays alive in
+        // AppKit's window list, and its dimmed canvas's Escape monitor with it
+        // (eight armed in one worker, shell p4 Task 11). A closing window
+        // disarms its arbiter (`test_closingTheWindowDisarmsItsEscape`), and
+        // the family leaves the worker as it found it.
+        for window in windows { window.close() }
         windows.removeAll()
+        MainActor.assumeIsolated {
+            XCTAssertEqual(WindowEscapeArbiter.armedWindowCount, armedAtSetUp,
+                           "this test left an Escape monitor armed in the worker")
+        }
         models.removeAll()
         for root in roots { try? FileManager.default.removeItem(at: root) }
         roots.removeAll()

@@ -207,7 +207,7 @@ private struct DetailColumnHarness: View {
     }
 }
 
-/// **One width, held through every persona and every pane switch.**
+/// **One width, held through every subject change and every pane switch.**
 ///
 /// Denver, 2026-08-08: *"I hate that the right hand column keeps shifting widths
 /// as I change modes, that needs to stop."*
@@ -471,20 +471,20 @@ final class DetailColumnWidthTests: XCTestCase {
             + "machine that could have run them")
     }
 
-    // MARK: - The width survives what a mode change does to this column
+    // MARK: - The width survives what a subject change does to this column
 
-    /// A persona switch reaches this column through three observable signals,
-    /// and it can fire all three in one press: `PersonaModifier` restores the
-    /// destination's remembered pane (the content swaps), forces
-    /// `showInspector = true` (the column may be re-mounted), and hands
-    /// `columnVisibility` back to `.all` after a canvas collapse. All three are
-    /// driven here, in that order, and the writer's 320 must come out the far
-    /// side.
-    func test_theWidthSurvivesAPersonaRoundTrip() async throws {
+    /// A subject change reaches this column through three observable signals,
+    /// and leaving the canvas can fire all three at once: the pane the writer
+    /// is on swaps content (a ⌘⌥ key, or a pane the new subject offers), the
+    /// column may be re-mounted (`showInspector`, a study ending), and
+    /// `CanvasCollapseModifier` hands `columnVisibility` back to `.all` when a
+    /// collapsed canvas stops being the centre. All three are driven here, in
+    /// that order, and the writer's 320 must come out the far side.
+    func test_theWidthSurvivesLeavingACollapsedCanvas() async throws {
         let probe = DetailColumnProbe(width: 320)
         let (_, split) = try await mount(probe)
         // What the writer is SHOWN, captured once: on a display too narrow for
-        // their 320 this is less, and the claim — that a mode change does not
+        // their 320 this is less, and the claim — that a subject change does not
         // move it — is the same claim about the same column either way. The
         // literal that used to stand here made the test's subject the display.
         let held = shown(probe)
@@ -503,13 +503,13 @@ final class DetailColumnWidthTests: XCTestCase {
             await pump(0.6)
 
             XCTAssertEqual(width(of: split), held, accuracy: 1,
-                           "pane \(pane): a mode change may move what the column "
+                           "pane \(pane): a subject change may move what the column "
                            + "SHOWS and must never move how wide it is")
         }
     }
 
     /// The cheaper half of the same rule, on its own: `⌘⌥`-letter pane
-    /// shortcuts fire in every persona, and the pane they land on is the one
+    /// shortcuts fire whatever the subject, and the pane they land on is the one
     /// whose content used to push the divider out to `max`.
     func test_theWidthSurvivesAPaneSwitch() async throws {
         let probe = DetailColumnProbe(width: 300)
@@ -600,7 +600,7 @@ final class DetailColumnWidthTests: XCTestCase {
         await pump(0.7)
         XCTAssertEqual(width(of: split), 240, accuracy: 1,
                        "and the offender's second half: a columnVisibility "
-                       + "round trip — `⌘\\` on the canvas, then any persona "
+                       + "round trip — `⌘\\` on the canvas, then any subject "
                        + "switch — lands the column on the range's MIN")
     }
 
@@ -747,7 +747,7 @@ final class DetailColumnWidthTests: XCTestCase {
     /// It shares the reproduction's mechanism exactly — an unmounted detail arm
     /// — and differs only in the visibility, which is what makes it worth
     /// asserting beside it: if this one is red too, the hidden arm is costing
-    /// the writer room in EVERY persona and not only under the collapse.
+    /// the writer room whatever is open and not only under the collapse.
     func test_hidingThePaneGivesTheProseWhatTheBinderDoesNot() async throws {
         let probe = DetailColumnProbe(width: UIState.defaultDetailColumnWidth)
         let (_, split) = try await mount(probe)
@@ -811,7 +811,7 @@ final class DetailColumnWidthTests: XCTestCase {
     /// the writer's number would be whatever the last transition happened to
     /// measure. A fixed column has no geometry of its own to report, so the
     /// count here is zero and the only writer left is the gesture.
-    func test_aPersonaSwitchDoesNotWriteTheWidth() async throws {
+    func test_aPaneSwitchDoesNotWriteTheWidth() async throws {
         let probe = DetailColumnProbe(width: 300)
         let (_, split) = try await mount(probe)
         let held = shown(probe)
@@ -828,7 +828,7 @@ final class DetailColumnWidthTests: XCTestCase {
         await pump(0.6)
 
         XCTAssertEqual(probe.widthWrites, 0,
-                       "a persona switch, a pane switch and a collapse round "
+                       "a pane switch, a re-mount and a collapse round "
                        + "trip must write the width exactly never")
         XCTAssertEqual(width(of: split), held, accuracy: 1)
 

@@ -505,4 +505,74 @@ final class PinnedReferencesTests: XCTestCase {
         XCTAssertEqual(pins(links: ["res-note"], scene: s, scraps: scraps),
                        pins(links: ["res-note"], scene: s, scraps: scraps))
     }
+
+    // MARK: - Contract: the list comes from ONE assembly
+
+    /// **The projection has one caller-side assembly, and this is the census
+    /// that keeps it that way.** (Moved here from the References pane's suite
+    /// when the pane became the tree's fold, shell plan 3 Task 9.)
+    ///
+    /// Three inputs have to be got right together — `linkedResearchIds` (NOT
+    /// `StructureItem.links`, which is the unrelated document-to-document
+    /// backlink field and was the plan's own mistake, caught in Task 3), the
+    /// attached-or-sidecar scene discriminator `list_canvas` reads through, and
+    /// a `CanvasItemIndex` over the whole research tree. A second site getting
+    /// any one of them wrong shows the writer a plausible, wrong shelf with
+    /// nothing red.
+    func test_thePinnedProjectionIsAssembledInExactlyOneProductionFile() throws {
+        XCTAssertEqual(try Self.filesCallingTheProjection(in: Self.appSourceDir),
+                       ["PinnedReferenceResolver.swift"],
+                       "PinnedReferences.pinned(forDocId:) is assembled in one place and "
+                       + "read from there by the tree's folds and the compiler's "
+                       + "context listing. A second assembly is a second chance to pass "
+                       + "`StructureItem.links` where `linkedResearchIds` belongs.")
+    }
+
+    /// The planted offender, without which the census could be scanning an empty
+    /// tree and reporting a set someone happened to write down.
+    func test_theAssemblyCensusCatchesASecondCaller() throws {
+        let planted = try Self.filesCallingTheProjection(
+            Self.appSourceDir,
+            plus: ["SomeNewPane.swift":
+                    "let pins = PinnedReferences.pinned(forDocId: id, links: item.links, "
+                    + "scene: nil, scraps: [:], items: .empty)"])
+        XCTAssertTrue(planted.contains("SomeNewPane.swift"),
+                      "the census cannot see a second caller — it is not reading real code")
+    }
+
+    static var appSourceDir: URL {
+        URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent("Maugham", isDirectory: true)
+    }
+
+    /// File names of every production `.swift` calling `PinnedReferences.pinned(`
+    /// outside a comment-only line. The declaring file is excluded by name —
+    /// a declaration is not a caller.
+    static func filesCallingTheProjection(
+        _ root: URL, plus extra: [String: String] = [:]
+    ) throws -> [String] {
+        var found: Set<String> = Set(extra.filter { $0.value.contains("PinnedReferences.pinned(") }
+            .keys)
+        let fm = FileManager.default
+        guard let walker = fm.enumerator(at: root, includingPropertiesForKeys: nil) else {
+            return []
+        }
+        for case let url as URL in walker where url.pathExtension == "swift" {
+            guard url.lastPathComponent != "PinnedReferences.swift" else { continue }
+            let text = try String(contentsOf: url, encoding: .utf8)
+            let code = text.split(separator: "\n", omittingEmptySubsequences: false)
+                .filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }
+                .joined(separator: "\n")
+            if code.contains("PinnedReferences.pinned(") {
+                found.insert(url.lastPathComponent)
+            }
+        }
+        return found.sorted()
+    }
+
+    static func filesCallingTheProjection(in root: URL) throws -> [String] {
+        try filesCallingTheProjection(root)
+    }
 }

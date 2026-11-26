@@ -26,6 +26,9 @@ final class EditorIntegrationHarness {
 
     /// Binding's @State backing — the test's view of "documentText".
     private var boundText: String
+    /// What the binding holds now — what the editor has written to its host
+    /// (shell p4 Task 8: a translated surface must never reach it).
+    private(set) var readBinding: () -> String = { "" }
 
     init(
         mode: any WritingMode = ProseMode(),
@@ -79,6 +82,7 @@ final class EditorIntegrationHarness {
         final class TextBox { var value: String; init(_ v: String) { value = v } }
         let textBox = TextBox(initialText)
 
+        self.readBinding = { textBox.value }
         let coord = EditorCoordinator(
             text: Binding(
                 get: { textBox.value },
@@ -159,6 +163,7 @@ final class EditorIntegrationHarness {
             contentRect: NSRect(x: 0, y: 0, width: 600, height: 600),
             contentView: sv, present: .unshown)
 
+        self.readBinding = { boundText.wrappedValue }
         let coord = EditorCoordinator(
             text: boundText,
             mode: mode,
@@ -251,6 +256,7 @@ final class EditorIntegrationHarness {
     // MARK: - State inspection
 
     var currentText: String { textView.string }
+    var boundValue: String { readBinding() }
     var cursorLocation: Int { textView.selectedRange().location }
 
     /// Invariant assertion for Test 8 and similar. Captures the

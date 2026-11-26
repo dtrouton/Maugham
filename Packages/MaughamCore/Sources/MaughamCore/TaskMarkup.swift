@@ -6,8 +6,8 @@ import Foundation
 /// drifted: the OpLog cache-invalidation gate
 /// (`Document.changeTouchesTaskMarkup`) and the anchor-alignment
 /// move-detector (`TaskAnchorAlignment.lineCarriesTaskMarker`) only
-/// recognized lowercase `- [x]`, while `TasksPane`'s inline-checkbox flip
-/// helper already treated `- [X]` (uppercase) as a valid checked marker. The
+/// recognized lowercase `- [x]`, while the to-do list's inline-checkbox flip
+/// helper (then `TasksPane`, now To resolve's `ResolveTaskVerbs`) already treated `- [X]` (uppercase) as a valid checked marker. The
 /// result: a writer's `- [X]` didn't trip the tasks-cache invalidation fast
 /// path even though the pane could flip it. All three sites — plus any
 /// future one — should consume this predicate rather than re-deriving it.

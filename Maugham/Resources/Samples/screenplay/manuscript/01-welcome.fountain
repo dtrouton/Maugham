@@ -1,11 +1,38 @@
-Title: Welcome — A Maugham Sample
+Title: Welcome
+Credit: a sample screenplay for Maugham
+Author: You
 
-INT. MAUGHAM — DAY
+INT. A SMALL APARTMENT - NIGHT
 
-A WRITER stares at a blank page. Then types.
+Rain on the window. A cold cup of tea. A WRITER sits in front of a blank page, and then she types.
+
+What she types is a scene heading. In the binder on the left, it appears under the Script as a scene, with the page it starts on.
 
 WRITER
-(delighted)
-Tab cycles element types. Cmd-slash opens the syntax sheet.
+(to herself)
+Every scene heading is a scene. Click one in the binder and the script scrolls there.
+
+She types a name in capitals, then a line under it. The page dresses itself: a character, then dialogue.
+
+WRITER (CONT'D)
+And when it guesses wrong, Tab cycles the line through what it could be. Shift-Tab goes back.
+
+She presses ⌘2. Brief opens beside the script, and she writes one sentence about what this script is going for.
+
+[[todo: Give the writer a name]]
+
+EXT. THE SAME STREET - LATER
+
+The rain has stopped. The WRITER walks, hands in her pockets, and the street lamps come on one after another.
+
+WRITER
+The to-do up there is waiting in To resolve. ⌘1, and there it is.
+
+She stops under a lamp and looks back at the window she left.
+
+WRITER (CONT'D)
+The page count's in the line under the script, and a page target is set at its right end.
+
+She presses ⌘/ for the sheet of everything Fountain can do, and reads it on the way home.
 
 FADE OUT.

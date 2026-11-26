@@ -93,12 +93,12 @@ final class TreeScrollStabilityTests: XCTestCase {
         let store = try await novel(chapters: 40)
         let chapters = store.manifest.structure
         let url = store.url
-        // Open in Review, on a chapter, with the annotations queue up — where
-        // the cockpit's lane picker lives.
+        // Open on a chapter, with the annotations queue up — where the
+        // cockpit's lane picker lives.
         try XCTUnwrap(store.documentStore).updateUIState {
-            $0.persona = .review
-            $0.selectedSubject = .item(chapters[25].id)
-            $0.detailSegment = .annotations
+            $0.windowSubject = WindowSubject(open: .item(chapters[25].id),
+                                             faces: .item(chapters[25].id))
+            $0.rightColumnPosition = .resolve
         }
         await waitOut(1.2)   // the 500ms UI-state debounce reaches disk
 
@@ -170,9 +170,9 @@ final class TreeScrollStabilityTests: XCTestCase {
         let chapters = store.manifest.structure
         let url = store.url
         try XCTUnwrap(store.documentStore).updateUIState {
-            $0.persona = .review
-            $0.selectedSubject = .item(chapters[25].id)
-            $0.detailSegment = .annotations
+            $0.windowSubject = WindowSubject(open: .item(chapters[25].id),
+                                             faces: .item(chapters[25].id))
+            $0.rightColumnPosition = .resolve
         }
         await waitOut(1.2)
 
@@ -233,11 +233,10 @@ final class TreeScrollStabilityTests: XCTestCase {
     /// floor means `body`'s `.frame(minHeight:)` has stopped applying, which is
     /// its own defect and should be as red as an overrun.
     ///
-    /// The states are persona × that persona's own `panes` × the two subject
-    /// shapes (a chapter, which centres the editor; the project row, which
-    /// centres the altitude view) — the registry's own product, so a pane added
-    /// to `DetailSegment` is swept the day it joins a persona, with no list in
-    /// this file to update. A failure names the state it happened in.
+    /// The states are every position in `RightColumnPosition.allCases` × the two
+    /// subject shapes (a chapter, which centres the editor; the project row,
+    /// which centres the altitude view) — so a position added to the enum is
+    /// swept the day it joins, with no list in this file to update. A failure names the state it happened in.
     ///
     /// **What no pane can currently do to it, measured 2026-08-18 with planted
     /// offenders against this very window.** A `.frame(minHeight: 700)` planted
@@ -279,8 +278,8 @@ final class TreeScrollStabilityTests: XCTestCase {
         // the queue's advisory nudge live rather than in its quiet state — the
         // one measured to have raised this number.
         documentStore.updateUIState {
-            $0.persona = .review
-            $0.selectedSubject = .item(chapters[0].id)
+            $0.windowSubject = WindowSubject(open: .item(chapters[0].id),
+                                             faces: .item(chapters[0].id))
             $0.activePassMemory.record(piece: chapters[0].id, passId: "line")
         }
         await waitOut(1.2)
@@ -314,13 +313,12 @@ final class TreeScrollStabilityTests: XCTestCase {
             ("the project row", .project),
         ]
         var swept = 0
-        for persona in Persona.allCases {
-            for pane in persona.panes {
+        do {
+            for pane in RightColumnPosition.allCases {
                 for (subjectName, subject) in subjects {
                     liveDocumentStore.updateUIState {
-                        $0.persona = persona
-                        $0.detailSegment = pane
-                        $0.selectedSubject = subject
+                        $0.rightColumnPosition = pane
+                        $0.windowSubject = WindowSubject(open: subject, faces: subject)
                     }
                     pump(0.25)
                     swept += 1
@@ -329,7 +327,7 @@ final class TreeScrollStabilityTests: XCTestCase {
                         ProjectWindow.windowHeightFloor, accuracy: 0.5,
                         "the window's minimum height is "
                         + "\(window.contentMinSize.height) in "
-                        + "\(persona.rawValue)/\(pane.rawValue) on "
+                        + "\(pane.rawValue) on "
                         + "\(subjectName) — `ProjectWindow.windowHeightFloor` "
                         + "(\(ProjectWindow.windowHeightFloor)) is the only "
                         + "thing entitled to set it. Something outside the "
@@ -345,10 +343,11 @@ final class TreeScrollStabilityTests: XCTestCase {
                 }
             }
         }
-        XCTAssertGreaterThan(
-            swept, 10,
-            "premise: the registry must have yielded a real product of states — "
-            + "an empty sweep asserts nothing at all")
+        XCTAssertEqual(
+            swept, RightColumnPosition.allCases.count * subjects.count,
+            "premise: the positions must have yielded their whole product of "
+            + "states — an empty sweep asserts nothing at all")
+        XCTAssertGreaterThan(swept, 0)
     }
 
     /// **The column's minimum height is not the pass's business** — the cause,
@@ -560,8 +559,8 @@ final class TreeScrollStabilityTests: XCTestCase {
         // table in the tree is the TREE — the altitude view a project subject
         // would put there brings a table of its own.
         try XCTUnwrap(store.documentStore).updateUIState {
-            $0.persona = .review
-            $0.selectedSubject = .item(chapters[25].id)
+            $0.windowSubject = WindowSubject(open: .item(chapters[25].id),
+                                             faces: .item(chapters[25].id))
         }
         await waitOut(1.2)
 
@@ -788,14 +787,15 @@ private struct AnnotationsPaneProbe: View {
     /// minimum instead of the queue's.
     let orchestrator: CompilerOrchestrator?
     let diagnostics: DiagnosticsStore?
-    @State private var scope: AnnotationScope = .document
 
     var body: some View {
-        AnnotationsPane(
-            document: document, store: store, documentStore: documentStore,
-            scope: $scope, onTravel: { _ in },
-            orchestrator: orchestrator, diagnostics: diagnostics,
-            onSetActivePass: { _, _ in })
+        ResolvePane(
+            store: store, documentStore: documentStore,
+            subject: WindowSubject(open: .item(document.docId), faces: .item(document.docId)),
+            script: nil, diagnostics: diagnostics, orchestrator: orchestrator, world: nil,
+            compilerModel: .standard, onCompilerModelChange: { _ in },
+            onSetPassState: { _, _, _ in }, onSetActivePass: { _, _ in },
+            request: .constant(nil), onSelectionShown: { _ in }, figureTree: nil)
         .environment(UserPreferences())
     }
 }
@@ -816,30 +816,30 @@ private struct PassSwapColumnProbe: View {
 
     @State private var columnVisibility: NavigationSplitViewVisibility = .automatic
     @State private var findActive = false
-    @State private var scope: AnnotationScope = .document
 
     var body: some View {
         let current = probe.subject
         return NavigationSplitView(columnVisibility: $columnVisibility) {
             BinderPaneToggle(
                 store: store,
-                selectedSubject: Binding(get: { current },
-                                         set: { probe.subject = $0 }),
+                subject: .tree(Binding(get: { current },
+                                         set: { probe.subject = $0 })),
                 projectType: store.manifest.type,
                 lastParsedScript: nil,
                 treeState: treeState,
-                treeFindActive: $findActive,
-                persona: .review)
+                treeFindActive: $findActive)
             .navigationSplitViewColumnWidth(
                 min: ProjectWindow.binderColumnFloor, ideal: 240)
         } content: {
             Text("centre").frame(maxWidth: .infinity, maxHeight: .infinity)
         } detail: {
-            AnnotationsPane(
-                document: document, store: store, documentStore: documentStore,
-                scope: $scope, onTravel: { _ in },
-                orchestrator: orchestrator, diagnostics: diagnostics,
-                onSetActivePass: { _, _ in })
+            ResolvePane(
+            store: store, documentStore: documentStore,
+            subject: WindowSubject(open: .item(document.docId), faces: .item(document.docId)),
+            script: nil, diagnostics: diagnostics, orchestrator: orchestrator, world: nil,
+            compilerModel: .standard, onCompilerModelChange: { _ in },
+            onSetPassState: { _, _, _ in }, onSetActivePass: { _, _ in },
+            request: .constant(nil), onSelectionShown: { _ in }, figureTree: nil)
         }
         .environment(UserPreferences())
     }
@@ -866,13 +866,12 @@ private struct TreeScrollProbeView: View {
         return NavigationSplitView(columnVisibility: $columnVisibility) {
             BinderPaneToggle(
                 store: store,
-                selectedSubject: Binding(get: { current },
-                                         set: { probe.subject = $0 }),
+                subject: .tree(Binding(get: { current },
+                                         set: { probe.subject = $0 })),
                 projectType: store.manifest.type,
                 lastParsedScript: nil,
                 treeState: treeState,
-                treeFindActive: $findActive,
-                persona: .review)
+                treeFindActive: $findActive)
             .navigationSplitViewColumnWidth(
                 min: ProjectWindow.binderColumnFloor, ideal: 240)
         } content: {

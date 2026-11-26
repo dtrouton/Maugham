@@ -54,11 +54,11 @@ final class BinderPieceFoldTests: XCTestCase {
         let outline = try XCTUnwrap(outlineView(in: window))
         let before = outline.numberOfRows
 
-        try expandRow(1, in: outline)
+        try expandRow(1 + TreeFurniture.topRows, in: outline)
 
         XCTAssertEqual(outline.numberOfRows, before + 1,
                        "the chapter unfolds to the one item linked to it")
-        await select(row: 2, in: outline,
+        await select(row: 2 + TreeFurniture.topRows, in: outline,
                      until: { probe.subject == .research(note.id) })
         XCTAssertEqual(probe.subject, .research(note.id),
                        "a folded research row is a subject of the window like "
@@ -79,7 +79,7 @@ final class BinderPieceFoldTests: XCTestCase {
         let (window, probe) = try await hostBinder(store: store)
         let outline = try XCTUnwrap(outlineView(in: window))
 
-        await select(row: 1, in: outline, until: { probe.subject == .item(chapter.id) })
+        await select(row: 1 + TreeFurniture.topRows, in: outline, until: { probe.subject == .item(chapter.id) })
         XCTAssertEqual(probe.subject, .item(chapter.id))
     }
 
@@ -93,7 +93,7 @@ final class BinderPieceFoldTests: XCTestCase {
         let (window, _) = try await hostBinder(store: store)
         let outline = try XCTUnwrap(outlineView(in: window))
 
-        XCTAssertFalse(try isExpandable(row: 1, in: outline),
+        XCTAssertFalse(try isExpandable(row: 1 + TreeFurniture.topRows, in: outline),
                        "shared research the chapter is not linked to must not "
                        + "put a chevron on the chapter")
     }
@@ -110,20 +110,33 @@ final class BinderPieceFoldTests: XCTestCase {
         let (window, _) = try await hostBinder(store: store)
         let outline = try XCTUnwrap(outlineView(in: window))
 
-        XCTAssertTrue(try isExpandable(row: 1, in: outline))
+        XCTAssertTrue(try isExpandable(row: 1 + TreeFurniture.topRows, in: outline))
     }
 
     /// **A short story's document never folds**, because everything in Research
     /// already IS that document's — folding it under the row would draw every
     /// note in the project twice.
-    func test_aShortStoryDocumentHasNoChevron() async throws {
+    /// **A short story's one document folds into GROUPS, never a flat list**
+    /// (shell p3 Task 7): everything in Research is that document's (the
+    /// shelf's rule), so its fold would list every research asset — at any
+    /// size it shows "Research (n)" and the rest collapsed, one row a group.
+    func test_aShortStorysOneDocumentFoldsIntoGroups() async throws {
         let store = try await shortStory()
         _ = try await store.addResearchTextNote(parentId: nil, title: "Tides")
 
         let (window, _) = try await hostBinder(store: store)
         let outline = try XCTUnwrap(outlineView(in: window))
+        let before = outline.numberOfRows
 
-        XCTAssertFalse(try isExpandable(row: 1, in: outline))
+        try expandRow(1 + TreeFurniture.topRows, in: outline)
+        XCTAssertEqual(outline.numberOfRows, before + 1,
+                       "one note, one group row — not the note itself")
+        let doc = try XCTUnwrap(store.manifest.structure.first { $0.type == .document })
+        guard case .groups(let runs)? = PieceFoldIndex.build(store: store, projectRoot: store.url)
+                .layout(of: doc.id) else {
+            return XCTFail("a single-document project's fold is grouped at any size")
+        }
+        XCTAssertEqual(runs.map(\.group), [.research])
     }
 
     /// **And the screenplay navigator needs no fold work at all** — its script
@@ -138,7 +151,7 @@ final class BinderPieceFoldTests: XCTestCase {
         let (window, _) = try await hostNavigator(store: store)
         let outline = try XCTUnwrap(outlineView(in: window))
 
-        XCTAssertFalse(try isExpandable(row: 1, in: outline),
+        XCTAssertFalse(try isExpandable(row: 1 + TreeFurniture.topRows, in: outline),
                        "the script row is the screenplay's one document and it "
                        + "folds onto nothing")
     }
@@ -156,12 +169,12 @@ final class BinderPieceFoldTests: XCTestCase {
         let outline = try XCTUnwrap(outlineView(in: window))
         let before = outline.numberOfRows
 
-        try expandRow(1, in: outline)
+        try expandRow(1 + TreeFurniture.topRows, in: outline)
 
         XCTAssertEqual(outline.numberOfRows, before + 1,
                        "the piece unfolds to what is in its own research "
                        + "folder — and not to the shared note beside it")
-        await select(row: 2, in: outline,
+        await select(row: 2 + TreeFurniture.topRows, in: outline,
                      until: { probe.subject == .research(owned.id) })
         XCTAssertEqual(probe.subject, .research(owned.id))
     }
@@ -174,7 +187,7 @@ final class BinderPieceFoldTests: XCTestCase {
         let (window, _) = try await hostCollection(store: store)
         let outline = try XCTUnwrap(outlineView(in: window))
 
-        XCTAssertFalse(try isExpandable(row: 1, in: outline),
+        XCTAssertFalse(try isExpandable(row: 1 + TreeFurniture.topRows, in: outline),
                        "the project's shared research is not this piece's")
     }
 
@@ -186,7 +199,7 @@ final class BinderPieceFoldTests: XCTestCase {
         let (window, probe) = try await hostCollection(store: store)
         let outline = try XCTUnwrap(outlineView(in: window))
 
-        await select(row: 1, in: outline, until: { probe.subject == .item(piece.id) })
+        await select(row: 1 + TreeFurniture.topRows, in: outline, until: { probe.subject == .item(piece.id) })
         XCTAssertEqual(probe.subject, .item(piece.id))
     }
 
@@ -206,21 +219,21 @@ final class BinderPieceFoldTests: XCTestCase {
         let (window, probe) = try await hostCollection(store: store)
         let outline = try XCTUnwrap(outlineView(in: window))
 
-        try expandRow(1, in: outline)   // the piece
-        XCTAssertTrue(try isExpandable(row: 2, in: outline),
+        try expandRow(1 + TreeFurniture.topRows, in: outline)   // the piece
+        XCTAssertTrue(try isExpandable(row: 2 + TreeFurniture.topRows, in: outline),
                       "the group inside the piece keeps its own triangle")
-        try expandRow(2, in: outline)   // the group
+        try expandRow(2 + TreeFurniture.topRows, in: outline)   // the group
 
-        await select(row: 3, in: outline, until: { probe.subject == .research(child.id) })
+        await select(row: 3 + TreeFurniture.topRows, in: outline, until: { probe.subject == .research(child.id) })
         XCTAssertEqual(probe.subject, .research(child.id),
                        "and its child is a subject like any other row")
     }
 
-    /// **A linked group in a novel chapter's fold does NOT expand.** The fold's
-    /// rows are the chapter's `linkedResearchIds`, resolved; a group's children
-    /// are not linked to that chapter by anything, so showing them under it
-    /// would claim a link nothing recorded.
-    func test_aLinkedGroupInANovelChaptersFoldStaysFlat() async throws {
+    /// **A linked group in a novel chapter's fold opens to its notes** (shell
+    /// p5 Task 4a): a group the chapter links is the chapter's, with
+    /// everything in it, and it is drawn nowhere else — a flat row there would
+    /// leave its notes on no row at all.
+    func test_aLinkedGroupInANovelChaptersFoldOpensToItsNotes() async throws {
         let store = try await novel()
         let chapter = try XCTUnwrap(store.manifest.structure.first)
         let group = try await store.addResearchItem(
@@ -231,10 +244,10 @@ final class BinderPieceFoldTests: XCTestCase {
         let (window, _) = try await hostBinder(store: store)
         let outline = try XCTUnwrap(outlineView(in: window))
 
-        try expandRow(1, in: outline)
-        XCTAssertFalse(try isExpandable(row: 2, in: outline),
-                       "the group is in the fold because it is linked; its "
-                       + "children are not, and the fold must not say they are")
+        try expandRow(1 + TreeFurniture.topRows, in: outline)
+        XCTAssertTrue(try isExpandable(row: 2 + TreeFurniture.topRows, in: outline),
+                      "the linked group opens under the chapter: its notes are "
+                      + "the chapter's, and this is their one row")
     }
 
     // MARK: - The fold's disclosure is the window's (stage-3b Task 7)
@@ -254,11 +267,11 @@ final class BinderPieceFoldTests: XCTestCase {
         let (window, _) = try await hostCollection(store: store, state: state)
         let outline = try XCTUnwrap(outlineView(in: window))
 
-        try expandRow(1, in: outline)
+        try expandRow(1 + TreeFurniture.topRows, in: outline)
         XCTAssertEqual(state.expandedPieceFolds, [piece.id],
                        "the click the writer makes is what the window reads")
 
-        try collapseRow(1, in: outline)
+        try collapseRow(1 + TreeFurniture.topRows, in: outline)
         XCTAssertTrue(state.expandedPieceFolds.isEmpty,
                       "and closing is a removal — collapsing stays the writer's "
                       + "click, and the state has to be able to say 'closed'")
@@ -284,13 +297,13 @@ final class BinderPieceFoldTests: XCTestCase {
         // subject write — the real method, on the real state the tree is over.
         let shown = state.reveal(owned.id, structure: store.manifest.structure,
                                  research: store.manifest.research,
-                                 projectType: store.manifest.type)
-        XCTAssertEqual(shown, .item(piece.id))
+                                 projectType: store.manifest.type, openPiece: nil)
+        XCTAssertEqual(shown, .foldRow(researchId: owned.id, piece: piece.id))
         _ = await pumpUntil(deadline: 5) { outline.numberOfRows > before }
 
         XCTAssertEqual(outline.numberOfRows, before + 1,
                        "the fold opened and its row is drawn")
-        await select(row: 2, in: outline,
+        await select(row: 2 + TreeFurniture.topRows, in: outline,
                      until: { probe.subject == .research(owned.id) })
         XCTAssertEqual(probe.subject, .research(owned.id),
                        "and the row on screen is the note the reveal named")
@@ -301,10 +314,10 @@ final class BinderPieceFoldTests: XCTestCase {
     /// with the piece pushed far enough down the tree that its row starts
     /// off-screen, the reveal's own scroll request has to bring it back.
     ///
-    /// **The PIECE row, not the note's** — `reveal`'s own answer for a
-    /// piece-scoped id (a closed fold has no row of its own to scroll to yet;
-    /// Task 7's report records the choice).
-    func test_aRevealOfAPieceScopedNotePutsThePieceRowOnScreen() async throws {
+    /// **The note's own row in the fold** (shell p5 Task 4a: a fold's research
+    /// rows carry their fold tag as their scroll identity, so `reveal` answers
+    /// the row itself rather than the piece above it).
+    func test_aRevealOfAPieceScopedNotePutsItsOwnRowOnScreen() async throws {
         let store = try await collection()
         for i in 0..<60 {
             _ = try await store.addLoosePiece(title: "Filler \(i)", format: .markdown)
@@ -330,13 +343,14 @@ final class BinderPieceFoldTests: XCTestCase {
         // it exactly as production does.
         let shown = state.reveal(owned.id, structure: store.manifest.structure,
                                  research: store.manifest.research,
-                                 projectType: store.manifest.type)
-        state.scrollRequest = shown.map(TreeScrollTarget.row)
-        await pumpUntil(deadline: 5) { self.isRowVisible(pieceRow, in: outline) }
+                                 projectType: store.manifest.type, openPiece: nil)
+        XCTAssertEqual(shown, .foldRow(researchId: owned.id, piece: piece.id))
+        state.scrollRequest = shown
+        await pumpUntil(deadline: 5) { self.isRowVisible(pieceRow + 1, in: outline) }
 
-        XCTAssertTrue(isRowVisible(pieceRow, in: outline),
+        XCTAssertTrue(isRowVisible(pieceRow + 1, in: outline),
                       "the reveal opened the fold but did not scroll the "
-                      + "piece's own row onto screen")
+                      + "note's own row onto screen")
     }
 
     /// The two hosts bind their folds to the window's state — a source census,
@@ -373,8 +387,8 @@ final class BinderPieceFoldTests: XCTestCase {
 
         let (window, probe) = try await hostCollection(store: store, sweeping: true)
         let outline = try XCTUnwrap(outlineView(in: window))
-        try expandRow(1, in: outline)
-        await select(row: 2, in: outline, until: { probe.subject == .research(owned.id) })
+        try expandRow(1 + TreeFurniture.topRows, in: outline)
+        await select(row: 2 + TreeFurniture.topRows, in: outline, until: { probe.subject == .research(owned.id) })
         XCTAssertEqual(probe.subject, .research(owned.id), "precondition")
 
         try await store.deleteResearchItem(id: owned.id)
@@ -458,15 +472,10 @@ final class BinderPieceFoldTests: XCTestCase {
 
     // MARK: - One note, two rows, one rename field (final review, I2)
 
-    /// **A linked note is drawn TWICE in one `List`** — once in the shared
-    /// Research section, where it lives, and once in the fold of every chapter
-    /// that links it — and both rows read the same `renamingItemId`. So Rename
-    /// used to mount two `TextField`s in one list, each running tripwire 16's
-    /// 30ms `claimFocus()` deferral against the other: the writer's typing goes
-    /// to whichever won, and the other field sits over the row it names.
-    ///
-    /// The fix is that a `.linked` fold is a VIEW of the chapter's links and
-    /// offers no rename of its own. The note is renamed where it lives.
+    /// **A linked note is drawn ONCE** (shell p5 Task 4a, either/or): in
+    /// the chapter's fold, never also in the Research section — so Rename opens
+    /// one field, there. (Before, the section drew it a second time and the
+    /// fold offered no rename, finding I2.)
     func test_renamingALinkedNoteOpensExactlyOneFieldInTheWholeTree() async throws {
         let store = try await novel()
         let chapter = try XCTUnwrap(store.manifest.structure.first)
@@ -474,36 +483,24 @@ final class BinderPieceFoldTests: XCTestCase {
         try await store.linkResearch(researchId: note.id, toDocumentId: chapter.id)
 
         let state = BinderTreeSectionsState()
-        let (window, probe) = try await hostFoldAndSections(store: store, state: state,
+        let (window, _) = try await hostFoldAndSections(store: store, state: state,
                                                             documentId: chapter.id)
         let outline = try XCTUnwrap(outlineView(in: window))
         let before = outline.numberOfRows
         try expandRow(0, in: outline)
         XCTAssertEqual(outline.numberOfRows, before + 1,
                        "precondition: the chapter's fold draws the linked note")
-
-        // **The two rows, named by what they select.** SwiftUI draws a row's
-        // label into a hosting view rather than an `NSTextField`, so a row is
-        // identified here the way every test in this file identifies one: by the
-        // subject it writes. Row 1 is inside the fold, row 3 is in the shared
-        // Research section, and both are this note.
-        for row in [1, 3] {
-            probe.subject = .project
-            await select(row: row, in: outline,
-                         until: { probe.subject == .research(note.id) })
-            XCTAssertEqual(probe.subject, .research(note.id),
-                           "precondition: row \(row) is the note — it is drawn "
-                           + "in the chapter's fold AND in the shared section")
-        }
+        XCTAssertEqual(markedSubject(ofRow: 1, in: outline), .research(note.id),
+                       "row 1, inside the fold, is the note")
+        XCTAssertNotEqual(markedSubject(ofRow: 3, in: outline), .research(note.id),
+                          "and the Research section does not draw it again")
 
         state.renamingItemId = note.id
         pump(0.3)
 
         XCTAssertEqual(
             renameFields(in: window, titled: note.title).count, 1,
-            "one rename request must open one field. Two fields in one list "
-            + "race for focus (tripwire 16) and the writer types into whichever "
-            + "won, over a row that is not the one they asked to rename")
+            "one rename request opens one field, in the fold — the note's one row")
     }
 
     /// The same claim on the path that actually opens a rename without a menu:
@@ -528,15 +525,14 @@ final class BinderPieceFoldTests: XCTestCase {
         let outline = try XCTUnwrap(outlineView(in: window))
         try expandRow(0, in: outline)
         XCTAssertEqual(
-            outline.numberOfRows, 8,
+            outline.numberOfRows, 7 + TreeFurniture.emptyPalette - 2 + TreeFurniture.editions,
             "precondition — the chapter row, its fold's TWO linked notes, the "
-            + "Research header and the same two notes under it, then the "
-            + "Palette header and its placeholder. The note the writer just "
-            + "made is in the fold they asked from and in the shared section it "
-            + "lives in")
+            + "Research header and its placeholder (no whole-book research), then "
+            + "the Palette header and its placeholder. The note the writer just "
+            + "made is in the fold they asked from, and only there")
         XCTAssertEqual(
             renameFields(in: window, titled: "Untitled Note").count, 1,
-            "creating a note opens ONE rename field — the shared section's")
+            "creating a note opens ONE rename field — the fold's")
     }
 
     /// **The control: a contained fold keeps the verb.** A Collection piece's
@@ -555,7 +551,7 @@ final class BinderPieceFoldTests: XCTestCase {
         let outline = try XCTUnwrap(outlineView(in: window))
         try expandRow(0, in: outline)
         XCTAssertEqual(
-            outline.numberOfRows, 6,
+            outline.numberOfRows, 6 + TreeFurniture.emptyPalette - 2 + TreeFurniture.editions,
             "precondition — the piece row, its fold's one note, the Research "
             + "header and its EMPTY placeholder, then the Palette header and "
             + "its placeholder. A contained note is drawn once: it is not in "
@@ -578,20 +574,21 @@ final class BinderPieceFoldTests: XCTestCase {
     func test_theRenameMenuItemIsGatedOnTheSameValueTheFieldIs() throws {
         let node = try source(of: "Maugham/Views/ResearchTree.swift")
         XCTAssertTrue(
-            node.contains("if offersRename {"),
+            node.contains("if offersRename(item.id) {"),
             "the Rename button must be behind `offersRename` — the field and the "
             + "menu item are one decision, and a menu that offers what the row "
             + "cannot do is worse than no menu")
         XCTAssertTrue(
-            node.contains("offersRename ? $renamingItemId : .constant(nil)"),
+            node.contains("offersRename(item.id) ? $renamingItemId : .constant(nil)"),
             "…and the row's binding must be dead where it does not offer "
             + "rename, or `pendingRenameId` opens the field the menu no longer "
             + "can")
 
         let foldSource = try source(of: "Maugham/Views/BinderPieceFold.swift")
         XCTAssertTrue(
-            foldSource.contains("offersRename: fold.semantic == .contained"),
-            "a fold offers rename exactly where its rows are drawn once")
+            foldSource.contains("homes.homes(of: $0).first == documentId"),
+            "a fold offers rename on one row per item: its first home in tree "
+            + "order (`ResearchHomes.homes`)")
     }
 
     /// **What the probe above assumes, asserted.** The two tests that count
@@ -686,16 +683,13 @@ final class BinderPieceFoldTests: XCTestCase {
     ///   question; the rename tests pass the state their mounted list is over.
     private func fold(for documentId: String, in store: ProjectStore,
                       state: BinderTreeSectionsState? = nil) -> BinderPieceFold {
-        BinderPieceFold(
+        TreeHostFixture.foldView(
             store: store,
             state: state ?? BinderTreeSectionsState(),
-            selectedSubject: .constant(nil),
+            subject: .constant(.book),
             documentId: documentId,
-            fold: TreeSectionDerivation.pieceFold(
-                forDocumentId: documentId,
-                structure: store.manifest.structure,
-                research: store.manifest.research,
-                projectType: store.manifest.type))
+            // The verbs do not depend on what the fold draws.
+            layout: .rows([]))
     }
 
     // MARK: - Hosting and driving
@@ -765,8 +759,9 @@ final class BinderPieceFoldTests: XCTestCase {
         windows.append(window)
         await pumpUntil(deadline: 5) { self.outlineView(in: window) != nil }
         // The palette section loads its cards from disk once per manifest
-        // change, so the rows it contributes arrive a turn after the list does.
-        pump(0.2)
+        // change, and the fold index is built in the hosts' `.task`, so the
+        // rows each contributes arrive a turn after the list does.
+        pump(0.4)
         return window
     }
 
@@ -788,6 +783,19 @@ final class BinderPieceFoldTests: XCTestCase {
                                  "no row \(row) in a list of \(outline.numberOfRows)")
         outline.collapseItem(item)
         pump(0.2)
+    }
+
+    /// The subject a row's label mark names, if it carries one.
+    private func markedSubject(ofRow row: Int, in outline: NSOutlineView) -> BinderSubject? {
+        guard let view = outline.rowView(atRow: row, makeIfNecessary: true) else { return nil }
+        var stack: [NSView] = [view]
+        while let next = stack.popLast() {
+            if let mark = next as? TreeTravelTargetView, let subject = mark.subject {
+                return subject
+            }
+            stack.append(contentsOf: next.subviews)
+        }
+        return nil
     }
 
     private func isExpandable(row: Int, in outline: NSOutlineView) throws -> Bool {
@@ -837,9 +845,9 @@ private struct FoldBinderProbeView: View {
     let treeState = BinderTreeSectionsState()
 
     var body: some View {
-        BinderView(store: store,
-                   selectedSubject: Binding(get: { probe.subject },
-                                            set: { probe.subject = $0 }),
+        TreeHostFixture.binder(store: store,
+                   subject: .tree(Binding(get: { probe.subject },
+                                            set: { probe.subject = $0 })),
                    treeState: treeState)
     }
 }
@@ -860,7 +868,7 @@ private struct FoldCollectionProbeView: View {
     var body: some View {
         let subject = Binding(get: { probe.subject },
                               set: { probe.subject = $0 })
-        CollectionPiecesPane(store: store, selectedSubject: subject,
+        TreeHostFixture.collection(store: store, subject: .tree(subject),
                              renamingItemId: $renaming,
                              treeState: treeState)
             .modifier(OptionalSubjectValidation(
@@ -879,32 +887,30 @@ private struct FoldAndSectionsProbeView: View {
     let documentId: String
 
     var body: some View {
-        let subject = Binding(get: { probe.subject }, set: { probe.subject = $0 })
+        let subject = Binding<WindowSubject>.tree(
+            Binding(get: { probe.subject }, set: { probe.subject = $0 }))
         // The hosts' own binding — a SET since stage-2b Task 3, over the same
         // state this probe already hands the fold and the sections.
         List(selection: BinderTreeSelection.binding(
                 subject: subject, state: state, store: store)) {
             DisclosureGroup {
-                BinderPieceFold(
-                    store: store, state: state, selectedSubject: subject,
+                TreeHostFixture.fold(
+                    store: store, state: state, subject: subject,
                     documentId: documentId,
-                    // Derived per render from the manifest, as the hosts do —
-                    // a fold captured once would not show the note a test just
-                    // asked the store to make.
-                    fold: TreeSectionDerivation.pieceFold(
-                        forDocumentId: documentId,
-                        structure: store.manifest.structure,
-                        research: store.manifest.research,
-                        projectType: store.manifest.type))
+                    // The window's index, as the hosts look it up — rebuilt by
+                    // the list's `.pieceFoldIndex` when a test asks the store
+                    // to make a note.
+                    layout: state.foldIndex.layout(of: documentId) ?? .rows([]))
             } label: {
                 Text(TreeWalk.find(id: documentId, in: store.manifest.structure)?.title
                      ?? documentId)
             }
-            .tag(BinderSubject.item(documentId))
-            BinderTreeSections(store: store, state: state, selectedSubject: subject)
+            .tag(TreeRowTag.subject(.item(documentId)))
+            BinderTreeSections(store: store, state: state, subject: subject)
         }
         .listStyle(.sidebar)
-        .binderTreeSections(store: store, state: state, selectedSubject: subject)
+        .binderTreeSections(store: store, state: state, subject: subject)
+        .pieceFoldIndex(store: store, state: state)
     }
 }
 
@@ -916,13 +922,11 @@ private struct FoldNavigatorProbeView: View {
     let treeState = BinderTreeSectionsState()
 
     var body: some View {
-        SceneNavigatorPane(
+        TreeHostFixture.scenes(
             store: store,
             script: FountainTokenizer().parse("INT. KITCHEN - DAY\n\nLarry sits.\n"),
-            projectTitle: store.manifest.title,
-            selectedSubject: Binding(get: { probe.subject },
-                                     set: { probe.subject = $0 }),
-            documentID: documentID,
+            subject: .tree(Binding(get: { probe.subject },
+                                     set: { probe.subject = $0 })),
             treeState: treeState,
             onSelect: { _ in })
     }
@@ -938,7 +942,208 @@ private struct OptionalSubjectValidation: ViewModifier {
 
     func body(content: Content) -> some View {
         content.modifier(SubjectValidationModifier(
-            store: store, documentStore: nil, selectedSubject: $selectedSubject))
+            store: store, documentStore: nil, subject: .bridging($selectedSubject)))
     }
 }
 
+
+// MARK: - The fold's decisions (shell p3 Task 7), pure
+
+/// What a piece's fold draws and what each of its rows does — asked of the
+/// pure functions `BinderPieceFold` calls, never by pressing a row
+/// (tripwire 33).
+@MainActor
+final class BinderPieceFoldDecisionTests: XCTestCase {
+
+    private let structure: [StructureItem] = [
+        StructureItem(id: "ch-1", title: "One", type: .document, path: "one.md"),
+        StructureItem(id: "ch-2", title: "Two", type: .document, path: "two.md"),
+    ]
+
+    private func scrap(_ id: String) -> PieceFoldEntry {
+        .card(PinnedReference(id: id, kind: .scrap(nodeId: id), title: "A scrap"))
+    }
+
+    func test_aFoldWithSevenEntriesShowsGroupsWithCounts() {
+        let seven: [PieceFoldEntry] = [
+            .research(id: "r1", title: "Tides", owned: false),
+            .research(id: "r2", title: "Harbour", owned: false),
+            scrap("n1"),
+            .palette(id: "p1", title: "Grey"),
+            .figure(id: "f1", name: "Map"),
+            .link(pieceId: "ch-2", title: "Two", incoming: false),
+            .link(pieceId: "ch-2", title: "Two", incoming: true),
+        ]
+        let index = PieceFoldIndex(entries: ["ch-1": seven, "ch-2": Array(seven.prefix(6))])
+        guard case .groups(let runs)? = index.layout(of: "ch-1") else {
+            return XCTFail("seven entries are groups")
+        }
+        XCTAssertEqual(runs.map(BinderPieceFold.groupTitle),
+                       ["Research (2)", "Cards (1)", "Palette (1)", "Figures (1)", "Links (2)"])
+        XCTAssertEqual(index.layout(of: "ch-2"), .rows(Array(seven.prefix(6))), "six are rows")
+        // A single-document project's piece groups at any size.
+        let grouped = PieceFoldIndex(entries: ["doc": Array(seven.prefix(2))], alwaysGrouped: ["doc"])
+        XCTAssertEqual(grouped.layout(of: "doc"),
+                       .groups([PieceFoldGroupRun(group: .research, entries: Array(seven.prefix(2)))]))
+    }
+
+    func test_anEmptyFoldHasNoChevron() {
+        let index = PieceFoldIndex(entries: ["ch-1": [], "ch-2": [scrap("n1")]])
+        XCTAssertNil(index.layout(of: "ch-1"), "no entries, no layout: the host draws no chevron")
+        XCTAssertNil(index.layout(of: "ch-9"), "a piece the index does not hold has no fold")
+        XCTAssertNotNil(index.layout(of: "ch-2"), "control: one entry folds")
+        // The hosts ask the index, its research rows read from the homes the
+        // section reads (shell p5 Task 4a fix round 1, I6) — never the research
+        // fold's own answer.
+        for host in ["Maugham/Views/BinderView.swift", "Maugham/Views/CollectionPiecesPane.swift"] {
+            let text = try? SourceTree.read(host)
+            XCTAssertTrue(text?.contains("if let layout = treeState.foldLayout(of:") == true, host)
+            XCTAssertFalse(text?.contains("showsDisclosure") == true, host)
+        }
+    }
+
+    /// **Linked and owned research look alike** (shell p5 Task 4a, H): with
+    /// either/or there is no twin in the Research section to tell a fold row
+    /// from, so the link glyph, the quiet title and "Linked from Research" are
+    /// gone; a root whose group lives elsewhere names it instead.
+    func test_aFoldsResearchRowCarriesNoLinkGlyphAndNamesItsPlace() throws {
+        let row = SourceScan.codeLines(of: try SourceTree.read("Maugham/Views/ResearchRow.swift"))
+            .joined(separator: "\n")
+        for gone in ["linkedFromResearch", "Linked from Research", "trailingGlyph", "quietTitle"] {
+            XCTAssertFalse(row.contains(gone), "the row still draws \(gone)")
+        }
+        XCTAssertTrue(row.contains("if let caption {"), "the row names its place")
+        XCTAssertEqual(ResearchRow.captionAccessibilityLabel("World / Maps"), "in World / Maps")
+        let fold = SourceScan.codeLines(of: try SourceTree.read("Maugham/Views/BinderPieceFold.swift"))
+            .joined(separator: "\n")
+        XCTAssertTrue(fold.contains("caption: fold.homes.place(of: id)"))
+        XCTAssertFalse(fold.contains("linkedFromResearch"))
+    }
+
+    func test_aCardRowPullsTheCardUpAndASecondClickPutsItAway() {
+        let start = WindowSubject(open: .item("ch-1"), faces: .item("ch-1"))
+        for entry in [scrap("n1"), .palette(id: "p1", title: "Grey")] {
+            let up = BinderPieceFold.clicked(entry, subject: start, structure: structure,
+                                             projectType: .novel)
+            XCTAssertEqual(up.beside, entry.pulledUp, "a click pulls it up")
+            XCTAssertEqual(up.open, start.open, "and nothing else moves")
+            XCTAssertTrue(BinderPieceFold.isPulledUp(entry, subject: up), "its row draws pulled up")
+            let away = BinderPieceFold.clicked(entry, subject: up, structure: structure,
+                                               projectType: .novel)
+            XCTAssertNil(away.beside, "a second click on the row pulled up puts it away")
+            XCTAssertFalse(BinderPieceFold.isPulledUp(entry, subject: away))
+        }
+        // A click on ANOTHER card swaps what is up rather than putting it away.
+        let up = BinderPieceFold.clicked(scrap("n1"), subject: start, structure: structure,
+                                         projectType: .novel)
+        XCTAssertEqual(BinderPieceFold.clicked(scrap("n2"), subject: up, structure: structure,
+                                               projectType: .novel).beside,
+                       .canvasScrap(nodeId: "n2"))
+    }
+
+    /// **A region's row pulls the region up** by the route a card row takes
+    /// (`ClickRule.pullUp`), a second click puts it away, and its cards are
+    /// rows of their own under its chevron, each pulling its card up.
+    func test_aRegionRowPullsTheRegionUpAndItsCardsAreRowsOfTheirOwn() {
+        let start = WindowSubject(open: .item("ch-1"), faces: .item("ch-1"))
+        let cards = [PinnedReference(id: "n1", kind: .scrap(nodeId: "n1"), title: "A scrap")]
+        let region = PieceFoldEntry.region(id: "rg-1", title: "Fog", cards: cards)
+        XCTAssertEqual(BinderPieceFold.act(of: region), .pullUp(.canvasRegion(id: "rg-1")))
+        let up = BinderPieceFold.clicked(region, subject: start, structure: structure, projectType: .novel)
+        XCTAssertEqual(up, ClickRule.pullUp(.canvasRegion(id: "rg-1"), current: start),
+                       "the card row's route, exactly")
+        XCTAssertTrue(BinderPieceFold.isPulledUp(region, subject: up))
+        XCTAssertNil(BinderPieceFold.clicked(region, subject: up, structure: structure,
+                                             projectType: .novel).beside,
+                     "a second click puts it away")
+        // A double-click opens it in the centre: the canvas, the region selected.
+        XCTAssertEqual(BinderPieceFold.doubleClicked(region, subject: up, structure: structure,
+                                                     projectType: .novel, photoNode: { _ in nil }),
+                       .canvas(WindowSubject(open: .canvas, faces: .canvas),
+                               select: .region(CanvasRegionID("rg-1"))))
+        XCTAssertEqual(region.regionCards, [scrap("n1")])
+        XCTAssertEqual(BinderPieceFold.clicked(region.regionCards[0], subject: up, structure: structure,
+                                               projectType: .novel).beside,
+                       .canvasScrap(nodeId: "n1"), "a card under the region swaps what is up")
+        // Its glyph is the index's, resolved once, and so are its cards'.
+        let index = PieceFoldIndex(entries: ["ch-1": [region]])
+        XCTAssertEqual(index.glyph(of: region), PieceFoldIndex.regionGlyph)
+        XCTAssertEqual(index.glyph(of: scrap("n1")), PieceFoldIndex.scrapGlyph)
+        XCTAssertEqual(BinderPieceFold.regionCount(cards.count), "1 card")
+    }
+
+    func test_aLinkRowGoesToThePiece() {
+        let start = WindowSubject(open: .item("ch-1"), faces: .item("ch-1"))
+        for incoming in [false, true] {
+            let entry = PieceFoldEntry.link(pieceId: "ch-2", title: "Two", incoming: incoming)
+            XCTAssertEqual(BinderPieceFold.act(of: entry), .navigate(.item("ch-2")))
+            let next = BinderPieceFold.clicked(entry, subject: start, structure: structure,
+                                               projectType: .novel)
+            XCTAssertEqual(next, ClickRule.navigate(to: .item("ch-2"), current: start,
+                                                    structure: structure, projectType: .novel))
+            XCTAssertEqual(next.open, .item("ch-2"), "the linked piece opens")
+        }
+        XCTAssertEqual(BinderPieceFold.linkHelp(incoming: false, piece: "One", other: "Two"),
+                       "“One” links to “Two”", "an outgoing row: this piece links there")
+        XCTAssertEqual(BinderPieceFold.linkHelp(incoming: true, piece: "One", other: "Two"),
+                       "“Two” links to “One”", "an incoming row: the other links here")
+        let out = PieceFoldEntry.link(pieceId: "ch-2", title: "Two", incoming: false)
+        let into = PieceFoldEntry.link(pieceId: "ch-2", title: "Two", incoming: true)
+        XCTAssertTrue(BinderPieceFold.offersRemoveLink(out, mayEditLinks: true))
+        XCTAssertFalse(BinderPieceFold.offersRemoveLink(out, mayEditLinks: false), "hidden where refused")
+        XCTAssertFalse(BinderPieceFold.offersRemoveLink(into, mayEditLinks: true),
+                       "an incoming link is the other piece's to remove")
+        // Research is a List tag; a figure is pulled up beside (appraisal 8).
+        XCTAssertEqual(BinderPieceFold.act(of: .research(id: "r1", title: "T", owned: true)),
+                       .listTag(.research("r1")))
+        XCTAssertEqual(BinderPieceFold.act(of: .figure(id: "f1", name: "Map")), .pullUp(.figure("f1")))
+        XCTAssertEqual(BinderPieceFold.clicked(.figure(id: "f1", name: "Map"), subject: start,
+                                               structure: structure, projectType: .novel).open,
+                       start.open, "a fold's figure leaves the centre alone")
+        // A double-click opens a palette row in the centre as its research
+        // item, and a link is no pull-up row.
+        XCTAssertEqual(BinderPieceFold.doubleClicked(.palette(id: "p1", title: "G"), subject: start,
+                                                     structure: structure, projectType: .novel,
+                                                     photoNode: { _ in nil }),
+                       .subject(WindowSubject(open: .research("p1"), faces: .research("p1"))))
+        XCTAssertNil(BinderPieceFold.doubleClicked(.link(pieceId: "ch-2", title: "Two", incoming: false),
+                                                   subject: start, structure: structure,
+                                                   projectType: .novel, photoNode: { _ in nil }))
+    }
+
+    /// Tripwire 9 over the fold's file: rows activate through `Button(.plain)`
+    /// or a `List` tag, never a tap gesture. The planted control proves the
+    /// census reads lines.
+    func test_noFoldRowUsesATapGesture() throws {
+        let fold = try SourceTree.read("Maugham/Views/BinderPieceFold.swift")
+        XCTAssertEqual(Self.tapGestureLines(in: fold), [])
+        XCTAssertTrue(fold.contains(".buttonStyle(.plain)"), "rows are plain buttons")
+        let planted = fold + "\n        Text(title).onTapGesture { pullUp() }\n"
+            + "        Text(title).simultaneousGesture(TapGesture().onEnded { })\n"
+        XCTAssertEqual(Self.tapGestureLines(in: planted).count, 2)
+    }
+
+    private static func tapGestureLines(in text: String) -> [String] {
+        text.components(separatedBy: "\n")
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.hasPrefix("//") }
+            .filter { $0.contains(".onTapGesture") || $0.contains("TapGesture(")
+                || $0.contains(".simultaneousGesture") }
+    }
+
+    /// **Rows look up, never compute** (tripwire 4): no file drawing a fold
+    /// derives one. The build is `PieceFoldIndexing`'s `.task`
+    /// (`PieceFoldContentsTests.test_theIndexIsBuiltOnlyInATask`).
+    func test_noFoldIsComputedPerRow() throws {
+        for path in ["Maugham/Views/BinderPieceFold.swift", "Maugham/Views/BinderView.swift",
+                     "Maugham/Views/CollectionPiecesPane.swift"] {
+            let code = try SourceTree.read(path).components(separatedBy: "\n")
+                .filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }
+                .joined(separator: "\n")
+            for derivation in ["PieceFoldLayout.of(", "PieceFoldIndex.entries(",
+                               "TreeSectionDerivation.pieceFold(", "PinnedReferenceResolver."] {
+                XCTAssertFalse(code.contains(derivation), "\(path) computes \(derivation)")
+            }
+        }
+    }
+}

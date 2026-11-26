@@ -164,32 +164,42 @@ final class FigureGridOneGridPerHostTests: FigureGridMountedTestCase {
         XCTAssertEqual(visit.ops.count, 1)
     }
 
-    // MARK: - I2: review mode carries into the window
+    // MARK: - I2: read-through carries into the window
 
-    /// **⤢ from a review-mode grid** (final review I2): the grid is read-only
-    /// in place, ⤢ still offered; the window it opens is read-only for the
-    /// same reason, and follows the opening editor's review toggle.
-    func test_reviewModeCarriesIntoTheFigureWindow_andFollowsTheToggle() async throws {
+    /// **⤢ from a grid in read-through** (final review I2, rehomed by shell
+    /// read-through Task 3): the grid is read-only in place, ⤢ still offered;
+    /// the window it opens asks the project's gate (`FigureWindows
+    /// .isInReadThrough`, the window's `ReadThroughGate` in production), and
+    /// follows each Start and Resume (`setReadThrough`).
+    func test_readThroughCarriesIntoTheFigureWindow_andFollowsResume() async throws {
         let windows = FigureWindows()
+        let key = UUID()
         var asked: [String] = []
         let m = try await mount(windows: windows, openWindow: { asked.append($0) })
         let figureId = try XCTUnwrap(m.figure?.id)
-        m.coordinator.setManualReviewMode(true)
+        func gate(_ on: Bool) -> ReadThroughGate {
+            // The figure's piece, by the one rule: its record's.
+            let record = FigureRecord(id: figureId, name: "T", kind: .table, piece: "piece-a", path: "")
+            return ReadThroughGate(pieces: on ? ["piece-a"] : [], structure: [], research: [],
+                                   projectType: .novel, figures: [record], figureLines: [])
+        }
+        windows.setReadThrough(gate(true), from: key)
+        m.coordinator.setReadThrough(true)
         let c = try await expanded(m)
-        XCTAssertEqual(c.mode, .readOnly(.reviewMode), "premise: review mode in place")
+        let named = ReadThroughRefusal(pieceId: "piece-a", title: "piece-a", others: 0)
+        XCTAssertEqual(c.mode, .readOnly(.readThrough(named)), "premise: read-through in place, named")
         XCTAssertFalse(c.bars.openInWindow.isHidden)
 
         c.perform(.openInWindow)
         XCTAssertEqual(asked, [figureId])
-        XCTAssertEqual(windows.handoff(for: figureId)?.isReviewMode, true, "review mode is handed over")
         await m.coordinator.figureGridFolding?.value
 
         let (_, w, _) = try await openWindowGrid(m, windows)
-        XCTAssertEqual(w.mode, .readOnly(.reviewMode), "the window opens read-only")
-        m.coordinator.setManualReviewMode(false)
-        XCTAssertEqual(w.mode, .editable, "and follows the toggle off")
-        m.coordinator.setManualReviewMode(true)
-        XCTAssertEqual(w.mode, .readOnly(.reviewMode), "and on again")
+        XCTAssertEqual(w.mode, .readOnly(.readThrough(named)), "the window opens read-only, named")
+        windows.setReadThrough(gate(false), from: key)
+        XCTAssertEqual(w.mode, .editable, "and follows Resume")
+        windows.setReadThrough(gate(true), from: key)
+        XCTAssertEqual(w.mode, .readOnly(.readThrough(named)), "and a Start again")
     }
 
     // MARK: - I4: the neutral decline

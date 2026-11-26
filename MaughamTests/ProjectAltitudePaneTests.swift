@@ -8,11 +8,11 @@ import MaughamCore
 /// 1) plus one addition: a `title` prop for the header, so the pane can show
 /// the project's own name at altitude rather than the pane label "Outline".
 /// This task is the rename + readiness step only — at the time, the pane
-/// still mounted in the right-pane `.outline` arm (`DetailPaneToggle.swift`),
+/// still mounted in the right-pane `.outline` arm (the pane picker, since deleted),
 /// unchanged in behaviour. Tasks 2-3 moved it into the centre column
 /// alongside that arm, and Task 6 deleted the arm outright — the centre is the
 /// pane's only mount now (see `test_theCentreMountPassesTheProjectsOwnTitle`
-/// below, which replaced this file's premise about `DetailPaneToggle`). What
+/// below, which replaced this file's premise about the pane picker). What
 /// this file pins is the contract the brief names: the title prop is
 /// genuinely wired into the header (not the old hardcoded label), the data
 /// derivation is unchanged (documents only, no per-row I/O), and the
@@ -39,7 +39,8 @@ final class ProjectAltitudePaneTests: XCTestCase {
     /// **Why a source census rather than a mounted-text assertion.** A bare
     /// SwiftUI `Text` outside a `List` row does not materialize as an
     /// `NSTextField` on this SDK (measured: macOS 26.5, Xcode 26 — the header's
-    /// `Text` sits beside a segmented `Picker`, which DOES bridge to a real
+    /// `Text` then sat beside a segmented `Picker` (the toolbar's since shell p4
+    /// Task 4), which DOES bridge to a real
     /// `AppKitPlatformViewHost<...SystemSegmentedControl>`, but the `Text`
     /// itself leaves no discrete `NSView` in the mounted hierarchy at all), and
     /// `accessibilityChildren()` returns empty from this same headless test
@@ -90,7 +91,7 @@ final class ProjectAltitudePaneTests: XCTestCase {
         _ = try await store.addStructureItem(
             parentId: nil, title: "Chapter 3", kind: .document(.markdown))
 
-        let window = try await hostPane(store: store, layout: .table, title: "Derivation")
+        let window = try await hostPane(store: store, view: .outline, title: "Derivation")
         let table = try await pumpUntilTableFound(in: window, expectingAtLeast: 3)
 
         XCTAssertEqual(table.numberOfRows, 3,
@@ -120,7 +121,7 @@ final class ProjectAltitudePaneTests: XCTestCase {
         XCTAssertEqual(documentCount, 4, "premise: four documents to card up")
 
         let requestedWidth: CGFloat = 720
-        let window = try await hostPane(store: store, layout: .cards,
+        let window = try await hostPane(store: store, view: .cards,
                                         title: "Corkboard", windowWidth: requestedWidth)
         // Read the width off the window this display actually granted, per
         // the CI-display rule — a runner narrower than requested still gives
@@ -150,7 +151,7 @@ final class ProjectAltitudePaneTests: XCTestCase {
         defer { PieceWriterFixture.reset() }
         let book = try await PieceWriterFixture.oneAuthor(named: "Alone", in: temp.url)
         let window = try await hostPane(
-            store: book.store, layout: .table, title: "Alone")
+            store: book.store, view: .outline, title: "Alone")
         let table = try await pumpUntilTableFound(in: window, expectingAtLeast: 1)
 
         // A fixed wait on top of the mount: this asserts that a column never
@@ -172,7 +173,7 @@ final class ProjectAltitudePaneTests: XCTestCase {
         let book = try await PieceWriterFixture.narrowed(
             named: "Shared", in: temp.url, scopedTo: { [$0.pieceIDs[0]] })
         let window = try await hostPane(
-            store: book.store, layout: .table, title: "Shared")
+            store: book.store, view: .outline, title: "Shared")
         let table = try await pumpUntilTableFound(in: window, expectingAtLeast: 1)
 
         let grew = await pumpUntil(deadline: 5) {
@@ -195,10 +196,10 @@ final class ProjectAltitudePaneTests: XCTestCase {
         return store
     }
 
-    private func hostPane(store: ProjectStore, layout: OutlineLayout, title: String,
+    private func hostPane(store: ProjectStore, view: BookView, title: String,
                           windowWidth: CGFloat = 520) async throws -> NSWindow {
         let window = TestWindow.mount(
-            AnyView(AltitudeProbeView(store: store, initialLayout: layout, title: title)),
+            AnyView(AltitudeProbeView(store: store, initialView: view, title: title)),
             size: CGSize(width: windowWidth, height: 600))
         windows.append(window)
         pump()
@@ -261,21 +262,22 @@ final class ProjectAltitudePaneTests: XCTestCase {
     }
 }
 
-/// `ProjectAltitudePane` hosted with a fixed layout choice, standing in for
-/// where the pane is mounted today — the centre column's overlay holds the
-/// layout as `@State` on `ProjectWindow`; this probe does the same at a
+/// `ProjectAltitudePane` hosted with a fixed view choice, standing in for
+/// where the pane is mounted today — the centre column's altitude layer holds
+/// the view as `@State` on `ProjectWindow`; this probe does the same at a
 /// smaller scale rather than standing up the whole window.
 @MainActor
 private struct AltitudeProbeView: View {
     let store: ProjectStore
-    @State var initialLayout: OutlineLayout
+    @State var initialView: BookView
     let title: String
 
     var body: some View {
         ProjectAltitudePane(
             store: store,
-            layout: $initialLayout,
+            view: initialView,
             selectedSubject: .constant(nil),
-            title: title)
+            title: title,
+            structure: store.manifest.structure) { EmptyView() }
     }
 }

@@ -116,7 +116,7 @@ final class LetterKeepTests: XCTestCase {
             letter, run: record, docId: "ch-1", editorName: "Le Guin", store: store)
         let expected = LetterMarkdown.render(
             letter, editorName: "Le Guin",
-            laneLine: LetterKeep.laneLine(for: record, store: store), at: record.at)
+            laneLine: LetterKeep.laneLine(for: record, docId: nil, store: store), at: record.at)
         XCTAssertEqual(try body(of: kept, in: store), expected.body)
         XCTAssertEqual(kept.title, expected.title)
     }
@@ -286,6 +286,64 @@ final class LetterKeepTests: XCTestCase {
         XCTAssertEqual(version.writtenBy, .assistant)
     }
 
+    /// #148 D1: the door refuses the letter's save with the new note's file
+    /// still empty — the keep throws, and the note it made is taken back:
+    /// no row, no file, no Trash entry.
+    /// Disable experiment: throw `researchTextNotSaved` without
+    /// `takeBackUnsavedNewNote` and the empty note stays.
+    func test_aRefusedDoorSaveLeavesNoKeptNoteBehind() async throws {
+        let (url, store) = try await makeNovel()
+        let ds = try await DocumentStore.open(url: url)
+        defer { Task { await ds.close() } }
+        store.documentStore = ds
+        ds.projectStore = store
+        let research = url.appendingPathComponent("research")
+        let filesBefore = try FileManager.default.contentsOfDirectory(atPath: research.path).sorted()
+        let refusal = RefusedNoteBodySave(in: research, cleanupCanRun: true)
+        defer { refusal.end() }
+
+        do {
+            _ = try await LetterKeep.keep(
+                letter, run: makeRun(), docId: "ch-1", editorName: "Le Guin", store: store)
+            XCTFail("a refused door save reported a kept letter")
+        } catch ProjectStoreError.researchTextNotSaved {}
+        XCTAssertTrue(refusal.refused, "premise: the door refused the body save")
+        XCTAssertTrue(store.manifest.research.isEmpty, "no new row")
+        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: research.path).sorted(), filesBefore,
+                       "no new file")
+        XCTAssertTrue(store.trashEntries.isEmpty, "no Trash entry")
+        XCTAssertEqual(store.linkedResearchIds(forDocumentId: "ch-1"), [],
+                       "the chapter's link to the note went with it")
+    }
+
+    /// A cleanup that itself fails (the folder still read-only) names the
+    /// empty note it left, and the note keeps its chapter link: the trash
+    /// comes first and the unlink only after it (fix round 1).
+    func test_aCleanupThatFailsSaysTheEmptyNoteWasLeftAndKeepsItsLink() async throws {
+        let (url, store) = try await makeNovel()
+        let ds = try await DocumentStore.open(url: url)
+        defer { Task { await ds.close() } }
+        store.documentStore = ds
+        ds.projectStore = store
+        let refusal = RefusedNoteBodySave(in: url.appendingPathComponent("research"), cleanupCanRun: false)
+        defer { refusal.end() }
+
+        var title = ""
+        do {
+            _ = try await LetterKeep.keep(
+                letter, run: makeRun(), docId: "ch-1", editorName: "Le Guin", store: store)
+            XCTFail("a refused door save reported a kept letter")
+        } catch {
+            title = try XCTUnwrap(store.manifest.research.first?.title, "premise: the note was left")
+            XCTAssertEqual(error.localizedDescription,
+                "Maugham couldn’t save “\(title)”; the empty note “\(title)” was left in Research.")
+        }
+        refusal.end()
+        let left = try XCTUnwrap(store.manifest.research.first)
+        XCTAssertEqual(store.linkedResearchIds(forDocumentId: "ch-1"), [left.id],
+                       "the note that was left keeps its chapter link")
+    }
+
     /// A store that had a `DocumentStore` and lost it (teardown) refuses the
     /// raw fallback: the keep throws and the note's file stays empty.
     /// Disable experiment: skip the `rawNoteWriteWithNoDoor()` question and the
@@ -315,7 +373,7 @@ final class LetterKeepTests: XCTestCase {
     func test_aStagesRoundNamesItsLane() async throws {
         let (_, store) = try await makeNovel()
         XCTAssertEqual(
-            LetterKeep.laneLine(for: makeRun(passId: "line", round: 3), store: store),
+            LetterKeep.laneLine(for: makeRun(passId: "line", round: 3), docId: nil, store: store),
             ReviewRoundCockpit.laneLine(
                 pass: try XCTUnwrap(ReviewPass.pass(
                     id: "line", in: store.manifest.effectiveReviewPasses)),
@@ -329,7 +387,7 @@ final class LetterKeepTests: XCTestCase {
     func test_theCoachsRoundNamesHerAndNeverHerPass() async throws {
         let (_, store) = try await makeNovel()
         let line = LetterKeep.laneLine(
-            for: makeRun(passId: ReviewPass.coachPreset.id, round: 2), store: store)
+            for: makeRun(passId: ReviewPass.coachPreset.id, round: 2), docId: nil, store: store)
         XCTAssertEqual(line, "Le Guin \u{00b7} round 2")
         XCTAssertFalse(line.contains(ReviewPass.coachPreset.name), line)
     }
@@ -343,12 +401,12 @@ final class LetterKeepTests: XCTestCase {
         XCTAssertEqual(
             LetterKeep.laneLine(
                 for: makeRun(passId: ReviewPass.coachPreset.id, round: 2,
-                             stage: .drafting),
+                             stage: .drafting), docId: nil,
                 store: store),
             "Le Guin \u{00b7} round 2 \u{00b7} drafting")
         XCTAssertEqual(
             LetterKeep.laneLine(
-                for: makeRun(passId: "line", round: 3, stage: .revising),
+                for: makeRun(passId: "line", round: 3, stage: .revising), docId: nil,
                 store: store),
             "Line \u{00b7} Lish \u{00b7} round 3 \u{00b7} revising",
             "a stage's lane is the cockpit's own line with the word on the end")
@@ -362,12 +420,12 @@ final class LetterKeepTests: XCTestCase {
         let (_, store) = try await makeNovel()
         XCTAssertEqual(
             LetterKeep.laneLine(
-                passId: "line", round: 3, stage: nil, store: store),
+                passId: "line", round: 3, stage: nil, docId: nil, store: store),
             LetterKeep.laneLine(
-                for: makeRun(passId: "line", round: 3), store: store),
+                for: makeRun(passId: "line", round: 3), docId: nil, store: store),
             "no stage on either side, so the two lines agree exactly")
         XCTAssertEqual(
-            LetterKeep.laneLine(passId: "line", round: 3, stage: nil, store: store),
+            LetterKeep.laneLine(passId: "line", round: 3, stage: nil, docId: nil, store: store),
             "Line \u{00b7} Lish \u{00b7} round 3")
     }
 
@@ -375,7 +433,20 @@ final class LetterKeepTests: XCTestCase {
     /// naming one would invent a lane no round was filed in.
     func test_aPasslessRunHasNoLaneLine() async throws {
         let (_, store) = try await makeNovel()
-        XCTAssertEqual(LetterKeep.laneLine(for: makeRun(), store: store), "")
+        XCTAssertEqual(LetterKeep.laneLine(for: makeRun(), docId: nil, store: store), "")
+    }
+
+    /// **The coach's lane before any round names the piece by its own noun**
+    /// (shell closing A9): a script in a Collection reads "reads this script",
+    /// as the check head over it does — never the project's "piece".
+    func test_theCoachsLaneNamesThePieceByItsOwnNoun() async throws {
+        let (_, store, _) = try await makeCollection()
+        let script = try await store.addLoosePiece(title: "Scene", format: .fountain)
+        let coach = makeRun(passId: ReviewPass.coachPreset.id)
+        XCTAssertEqual(LetterKeep.laneLine(for: coach, docId: script.id, store: store),
+                       "Le Guin reads this script")
+        XCTAssertEqual(LetterKeep.laneLine(for: coach, docId: nil, store: store),
+                       "Le Guin reads this piece", "control: no piece named, the project's noun")
     }
 
     // MARK: - The confirmation

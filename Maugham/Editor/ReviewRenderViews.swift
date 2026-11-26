@@ -370,7 +370,8 @@ final class ReviewMarginRailView: NSView {
             cursorY = y + placed[i].height + extra + cardGap
         }
 
-        let railX = bounds.minX + 4
+        // After the margin's tick lane (`MarginGeometry.tickLane`).
+        let railX = bounds.minX + MarginGeometry.tickLane
         cardRects = []
         for p in placed {
             let cardRect = NSRect(

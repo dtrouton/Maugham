@@ -1,7 +1,7 @@
 import Foundation
 import Observation
 
-/// **What the Publish persona's centre column is showing, and the rules for
+/// **What the centre is showing while an edition is open, and the rules for
 /// changing it.** Every write the window and `PublishPreviewModifier` make
 /// is a named method, so each rule — above all, that a design proposal and
 /// a translation round clear each other — has one home a test can reach
@@ -32,20 +32,73 @@ final class PublishCentreModel {
     /// `nil` for the book. The whole value rather than an id: the desk already
     /// read it off disk, so nothing here reads `.maugham/design/` a second time
     /// and the gate cannot disagree with the row that opened it. Cleared on any
-    /// persona change (`clearDecisions`) — a gate is a place in a decision.
+    /// change of what is open (`clearDecisions`) — a gate is a place in a decision.
     private(set) var selectedProposal: DesignProposalStore.Proposal?
 
     /// **The translation round the desk sent to the centre.** The whole value
     /// for `selectedProposal`'s reason. Drawn by `PublishCentre.translationRound`,
-    /// which outranks the gate; cleared on a persona change as the proposal is.
+    /// which outranks the gate; cleared when what is open changes, as the proposal is.
     private(set) var selectedRound: TranslationRound?
 
     /// **The publish problems the desk's Show Problems put in the centre**
     /// (report foundations plan 2, Task 8) — the diagnostics themselves, as the
     /// desk's last compile reported them. The whole value for `selectedRound`'s
     /// reason; outranks the round and the gate (R-S12) and draws over a chapter
-    /// as the round does. Cleared on a persona change.
+    /// as the round does. Cleared when what is open changes.
     private(set) var selectedProblems: [TectonicLogParser.Diagnostic]?
+
+    // MARK: - The edition's book (shell p4 Task 5)
+
+    /// **The window's compile**, moved here from the desk's `@State`: the
+    /// edition's book header presses it, and it outlives the right column and
+    /// the desk going. One per window — what the desk's runner was per desk.
+    let compileRunner = CompileRunner()
+
+    /// **The book's own tag** — `metadata.language` with no imprint
+    /// (`PublishImprint.sourceLanguage`, the tree's Source row's spelling).
+    /// Which edition is the Source, and the tag a source book's anchors carry.
+    /// Read with the catalog (`PublishPreviewModifier`).
+    var sourceLanguage = PublishConfig.Metadata().language
+
+    /// Every imprint the config declares, sorted — the header picker's rows.
+    /// Read with the catalog.
+    var imprints: [String] = []
+
+    /// **What one edition can show**: the catalog filtered to its own books
+    /// (`PublishPreviewResolver.edition`). Anything not an edition gets the
+    /// whole catalog, which `publishCentre` never draws.
+    func preview(for open: BinderSubject) -> PublishPreviewResolution {
+        guard case .edition(let language) = open else { return preview }
+        return PublishPreviewResolver.edition(preview, language: language,
+                                              sourceLanguage: sourceLanguage)
+    }
+
+    /// Whether `open` is the Source edition.
+    func isSourceEdition(_ open: BinderSubject) -> Bool {
+        guard case .edition(let language) = open else { return false }
+        return language.caseInsensitiveCompare(sourceLanguage) == .orderedSame
+    }
+
+    /// **A compile settled** (`CompileRunState.settledProblems`): a
+    /// book refused or failed over the manuscript's problems covers the centre
+    /// with them; any other settle refreshes a list already showing.
+    func compileSettled(from old: CompileRunState, to new: CompileRunState) {
+        guard let problems = CompileRunState.settledProblems(from: old, to: new) else { return }
+        if Self.coversWithProblems(new), !problems.isEmpty {
+            show(problems: problems)
+        } else {
+            refreshProblems(problems)
+        }
+    }
+
+    /// A refusal or a failure with problems to read covers the centre; a book
+    /// that landed with warnings does not (its line offers Show Problems).
+    static func coversWithProblems(_ settled: CompileRunState) -> Bool {
+        switch settled.phase {
+        case .refused, .failed: return !settled.problems.isEmpty
+        case .idle, .running, .completed: return false
+        }
+    }
 
     // MARK: - The desk's Shows
 
@@ -97,11 +150,11 @@ final class PublishCentreModel {
         selectedProblems = problems.isEmpty ? nil : problems
     }
 
-    /// **A persona change lets both decisions go and keeps the book's pick.**
+    /// **A change of what is open lets both decisions go and keeps the book's pick.**
     /// The asymmetry is the point: the publication pick is a place in a
     /// *reading* (Denver's ruling keeps it across a walk out of Publish), while
     /// the gate and the report are places in a *decision* the writer leaves by
-    /// changing persona.
+    /// opening something else.
     func clearDecisions() {
         selectedProposal = nil
         selectedRound = nil
@@ -183,6 +236,18 @@ final class PublishCentreModel {
     /// answer rather than a defensive one: the record is gone or unparseable, so
     /// there is nothing for the gate to describe and the column hands itself
     /// back to the book. `load` answers `nil` for that case.
+    /// **The selected round as the ledger now holds it** (shell p4 Task 6
+    /// fix round, review C1/I1): a verb in To resolve, or another window,
+    /// rewrote its record, and the report must not go on offering what was
+    /// just done — nor write its stale copy back. The same round, re-read by
+    /// (language, piece, number); kept as it was when the ledger no longer
+    /// holds it.
+    func rereadRound(_ load: (_ language: String, _ docId: String, _ number: Int) -> TranslationRound?) {
+        guard let round = selectedRound,
+              let fresh = load(round.language, round.docId, round.number) else { return }
+        selectedRound = fresh
+    }
+
     func rereadProposal(_ load: (String) -> DesignProposalStore.Proposal?) {
         guard let id = selectedProposal?.id else { return }
         selectedProposal = load(id)

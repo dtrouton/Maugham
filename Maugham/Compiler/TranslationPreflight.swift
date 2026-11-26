@@ -168,4 +168,202 @@ enum TranslationPreflight {
         try await budgets(documentIds: documentIds, languages: [language], store: store,
                           documentStore: documentStore, projectURL: projectURL)[language]
     }
+
+    // MARK: - One edition's figure, off the main actor (shell p4 Task 7 fix round, I2)
+
+    /// **Whether a pre-flight is worth taking now** (the desk's rule,
+    /// restored with the figure): only while no round runs. Mid-round the
+    /// round's own leg line is what the head says, the figure would describe
+    /// a click nobody can make, and every ingest would re-read the book; the
+    /// last idle figure stands and the round's end takes a fresh one.
+    nonisolated static func refillsBudgets(pipeline: TranslationPipeline.Status) -> Bool {
+        pipeline == .idle
+    }
+
+    /// **What Run Whole Book will cost, before the press**: `budget`'s figure
+    /// for one edition over the run's pieces, with the book's text read OFF
+    /// the main actor — a closed piece's op log through `ProjectStore
+    /// .readClosedDocument`, its translation through `TranslationStore
+    /// .loadMerged` — so nothing book-sized holds the main actor when an
+    /// edition is selected. The main actor snapshots the open pieces and, only
+    /// where the book has tables, counts the briefed cells one piece per step.
+    ///
+    /// **Cached per (project, edition, pieces, manifest)** and checked against
+    /// a fingerprint taken off the main actor (each closed piece's op-log
+    /// file set, the translations folder, the open pieces' text): a second
+    /// selection of the same edition over an unchanged book reads no
+    /// document. Cancellable: a superseded read stops between pieces.
+    @MainActor
+    static func editionBudget(documentIds: [String], language: String, store: ProjectStore,
+                              documentStore: DocumentStore?) async -> Budgets.Answer? {
+        guard !documentIds.isEmpty else { return nil }
+        let url = store.url
+        let facts = DocumentClass.Facts(store.manifest)
+        var open: [String: OpenText] = [:]
+        for docId in documentIds {
+            if let doc = documentStore?.document(forDocId: docId) {
+                open[docId] = OpenText(sequence: doc.sequence, paragraphs: doc.paragraphs)
+            }
+        }
+        let hasTables = (store.manifest.figures ?? []).contains { $0.kind == .table }
+        let key = EditionBudgetCache.Key(project: url.path, language: language.lowercased(),
+                                         docIds: documentIds, manifest: store.manifest.modified)
+        let cached = EditionBudgetCache.entries[key]
+        let openFingerprint = open.mapValues(\.fingerprint)
+        let work = Task.detached(priority: .utility) { () -> OffMain? in
+            let fingerprint = EditionBudgetCache.Fingerprint(
+                ops: DerivedManuscriptCache.tokens(forDocIds: documentIds, in: url),
+                translations: translationsStamp(in: url), open: openFingerprint)
+            if let cached, cached.fingerprint == fingerprint {
+                return OffMain(fingerprint: fingerprint, words: nil, cachedAnswer: cached.answer, states: [:])
+            }
+            return paragraphWords(documentIds: documentIds, language: language, url: url,
+                                  facts: facts, open: open, keepStates: hasTables,
+                                  fingerprint: fingerprint)
+        }
+        let offMain = await withTaskCancellationHandler {
+            await work.value
+        } onCancel: { work.cancel() }
+        guard let offMain, !Task.isCancelled else { return nil }
+        if let answer = offMain.cachedAnswer { return answer }
+        var answer: Budgets.Answer
+        switch offMain.words {
+        case .none: return nil
+        case .failure(let sentence): answer = .unreadable(sentence)
+        case .success(var words):
+            if hasTables, let tables = TableCellPass(store: store, documentStore: documentStore,
+                                                     projectURL: url) {
+                var counted: Set<String> = []
+                for docId in documentIds {
+                    guard let state = offMain.states[docId] else { continue }
+                    do {
+                        let cells = try await tables.work(docId: docId, languages: [language],
+                                                          state: (state.sequence, state.paragraphs))
+                        for work in cells[language] ?? [] where counted.insert(work.figureId).inserted {
+                            words += cellWords(work)
+                        }
+                    } catch {
+                        answer = .unreadable((error as? LocalizedError)?.errorDescription
+                                             ?? error.localizedDescription)
+                        EditionBudgetCache.store(key, fingerprint: offMain.fingerprint, answer: answer)
+                        return answer
+                    }
+                    // One piece's cells per main-actor step.
+                    await Task.yield()
+                    if Task.isCancelled { return nil }
+                }
+            }
+            answer = .words(words)
+        }
+        EditionBudgetCache.store(key, fingerprint: offMain.fingerprint, answer: answer)
+        return answer
+    }
+
+    /// An open piece's text, snapshotted on the main actor.
+    struct OpenText: Sendable {
+        let sequence: [String]
+        let paragraphs: [String: String]
+        var fingerprint: Int {
+            var hasher = Hasher()
+            hasher.combine(sequence)
+            for id in sequence { hasher.combine(paragraphs[id]) }
+            return hasher.finalize()
+        }
+    }
+
+    struct OffMain: Sendable {
+        enum Words: Sendable { case success(Int), failure(String) }
+        let fingerprint: EditionBudgetCache.Fingerprint
+        let words: Words?
+        var cachedAnswer: Budgets.Answer? = nil
+        let states: [String: OpenText]
+    }
+
+    /// The paragraphs' half, off the main actor: each piece's text (the open
+    /// snapshot, else its op log read under the project's trust), its
+    /// translation merged and derived, the words summed. A translation file
+    /// present and unreadable is the figure's refusal (`budgets`' rule).
+    nonisolated static func paragraphWords(
+        documentIds: [String], language: String, url: URL, facts: DocumentClass.Facts,
+        open: [String: OpenText], keepStates: Bool, fingerprint: EditionBudgetCache.Fingerprint
+    ) -> OffMain? {
+        let identities = LocalIdentities.current
+        let trust = (try? TrustResolution.resolve(projectURL: url, identities: identities))
+            ?? TrustResolution.rememberedOrKeyless(projectURL: url, identities: identities)
+        var words = 0
+        var counted = false
+        var states: [String: OpenText] = [:]
+        for docId in documentIds {
+            if Task.isCancelled { return nil }
+            let state: OpenText
+            if let snapshot = open[docId] {
+                state = snapshot
+            } else if let read = ProjectStore.readClosedDocument(docId, in: url, trust: trust, facts: facts) {
+                state = OpenText(sequence: read.sequence, paragraphs: read.paragraphs)
+            } else { continue }
+            counted = true
+            do {
+                let records = try TranslationStore.loadMerged(forDocId: docId, language: language, in: url)
+                let derived = TranslationDeriver.derive(records: records, sequence: state.sequence,
+                                                        paragraphs: state.paragraphs, language: language)
+                words += sum(source: derived.entries.map(\.sourceText),
+                             translations: derived.entries.map(\.translatedText))
+            } catch {
+                return OffMain(fingerprint: fingerprint,
+                               words: .failure((error as? LocalizedError)?.errorDescription
+                                               ?? error.localizedDescription),
+                               states: [:])
+            }
+            if keepStates { states[docId] = state }
+        }
+        return OffMain(fingerprint: fingerprint, words: counted ? .success(words) : nil, states: states)
+    }
+
+    /// The translations folder's files — name, size and date — one listing:
+    /// any translation written moves it.
+    nonisolated static func translationsStamp(in url: URL) -> [String] {
+        let dir = TranslationStore.directoryURL(in: url)
+        let fm = FileManager.default
+        let names = ((try? fm.contentsOfDirectory(atPath: dir.path)) ?? []).sorted()
+        return names.map { name in
+            let attrs = try? fm.attributesOfItem(atPath: dir.appendingPathComponent(name).path)
+            let date = (attrs?[.modificationDate] as? Date)?.timeIntervalSince1970 ?? 0
+            let size = (attrs?[.size] as? Int) ?? 0
+            return "\(name)|\(size)|\(date)"
+        }
+    }
+}
+
+/// **The edition figures already counted** (I2's cache): one per (project,
+/// edition, pieces, manifest), trusted while its fingerprint holds.
+@MainActor
+enum EditionBudgetCache {
+    struct Key: Hashable {
+        let project: String
+        let language: String
+        let docIds: [String]
+        let manifest: Date
+    }
+
+    struct Fingerprint: Equatable, Sendable {
+        let ops: [String: DerivedManuscriptCache.Token]
+        let translations: [String]
+        let open: [String: Int]
+    }
+
+    struct Entry: Sendable {
+        let fingerprint: Fingerprint
+        let answer: TranslationPreflight.Budgets.Answer
+    }
+
+    static var entries: [Key: Entry] = [:]
+    /// Reads that found nothing cached — a test's handle on "read no document".
+    static var computed = 0
+
+    static func store(_ key: Key, fingerprint: Fingerprint, answer: TranslationPreflight.Budgets.Answer) {
+        computed += 1
+        // Small: a window shows one edition at a time.
+        if entries.count > 32 { entries.removeAll() }
+        entries[key] = Entry(fingerprint: fingerprint, answer: answer)
+    }
 }

@@ -31,13 +31,14 @@ final class DocumentStoreOpenCloseTests: XCTestCase {
         let dotDir = url.appendingPathComponent(".maugham")
         try FileManager.default.createDirectory(
             at: dotDir, withIntermediateDirectories: true)
-        let state = UIState(schemaVersion: 1, selectedSubject: .item("doc-x"),
+        let state = UIState(schemaVersion: 1,
+                            windowSubject: WindowSubject(open: .item("doc-x"), faces: .item("doc-x")),
                             isNoChromeOn: true)
         try JSONEncoder().encode(state).write(
             to: dotDir.appendingPathComponent("ui-state.json"))
 
         let store = try await DocumentStore.open(url: url)
-        XCTAssertEqual(store.uiState.selectedSubject, .item("doc-x"))
+        XCTAssertEqual(store.uiState.windowSubject.open, .item("doc-x"))
         XCTAssertTrue(store.uiState.isNoChromeOn)
         await store.close()
     }
@@ -47,7 +48,9 @@ final class DocumentStoreOpenCloseTests: XCTestCase {
             named: "Doc", in: temp.url)
         let store = try await DocumentStore.open(url: url)
 
-        store.updateUIState { $0.selectedSubject = .item("doc-y") }
+        store.updateUIState {
+            $0.windowSubject = WindowSubject(open: .item("doc-y"), faces: .item("doc-y"))
+        }
 
         // Wait past the 500ms UI state debounce + a buffer
         try await Task.sleep(for: .milliseconds(700))
@@ -57,7 +60,7 @@ final class DocumentStoreOpenCloseTests: XCTestCase {
             .appendingPathComponent("ui-state.json")
         let data = try Data(contentsOf: savedURL)
         let decoded = try JSONDecoder().decode(UIState.self, from: data)
-        XCTAssertEqual(decoded.selectedSubject, .item("doc-y"))
+        XCTAssertEqual(decoded.windowSubject.open, .item("doc-y"))
         await store.close()
     }
 

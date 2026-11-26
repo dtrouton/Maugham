@@ -15,7 +15,7 @@ import MaughamCore
 /// `BinderTreeSections`' own reason for splitting the two).
 ///
 /// A `.contextMenu`'s `NSMenu` is built on right-click and is not reachable
-/// from a headless test (`PlanTreeStructureCreationTests`'s own note on this
+/// from a headless test (`TreeStructureCreationTests`'s own note on this
 /// SDK), so the boundary — which rows offer the verb — is asked of
 /// `BinderView.linkResearchVerb(for:)` directly rather than by trying to open
 /// a menu that a real click alone would build. What a mounted window CAN
@@ -49,7 +49,7 @@ final class ResearchLinkPickerTests: XCTestCase {
         let store = try await novel()
         let chapter = try XCTUnwrap(store.manifest.structure.first)
         let state = BinderTreeSectionsState()
-        let view = BinderView(store: store, selectedSubject: .constant(nil), treeState: state)
+        let view = TreeHostFixture.binderView(store: store, subject: .constant(.book), treeState: state)
 
         let openPicker = try XCTUnwrap(
             view.linkResearchVerb(for: chapter),
@@ -65,7 +65,7 @@ final class ResearchLinkPickerTests: XCTestCase {
         let store = try await novel()
         let group = try await store.addStructureItem(
             parentId: nil, title: "Part One", kind: .group)
-        let view = BinderView(store: store, selectedSubject: .constant(nil),
+        let view = TreeHostFixture.binderView(store: store, subject: .constant(.book),
                               treeState: BinderTreeSectionsState())
 
         XCTAssertNil(view.linkResearchVerb(for: group),
@@ -75,7 +75,7 @@ final class ResearchLinkPickerTests: XCTestCase {
     func test_aCollectionPieceRowOffersNoVerb() async throws {
         let store = try await collection()
         let piece = try await store.addLoosePiece(title: "Alpha", format: .markdown)
-        let view = BinderView(store: store, selectedSubject: .constant(nil),
+        let view = TreeHostFixture.binderView(store: store, subject: .constant(.book),
                               treeState: BinderTreeSectionsState())
 
         XCTAssertNil(view.linkResearchVerb(for: piece),
@@ -93,7 +93,7 @@ final class ResearchLinkPickerTests: XCTestCase {
         let store = try await screenplay()
         let script = try XCTUnwrap(TreeWalk.first(
             in: store.manifest.structure, where: { $0.type == .document }))
-        let view = BinderView(store: store, selectedSubject: .constant(nil),
+        let view = TreeHostFixture.binderView(store: store, subject: .constant(.book),
                               treeState: BinderTreeSectionsState())
 
         XCTAssertNil(view.linkResearchVerb(for: script),
@@ -111,7 +111,7 @@ final class ResearchLinkPickerTests: XCTestCase {
         let sheet = ResearchLinkPickerSheet(
             store: store, documentId: chapter.id,
             perform: BinderTreeVerbs(store: store, state: state,
-                                     selectedSubject: .constant(nil)).perform)
+                                     subject: .constant(.book)).perform)
 
         sheet.toggleLink(note.id, link: true)
         await pumpUntil(deadline: 5) {
@@ -131,7 +131,7 @@ final class ResearchLinkPickerTests: XCTestCase {
         let sheet = ResearchLinkPickerSheet(
             store: store, documentId: chapter.id,
             perform: BinderTreeVerbs(store: store, state: state,
-                                     selectedSubject: .constant(nil)).perform)
+                                     subject: .constant(.book)).perform)
 
         sheet.toggleLink(note.id, link: false)
         await pumpUntil(deadline: 5) {
@@ -157,7 +157,7 @@ final class ResearchLinkPickerTests: XCTestCase {
         let sheet = ResearchLinkPickerSheet(
             store: store, documentId: chapter.id,
             perform: BinderTreeVerbs(store: store, state: state,
-                                     selectedSubject: .constant(nil)).perform)
+                                     subject: .constant(.book)).perform)
 
         try FileManager.default.setAttributes(
             [.posixPermissions: 0o500], ofItemAtPath: store.url.path)
@@ -212,19 +212,19 @@ final class ResearchLinkPickerTests: XCTestCase {
 
         let (window, _) = try await hostBinder(store: store, state: state)
         let outline = try XCTUnwrap(outlineView(in: window))
-        XCTAssertFalse(try isExpandable(row: 1, in: outline),
+        XCTAssertFalse(try isExpandable(row: 1 + TreeFurniture.topRows, in: outline),
                        "precondition: nothing is linked yet, so the chapter "
                        + "has no chevron")
 
         let sheet = ResearchLinkPickerSheet(
             store: store, documentId: chapter.id,
             perform: BinderTreeVerbs(store: store, state: state,
-                                     selectedSubject: .constant(nil)).perform)
+                                     subject: .constant(.book)).perform)
         sheet.toggleLink(note.id, link: true)
 
-        await pumpUntil(deadline: 5) { (try? self.isExpandable(row: 1, in: outline)) == true }
+        await pumpUntil(deadline: 5) { (try? self.isExpandable(row: 1 + TreeFurniture.topRows, in: outline)) == true }
 
-        XCTAssertTrue(try isExpandable(row: 1, in: outline),
+        XCTAssertTrue(try isExpandable(row: 1 + TreeFurniture.topRows, in: outline),
                       "the fold picked up the fresh link in the SAME mounted "
                       + "tree — no relaunch required")
     }
@@ -339,9 +339,9 @@ private struct LinkPickerBinderProbeView: View {
     let treeState: BinderTreeSectionsState
 
     var body: some View {
-        BinderView(store: store,
-                   selectedSubject: Binding(get: { probe.subject },
-                                            set: { probe.subject = $0 }),
+        TreeHostFixture.binder(store: store,
+                   subject: .tree(Binding(get: { probe.subject },
+                                            set: { probe.subject = $0 })),
                    treeState: treeState)
     }
 }

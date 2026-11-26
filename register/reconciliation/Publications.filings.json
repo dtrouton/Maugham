@@ -154,13 +154,18 @@
   }
  },
  {
+  "claim_id": "M7-PB-012",
+  "outcome": "NO_RULING_REACHES",
+  "reason": "Which page a chapter starts on is navigation; no ruling covers anchor naming or the page jump, and the reader's refusal to guess is the agent's call (ADR 0038 §3), not Denver's."
+ },
+ {
   "_summary": {
    "reached": 10,
    "complies": 10,
    "violates": 0,
-   "no_ruling": 1,
-   "total": 11,
-   "coverage": "91%",
+   "no_ruling": 2,
+   "total": 12,
+   "coverage": "83%",
    "by_ruling": {
     "RULING-22": [
      "M7-PB-009"

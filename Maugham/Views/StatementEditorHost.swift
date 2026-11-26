@@ -43,9 +43,9 @@ final class StatementTextTarget {
     /// parse-time snapshot for a ruling to land behind.
     ///
     /// Fixed at construction, because it is a fact about the statement's KIND
-    /// and a host is torn down when its kind changes: `DetailPaneToggle`'s
-    /// `segmentContent` gives `.intent` and `.visualLanguage` separate `case`
-    /// arms, so `⌘⌥N`/`⌘⌥V` rebuilds this box rather than reconciling it. A
+    /// and a host is torn down when its kind changes: an intent (Brief) and a
+    /// Book statement (pulled up) are separate arms of `RightColumn`'s
+    /// `switch`, so `⌘⌥N`/`⌘⌥V` rebuilds this box rather than reconciling it. A
     /// `var` set from a body pass would be exactly the value-trusted-after-the-
     /// thing-it-described-moved shape this file has produced seven defects of.
     private let splitsStrata: Bool
@@ -351,6 +351,13 @@ struct StatementEditorHost: View {
     /// `loadMayBind` can be true for at most one of them.
     @State private var mintingScopes: Set<String> = []
     @State private var editorControl = EditorControl()
+    /// **This host's editor's own undo manager** (shell plan 3 Task 5 fix 3):
+    /// handed to the surface as its private manager and registered with the
+    /// statement `Document` it binds, so the statement's verbs (Adopt, Revoke,
+    /// Edit ruling) register on the stack this editor's ⌘Z runs when this
+    /// editor has the keys at the press (`StatementVerbUndo.manager`), and a
+    /// verb's write drops this editor's typing alone (`EditorTypingUndoManager`).
+    @State private var statementUndo = EditorTypingUndoManager()
     @State private var isDropTargeted = false
     /// Why the last picture did not land, or nil.
     ///
@@ -359,6 +366,10 @@ struct StatementEditorHost: View {
     /// `.id()`), so every `@State` here outlives one. A refusal left behind is a
     /// sentence about a file the writer dropped on another scope's editor.
     @State private var pictureMessage: String?
+    /// Bumped when the bound `Document` was withdrawn from under this host
+    /// (`wasWithdrawn`): part of the reconcile task's id, so the scope is
+    /// resolved again — under the gate, after whoever took it lets go.
+    @State private var rebindGeneration = 0
 
     /// Session id stable for the lifetime of this app launch, stamped onto every
     /// op. Declared here rather than shared with `EditorHost`, whose pair is
@@ -391,15 +402,31 @@ struct StatementEditorHost: View {
     /// intermediate state was real and simply never rendered. That is timing,
     /// not a guarantee: `saveManifest` writes and coordinates the whole manifest.)
     ///
-    /// `resolvedScope` cannot flicker: the mint does not touch it, so once a
-    /// scope is mounted it stays mounted until the SCOPE ITSELF changes — which
-    /// is the one case that genuinely wants a fresh `Document`, and which
-    /// `reconcile` handles by closing the outgoing one first.
+    /// `resolvedScope` does not flicker over an ordinary mint: once a scope is
+    /// mounted it stays mounted until the SCOPE ITSELF changes — which
+    /// `reconcile` handles by closing the outgoing one first. Two other
+    /// writers retract it on purpose, each to the placeholder: `mintAndBind`,
+    /// when the statement is held by another host and its load must wait
+    /// (re-mounting once that load binds, gated on `target.wantedScope`), and
+    /// `body`'s withdrawal arm, when the bound `Document` was taken from
+    /// under the editor (`wasWithdrawn`).
     ///
     /// Static and pure so the invariant is asserted deterministically rather
     /// than through a race — `StatementPaneTests` drives it directly.
     static func shouldMount(resolvedScope: String?, scopeKey: String) -> Bool {
         resolvedScope == scopeKey
+    }
+
+    /// **Whether this host's `Document` was withdrawn from under it** (shell
+    /// p3 final wave, I3): the editor is mounted over a bound `Document` that
+    /// is no longer the one the store's registry names for the statement —
+    /// another act (a promotion) took it under the gate and closed it. The
+    /// host's own closes unmount first (`reconcile` and `leave` clear
+    /// `resolvedScope` before the close), so they never read as one; an empty
+    /// editor before its mint holds nothing to lose. Pure.
+    static func wasWithdrawn(bound: Document?, registered: Document?, mounted: Bool) -> Bool {
+        guard mounted, let bound else { return false }
+        return registered !== bound
     }
 
     /// Whether a `Document` that has just finished loading may be bound into the
@@ -528,19 +555,25 @@ struct StatementEditorHost: View {
         }
         // ONE task per scope, and the only place a Document is opened or closed
         // while the pane lives. See `reconcile`.
-        .task(id: scopeKey) { await reconcile() }
+        .task(id: ReconcileKey(scope: scopeKey, generation: rebindGeneration)) { await reconcile() }
+        // **A `Document` withdrawn from under the editor** (final wave, I3):
+        // the placeholder goes up at once — no keystroke reaches a husk — and
+        // the scope is resolved again under the gate.
+        .onChange(of: boundDocumentWithdrawn) { _, withdrawn in
+            guard withdrawn else { return }
+            resolvedScope = nil
+            rebindGeneration &+= 1
+        }
         .onDisappear {
-            // Leaving the pane (a segment switch, a persona switch, window
+            // Leaving the pane (a segment switch, a subject change, window
             // close) flushes the pending typing burst. `Document.close()` is
             // idempotent, so a spurious fire costs nothing.
             //
-            // The registration goes first: a `Document` on its way to being
-            // closed must stop being the one a promotion writes into, and the
-            // close below is asynchronous.
-            if let id = target.statementID { store.forgetStatementDocument(id: id) }
-            if let document = target.document {
-                Task { await document.close() }
-            }
+            // Under the open gate, as one step (`closeStatementDocument`): the
+            // registration is withdrawn only once the gate is held, the close
+            // flushes, and the gate's release says the text changed. A host
+            // loading this statement meanwhile waits for the close to return.
+            store.releaseStatementDocument(target.document, id: target.statementID)
             leave()
         }
         // The manuscript's belt, worn here too: `DocumentStore.close()` closes
@@ -552,10 +585,7 @@ struct StatementEditorHost: View {
         // close, nothing waits for it: this is fire-and-forget. The real
         // crash-safety net for both is `PendingBuffer`'s 750ms disk mirror.
         .onGlobalEvent(.maughamAppWillTerminate) { _ in
-            if let id = target.statementID { store.forgetStatementDocument(id: id) }
-            if let document = target.document {
-                Task { await document.close() }
-            }
+            store.releaseStatementDocument(target.document, id: target.statementID)
             leave()
         }
     }
@@ -567,8 +597,8 @@ struct StatementEditorHost: View {
     /// was mounted, and nothing cleared it on the way out** (review round 2). A
     /// marker left set over a husked `Document` is a lie with two readers:
     /// `canMount` says yes, and anything asking "is the pane still here" gets the
-    /// wrong answer. `⌘⌥N` is what exposed it — `DetailPaneToggle.segmentContent`
-    /// gives `.intent` and `.visualLanguage` separate `case` arms, so switching
+    /// wrong answer. `⌘⌥N` is what exposed it — the right column's `switch`
+    /// gives an intent and Visual Language separate arms, so switching
     /// between them TEARS THIS HOST DOWN rather than reconciling it, and
     /// `.onDisappear` ran while the marker went on naming the scope it had left.
     ///
@@ -583,6 +613,25 @@ struct StatementEditorHost: View {
         // `openStatementDocuments` that nothing is left to close. See
         // `loadMayBind`.
         target.wantedScope = nil
+        // A load of this scope waiting on another host re-asks now, finds the
+        // pane gone, and stops waiting (`load`).
+        if let id = statement?.id { store.wakeStatementReleaseWaiters(id) }
+    }
+
+    /// What `.task` is keyed on: the scope, and a rebind after a withdrawal.
+    private struct ReconcileKey: Equatable {
+        let scope: String
+        let generation: Int
+    }
+
+    /// `wasWithdrawn` over this host's state. Read in `body`; every forget
+    /// bumps `statementTextRevision`, which is observed.
+    private var boundDocumentWithdrawn: Bool {
+        _ = store.statementTextRevision
+        return Self.wasWithdrawn(
+            bound: target.document,
+            registered: target.statementID.flatMap { store.openStatementDocument(id: $0) },
+            mounted: canMount)
     }
 
     private var loadingPlaceholder: some View {
@@ -722,10 +771,14 @@ struct StatementEditorHost: View {
         // a refusal that is not cleared here follows the writer to the next scope.
         pictureMessage = nil
         if let prior = target.document {
-            // Withdrawn BEFORE the close, so no window exists in which the
-            // registry offers a `Document` that is on its way to being a husk.
-            if let id = target.statementID { store.forgetStatementDocument(id: id) }
-            await prior.close()
+            // Under the gate (`closeStatementDocument`): withdrawn once the
+            // gate is held, closed, then released — so no opener, this host's
+            // next load included, can open the path while it flushes.
+            if let id = target.statementID {
+                await store.closeStatementDocument(prior, id: id)
+            } else {
+                await prior.close()
+            }
         }
         // A cancelled reconcile has been superseded by another scope change; its
         // own task will do the work. Leaving `resolvedScope` stale keeps the
@@ -738,7 +791,7 @@ struct StatementEditorHost: View {
             // the scope counts as resolved only if its Document really loaded. A
             // failed load leaves the placeholder up rather than an empty editor
             // whose first keystroke would mint a draft over the writer's prose.
-            guard await load(statement, for: key) else { return }
+            guard await load(statement, for: key) == .bound else { return }
         }
         guard !Task.isCancelled else { return }
         resolvedScope = key
@@ -772,7 +825,22 @@ struct StatementEditorHost: View {
                 // ours to withdraw.
                 let mintedHere = store.statement(kind: kind, scope: scope) == nil
                 let created = try await store.createStatement(kind: kind, scope: scope)
-                let bound = await load(created, for: wanted)
+                let outcome = await load(created, for: wanted, waitsForRelease: false)
+                if outcome == .deliveredElsewhere {
+                    // **Another host held the statement** (fix 2, N1): the
+                    // words went into its `Document`, and this pane must not
+                    // stay an unbound editor — every keystroke would mint,
+                    // find and deposit again, a fragment at a time, while the
+                    // writer's text vanished from the pane they typed in. It
+                    // does what `reconcile` does instead: the placeholder,
+                    // then the waiting load, bound once the holder lets go.
+                    if target.wantedScope == wanted { resolvedScope = nil }
+                    if await load(created, for: wanted) == .bound, target.wantedScope == wanted {
+                        resolvedScope = wanted
+                    }
+                    return
+                }
+                let bound = outcome == .bound
                 // **A mint that neither bound nor deposited leaves nothing**
                 // (issue #29, S5's residue). Issue #21 made every arm of a
                 // superseded mint deliver the words it was started for; this is
@@ -807,6 +875,13 @@ struct StatementEditorHost: View {
             }
         }
     }
+
+    /// What a `load` came to. `bound`: this host's box holds the statement's
+    /// `Document`. `deliveredElsewhere`: another host holds the statement, and
+    /// the words waiting here went into ITS live `Document` (the mint only).
+    /// `notBound`: refused, cancelled, superseded or failed — any words were
+    /// still delivered to their own file.
+    enum LoadOutcome: Equatable { case bound, deliveredElsewhere, notBound }
 
     /// `Document.load` is the contract surface — it is what reaches
     /// `Bootstrap.run`, and no other way of constructing a `Document` is
@@ -843,7 +918,8 @@ struct StatementEditorHost: View {
     /// only when there are words waiting, so a refusal with nothing to deliver
     /// still costs no file I/O.
     @discardableResult
-    private func load(_ statement: Statement, for wanted: String) async -> Bool {
+    private func load(_ statement: Statement, for wanted: String,
+                      waitsForRelease: Bool = true) async -> LoadOutcome {
         // **Held across the load AND the registration**, so that the window
         // between "the registry says nobody has this" and "I have registered
         // mine" is not one a transient writer can open a second `Document` in.
@@ -851,6 +927,31 @@ struct StatementEditorHost: View {
         // so this is released as soon as the registry can answer for us.
         await store.lockStatementOpen(statement.id)
         defer { store.unlockStatementOpen(statement.id) }
+        // **Another host holds this statement** (open, or closing — a close
+        // withdraws its registration only under this gate): never load beside
+        // it (shell plan 3 Task 4 fix, I1). `reconcile` waits, gate released,
+        // for that host to let go, and loads then — the placeholder stays up
+        // meanwhile, never an editor over a second `Document`. The mint has
+        // words in hand and cannot wait on a pane that may never close: it
+        // puts them into the live `Document` that already holds the statement,
+        // which is where they were going.
+        while store.statementIsHeld(statement.id, byAnotherThan: target.document) {
+            guard waitsForRelease else {
+                if let live = store.openStatementDocument(id: statement.id) {
+                    target.deposit(into: live, for: wanted)
+                    // Durable now, as `withStatementDocument`'s live arm makes
+                    // a write into a pane's `Document` (fix 2, N4).
+                    try? await live.flushBurstNow()
+                }
+                return .deliveredElsewhere
+            }
+            store.unlockStatementOpen(statement.id)
+            await store.waitForStatementRelease(statement.id, notHeldBy: target.document)
+            await store.lockStatementOpen(statement.id)
+            // Cancelled (a scope change), or the pane has left or moved on
+            // (`leave` wakes the wait): nothing to bind.
+            if Task.isCancelled || target.wantedScope != wanted { return .notBound }
+        }
         // **Asked AGAIN now that the gate is ours**, because waiting for it is
         // a suspension like any other and the box may have been filled while we
         // queued — by this host's OTHER load, which is the only other thing that
@@ -886,10 +987,11 @@ struct StatementEditorHost: View {
         case .load: break
         case .alreadyBound:
             if let bound = target.document { target.deposit(into: bound, for: wanted) }
-            return true
+            return .bound
         case .refuse:
-            guard target.hasWordsWaiting(for: wanted) else { return false }
+            guard target.hasWordsWaiting(for: wanted) else { return .notBound }
         }
+        store.onStatementGateEvent?(.loading(statement.id))
         do {
             let document = try await Document.load(
                 url: try store.resolvedProjectPath(statement.path),
@@ -905,7 +1007,8 @@ struct StatementEditorHost: View {
                 // `Document` on this path between them.
                 target.deposit(into: document, for: wanted)
                 await document.close()
-                return false
+                store.noteStatementTextChanged()
+                return .notBound
             }
             target.bind(document, id: statement.id, for: wanted)
             // **Announce it, or a promotion opens a second `Document` on this
@@ -913,12 +1016,12 @@ struct StatementEditorHost: View {
             // by design, so this is the only way anything else can find the one
             // the writer is typing into. Registered AFTER `bind`, so the
             // registry never names a `Document` the pane has not taken.
-            store.noteStatementDocumentOpened(document, id: statement.id)
-            return true
+            store.noteStatementDocumentOpened(document, id: statement.id, undoManager: statementUndo)
+            return .bound
         } catch {
             _statementEditorLog.error(
                 "Could not load statement \(statement.id, privacy: .public): \(error, privacy: .public)")
-            return false
+            return .notBound
         }
     }
 
@@ -1034,8 +1137,8 @@ struct StatementEditorHost: View {
     /// the whole of the fix, and it is a narrower surface rather than a better
     /// guard: round 1 routed on `resolvedScope`, which describes the resolved
     /// SCOPE and not whether the host is mounted — and `⌘⌥N` is not a scope
-    /// change on this host at all. `DetailPaneToggle.segmentContent` gives
-    /// `.intent` and `.visualLanguage` separate `case` arms, so the structural
+    /// change on this host at all. The right column's `switch` gives an
+    /// intent and Visual Language separate arms, so the structural
     /// identity differs and the visual-language host is **torn down**: its
     /// `.onDisappear` forgets the registration and closes the `Document`, and
     /// leaves `resolvedScope` naming the scope it just left. A route decided on
@@ -1180,6 +1283,13 @@ struct StatementEditorHost: View {
             // none of the window's manuscript commands and keeps its own undo
             // stack — see `EditorSurfaceConfiguration.isSecondEditorInItsWindow`
             // for what each of those prevents.
-            isSecondEditorInItsWindow: true)
+            // A verb's write into the bound `Document` keeps the stack its
+            // undo registered on (`StatementWriteUndo`, that write's own); every
+            // other replace still drops it.
+            consumeUndoCoherentApplyFlag: { [target] in
+                target.document?.consumeUndoCoherentApplyFlag() ?? false
+            },
+            isSecondEditorInItsWindow: true,
+            privateUndoManager: statementUndo)
     }
 }

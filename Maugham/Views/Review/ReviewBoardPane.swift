@@ -1,18 +1,21 @@
 import SwiftUI
 import MaughamCore
 
-/// **Review's centre column: the pieces × passes board** (M3 P1, routed in
-/// Task 6 and filled in Task 7).
+/// **The Book's Status view: the pieces × passes board** (M3 P1, routed in
+/// Task 6 and filled in Task 7; widened in shell p4 Task 4).
 ///
 /// One row per node of the manuscript (`ReviewBoardRows`, which keeps the
-/// groups), one column per `ProjectManifest.effectiveReviewPasses` entry, and a
-/// chip at every intersection saying where that piece stands on that pass. It
+/// groups). Across a piece: its stage (the tree's dot and word), one chip per
+/// `ProjectManifest.effectiveReviewPasses` entry saying where that piece
+/// stands on that pass, its open notes and its open to-dos. The stage and
+/// title are one control that opens the piece. The title above it is the
+/// altitude pane's header, not the board's. It
 /// is the layer between the corkboard — which says what the project IS — and
 /// the compiled book, which says what it will look like: this one says what is
 /// left to do to it.
 ///
 /// **It takes values, never the store** (tripwire 4). The pane's whole input is
-/// a title, a structure array and a pass list, all read off `manifest` at the
+/// a structure array, a pass list and two count maps, all read off `manifest` at the
 /// one mount site in `CentreColumn.manuscriptEditor`. Nothing on the body path
 /// can reach a `Document`, the disk, or a word-count cache, so a board of two
 /// hundred rows costs two hundred dictionary lookups and no I/O — and the whole
@@ -40,9 +43,9 @@ import MaughamCore
 /// navigation MEANS — which subject the window takes, which pass it remembers —
 /// belongs to the mount in `CentreColumn.manuscriptEditor`, and so does the
 /// `ProjectStore.setPassState` call. What the board knows is which cell was
-/// pressed. In particular nothing here writes the window's PERSONA: the board is
-/// a surface Review shows, never a thing that decides Review is showing
-/// (`ReviewBoardRoutingTests.test_theBoardsOwnFileWritesNoPersona`).
+/// pressed. In particular nothing here writes the window's subject: the board
+/// is a surface the Book's Status view shows, never a thing that decides what
+/// the window shows (`ReviewBoardRoutingTests`).
 ///
 /// **The trailing column is how much is still unanswered** (M3 P2 Task 9): one
 /// number per piece, the notes nobody has resolved yet, clickable straight into
@@ -62,7 +65,9 @@ import MaughamCore
 /// stands, and the advisory nudge about which pass to run next is the queue
 /// pane's (M3 P2).
 ///
-/// **Two scrolling axes, neither of them the window's.** A project with a dozen
+/// **Two scrolling axes, neither of them the window's.** The pass columns
+/// flex between a chip's width and a name's (`columns(width:passCount:)`),
+/// so the presets' four fit the centre's floor; a project with a dozen
 /// passes is wider than the column, so the whole grid sits in a horizontal
 /// `ScrollView` and the rows inside it in a vertical one; the pane itself never
 /// grows past the column it is given. It is a `ScrollView` + `LazyVStack` and
@@ -72,9 +77,10 @@ import MaughamCore
 /// routing suite hangs on. A lazy stack also keeps the row views cheap on a
 /// long manuscript without the table's row-reuse contract.
 struct ReviewBoardPane: View {
-    let title: String
     let structure: [StructureItem]
     let passes: [ReviewPass]
+    /// What the project calls a piece (`PieceNoun`), for the empty board.
+    let noun: PieceNoun
     /// **How many notes each piece still has open** (M3 P2 Task 9), keyed by
     /// piece id. A VALUE, computed off the body path by the mount and handed in
     /// — counting them here would open every document in the project once per
@@ -89,6 +95,17 @@ struct ReviewBoardPane: View {
     /// They get no entry in `openNotes` — a zero would be a lie — so the column
     /// says "unknown" for them instead of "none".
     let unreadableDocIds: Set<String>
+    /// **How many open to-dos each piece has** (shell p4 Task 4), keyed by
+    /// piece id, a figure's on its owner — a value computed off the body path
+    /// (`ResolvePresence.openToDos`). An absent entry draws an empty cell.
+    let openToDos: [String: Int]
+    /// A row was opened — a piece's stage or title, a Part's heading, or
+    /// Return on the current row: open it (the owner's 2026-11-16 rule —
+    /// Status is an overview you navigate from). The id is a piece's or a
+    /// Part's; the mount routes both through the click rule.
+    let onOpen: (String) -> Void
+    /// A to-do count was clicked: open the piece with To resolve on Mine.
+    let onOpenToDos: (String) -> Void
     /// A count was clicked: take the writer to that piece's notes. Like
     /// `onNavigate`, the payload is the ROW's own id and the decision about
     /// what it means belongs to the mount.
@@ -115,6 +132,21 @@ struct ReviewBoardPane: View {
     /// withholds is the menu's four rulings and its *Run round*
     /// (`ReviewBoardChipVerbs.chipMenu`).
     let posture: (String) -> Posture
+    /// **The Book's own to-dos** (fix round 1): the footer's count, `nil` on
+    /// a Part's board (they are the Book's, not the Part's). Zero draws no
+    /// footer. Its click shows To resolve on Mine for the Book.
+    var bookToDos: Int? = nil
+    var onOpenBookToDos: () -> Void = {}
+    /// **Keeping your place** (fix round 1): the row last opened from Status
+    /// or moved to with the keys — held by the mount, because the board is
+    /// rebuilt each time it comes back — and the faces, the fallback.
+    /// `ReviewBoardKeys.current` decides which row is current.
+    var remembered: Binding<String?> = .constant(nil)
+    var faces: BinderSubject = .project
+    /// Moves when the window wants the board to hold the keys (Status chosen
+    /// from the switch or the menu) — `BinderView`'s `treeKeyboardRequest`
+    /// pattern.
+    var keyboardRequest: Int = 0
 
     /// The menu behind every chip, over this pane's own closures. Built per
     /// access like `BinderView.treeVerbs`: it is closures in a wrapper and
@@ -123,18 +155,32 @@ struct ReviewBoardPane: View {
         ReviewBoardChipVerbs(onSetState: onSetState, onRunRound: onRunRound)
     }
 
+    /// The empty board, in the project's word for a piece.
+    static func emptyTitle(_ noun: PieceNoun) -> String { "No \(noun.plural) yet" }
+    static func emptyDescription(_ noun: PieceNoun) -> String {
+        "Add \(noun.plural) and Status shows where each one stands."
+    }
+
     // MARK: - Metrics
 
+    /// The stage column, first: the tree's dot and the word (`StatusSwatch`).
+    static let stageColumnWidth: CGFloat = 76
     /// The narrowest the piece column is allowed to get. Below this the board
     /// scrolls horizontally rather than squeezing titles to nothing — chapter
     /// names are how a reviewer finds the row they mean.
-    static let minimumTitleColumnWidth: CGFloat = 200
-    /// One pass column. Wide enough for a short pass name ("Copyedit") to sit
-    /// over its chips without truncating at the usual sizes.
+    static let minimumTitleColumnWidth: CGFloat = 120
+    /// The piece column's width before the pass columns take any slack.
+    static let comfortableTitleColumnWidth: CGFloat = 200
+    /// One pass column at its widest: a short pass name ("Copyedit") sits over
+    /// its chips without truncating at the usual sizes.
     static let passColumnWidth: CGFloat = 92
-    /// The open-notes column, trailing every pass column (M3 P2 Task 9).
-    /// Narrower than a pass column: it holds a small number, not a name.
-    static let openNotesColumnWidth: CGFloat = 62
+    /// One pass column at its narrowest: the chip still has its glyph and its
+    /// hit area; the name truncates and `.help` carries it whole.
+    static let minimumPassColumnWidth: CGFloat = 40
+    /// The open-notes column (M3 P2 Task 9). It holds a small number.
+    static let openNotesColumnWidth: CGFloat = 60
+    /// The open to-dos column, after open notes (shell p4 Task 4).
+    static let openToDosColumnWidth: CGFloat = 52
     private static let horizontalPadding: CGFloat = 10
     private static let groupIndent: CGFloat = 14
     /// One piece row. Internal rather than private because
@@ -146,68 +192,112 @@ struct ReviewBoardPane: View {
     /// no chips and no decision, and its thinness is what says so at a glance.
     private static let referenceRowHeight: CGFloat = 22
 
-    /// The width the grid wants: the narrowest usable piece column plus every
-    /// pass column. Wider than the pane means the pane scrolls; narrower means
-    /// the slack goes to the piece column (see `board`).
-    static func intrinsicWidth(passCount: Int) -> CGFloat {
-        minimumTitleColumnWidth + CGFloat(passCount) * passColumnWidth
-            + openNotesColumnWidth
+    /// The columns that never flex: stage, open notes, open to-dos.
+    private static var fixedWidth: CGFloat {
+        stageColumnWidth + openNotesColumnWidth + openToDosColumnWidth
     }
 
-    private func titleColumnWidth(in width: CGFloat) -> CGFloat {
-        max(Self.minimumTitleColumnWidth,
-            width - CGFloat(passes.count) * Self.passColumnWidth
-                - Self.openNotesColumnWidth)
+    /// The width the grid needs: every fixed column, the piece column's floor
+    /// and every pass column at ITS floor. Wider than the pane means the pane
+    /// scrolls; four passes fit the centre column's floor
+    /// (`ProjectWindow.centreColumnFloor`), so the board needs no horizontal
+    /// scroll at the window's minimum width.
+    static func intrinsicWidth(passCount: Int) -> CGFloat {
+        fixedWidth + minimumTitleColumnWidth + CGFloat(passCount) * minimumPassColumnWidth
+    }
+
+    /// The flexing columns' widths in `width`: the piece column takes slack
+    /// first up to `comfortableTitleColumnWidth`, then the pass columns up to
+    /// `passColumnWidth`, then the piece column the rest.
+    struct Columns: Equatable {
+        let title: CGFloat
+        let pass: CGFloat
+    }
+
+    static func columns(width: CGFloat, passCount: Int) -> Columns {
+        let available = max(width, intrinsicWidth(passCount: passCount)) - fixedWidth
+        let passes = CGFloat(passCount)
+        let title = max(minimumTitleColumnWidth,
+                        min(comfortableTitleColumnWidth, available - passes * minimumPassColumnWidth))
+        let pass = passCount == 0 ? 0
+            : max(minimumPassColumnWidth, min(passColumnWidth, (available - title) / passes))
+        return Columns(title: available - passes * pass, pass: pass)
     }
 
     // MARK: - Body
 
+    /// Whether the board holds the keys: ↑/↓ move the current row, Return
+    /// opens it. Claimed on `keyboardRequest`, or by a click on the board.
+    @FocusState private var holdsTheKeys: Bool
+
     var body: some View {
         let rows = ReviewBoardRows.derive(structure: structure)
+        let ids = ReviewBoardKeys.navigable(rows)
+        let current = ReviewBoardKeys.current(remembered: remembered.wrappedValue,
+                                              faces: faces, in: ids)
         return VStack(spacing: 0) {
-            header
-            Divider()
             if rows.isEmpty {
                 ContentUnavailableView {
-                    Label("Nothing to review yet", systemImage: "checklist")
+                    Label(Self.emptyTitle(noun), systemImage: "checklist")
                 } description: {
-                    Text("Add chapters or pieces and their review passes appear here.")
+                    Text(Self.emptyDescription(noun))
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
-                board(rows: rows)
+                board(rows: rows, current: current)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .background { keyHolder(ids: ids, current: current) }
     }
 
-    private var header: some View {
-        HStack {
-            Text(title).font(.headline)
-            Spacer()
-        }
-        .padding(8)
+    /// **The keys' holder** (`ExistingFigurePicker`'s ↑/↓ shape over a pure
+    /// rule; the wall's `.focusable()` claim). A zero-size view behind the
+    /// board rather than `.focusable()` on the board itself: wrapping the
+    /// rows in a focusable container takes their buttons out of the focus
+    /// system (measured: no row button mounts its focus-ring view).
+    private func keyHolder(ids: [String], current: String?) -> some View {
+        StatusKeyHolder(ids: ids, current: current, remembered: remembered,
+                        keyboardRequest: keyboardRequest, onOpen: onOpen,
+                        holdsTheKeys: $holdsTheKeys)
     }
 
     /// The grid. `GeometryReader` is here for one reason: the content is as
     /// wide as the grid needs OR as wide as the column, whichever is greater —
     /// so a narrow column scrolls and a wide one hands its slack to the piece
-    /// titles instead of leaving a gutter of dead space beside the chips.
-    private func board(rows: [ReviewBoardRows.Row]) -> some View {
+    /// titles and the pass names instead of leaving a gutter of dead space.
+    private func board(rows: [ReviewBoardRows.Row], current: String?) -> some View {
         GeometryReader { proxy in
             let width = max(Self.intrinsicWidth(passCount: passes.count),
                             proxy.size.width)
+            let columns = Self.columns(width: width, passCount: passes.count)
             ScrollView(.horizontal) {
                 VStack(alignment: .leading, spacing: 0) {
-                    columnHeaders(width: width)
+                    columnHeaders(columns)
                     Divider()
-                    ScrollView(.vertical) {
-                        LazyVStack(alignment: .leading, spacing: 0) {
-                            ForEach(rows) { row in
-                                rowView(row, width: width)
+                    // Scrolled BY ID to the current row (`ReviewBoardKeys
+                    // .current`) on arrival and as the keys move it.
+                    ScrollViewReader { reader in
+                        ScrollView(.vertical) {
+                            LazyVStack(alignment: .leading, spacing: 0) {
+                                ForEach(rows) { row in
+                                    rowView(row, width: width, columns: columns)
+                                        .background(fill(isCurrent: row.id == current))
+                                }
+                                if let footer = ReviewBoardBookToDos.label(count: bookToDos ?? 0) {
+                                    bookToDosFooter(footer, width: width)
+                                }
                             }
+                            .padding(.vertical, 4)
                         }
-                        .padding(.vertical, 4)
+                        .onAppear {
+                            guard let current else { return }
+                            // After the lazy stack's first layout.
+                            DispatchQueue.main.async { reader.scrollTo(current, anchor: .center) }
+                        }
+                        .onChange(of: current) { _, next in
+                            if let next { reader.scrollTo(next) }
+                        }
                     }
                 }
                 .frame(width: width, alignment: .leading)
@@ -216,20 +306,60 @@ struct ReviewBoardPane: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
-    private func columnHeaders(width: CGFloat) -> some View {
+    /// The current row's fill: faint, and a little stronger while the board
+    /// holds the keys, so the writer sees where ↑/↓ will start.
+    @ViewBuilder
+    private func fill(isCurrent: Bool) -> some View {
+        if isCurrent {
+            Color.accentColor.opacity(holdsTheKeys ? 0.2 : 0.1)
+        } else {
+            Color.clear
+        }
+    }
+
+    /// **The Book's own to-dos**, after the last row: a control that shows
+    /// To resolve on Mine for the Book and moves nothing in the centre.
+    private func bookToDosFooter(_ label: String, width: CGFloat) -> some View {
+        Button {
+            onOpenBookToDos()
+        } label: {
+            Text(label)
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .padding(.horizontal, Self.horizontalPadding)
+                .padding(.vertical, 8)
+                .frame(width: width, alignment: .leading)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(ReviewBoardRowButtonStyle())
+        .help("Show the Book\u{2019}s own to-dos in To resolve")
+        .accessibilityLabel(label)
+        .padding(.top, 6)
+    }
+
+    private func columnHeaders(_ columns: Columns) -> some View {
         HStack(spacing: 0) {
+            Text("Stage")
+                .padding(.leading, Self.horizontalPadding)
+                .frame(width: Self.stageColumnWidth, alignment: .leading)
             Text("Piece")
                 .padding(.horizontal, Self.horizontalPadding)
-                .frame(width: titleColumnWidth(in: width), alignment: .leading)
+                .frame(width: columns.title, alignment: .leading)
             ForEach(passes) { pass in
                 Text(pass.name)
                     .lineLimit(1)
                     .truncationMode(.tail)
-                    .frame(width: Self.passColumnWidth)
+                    .padding(.horizontal, 2)
+                    .frame(width: columns.pass)
+                    .help(pass.name)
             }
             Text(ReviewBoardOpenNotes.columnHeading)
                 .lineLimit(1)
                 .frame(width: Self.openNotesColumnWidth)
+            Text(ReviewBoardOpenToDos.columnHeading)
+                .lineLimit(1)
+                .frame(width: Self.openToDosColumnWidth)
         }
         .font(.caption)
         .foregroundStyle(.secondary)
@@ -237,43 +367,123 @@ struct ReviewBoardPane: View {
     }
 
     @ViewBuilder
-    private func rowView(_ row: ReviewBoardRows.Row, width: CGFloat) -> some View {
+    private func rowView(_ row: ReviewBoardRows.Row, width: CGFloat,
+                         columns: Columns) -> some View {
         switch row.kind {
         case .group(let depth):
             groupRow(row.item, depth: depth, width: width)
         case .piece:
-            pieceRow(row.item, width: width)
+            pieceRow(row.item, width: width, columns: columns)
         case .reference:
             referenceRow(row.item, width: width)
         }
     }
 
+    /// **A Part's heading opens the Part** (fix round 1) — its own small
+    /// Status — through the same `onOpen` as a chapter. It keeps a heading's
+    /// look; the row style gives it the hover and pressed fill a chapter row
+    /// has.
     private func groupRow(_ item: StructureItem, depth: Int, width: CGFloat) -> some View {
-        Text(item.title)
-            .font(.subheadline.weight(.semibold))
-            .lineLimit(1)
-            .padding(.leading, Self.horizontalPadding + Self.groupIndent * CGFloat(depth))
-            .padding(.trailing, Self.horizontalPadding)
-            .padding(.top, 10)
-            .padding(.bottom, 3)
-            .frame(width: width, alignment: .leading)
+        Button {
+            onOpen(item.id)
+        } label: {
+            Text(item.title)
+                .font(.subheadline.weight(.semibold))
+                .lineLimit(1)
+                .padding(.leading, Self.horizontalPadding + Self.groupIndent * CGFloat(depth))
+                .padding(.trailing, Self.horizontalPadding)
+                .padding(.top, 10)
+                .padding(.bottom, 3)
+                .frame(width: width, alignment: .leading)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(ReviewBoardRowButtonStyle())
+        .help("Open \(item.title)")
+        .accessibilityLabel(item.title)
     }
 
-    private func pieceRow(_ item: StructureItem, width: CGFloat) -> some View {
+    private func pieceRow(_ item: StructureItem, width: CGFloat,
+                          columns: Columns) -> some View {
         HStack(spacing: 0) {
-            Text(item.title)
-                .lineLimit(1)
-                .truncationMode(.tail)
-                .padding(.horizontal, Self.horizontalPadding)
-                .frame(width: titleColumnWidth(in: width), alignment: .leading)
+            pieceButton(item, titleWidth: columns.title)
             ForEach(passes) { pass in
                 chip(item: item, pass: pass)
-                    .frame(width: Self.passColumnWidth)
+                    .frame(width: columns.pass)
             }
             openNotesCell(item: item)
                 .frame(width: Self.openNotesColumnWidth)
+            openToDosCell(item: item)
+                .frame(width: Self.openToDosColumnWidth)
         }
         .frame(width: width, height: Self.pieceRowHeight, alignment: .leading)
+    }
+
+    /// **The stage and the title, one control: a click opens the piece**
+    /// (`onOpen`; the owner's 2026-11-16 rule). The stage is the tree's
+    /// dot with its word (`ReviewStatus.derived`, `StatusSwatch`), so the
+    /// row says where the piece stands before it says anything else.
+    private func pieceButton(_ item: StructureItem, titleWidth: CGFloat) -> some View {
+        let stage = ReviewStatus.derived(passStates: item.passStates, passes: passes,
+                                         legacyStatus: item.status)
+        return Button {
+            onOpen(item.id)
+        } label: {
+            HStack(spacing: 0) {
+                HStack(spacing: 4) {
+                    Circle()
+                        .fill(StatusSwatch.color(for: stage))
+                        .frame(width: 6, height: 6)
+                    Text(StatusSwatch.label(for: stage))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+                .padding(.leading, Self.horizontalPadding)
+                .frame(width: Self.stageColumnWidth, alignment: .leading)
+                Text(item.title)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .padding(.horizontal, Self.horizontalPadding)
+                    .frame(width: titleWidth, alignment: .leading)
+            }
+            .frame(maxHeight: .infinity)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(ReviewBoardRowButtonStyle())
+        .help("Open \(item.title)")
+        .accessibilityLabel("\(item.title) — \(StatusSwatch.label(for: stage))")
+    }
+
+    /// **The row's open to-dos** (shell p4 Task 4): the open-notes cell's
+    /// three renderings, decided by `ReviewBoardOpenToDos.cell`. A count is a
+    /// control that opens the piece on To resolve's Mine.
+    @ViewBuilder
+    private func openToDosCell(item: StructureItem) -> some View {
+        let cell = ReviewBoardOpenToDos.cell(
+            piece: item.title, count: openToDos[item.id],
+            isUnreadable: unreadableDocIds.contains(item.id))
+        switch cell.kind {
+        case .none:
+            Color.clear
+        case .unreadable:
+            Text(cell.text)
+                .foregroundStyle(.tertiary)
+                .help(cell.label)
+                .accessibilityLabel(cell.label)
+        case .count:
+            Button {
+                onOpenToDos(item.id)
+            } label: {
+                Text(cell.text)
+                    .monospacedDigit()
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .help(cell.label)
+            .accessibilityLabel(cell.label)
+        }
     }
 
     /// **The row's own open-note count** (M3 P2 Task 9), at the end of its
@@ -403,7 +613,7 @@ struct ReviewBoardPane: View {
 /// **Exposed, and a value type, because `.contextMenu` is headless-unreachable.**
 /// SwiftUI builds that `NSMenu` on the right-click itself, so a test can neither
 /// see the items nor press one (`BinderView.linkResearchVerb`'s discipline, and
-/// `PlanTreeStructureCreationTests`' note on this SDK). The menu's whole truth
+/// `TreeStructureCreationTests`' note on this SDK). The menu's whole truth
 /// table therefore lives in `chipMenuItems(for:passId:current:)`, which
 /// `ReviewBoardPaneTests` drives directly: the alternative is a menu asserted
 /// nowhere, which is how a verb that writes the wrong cell ships green.
@@ -542,7 +752,7 @@ enum ReviewBoardOpenNotes {
 
     /// The column's own heading. Short, because the column is narrow and the
     /// row's tooltip carries the sentence.
-    static let columnHeading = "Open"
+    static let columnHeading = "Notes open"
 
     enum Kind: Equatable {
         /// Nothing open: an empty cell, and nothing to click.
@@ -579,7 +789,7 @@ enum ReviewBoardOpenNotes {
             return Cell(
                 kind: .unreadable,
                 text: "\u{2014}",
-                label: "\(piece) — notes unknown: this piece\u{2019}s op log "
+                label: "\(piece) — notes unknown: its op log "
                     + "could not be read.")
         }
         guard let summary, summary.total > 0 else {
@@ -638,6 +848,60 @@ enum ReviewBoardOpenNotes {
         let unstamped = summary.total - accounted
         if unstamped > 0 { parts.append("\(unstamped) unstamped") }
         return parts.joined(separator: ", ")
+    }
+}
+
+/// **A row that opens something**: plain, with a faint fill under the
+/// pointer and a stronger one while pressed — the affordance a chapter row,
+/// a Part's heading and the Book's footer share.
+struct ReviewBoardRowButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        RowBody(configuration: configuration)
+    }
+
+    private struct RowBody: View {
+        let configuration: Configuration
+        @State private var hovering = false
+
+        var body: some View {
+            configuration.label
+                .background(Color.primary.opacity(
+                    configuration.isPressed ? 0.12 : (hovering ? 0.05 : 0)))
+                .onHover { hovering = $0 }
+        }
+    }
+}
+
+/// **The Book's footer line** (fix round 1): "The Book — 3 to-dos", `nil`
+/// at zero, so a Book with none of its own draws nothing.
+enum ReviewBoardBookToDos {
+    static func label(count: Int) -> String? {
+        guard count > 0 else { return nil }
+        return "The Book \u{2014} \(count) \(count == 1 ? "to-do" : "to-dos")"
+    }
+}
+
+/// **What one cell of the open to-dos column says** (shell p4 Task 4) —
+/// `ReviewBoardOpenNotes`' three cases for the writer's own to-dos: nothing
+/// open draws nothing, an unreadable piece an em dash (RULING-54), a count
+/// a number whose label names the piece.
+enum ReviewBoardOpenToDos {
+
+    static let columnHeading = "To-dos"
+
+    static func cell(piece: String, count: Int?, isUnreadable: Bool) -> ReviewBoardOpenNotes.Cell {
+        if isUnreadable {
+            return ReviewBoardOpenNotes.Cell(
+                kind: .unreadable, text: "\u{2014}",
+                label: "\(piece) — to-dos unknown: its op log "
+                    + "could not be read.")
+        }
+        guard let count, count > 0 else {
+            return ReviewBoardOpenNotes.Cell(kind: .none, text: "", label: "")
+        }
+        let noun = count == 1 ? "open to-do" : "open to-dos"
+        return ReviewBoardOpenNotes.Cell(kind: .count, text: "\(count)",
+                                         label: "\(piece) — \(count) \(noun)")
     }
 }
 

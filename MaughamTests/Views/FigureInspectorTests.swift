@@ -74,9 +74,15 @@ final class FigureInspectorTests: FigureGridMountedTestCase {
     }
 
     private func actions(_ m: Mounted, windows: FigureWindows? = nil, control: EditorControl = EditorControl(),
-                         persona: Persona = .author, model: FigureInspectorModel) -> FigureActions {
-        FigureInspector.actions(store: m.store, figureWindows: windows, control: control, persona: persona,
-                                model: model)
+                         readThrough: ReadThroughGate = .writing, model: FigureInspectorModel) -> FigureActions {
+        FigureInspector.actions(store: m.store, figureWindows: windows, control: control, readThrough: readThrough,
+                                model: model, window: nil)
+    }
+
+    /// A gate with `figureId`'s line in a piece that is in read-through.
+    private func reading(_ figureId: String) -> ReadThroughGate {
+        ReadThroughGate(pieces: ["reading"], structure: [], research: [], projectType: .novel, figures: [],
+                        figureLines: [ReadThroughGateFixture.line(figureId, in: "reading")])
     }
 
     /// A Research table `model` and a figure `summary` whose A1 reads
@@ -307,7 +313,7 @@ final class FigureInspectorTests: FigureGridMountedTestCase {
 
         // The cross-reference sits on the SECOND line of its paragraph: the
         // reveal carries the line's offset, and it survives the reveal's
-        // payload (what `TranslationReviewModifier` decodes) and the reveal's
+        // payload (what `ReadingLanguageModifier` decodes) and the reveal's
         // own navigation (`TranslationReveal.perform`, which the window runs
         // once the piece's document is up — production's landing path).
         let reference = FigureUseTravel.destination(for: row.referencedFrom[0], store: m.store, documentStore: ds)
@@ -346,7 +352,7 @@ final class FigureInspectorTests: FigureGridMountedTestCase {
         let centre = FigureCentreMount(
             figureId: summary.id, windows: windows, presence: FigureGridPresence(), store: ds,
             projectStore: m.store, line: ("—", ""), piece: nil, typography: .defaults,
-            isReviewMode: false, shareIsReadOnly: false)
+            readThrough: nil, shareIsReadOnly: false)
         centre.take()
         await centre.grid?.opening?.value
         let grid = try XCTUnwrap(centre.grid?.controller, "the centre's grid opened")
@@ -397,7 +403,7 @@ final class FigureInspectorTests: FigureGridMountedTestCase {
         let centre = FigureCentreMount(
             figureId: figure.id, windows: windows, presence: FigureGridPresence(), store: ds,
             projectStore: m.store, line: ("—", ""), piece: nil, typography: .defaults,
-            isReviewMode: false, shareIsReadOnly: false)
+            readThrough: nil, shareIsReadOnly: false)
         centre.take()
         XCTAssertNil(centre.grid?.controller, "premise: the hold is taken, the visit still opening")
 
@@ -406,14 +412,14 @@ final class FigureInspectorTests: FigureGridMountedTestCase {
         await centre.grid?.opening?.value
         XCTAssertTrue(told, "the visit opening is observed")
         XCTAssertTrue(actions.hasGrid(figure.id))
-        XCTAssertNil(FigureInspector.refusal(mayEdit: true, hasGrid: actions.hasGrid(figure.id)))
+        XCTAssertNil(FigureInspector.refusal(mayEdit: true, hasGrid: actions.hasGrid(figure.id), readThrough: nil))
 
         told = false
         XCTAssertTrue(withObservationTracking { actions.hasGrid(figure.id) } onChange: { told = true })
         centre.leave()
         XCTAssertTrue(told, "the grid going is observed")
         XCTAssertFalse(actions.hasGrid(figure.id))
-        XCTAssertEqual(FigureInspector.refusal(mayEdit: true, hasGrid: false), FigureActions.openTheTableFirst)
+        XCTAssertEqual(FigureInspector.refusal(mayEdit: true, hasGrid: false, readThrough: nil), FigureActions.openTheTableFirst)
         await windows.visitEnded(figure.id)
 
         // A figure window's grid, once finished, answers no grid.
@@ -442,7 +448,7 @@ final class FigureInspectorTests: FigureGridMountedTestCase {
         let centre = FigureCentreMount(
             figureId: figure.id, windows: windows, presence: FigureGridPresence(), store: ds,
             projectStore: m.store, line: ("—", ""), piece: nil, typography: .defaults,
-            isReviewMode: false, shareIsReadOnly: false)
+            readThrough: nil, shareIsReadOnly: false)
         centre.take()
         await centre.grid?.opening?.value
         let grid = try XCTUnwrap(centre.grid?.controller)
@@ -473,22 +479,25 @@ final class FigureInspectorTests: FigureGridMountedTestCase {
                        [.openInWindow, .sendToResearch, .importCSV])
         XCTAssertEqual(FigureInspector.offered(mayEdit: true, kind: .image), [.openInWindow, .sendToResearch])
         XCTAssertEqual(FigureInspector.offered(mayEdit: false, kind: .table), [.openInWindow])
-        XCTAssertEqual(FigureInspector.refusal(mayEdit: false, hasGrid: true), "This figure is read-only here.",
-                       "Compare's Refresh says why in Review")
+        XCTAssertEqual(FigureInspector.refusal(mayEdit: false, hasGrid: true, readThrough: nil), "This figure is read-only here.",
+                       "Compare's Refresh says why when the window refuses")
 
         // The window's own refusal: one answer, for the inspector and the tree.
         let viewOnly = EditorControl()
         viewOnly.shareIsReadOnly = true
-        let manualReview = EditorControl()
-        manualReview.isManualReviewMode = true
         XCTAssertFalse(actions(m, control: viewOnly, model: model).mayEdit(figure.id), "a view-only share")
-        XCTAssertFalse(actions(m, control: manualReview, model: model).mayEdit(figure.id), "⌘⌥⇧R")
-        XCTAssertFalse(actions(m, persona: .review, model: model).mayEdit(figure.id), "the Review persona")
-        XCTAssertTrue(actions(m, persona: .plan, model: model).mayEdit(figure.id), "control: Plan edits figures")
+        XCTAssertFalse(actions(m, readThrough: reading(figure.id), model: model).mayEdit(figure.id),
+                       "the figure's piece in read-through")
+        XCTAssertTrue(actions(m, readThrough: .writing, model: model).mayEdit(figure.id),
+                      "control: writing, it edits")
         let tree = BinderTreeSectionsState()
-        tree.figureWritesRefused = FigureActions.windowRefusesWrites(control: viewOnly, persona: .plan)
+        tree.figureWritesRefused = viewOnly.shareIsReadOnly
         XCTAssertFalse(FigureSectionVerbs(store: m.store, state: tree).shared.mayEdit(figure.id),
                        "the tree's row refuses on the same answer")
+        let readingTree = BinderTreeSectionsState()
+        readingTree.figureReadThrough = reading(figure.id)
+        XCTAssertFalse(FigureSectionVerbs(store: m.store, state: readingTree).shared.mayEdit(figure.id),
+                       "…and on read-through")
 
         try await samWritesTheChapter(m)
         XCTAssertFalse(actions(m, model: model).mayEdit(figure.id), "another author's piece")
@@ -500,7 +509,7 @@ final class FigureInspectorTests: FigureGridMountedTestCase {
     @MainActor
     final class WindowBox {
         var control = EditorControl()
-        var persona: Persona = .plan
+        var readThrough = ReadThroughGate.writing
     }
 
     /// The tree wired as `ProjectWindow` wires it, in a window with no editor.
@@ -512,15 +521,16 @@ final class FigureInspectorTests: FigureGridMountedTestCase {
         var body: some View {
             Color.clear.modifier(FigureSectionWiring(
                 store: store, documentStore: documentStore, listing: FigureListingModel(), treeState: tree,
-                figureWindows: nil, typography: .defaults, control: box.control, persona: box.persona))
+                figureWindows: nil, typography: .defaults, control: box.control,
+                readThrough: box.readThrough))
         }
     }
 
     /// **I1: a Plan window with no editor on a view-only share** — the tree's
     /// row hears the share from the window's control plane, as the inspector
     /// does, so it offers no Send to Research or Rename; the share lifting,
-    /// it offers them again. ⌘⌥⇧R and the Review persona the same.
-    func test_theTreeHearsTheWindowsShareAndReviewWithNoEditorMounted() async throws {
+    /// it offers them again. A figure's read-through the same.
+    func test_theTreeHearsTheWindowsShareAndReadThroughWithNoEditorMounted() async throws {
         let m = try await mount()
         let figure = try XCTUnwrap(m.figure)
         let ds = try XCTUnwrap(m.store.documentStore)
@@ -542,13 +552,10 @@ final class FigureInspectorTests: FigureGridMountedTestCase {
         XCTAssertTrue(lifted)
         XCTAssertTrue(verbs.shared.mayEdit(figure.id), "control: the share lifted")
 
-        box.control.isManualReviewMode = true
-        let reviewing = await pumpUntil(deadline: 5) { tree.figureWritesRefused }
-        XCTAssertTrue(reviewing, "⌘⌥⇧R")
-        box.control.isManualReviewMode = false
-        box.persona = .review
-        let review = await pumpUntil(deadline: 5) { tree.figureWritesRefused }
-        XCTAssertTrue(review, "the Review persona")
+        box.readThrough = reading(figure.id)
+        let heard = await pumpUntil(deadline: 5) { tree.figureReadThrough == box.readThrough }
+        XCTAssertTrue(heard, "the window's gate reaches the tree")
+        XCTAssertFalse(verbs.shared.mayEdit(figure.id), "the figure's piece in read-through")
     }
 
     /// `cards`, cut off from the store's own triggers (a late presenter
@@ -746,9 +753,9 @@ final class FigureInspectorTests: FigureGridMountedTestCase {
 
         let model = FigureInspectorModel(figureId: figure.id)
         let here = FigureInspector.actions(store: m.store, figureWindows: windows, control: EditorControl(),
-                                           persona: .author, model: model, window: thisWindow)
+                                           readThrough: .writing, model: model, window: thisWindow)
         XCTAssertEqual(here.gridReach(figure.id), .inAnotherWindow)
-        XCTAssertEqual(FigureInspector.refusal(mayEdit: true, reach: .inAnotherWindow), FigureActions.openInThatWindow)
+        XCTAssertEqual(FigureInspector.refusal(mayEdit: true, reach: .inAnotherWindow, readThrough: nil), FigureActions.openInThatWindow)
         XCTAssertFalse(here.importFromCSV(figure.id), "not acted through from another window")
         XCTAssertEqual(asked, 0)
         XCTAssertEqual(model.message, FigureActions.openInThatWindow, "said")
@@ -757,7 +764,7 @@ final class FigureInspectorTests: FigureGridMountedTestCase {
         XCTAssertEqual(focused, 2)
 
         let there = FigureInspector.actions(store: m.store, figureWindows: windows, control: EditorControl(),
-                                            persona: .author, model: model, window: gridsWindow)
+                                            readThrough: .writing, model: model, window: gridsWindow)
         XCTAssertEqual(there.gridReach(figure.id), .here)
         XCTAssertTrue(there.importFromCSV(figure.id), "control: from the grid's own window it acts")
         XCTAssertEqual(asked, 1)
@@ -782,7 +789,7 @@ final class FigureInspectorTests: FigureGridMountedTestCase {
         var body: some View {
             Color.clear.modifier(SubjectValidationModifier(
                 store: store, documentStore: documentStore,
-                selectedSubject: Binding(get: { box.subject }, set: { box.subject = $0 })))
+                subject: .bridging(Binding(get: { box.subject }, set: { box.subject = $0 }))))
         }
     }
 
@@ -800,7 +807,7 @@ final class FigureInspectorTests: FigureGridMountedTestCase {
         let centre = FigureCentreMount(
             figureId: figure.id, windows: windows, presence: FigureGridPresence(), store: ds,
             projectStore: m.store, line: (row.number, row.caption), piece: docId, typography: .defaults,
-            isReviewMode: false, shareIsReadOnly: false)
+            readThrough: nil, shareIsReadOnly: false)
         centre.take()
         await centre.grid?.opening?.value
         let box = SubjectBox(.figure(figure.id))

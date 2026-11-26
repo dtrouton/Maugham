@@ -151,14 +151,26 @@ extension EditorCoordinator {
         // every key. Whole-doc callers post immediately. See CLAUDE.md tripwire 4
         // and `scriptUpdateNotifyTask`.
         if let script = lastParsedScript {
-            postScriptDidUpdate(script, debounced: windowedTyping)
+            if isReadingTranslation {
+                // A translated surface is not the script (fix M3): its parse
+                // holds each scene twice, at surface offsets. The navigator
+                // keeps the source's scenes, which navigation maps across.
+                scriptUpdateNotifyTask?.cancel()
+                scriptUpdateNotifyTask = nil
+            } else {
+                postScriptDidUpdate(script, debounced: windowedTyping)
+            }
         }
         // Deliver precomputed metrics on the SAME timing as the script post:
         // coalesced to the trailing edge while typing, immediate for whole-doc
         // callers. The page count rides `lastParsedScript` (no extra parse); the
         // word count is one whitespace split of the already-nativized `text`.
         // This supersedes EditorHost's `metricsMirrorTask`. See spec §7.
-        deliverMetrics(text: text, debounced: windowedTyping)
+        if isReadingTranslation {
+            deliverReadingMetrics()
+        } else {
+            deliverMetrics(text: text, debounced: windowedTyping)
+        }
         // Sync typing attributes so the caret on empty lines matches the
         // body font/paragraph style instead of the system default. Cheap and
         // non-visual-churn, so it stays live on both paths.
@@ -386,18 +398,22 @@ extension EditorCoordinator {
             scriptUpdateNotifyTask = nil
             if let projectId {
                 MaughamEvent.post(
-                    .maughamScriptDidUpdate, to: .project(id: projectId), object: script)
+                    .maughamScriptDidUpdate, to: .project(id: projectId), object: script,
+                    payload: WindowScript.payload(docId: documentId))
             }
             return
         }
         scriptUpdateNotifyTask?.cancel()
+        // The piece parsed, as of the parse (a switch mid-debounce cancels).
+        let parsedDocId = documentId
         scriptUpdateNotifyTask = Task { @MainActor [weak self] in
             try? await Task.sleep(for: .milliseconds(350))
             guard !Task.isCancelled else { return }
             self?.scriptUpdateNotifyTask = nil
             if let projectId {
                 MaughamEvent.post(
-                    .maughamScriptDidUpdate, to: .project(id: projectId), object: script)
+                    .maughamScriptDidUpdate, to: .project(id: projectId), object: script,
+                    payload: WindowScript.payload(docId: parsedDocId))
             }
         }
     }
@@ -454,6 +470,24 @@ extension EditorCoordinator {
         }
     }
 
+    /// **The source has landed** (fix 2, N2): its script and its counts,
+    /// which the swap that brought it in did not post (the buffer still held
+    /// the translation then).
+    func sourceDidLand() {
+        if let script = lastParsedScript { postScriptDidUpdate(script, debounced: false) }
+        if let textView { deliverMetrics(text: textView.string, debounced: false) }
+    }
+
+    /// **The counts of a piece read in a language** (fix M3): the
+    /// translation's own words, never its source lines under it.
+    func deliverReadingMetrics() {
+        metricsNotifyTask?.cancel()
+        metricsNotifyTask = nil
+        guard let onMetricsChanged, let textView else { return }
+        onMetricsChanged(mode.metrics(TranslationBadgeLayout.translationOnly(
+            textView.string, ranges: bufferBadges)))
+    }
+
     func scrollSelectionToVerticalCenter(in textView: NSTextView) {
         guard let layoutManager = textView.layoutManager,
               let textContainer = textView.textContainer else { return }
@@ -507,7 +541,7 @@ extension EditorCoordinator {
     /// (typing moved the ranges) and a whole-document paint (the theme may
     /// have changed) — and on a translation-review flip.
     ///
-    /// Translation review shows none: its dimming is the one temporary
+    /// Reading a translation shows none: its dimming is the one temporary
     /// foreground there and clears over the whole text
     /// (`applyTranslationDimming`), which stays exact. Between a character
     /// edit and its retokenize the tokens describe the old text, so nothing
@@ -515,9 +549,9 @@ extension EditorCoordinator {
     func refreshFigureSyntaxUnfade(force: Bool = false) {
         guard let textView, let layoutManager = textView.layoutManager,
               let storage = textView.textStorage else { return }
-        if tokensDescribeAnEarlierText && !isTranslationReview { return }
+        if tokensDescribeAnEarlierText && !isReadingTranslation { return }
         let wanted: [NSRange]
-        if isTranslationReview || !paintsFigureSyntaxFaded {
+        if isReadingTranslation || !paintsFigureSyntaxFaded {
             wanted = []
         } else {
             wanted = figureCaptionLine(at: textView.selectedRange().location)?.syntax ?? []
@@ -549,7 +583,7 @@ extension EditorCoordinator {
 
     /// Forgets the un-fade after something else cleared every temporary
     /// foreground colour (`applyTranslationDimming`), and shows the caret's
-    /// line again outside translation review.
+    /// line again outside reading a translation.
     func figureSyntaxUnfadeWasCleared() {
         unfadedFigureSyntax = []
         unfadedFigureSyntaxIsStale = false
@@ -562,7 +596,7 @@ extension EditorCoordinator {
         // crafted draft, not a dimmed sentence/paragraph window. Translation
         // review is the same read-only whole-document posture (the derived
         // translated surface), so it dims off too.
-        guard !isReviewMode, !isTranslationReview else { return }
+        guard !isReviewMode, !isReadingTranslation else { return }
         let useSentence = sentenceFocus
         let useParagraph = paragraphFocus && !sentenceFocus
         guard useSentence || useParagraph else { return }

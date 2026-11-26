@@ -4,8 +4,9 @@ import AppKit
 
 /// **The window's centre column**: the switch over
 /// `ProjectWindow.centreRoute(…)` and every surface it mounts — the palette
-/// wall, a research subject, the canvas, a Collection's reference
-/// placeholder, and the manuscript editor with altitude and one cover over it.
+/// wall, a research subject, a figure, the canvas, a Collection's reference
+/// placeholder, the manuscript editor with the Book's view and one cover over
+/// it, and the Inbox.
 /// It owns exactly one piece of state: the review board's open-notes counts,
 /// which nothing outside this column reads.
 ///
@@ -14,7 +15,7 @@ import AppKit
 /// that drifts from the first), each value it only READS arrives as a value,
 /// and each of the window's verbs arrives as a closure — so the one writer of
 /// `ActivePassMemory` and the one round deferral stay `ProjectWindow`'s. The
-/// persona, the column visibility and the subject stay owned by the window.
+/// subject, the column visibility and the Book's view stay owned by the window.
 ///
 /// **Mounted ONCE**, as the content column's root (`ProjectWindow
 /// .contentColumn`), so `EditorHost` and the canvas keep their identities
@@ -41,24 +42,52 @@ struct CentreColumn: View {
     @Bindable var publishCentre: PublishCentreModel
     let designer: DesignerOrchestrator
     let declaredWorld: DeclaredWorldStore?
+    /// The bible a statement in the centre draws its readings from.
+    let bible: BibleStore?
     let window: NSWindow?
 
-    // The route's inputs this column only reads.
-    let persona: Persona
+    // Inputs this column only reads. `readThrough` is the window's gate: a
+    // research item or figure whose piece is in read-through reads, never edits.
+    let readThrough: ReadThroughGate
+    /// How the Book is shown — the route's input. Read only: the toolbar's
+    /// switch writes it (`ProjectWindow.chooseCentreView`).
+    let bookView: BookView
+    /// An edition's view (Book or Status) — the route's input, written only
+    /// by `ProjectWindow.chooseCentreView`.
+    let editionView: EditionView
+    /// The window's tree state, read here for one value: Status's open
+    /// to-dos (`openToDos`, written by `ResolvePresenceWatch` from the read
+    /// that marks the tree — no walk of this column's own).
+    let treeState: BinderTreeSectionsState
+    /// The window's ask that Status hold the keys (`chooseCentreView`'s
+    /// Status), a counter in `treeKeyboardRequest`'s pattern.
+    let statusKeyboardRequest: Int
     let researchPreviewVisible: Bool
+    /// The tree's find overlay is up: Esc is its own, before the centre
+    /// item's cover (`CentreItemEscape`).
+    let treeFindActive: Bool
 
     // The window's state this column writes — bindings, never copies.
-    @Binding var selectedSubject: BinderSubject?
-    @Binding var showsPaletteWall: Bool
+    /// The window's subject: the route's one input about what is open.
+    @Binding var subject: WindowSubject
+    /// A statement or a piece's History open in the centre — the
+    /// `.centreItem` cover (shell plan 3 Task 5). The cover's Close writes
+    /// nil; the window clears it when `open` moves.
+    @Binding var centreItem: CentreItem?
     @Binding var selectedPaletteCardId: String?
-    @Binding var outlineLayout: OutlineLayout
     @Binding var showInspector: Bool
-    @Binding var detailSegment: DetailSegment
-    @Binding var annotationScopeRequest: AnnotationScope
+    /// The right column's position: a count click on the board shows To
+    /// resolve.
+    @Binding var position: RightColumnPosition
+    /// To resolve's next ask (shell plan 2 Task 7) — the board's open-notes
+    /// click focuses the clicked piece's group.
+    @Binding var resolveRequest: ResolveRequest?
     @Binding var metrics: EditorMetrics
     @Binding var currentElement: String?
 
     // The window's verbs.
+    /// The wall's own Close — `PaletteWallState.closingWall`, the window's.
+    let closePaletteWall: () -> Void
     /// `ProjectWindow.recordActivePass(forPiece:passId:)` — the ONE writer of
     /// `UIState.activePassMemory`, which the run reads to sign its notes.
     let recordActivePass: (_ piece: String, _ passId: String) -> Void
@@ -67,7 +96,9 @@ struct CentreColumn: View {
     let runRoundWhenPieceOpens: (_ pieceId: String) -> Void
     /// The drawing door's posture for one document.
     let posture: (_ docId: String) -> Posture
-    /// Plan's Tab from the binder (`CanvasView.keyboardRequest`) and the
+    /// `ProjectWindow.openBrief` — a round report's filed line names a Brief.
+    var openBrief: (BinderSubject) -> Void = { _ in }
+    /// The tree's Tab from the binder (`CanvasView.keyboardRequest`) and the
     /// canvas's ⇧Tab back (`CanvasView.returnKeyboardToTree`; nil where no
     /// visible binder answers it).
     let canvasKeyboardRequest: Int
@@ -80,6 +111,12 @@ struct CentreColumn: View {
     /// hold hundreds of rows. `refreshOpenNotes()` is the one writer, run from
     /// the board's `.task` and `.maughamAnnotationsChanged` — never from a body.
     @State private var openNotesCounts: [String: OpenNotesSummary] = [:]
+    /// **The Status row last opened or moved to** (fix round 1) — held here,
+    /// on the column mounted once, so Status comes back where it was left.
+    @State private var statusRemembered: String?
+    /// The edition's Status row last opened or moved to — its own place,
+    /// kept as the Book's is.
+    @State private var editionStatusRemembered: String?
     @State private var openNotesUnreadable: Set<String> = []
 
     var body: some View {
@@ -95,35 +132,36 @@ struct CentreColumn: View {
     /// board gives it a second identity and SwiftUI tears the first down when
     /// the condition moves: camera back to origin, layouts re-measured,
     /// thumbnails emptied, `canvas.md` re-read (measured, 2026-08-02). That is
-    /// why research answers `.besideTheCanvas` in Plan rather than taking the
-    /// centre, and why the mount is censused in `RegionBindingTests`.
+    /// why a click on research or a piece while the canvas is open moves the
+    /// subject's `beside` or `faces` and never its `open`, and why the mount is
+    /// censused in `RegionBindingTests`.
     @ViewBuilder
     private func editorPane(
         store: ProjectStore, documentStore: DocumentStore
     ) -> some View {
         // **One exhaustive answer, one switch.** `centreRoute` composes every
-        // decision: the palette wall above everything (`PaletteWallModifier`
-        // closes it on a subject change; this is the belt to its braces), a
-        // research subject that takes the centre (never in Plan, so the board
-        // keeps its identity), the canvas, the Collection reference, then the
-        // editor with altitude and one cover. The canvas is the third branch and
-        // its only mount.
-        switch ProjectWindow.centreRoute(persona: persona,
-                                         subject: selectedSubject,
+        // decision from the subject: the palette wall, a research item or a
+        // figure in `open`, the canvas, the Collection reference, the editor
+        // with the Book's view and one cover, then the Inbox. The canvas is the
+        // fourth branch and its only mount; the Inbox is last so adding it moved
+        // no branch.
+        switch ProjectWindow.centreRoute(subject: subject,
+                                         bookView: bookView,
+                                         editionView: editionView,
                                          projectType: store.manifest.type,
                                          structure: store.manifest.structure,
-                                         showsPaletteWall: showsPaletteWall,
-                                         preview: publishCentre.preview,
+                                         preview: publishCentre.preview(for: subject.open),
                                          proposal: publishCentre.selectedProposal,
                                          round: publishCentre.selectedRound,
-                                         problems: publishCentre.selectedProblems) {
+                                         problems: publishCentre.selectedProblems,
+                                         centreItem: centreItem) {
         case .paletteWall:
             PaletteWallCentre(store: store, selectedPaletteCardId: $selectedPaletteCardId,
-                              onClose: { showsPaletteWall = false }, persona: persona)
+                              onClose: closePaletteWall)
         case .research(let id):
             ResearchSubjectCentre(store: store, documentStore: documentStore,
                                   itemID: id, previewVisible: researchPreviewVisible,
-                                  readOnly: !persona.editsResearchInTheCentre,
+                                  readThrough: readThrough.refusal(.research(id)),
                                   shareIsReadOnly: editorControl.shareIsReadOnly,
                                   typography: editorControl.typography,
                                   presence: figureGridPresence, window: window)
@@ -131,7 +169,7 @@ struct CentreColumn: View {
             FigureSubjectSurface(
                 figureID: id, store: store, documentStore: documentStore, figureWindows: figureWindows,
                 presence: figureGridPresence, listing: figureListing, control: editorControl,
-                persona: persona, window: window)
+                readThrough: readThrough, window: window)
         case .canvas:
             canvasCentre(store: store, documentStore: documentStore)
         case .reference(let piece):
@@ -141,7 +179,27 @@ struct CentreColumn: View {
         case .editor(let altitude, let cover):
             manuscriptEditor(store: store, documentStore: documentStore,
                              altitude: altitude, cover: cover)
+        case .inbox:
+            // The captures, as the centre. No fast "for this piece" target
+            // (shell closing A7): the faces there were a piece only glanced at.
+            InboxPane(store: documentStore.inboxStore, projectStore: store,
+                      canTranscribe: InboxPane.localTranscriptionAvailable,
+                      retranscribe: { entry in Task { await documentStore.retranscribe(entry) } })
         }
+    }
+
+    /// **A card, a row or a chip pointing the window at a piece**:
+    /// `ClickRule.navigate`, so a piece clicked while the Book is open opens it.
+    private func navigate(to target: BinderSubject?, store: ProjectStore) {
+        let next = ClickRule.navigate(to: target, current: subject,
+                                      structure: store.manifest.structure,
+                                      projectType: store.manifest.type)
+        if next != subject { subject = next }
+    }
+
+    /// The Book's views' selection: the faces, written through `navigate`.
+    private func facesNavigation(store: ProjectStore) -> Binding<BinderSubject?> {
+        Binding(get: { subject.faces }, set: { navigate(to: $0, store: store) })
     }
 
     private func openReferenceInWindow(piece: StructureItem, store: ProjectStore) {
@@ -156,13 +214,14 @@ struct CentreColumn: View {
     }
 
     /// **The manuscript editor, and the one surface drawn over it.** The editor
-    /// mounts on whatever document the tree names (a screenplay's `.fountain`
-    /// included), with `CentreRoute`'s layers over it: the project at altitude,
-    /// then one cover — Publish's no-book notice, Review's passes board, or one
-    /// of Publish's surfaces (round report, design gate, compiled book).
+    /// mounts on whatever document the subject's `open` names (a screenplay's
+    /// `.fountain` included), with `CentreRoute`'s layers over it: the Book (or
+    /// a Part) in its view — Cards, Outline or Status — then one cover: an
+    /// edition's (no-book notice, round report, problems, design gate, book),
+    /// else a statement or a piece's History open in the centre.
     ///
     /// **The host is the ZStack's FIRST child and present whatever covers it**
-    /// (tripwire 6), and altitude is the SECOND, present whenever the subject
+    /// (tripwire 6), and altitude is the SECOND, present whenever `open`
     /// names no document. `centreRoute` names the cover; this body draws it with
     /// ONE switch. Neither may become a branch of `editorPane`: two ViewBuilder
     /// branches are two view identities, so every project ↔ chapter hop would
@@ -176,13 +235,15 @@ struct CentreColumn: View {
     /// underneath them.
     private func manuscriptEditor(
         store: ProjectStore, documentStore: DocumentStore,
-        altitude: Bool, cover: CentreCover?
+        altitude: BookView?, cover: CentreCover?
     ) -> some View {
         ZStack {
             EditorHost(
                 store: store,
                 documentStore: documentStore,
-                selectedItemId: selectedSubject?.itemID,
+                // What is OPEN, never what the faces are on: under an edition
+                // the faces may sit on a piece the centre does not show.
+                selectedItemId: subject.open.itemID,
                 onMetricsChanged: { metrics = $0 },
                 onElementChanged: { currentElement = $0 },
                 wikiLinkResolver: { title in
@@ -192,7 +253,7 @@ struct CentreColumn: View {
                     store.resolveDocumentId(forTitle: title)
                 },
                 // Posture flows entirely through the EditorControl model (ADR
-                // 0017): an author's manual ⌘⌥⇧R drives the render; a document
+                // 0017): a piece in read-through drives the render; a document
                 // whose posture refuses the text is FORCED into review render AND
                 // hard-locked (lockEditing) via `ProjectWindow.editorMembrane`
                 // mirrored into the control.
@@ -215,17 +276,30 @@ struct CentreColumn: View {
                         in: store.manifest.effectiveReviewPasses)
                 }
             )
-            // **The project at altitude** — opaque, because the host's "Select a
+            // **The Book in its view** — opaque, because the host's "Select a
             // document." placeholder is still mounted underneath. Its own layer,
             // ALWAYS at this position whatever covers it, so a cover coming or
             // going never remounts it: `OutlineTable` holds the writers it read
-            // from the registry, its scroll position and its column widths.
-            if altitude {
+            // from the registry, its scroll position and its column widths. Which
+            // view (Cards, Outline, Status) is the route's associated value.
+            if let altitude {
+                let scope = ProjectWindow.altitudeScope(
+                    open: subject.open, structure: store.manifest.structure,
+                    bookTitle: store.manifest.title)
                 ProjectAltitudePane(
                     store: store,
-                    layout: $outlineLayout,
-                    selectedSubject: $selectedSubject,
-                    title: store.manifest.title)
+                    view: altitude,
+                    selectedSubject: facesNavigation(store: store),
+                    title: Self.altitudeTitle(open: subject.open, bookTitle: scope.title),
+                    structure: scope.structure) {
+                    // An edition's Status is its own; the passes board is
+                    // the Book's and a Part's.
+                    if case .edition(let language) = subject.open {
+                        editionStatus(store: store, language: language)
+                    } else {
+                        statusBoard(store: store, structure: scope.structure)
+                    }
+                }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .background(Color(nsColor: .windowBackgroundColor))
             }
@@ -234,84 +308,14 @@ struct CentreColumn: View {
             // switch, never a branch of `editorPane`, for the identity reason
             // above.
             switch cover {
-            // In Publish with no book, the notice says WHICH kind of nothing it
-            // is (Denver's 2026-08-12 rulings 2 and 3), standing over the
-            // corkboard — it takes no clicks — rather than replacing it.
+            // An edition with no book: the notice says WHICH kind of nothing it
+            // is (Denver's 2026-08-12 rulings 2 and 3), standing over the Book's
+            // view — it takes no clicks — rather than replacing it.
             case .notice(let notice):
-                PublishCentreNoticeBanner(notice: notice)
-            // **Review's passes board** — the project level of Review, over
-            // altitude. A chapter subject reaches neither:
-            // `reviewCentreShowsBoard` composes `subjectShowsAltitude`.
-            case .reviewBoard:
-                // Values, not the store (tripwire 4): the board reads
-                // `manifest` here, at the one mount, and nothing on its body
-                // path can reach a document or the disk.
-                ReviewBoardPane(
-                    title: store.manifest.title,
-                    structure: store.manifest.structure,
-                    passes: store.manifest.effectiveReviewPasses,
-                    // Values again: a walk over every document, computed in
-                    // `refreshOpenNotes` and merely READ here.
-                    openNotes: openNotesCounts,
-                    unreadableDocIds: openNotesUnreadable,
-                    // **A count click widens the QUEUE and moves nothing else.**
-                    // The right column goes to the notes, in project scope, pointed
-                    // at the piece; the subject and persona are not written here
-                    // (the ejection trap). The chip click is the one that travels,
-                    // because opening a chapter is what a chip MEANS.
-                    onOpenNotes: { pieceId in
-                        showInspector = true
-                        detailSegment = .annotations
-                        annotationScopeRequest = .project(focusPiece: pieceId)
-                    },
-                    // **A chip click is a SUBJECT write and nothing else.** Moving
-                    // the persona here would be the board deciding which persona is
-                    // showing — the ejection trap `TripwireGrepTests`' persona-
-                    // decision census names. Opening the chapter drops the subject
-                    // below `reviewCentreShowsBoard`, uncovering the host that was
-                    // mounted underneath all along; no arm is torn down.
-                    onNavigate: { pieceId, passId in
-                        selectedSubject = .item(pieceId)
-                        recordActivePass(pieceId, passId)
-                    },
-                    // The board's write, at the board's HOST — the same place
-                    // and the same shape as the pass ladder's, which lands at
-                    // `InspectorView` and `PieceInspector` rather than inside
-                    // `PassLadder` (`PersonaPaneRegistryTests`' census).
-                    onSetState: { pieceId, passId, state in
-                        Task { try? await store.setPassState(id: pieceId, passId: passId, state) }
-                    },
-                    // **A chip's round is three acts, and the third one waits.** The
-                    // lane is recorded through the window's ONE `ActivePassMemory`
-                    // writer (the run reads it to sign and file its notes), then the
-                    // subject travels, as `onNavigate` does. Then it WAITS:
-                    // `runRequested` refuses in silence while the document is not
-                    // open, and the open is async (`RunWhenDocumentOpens`' doc).
-                    onRunRound: { pieceId, passId in
-                        recordActivePass(pieceId, passId)
-                        selectedSubject = .item(pieceId)
-                        runRoundWhenPieceOpens(pieceId)
-                    },
-                    // **Each chip asks its own piece**: the drawing door, per row,
-                    // so a demotion re-renders the board with no reopen.
-                    posture: posture)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .background(Color(nsColor: .windowBackgroundColor))
-                    // The counts are read HERE and never in the board's body:
-                    // one project-wide walk when the board appears, and one per
-                    // announced annotation change. `.task` is cancelled and
-                    // re-run on identity, so a board uncovered by a subject hop
-                    // recounts on arrival.
-                    .task { refreshOpenNotes(store: store) }
-                    .onProjectEvent(.maughamAnnotationsChanged,
-                                    url: store.url, window: window) { _ in
-                        refreshOpenNotes(store: store)
-                    }
-            // **Publish's surfaces**, in `publishCentre`'s order: the publish
-            // problems and the round report (which alone also draw over a
-            // chapter), the design gate, the compiled book. The gate and the
-            // book are project-level by construction — `publishCentre`
-            // composes `subjectShowsAltitude`.
+                EditionNoticeCover(notice: notice, bar: editionBar(store: store))
+            // **An edition's surfaces**, in `publishCentre`'s order: the publish
+            // problems, the round report, the design gate, the compiled book —
+            // each only while `open` is an edition.
             case .publishProblems(let problems):
                 PublishProblemsView(
                     rows: PublishProblems.rows(
@@ -329,8 +333,13 @@ struct CentreColumn: View {
                         switch PublishProblems.reveal(row) {
                         case .paragraph(let reveal):
                             TranslationReveal.post(reveal)
-                        case .piece(let subject):
-                            selectedSubject = subject
+                        case .piece(let piece):
+                            ManuscriptNavigation.go(
+                                to: PublishProblems.destination(
+                                    revealing: piece, current: subject,
+                                    structure: store.manifest.structure,
+                                    projectType: store.manifest.type),
+                                subject: $subject, centreItem: $centreItem)
                         }
                     })
             case .translationRound(let round):
@@ -351,7 +360,7 @@ struct CentreColumn: View {
                     // **A row as a way back into the manuscript.** The row knows its
                     // paragraph; the round knows the chapter and edition; which
                     // chapter is OPEN is the window's answer, so the post carries all
-                    // three and `TranslationReviewModifier` plans what to do.
+                    // three and `ReadingLanguageModifier` plans what to do.
                     onReveal: { paragraphId in
                         // The report gives way to the manuscript it points into —
                         // explicitly, since the arm draws over a chapter too and a
@@ -360,13 +369,18 @@ struct CentreColumn: View {
                         TranslationReveal.post(.init(
                             docId: round.docId, language: round.language,
                             paragraphId: paragraphId))
-                    })
+                    },
+                    // A filed line that names a Brief is a link.
+                    onOpenBrief: openBrief)
             case .designGate(let proposal):
                 DesignGateView(proposal: proposal, projectURL: store.url,
                                // The verdict's four verbs, wired to the window's own job
                                // manager and warm designer.
                                actions: designGateActions(projectURL: store.url),
                                hasOpenProposalRound: designer.hasOpenProposalRound,
+                               // The one design predicate (To resolve's rows ask it too).
+                               mayDecide: DesignGate.mayDecide(documentStore: documentStore,
+                                                               statements: store.manifest.statements),
                                // Deselecting is the whole of Back: the arm is a pure
                                // function of this one piece of window state.
                                onClose: { publishCentre.clearProposal() },
@@ -383,16 +397,283 @@ struct CentreColumn: View {
                 PublishPreviewCentre(
                     publications: publications,
                     projectURL: store.url,
-                    title: store.manifest.title,
-                    selectedPublicationID: $publishCentre.selectedPublicationID)
+                    title: Self.altitudeTitle(open: subject.open, bookTitle: store.manifest.title),
+                    selectedPublicationID: $publishCentre.selectedPublicationID,
+                    edition: editionBook,
+                    piece: Self.pieceInBook(faces: subject.faces, structure: store.manifest.structure),
+                    // The piece's paragraph order, the open-doc-else-derived
+                    // read — no load (`currentParagraphState`).
+                    sequence: { id in
+                        (try? currentParagraphState(documentId: id, store: store,
+                                                    documentStore: documentStore,
+                                                    projectURL: store.url))?.sequence
+                    },
+                    sequences: { treeState.bookReading.sequences },
+                    bar: editionBar(store: store))
+            // **A statement or a piece's History in the centre**, over the
+            // host and the Book's view like every cover, so neither remounts
+            // when it comes or goes. Close clears the window's item.
+            case .centreItem(let item):
+                CentreItemCover(store: store, documentStore: documentStore, item: item,
+                                bible: bible, world: declaredWorld,
+                                window: window, findIsUp: treeFindActive,
+                                onClose: { closeCentreItem() })
             case .none:
                 EmptyView()
             }
         }
+        // **The keys under a cover** (review C1): while altitude or an opaque
+        // cover hides the host, its text view never holds the keys; the centre
+        // item's cover claims them for its own editor (or itself).
+        .background(CentreKeys(isCovered: { editorIsCovered(store: store) },
+                               claim: CentreItemCover.claim(for: cover)))
+    }
+
+    /// **Whether the editor is covered now** — the route asked again, live,
+    /// at focus time (a navigation clears the centre item and lands its caret
+    /// in one turn, before a redraw). The same call `editorPane` switches on.
+    private func editorIsCovered(store: ProjectStore) -> Bool {
+        let route = ProjectWindow.centreRoute(subject: subject,
+                                              bookView: bookView,
+                                              editionView: editionView,
+                                              projectType: store.manifest.type,
+                                              structure: store.manifest.structure,
+                                              preview: publishCentre.preview(for: subject.open),
+                                              proposal: publishCentre.selectedProposal,
+                                              round: publishCentre.selectedRound,
+                                              problems: publishCentre.selectedProblems,
+                                              centreItem: centreItem)
+        // Not the editor at all: `EditorHost` is not mounted, nothing to cover.
+        guard case .editor = route else { return false }
+        return !ProjectWindow.manuscriptIsVisible(route: route)
+    }
+
+    /// **Close** (the cover's button, or Esc): the item goes. The keys go back
+    /// to the manuscript editor from the cover's own disappearance
+    /// (`CentreItemCover`'s `.onDisappear`), once its editor has left.
+    private func closeCentreItem() {
+        centreItem = nil
+    }
+
+    /// **Whether the board is the Book's** rather than a Part's: the Book's
+    /// own to-dos are the Book's footer, never a Part's. A Part is `open`
+    /// naming a group (`ProjectWindow.altitudeScope`'s own test).
+    static func boardIsTheBooks(open: BinderSubject, structure: [StructureItem]) -> Bool {
+        guard let id = open.itemID, let item = TreeWalk.find(id: id, in: structure) else { return true }
+        return item.type != .group
+    }
+
+    /// **The Book's Status view: the passes board** — over the Book's pieces,
+    /// or a Part's own. Its one mount; `ProjectAltitudePane` places it.
+    @ViewBuilder
+    private func statusBoard(store: ProjectStore, structure: [StructureItem]) -> some View {
+        // Values, not the store (tripwire 4): the board reads `manifest` here,
+        // at the one mount, and nothing on its body path can reach a document
+        // or the disk.
+        ReviewBoardPane(
+            structure: structure,
+            passes: store.manifest.effectiveReviewPasses,
+            noun: PieceNoun.of(nil, in: store.manifest),
+            // Values again: a walk over every document, computed in
+            // `refreshOpenNotes` and merely READ here.
+            openNotes: openNotesCounts,
+            unreadableDocIds: openNotesUnreadable,
+            // The to-dos the tree's marks were read from, counted once per
+            // key by the window's `ResolvePresenceWatch` — live as the marks
+            // are, and no second task walk.
+            openToDos: treeState.openToDos,
+            // **A row opens the piece, or a Part** — Status is an overview
+            // you navigate from (owner, 2026-11-16): the click rule, as a
+            // card's or an outline row's click, and the row is remembered so
+            // coming back to Status finds it (`statusRemembered`).
+            onOpen: { id in
+                statusRemembered = id
+                navigate(to: .item(id), store: store)
+            },
+            // **A to-do count opens the piece on Mine**: the piece opens, then
+            // To resolve shows with the writer's own to-dos — the request
+            // waits for the opened piece's read (`ResolvePane.take`).
+            onOpenToDos: { pieceId in
+                statusRemembered = pieceId
+                navigate(to: .item(pieceId), store: store)
+                showInspector = true
+                position = .resolve
+                resolveRequest = .filter(.mine)
+            },
+            // **A count click points To resolve at the piece and moves
+            // nothing else.** The right column goes to To resolve — the Book's
+            // list, grouped by piece — with the clicked piece's group focused;
+            // the subject is not written here. The chip click is the one that
+            // travels, because opening a chapter is what a chip MEANS.
+            onOpenNotes: { pieceId in
+                showInspector = true
+                position = .resolve
+                resolveRequest = .focus(groupOwnerId: pieceId)
+            },
+            // **A chip click is a SUBJECT write and nothing else**, through the
+            // click rule: a piece clicked while the Book is open opens it, which
+            // takes `open` off the Book and uncovers the host that was mounted
+            // underneath all along; no arm is torn down.
+            onNavigate: { pieceId, passId in
+                statusRemembered = pieceId
+                navigate(to: .item(pieceId), store: store)
+                recordActivePass(pieceId, passId)
+            },
+            // The board's write, at the board's HOST — the same place and the
+            // same shape as the pass ladder's, which lands at `RightColumn`
+            // rather than inside `PassLadder` (`PassStateWriterCensusTests`).
+            onSetState: { pieceId, passId, state in
+                Task { try? await store.setPassState(id: pieceId, passId: passId, state) }
+            },
+            // **A chip's round is three acts, and the third one waits.** The lane
+            // is recorded through the window's ONE `ActivePassMemory` writer (the
+            // run reads it to sign and file its notes), then the subject travels,
+            // as `onNavigate` does. Then it WAITS: `runRequested` refuses in
+            // silence while the document is not open, and the open is async
+            // (`RunWhenDocumentOpens`' doc).
+            onRunRound: { pieceId, passId in
+                recordActivePass(pieceId, passId)
+                navigate(to: .item(pieceId), store: store)
+                runRoundWhenPieceOpens(pieceId)
+            },
+            // **Each chip asks its own piece**: the drawing door, per row, so a
+            // demotion re-renders the board with no reopen.
+            posture: posture,
+            // **The Book's own to-dos** (fix round 1), from the same read as
+            // the rows' — on the Book's board only; a Part's has no footer.
+            // Its click shows To resolve on Mine for the Book: the faces go to
+            // the Book (the centre already is it) and nothing else moves.
+            bookToDos: Self.boardIsTheBooks(open: subject.open, structure: store.manifest.structure)
+                ? treeState.openToDos[ProjectStore.projectTasksDocId] ?? 0 : nil,
+            onOpenBookToDos: {
+                navigate(to: .project, store: store)
+                showInspector = true
+                position = .resolve
+                resolveRequest = .filter(.mine)
+            },
+            // **Keeping your place**: the row last opened (or moved to) here,
+            // held by this column because the board is rebuilt each time it
+            // comes back; the faces are the fallback (`ReviewBoardKeys.current`).
+            remembered: $statusRemembered,
+            faces: subject.faces,
+            keyboardRequest: statusKeyboardRequest)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            // The counts are read HERE and never in the board's body: one
+            // project-wide walk when the board appears, and one per announced
+            // annotation change. `.task` is cancelled and re-run on identity, so
+            // a board uncovered by a view switch recounts on arrival.
+            .task { refreshOpenNotes(store: store) }
+            .onProjectEvent(.maughamAnnotationsChanged,
+                            url: store.url, window: window) { _ in
+                refreshOpenNotes(store: store)
+            }
+    }
+
+    // MARK: - The edition (shell p4 Task 5)
+
+    /// **The centre's title over an edition**: the book's, with the edition's
+    /// language — "The Novel · Spanish". The Book's and a Part's are theirs.
+    static func altitudeTitle(open: BinderSubject, bookTitle: String) -> String {
+        guard case .edition(let language) = open else { return bookTitle }
+        return "\(bookTitle) \u{00B7} \(TreeEditionRows.title(forLanguage: language))"
+    }
+
+    /// **The piece the faces are on, when it is one** — a document — for the
+    /// edition's book to go to. Anything else leaves the page alone.
+    static func pieceInBook(faces: BinderSubject, structure: [StructureItem]) -> PieceInBook? {
+        guard let id = faces.itemID, let item = TreeWalk.find(id: id, in: structure),
+              item.type == .document else { return nil }
+        return PieceInBook(id: id, title: item.title)
+    }
+
+    /// The open edition, as the book's header needs it.
+    private var editionBook: EditionBook? {
+        guard case .edition(let language) = subject.open else { return nil }
+        return EditionBook(language: language, sourceLanguage: publishCentre.sourceLanguage)
+    }
+
+    /// **Compile… and the imprint picker** for the open edition, on the
+    /// window's runner (`PublishCentreModel.compileRunner`).
+    private func editionBar(store: ProjectStore) -> EditionCompileBar? {
+        guard case .edition(let language) = subject.open else { return nil }
+        let runner = publishCentre.compileRunner
+        let imprints = publishCentre.imprints
+        let selected = PublishImprint.selection(
+            persisted: documentStore.uiState.publishImprint, among: imprints)
+        return EditionCompileBar(
+            imprints: imprints,
+            selectedImprint: selected,
+            selectImprint: { PublishImprint.select(imprint: $0, in: documentStore) },
+            compileRun: runner.state,
+            editionLanguage: publishCentre.isSourceEdition(subject.open) ? nil : language,
+            editions: { Self.compileEditions(store: store, imprint: selected) },
+            runCompile: { runner.start($0, projectStore: store, projectURL: store.url) },
+            cancelCompile: { runner.cancel() },
+            showProblems: { publishCentre.show(problems: runner.state.problems) })
+    }
+
+    /// **The editions Compile… offers, the book's own first** — spelled as the
+    /// imprint the picker stands on spells it, as the desk's sheet does
+    /// (`PublishImprint.sourceLanguage`). Read when pressed, never on a
+    /// body path.
+    static func compileEditions(store: ProjectStore, imprint: String?) -> [String] {
+        let config = (try? PublishConfigStore.read(in: store.url)) ?? nil
+        let book = PublishImprint.sourceLanguage(
+            imprint: imprint, in: config,
+            pieceIDs: EditionStatus.manuscriptDocumentIds(in: store.manifest))
+        return [book] + TreeEditionRows.languages(store: store).dropFirst()
+    }
+
+    /// **The edition's Status** — its one mount, in the altitude layer's
+    /// Status slot.
+    private func editionStatus(store: ProjectStore, language: String) -> some View {
+        let isSource = publishCentre.isSourceEdition(subject.open)
+        return EditionStatusHost(
+            store: store, language: language, isSource: isSource, window: window,
+            remembered: $editionStatusRemembered, faces: subject.faces,
+            keyboardRequest: statusKeyboardRequest,
+            reading: treeState.bookReading,
+            // Publishing… where the tree's row menu offers it: the
+            // restructure verbs, with publishing set up.
+            publishingOffered: { item, isSetUp in
+                PieceRowMenus.items(for: item, verbs: TreeStructureVerbs.decide(for: item, in: store),
+                                    publishingIsSetUp: isSetUp).contains(.publishing)
+            },
+            onOpen: { pieceId, hasTranslation in
+                editionStatusRemembered = pieceId
+                openFromEditionStatus(pieceId, language: language, isSource: isSource,
+                                      hasTranslation: hasTranslation, store: store)
+            },
+            onOpenPublishing: { pieceId in
+                editionStatusRemembered = pieceId
+                treeState.pieceRowSheet = PieceRowSheet(.publishing, pieceId: pieceId)
+            })
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    /// **A Status row opens its chapter read in this edition's language**
+    /// (Denver, 2026-11-21, answer 3): a reveal at its first paragraph, the
+    /// route that lands a piece in a language (`TranslationReveal`). The
+    /// Source edition, or an empty piece, opens the piece — Status is an
+    /// overview you navigate from, so `open` moves either way.
+    private func openFromEditionStatus(_ pieceId: String, language: String, isSource: Bool,
+                                       hasTranslation: Bool, store: ProjectStore) {
+        let first = (try? currentParagraphState(documentId: pieceId, store: store,
+                                                documentStore: documentStore,
+                                                projectURL: store.url))?.sequence.first
+        switch EditionStatusRows.opening(pieceId: pieceId, language: language, isSource: isSource,
+                                         hasTranslation: hasTranslation, firstParagraph: first) {
+        case .reveal(let reveal):
+            TranslationReveal.post(reveal)
+        case .piece(let id):
+            ManuscriptNavigation.go(
+                to: ManuscriptNavigation.destination(toDocument: id, current: subject),
+                subject: $subject, centreItem: $centreItem)
+        }
     }
 
     /// **The gate's four verbs, wired to this window.** Closures rather than a
-    /// store handed down (`DepartmentPane`'s rule): the gate reads no disk on a
+    /// store handed down (`EditionHeadVerbs`' rule): the gate reads no disk on a
     /// body path (tripwire 4), and each reaches something the window owns — the
     /// project's shared `CompileJobManager` (which `approve`/`revert` refuse
     /// against while a compile reads the publish tree) and the warm designer.
@@ -401,7 +682,7 @@ struct CentreColumn: View {
     /// called on a body path, and `PublishingStores.sharedFor` constructs four
     /// stores on its first call for a project.
     ///
-    /// **Request Changes calls `DepartmentDesignRow.sendChanges`**, which the
+    /// **Request Changes calls `DesignRoundState.sendChanges`**, which the
     /// desk calls too — one spelling of the verb and its three refusals.
     private func designGateActions(projectURL: URL) -> DesignGateActions {
         DesignGateActions(
@@ -419,14 +700,14 @@ struct CentreColumn: View {
                 DesignGatePromotion.finalize(proposal, projectURL: projectURL)
             },
             requestChanges: { [designer] words in
-                DepartmentDesignRow.sendChanges(words, to: designer)
+                DesignRoundState.sendChanges(words, to: designer)
             })
     }
 
     /// The project's ONE compile-job manager — the same instance every compile of
     /// this book contends on, which is the only thing that makes "a compile is
     /// running" answerable at all.
-    private static func compileJobs(for projectURL: URL) -> CompileJobManager {
+    static func compileJobs(for projectURL: URL) -> CompileJobManager {
         PublishingStores.sharedFor(
             projectID: ProjectIdentifier.id(for: projectURL),
             projectURL: projectURL).jobManager
@@ -460,7 +741,11 @@ struct CentreColumn: View {
                    // research id from a deleted one) needs the manifest, which the
                    // canvas does not hold — and this body re-evaluates per manifest
                    // change, the canvas's per drag frame.
-                   subject: CanvasSubject.resolve(selectedSubject,
+                   // The part clicked last — the faces or what is opened beside
+                   // (`WindowSubject.besideIsLatest`): a click on a piece moves the
+                   // faces while the canvas keeps the centre, and lights its region
+                   // even with a note still beside.
+                   subject: CanvasSubject.resolve(subject.lastClicked,
                                                   in: store.manifest.structure,
                                                   research: store.manifest.research),
                    // Spec §4.1: Escape is the keyboard spelling of the project row, so
@@ -469,7 +754,13 @@ struct CentreColumn: View {
                    // UI state, the tree's highlight and the canvas's subject agree by
                    // construction. The canvas gets the ANSWER (`CanvasSubject`) and
                    // never the question.
-                   selectTheProjectRow: { selectedSubject = .project },
+                   // Not through the click rule, which would open the Book over
+                   // the canvas: the faces go to the Book and the canvas stays.
+                   // A thing pulled up that is not what dims the board stays
+                   // (`leavingTheCanvasDim`).
+                   selectTheProjectRow: {
+                       subject = ProjectWindow.leavingTheCanvasDim(subject)
+                   },
                    itemIndex: ProjectWindow.canvasItemIndex(in: store),
                    // Spec §4.2: on a dimmed board a region bound to another document
                    // draws that document's name. Resolved HERE for `itemIndex`'s

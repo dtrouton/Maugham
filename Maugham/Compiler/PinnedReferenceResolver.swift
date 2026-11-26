@@ -13,8 +13,8 @@ import MaughamCore
 ///
 /// - **`linkedResearchIds`, never `StructureItem.links`.** The plan for this
 ///   milestone named the wrong field, and the two share no reader or writer
-///   despite the near-identical name — `.links` is `InspectorLinksSection`'s
-///   document-to-document backlink feature. A second assembly is a second
+///   despite the near-identical name — `.links` is the document-to-document
+///   link feature (a piece's fold lists them). A second assembly is a second
 ///   chance to make that substitution, and it would render a plausible, wrong
 ///   shelf with nothing red.
 /// - **`CanvasClaudeWrite.readScene`, never `CanvasStore.load` directly.** It is
@@ -31,10 +31,10 @@ import MaughamCore
 ///   palette card from a research note — by POSITION, since nothing on the item
 ///   says so.
 ///
-/// Its three readers — the References pane, the assistant column, and the
-/// compiler's context listing — must not disagree about what this piece is
-/// pinned to, because the writer reads the first two and Claude is briefed on
-/// the third. `ReferencesPaneTests.test_thePinnedProjectionIsAssembledInExactlyOneProductionFile`
+/// Its readers — a piece's fold in the tree and the compiler's context
+/// listing — must not disagree about what this piece is pinned to, because
+/// the writer reads the first and Claude is briefed on the second.
+/// `PinnedReferencesTests.test_thePinnedProjectionIsAssembledInExactlyOneProductionFile`
 /// is the census that keeps them one.
 enum PinnedReferenceResolver {
 
@@ -42,13 +42,36 @@ enum PinnedReferenceResolver {
     static func pins(forDocId docId: String,
                      store: ProjectStore,
                      projectRoot: URL) -> PinnedShelf {
+        shelves(forDocIds: [docId], store: store, projectRoot: projectRoot,
+                promotedRegionsListTheirCards: false)[docId]
+            ?? PinnedShelf(sections: [])
+    }
+
+    /// **Every listed document's shelf, from one scene read and one index** —
+    /// the tree's fold index (`PieceFoldIndex.build`) asks for every piece at
+    /// once, and `pins` per piece would read the canvas sidecar once per piece.
+    /// `pins` is this with one id, so the inputs are spelled once. The fold
+    /// alone lists a promoted region's cards after its note
+    /// (`PinnedReferences.pinned`'s `promotedRegionsListTheirCards`, review
+    /// M2): the briefing keeps §2.3's note alone.
+    @MainActor
+    static func shelves(forDocIds docIds: [String],
+                        store: ProjectStore,
+                        projectRoot: URL,
+                        promotedRegionsListTheirCards: Bool) -> [String: PinnedShelf] {
         let read = CanvasClaudeWrite.readScene(store: store, projectRoot: projectRoot)
-        return PinnedReferences.pinned(
-            forDocId: docId,
-            links: store.linkedResearchIds(forDocumentId: docId),
-            derived: store.derivedResearchItems(forDocumentId: docId).map(\.id),
-            scene: read.scene,
-            scraps: read.scraps,
-            items: CanvasItemIndex.over(research: store.manifest.research))
+        let items = CanvasItemIndex.over(research: store.manifest.research)
+        var out: [String: PinnedShelf] = [:]
+        for docId in docIds {
+            out[docId] = PinnedReferences.pinned(
+                forDocId: docId,
+                links: store.linkedResearchIds(forDocumentId: docId),
+                derived: store.derivedResearchItems(forDocumentId: docId).map(\.id),
+                scene: read.scene,
+                scraps: read.scraps,
+                items: items,
+                promotedRegionsListTheirCards: promotedRegionsListTheirCards)
+        }
+        return out
     }
 }

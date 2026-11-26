@@ -9,17 +9,17 @@ import MaughamCore
 final class CheckboxMembraneTests: XCTestCase {
     func test_aLockedEditorRefusesACheckboxToggle() {
         XCTAssertFalse(EditorEditPolicy.allowsCheckboxToggle(
-            lockEditing: true, isTranslationReview: false))
+            lockEditing: true, isReadingTranslation: false))
     }
 
     func test_theTranslationViewRefusesACheckboxToggle() {
         XCTAssertFalse(EditorEditPolicy.allowsCheckboxToggle(
-            lockEditing: false, isTranslationReview: true))
+            lockEditing: false, isReadingTranslation: true))
     }
 
     func test_anUnlockedEditorAllowsACheckboxToggle() {
         XCTAssertTrue(EditorEditPolicy.allowsCheckboxToggle(
-            lockEditing: false, isTranslationReview: false))
+            lockEditing: false, isReadingTranslation: false))
     }
 
     @MainActor
@@ -36,9 +36,9 @@ final class CheckboxMembraneTests: XCTestCase {
         coordinator.setLockEditing(true)
         XCTAssertFalse(coordinator.allowsCheckboxToggle)
         coordinator.setLockEditing(false)
-        coordinator.setTranslationReview(true)
+        coordinator.setReadingTranslation(true)
         XCTAssertFalse(coordinator.allowsCheckboxToggle)
-        coordinator.setTranslationReview(false)
+        coordinator.setReadingTranslation(false)
         XCTAssertTrue(coordinator.allowsCheckboxToggle)
     }
 }

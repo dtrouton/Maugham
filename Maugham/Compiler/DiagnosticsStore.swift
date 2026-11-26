@@ -17,8 +17,8 @@ import MaughamCore
 /// verb** — there is never more than one check's worth and one round's worth
 /// of notes live per document.
 ///
-/// **Two standing slots, one per `RunKind`** (two loops P1 Task 5). Author's
-/// ⌘R and Review's Run round are two verbs against the same document, with
+/// **Two standing slots, one per `RunKind`** (two loops P1 Task 5). Check
+/// Writing (⌘R) and Run Round (⌃⌘R) are two verbs against the same document, with
 /// separate readers and separate briefings; while this file held one standing
 /// run they also shared one shelf, so a check landed on top of the round the
 /// cockpit was showing and a round took the marker and the notes Author's
@@ -33,8 +33,8 @@ final class DiagnosticsStore {
     private(set) var version: Int = 0
 
     /// Per document AND VERB: how many notes a run has landed that the writer
-    /// has not had in front of them yet — the picker's unread badge, the Inbox
-    /// segment's idiom (`DetailPaneToggle.inboxCount`).
+    /// has not had in front of them yet — the right column's unread dot on To
+    /// resolve (`RightColumnControl`).
     ///
     /// **In memory only, and deliberately.** Unread is a fact about this
     /// session's attention, not about the document: a project reopened puts
@@ -73,13 +73,13 @@ final class DiagnosticsStore {
     /// reason `SlotKey` exists: a run and its notes that can be written
     /// separately are a run and its notes that can disagree about which check
     /// the writer is looking at.
-    private struct Standing: Codable, Equatable {
+    private struct Standing: Codable, Equatable, Sendable {
         var run: CompilerRun
         var diagnostics: [Diagnostic]
     }
 
-    private struct FileContent: Codable, Equatable {
-        /// **What Author's ⌘R last said about this document.** `nil` for a
+    private struct FileContent: Codable, Equatable, Sendable {
+        /// **What the check's ⌘R last said about this document.** `nil` for a
         /// document only ever run against from Review — which is exactly what
         /// the Author pane should say about it: no check has been made.
         var check: Standing?
@@ -108,16 +108,25 @@ final class DiagnosticsStore {
         /// that is counted off the queue by `SinceLastRound`, whose boundary is
         /// this record's `at`.
         var rounds: [RoundRecord]
+        /// **Each pass's latest superseded round, letter and all** (shell
+        /// plan 4 Task 2), keyed by `passId`. The ring keeps THAT a round
+        /// happened; this keeps what the round said, one per pass, so a
+        /// second editor's round does not file the first editor's letter
+        /// into a ring that keeps no letter. Written only by `replace`, from
+        /// the run it supersedes; a passless round is not kept here.
+        var latestRoundByPass: [String: CompilerRun]
 
         init(
             check: Standing? = nil, round: Standing? = nil,
             clauseHistory: [[DiagnosticIngest.ClauseStatus]] = [],
-            rounds: [RoundRecord] = []
+            rounds: [RoundRecord] = [],
+            latestRoundByPass: [String: CompilerRun] = [:]
         ) {
             self.check = check
             self.round = round
             self.clauseHistory = clauseHistory
             self.rounds = rounds
+            self.latestRoundByPass = latestRoundByPass
         }
 
         /// The slot a verb's answer stands in — the one place a `RunKind`
@@ -144,7 +153,7 @@ final class DiagnosticsStore {
         /// is `CompilerRun.effectiveKind`'s answer — the one place that legacy
         /// is stated (tripwire 11: no migration, the old file simply loads).
         private enum CodingKeys: String, CodingKey {
-            case check, round, clauseHistory, rounds
+            case check, round, clauseHistory, rounds, latestRoundByPass
             case run, diagnostics
         }
 
@@ -161,6 +170,8 @@ final class DiagnosticsStore {
             clauseHistory = try c.decodeIfPresent(
                 [[DiagnosticIngest.ClauseStatus]].self, forKey: .clauseHistory) ?? []
             rounds = try c.decodeIfPresent([RoundRecord].self, forKey: .rounds) ?? []
+            latestRoundByPass = try c.decodeIfPresent(
+                [String: CompilerRun].self, forKey: .latestRoundByPass) ?? [:]
 
             // The legacy shape lands in the slot its own kind names, and never
             // over a slot the new keys already filled: a file carrying both is
@@ -187,6 +198,7 @@ final class DiagnosticsStore {
             try c.encodeIfPresent(round, forKey: .round)
             try c.encode(clauseHistory, forKey: .clauseHistory)
             try c.encode(rounds, forKey: .rounds)
+            try c.encode(latestRoundByPass, forKey: .latestRoundByPass)
         }
     }
 
@@ -255,7 +267,7 @@ final class DiagnosticsStore {
     }
 
     /// docIds the writer has told the cold-start offer "Not now" to, on THIS
-    /// device — spec §4's "never re-asked as a nag" (`DiagnosticsPane`'s
+    /// device — spec §4's "never re-asked as a nag" (the Diagnostics pane's
     /// `showsColdStartOffer`). Loaded once here rather than per-doc-lazily
     /// like `FileContent`: a refusal is a single bit with no run, no notes and
     /// no drift ring beside it, and a document can be refused before it has
@@ -286,7 +298,7 @@ final class DiagnosticsStore {
     /// **Keyed by `(docId, kind)`, not just `docId`.** The check and the round
     /// are different readers of the same document — the ask typed in Author's
     /// header is a worry aimed at the reader who checks, and the one typed in
-    /// Review's cockpit is aimed at the editor who runs the round — and a
+    /// the round cockpit is aimed at the editor who runs the round — and a
     /// single shared sentence would mean asking the coach the same question
     /// meant for Gould. `askKey` is the one place the two are joined into a
     /// dictionary key, so nothing else here can drift into keying one kind's
@@ -317,25 +329,60 @@ final class DiagnosticsStore {
     /// construction newer than the sidecar, which holds the last run that
     /// finished — so re-reading the file mid-stream would put an OLDER answer
     /// on a pane whose header says "Checking…". The real caller is
-    /// `DiagnosticsPane.onAppear`: a writer who presses ⌘R from the editor and
+    /// `CheckNarrative.onAppear`: a writer who presses ⌘R from the editor and
     /// then opens the pane mounts it mid-check, and without this the report
     /// they came to watch blinks back to the previous run until the next
     /// section lands. `discardPreview` is how a preview is deliberately
     /// dropped, and it clears this first.
     func load(docId: String) {
+        apply(docId: docId, read: Self.readSidecar(projectRoot: projectRoot, docId: docId, device: device))
+        version += 1
+    }
+
+    /// **Every document's sidecar, read and decoded off the main actor and
+    /// applied in one update** (shell p4 Task 3 fix: the tree's presence
+    /// read loads the whole Book's, and 200 file reads and decodes on the
+    /// main actor were a hitch at window open). A document whose record
+    /// moved while the files were being read keeps what it now holds: that
+    /// is newer than the file this read found.
+    func loadInBackground(docIds: [String]) async {
+        guard !docIds.isEmpty else { return }
+        let before = Dictionary(docIds.map { ($0, byDoc[$0]) }, uniquingKeysWith: { a, _ in a })
+        let root = projectRoot
+        let device = device
+        let read: [(String, FileContent?)] = await Task.detached(priority: .utility) {
+            docIds.map { ($0, Self.readSidecar(projectRoot: root, docId: $0, device: device)) }
+        }.value
+        var applied = false
+        for (docId, content) in read where byDoc[docId] == before[docId] ?? nil {
+            apply(docId: docId, read: content)
+            applied = true
+        }
+        if applied { version += 1 }
+    }
+
+    /// One document's sidecar off disk; nil when there is none or it will
+    /// not read. No state: safe off the main actor.
+    nonisolated private static func readSidecar(projectRoot: URL, docId: String,
+                                                device: DeviceSlug) -> FileContent? {
+        guard let url = try? sidecarURL(projectRoot: projectRoot, docId: docId, device: device),
+              let data = try? Data(contentsOf: url) // adr-0018-ok: diagnostics sidecar, derived, not manuscript
+        else { return nil }
+        return try? makeDecoder().decode(FileContent.self, from: data)
+    }
+
+    /// `read` (the file's content, or nil) folded into `byDoc`, `load`'s
+    /// rule. Does not move `version`; its callers do, once.
+    private func apply(docId: String, read: FileContent?) {
         let held = RunKind.allCases.filter {
             previewing.contains(SlotKey(docId: docId, kind: $0))
         }
         guard held.count < RunKind.allCases.count else { return }
-        guard let url = try? Self.sidecarURL(projectRoot: projectRoot, docId: docId, device: device),
-              let data = try? Data(contentsOf: url), // adr-0018-ok: diagnostics sidecar, derived, not manuscript
-              var content = try? Self.makeDecoder().decode(FileContent.self, from: data)
-        else {
+        guard var content = read else {
             // Nothing readable on disk. A slot standing in front of a preview
             // is still newer than the file, so the whole entry is left alone
             // when one is; otherwise this document has no record at all.
             if held.isEmpty { byDoc[docId] = nil }
-            version += 1
             return
         }
         for kind in RunKind.allCases {
@@ -348,7 +395,6 @@ final class DiagnosticsStore {
             }
         }
         byDoc[docId] = content
-        version += 1
     }
 
     /// A new run's diagnostics wholly replace the previous run's for
@@ -395,6 +441,9 @@ final class DiagnosticsStore {
         // `finishedStanding` reads is still set here.
         let outgoing = finishedStanding(docId: docId, kind: kind)
         if kind == .round, let outgoing {
+            if let passId = outgoing.run.passId {
+                content.latestRoundByPass[passId] = outgoing.run
+            }
             content.rounds.append(RoundRecord(run: outgoing.run))
             if content.rounds.count > Self.roundHistoryDepth {
                 content.rounds.removeFirst(content.rounds.count - Self.roundHistoryDepth)
@@ -493,7 +542,7 @@ final class DiagnosticsStore {
     /// left on `docId`.
     ///
     /// **`kind` is the SURFACE's, not the document's** (whole-branch review,
-    /// finding 2). Author's Diagnostics pane is the check's, so it clears the
+    /// finding 2). The Diagnostics pane is the check's, so it clears the
     /// check's count and nothing else: clearing both would mark a round's
     /// queued notes read on the strength of a pane that does not draw them,
     /// which is the same rule `replace` follows — a run clears its own
@@ -501,7 +550,7 @@ final class DiagnosticsStore {
     ///
     /// Does **not** bump `version`: the notes did not change, and a mounted
     /// pane calls this from its own reaction to a version change (see
-    /// `DiagnosticsPane.body`), which a bump here would re-enter.
+    /// `ResolvePane`'s `.onChange(of: diagnostics?.version)`), which a bump here would re-enter.
     func markRead(docId: String, kind: RunKind) {
         unread[SlotKey(docId: docId, kind: kind)] = nil
     }
@@ -533,8 +582,8 @@ final class DiagnosticsStore {
     /// beside the note. Liveness depends only on the anchor, so changing a
     /// non-anchor ref's paragraph does not dismiss the note.
     ///
-    /// **The CHECK slot's notes** (two loops P1 Task 5). These are Author's
-    /// rows, and Author's ⌘R is the check. A round's conformance strains are
+    /// **The CHECK slot's notes** (two loops P1 Task 5). These are the
+    /// Diagnostics pane's rows, and ⌘R (Check Writing) is the check. A round's conformance strains are
     /// stored in the round slot and drawn nowhere in P1 — a deliberate carry:
     /// the round's findings reach the writer as annotations in the queue, and
     /// giving its strains a surface is a later task, not something to smuggle
@@ -593,7 +642,7 @@ final class DiagnosticsStore {
     ///
     /// So it refuses, in memory as well as on disk: a preview's notes are not
     /// the writer's to dismiss, because the run that raised them has not
-    /// finished raising them. `DiagnosticsPane.offersDurableActions` is why no
+    /// finished raising them. `CheckNarrative.offersDurableActions` is why no
     /// writer can reach this — the refusal here is what makes that a locked
     /// door rather than a hidden handle, and it is the rule any future per-note
     /// mutator inherits.
@@ -607,7 +656,15 @@ final class DiagnosticsStore {
         version += 1
     }
 
-    /// **What Author's ⌘R last said about `docId`** — the standing check
+    /// **The standing check's findings for `docId`, unjudged** — `live`'s
+    /// list before its anchor filter. Brief maps a solid clause mark to its
+    /// finding through this (`ClauseMarks.placement`); whether To resolve
+    /// still lists that finding is To resolve's own read to answer.
+    func checkFindings(docId: String) -> [Diagnostic] {
+        byDoc[docId]?[.check]?.diagnostics ?? []
+    }
+
+    /// **What the check's ⌘R last said about `docId`** — the standing check
     /// (two loops P1 Task 5). What the Diagnostics pane reports on.
     func lastCheck(docId: String) -> CompilerRun? {
         byDoc[docId]?[.check]?.run
@@ -629,7 +686,7 @@ final class DiagnosticsStore {
     /// judged that last. Every other reader wants one verb's answer
     /// and asks `lastCheck` or `lastRound` by name — a surface reading
     /// "whichever ran last" is a surface that changes what it is reporting on
-    /// when the writer switches persona.
+    /// when the writer opens something else.
     ///
     /// A tie goes to the check, which is the loop the intent strip is drawn
     /// in; two runs sharing a whole second is a fixture, not a session.
@@ -690,6 +747,20 @@ final class DiagnosticsStore {
         return (RoundRecord(run: standing.run), standing.diagnostics)
     }
 
+    /// **Every pass's latest finished round on `docId`, newest first**: the
+    /// standing round (as `standingRound` reads it — the finished one, never
+    /// a preview), then each OTHER pass's latest superseded round from
+    /// `FileContent.latestRoundByPass`. A pass whose round is standing is not
+    /// repeated from the map, which holds only its older round.
+    func latestRounds(docId: String) -> [CompilerRun] {
+        let standing = finishedStanding(docId: docId, kind: .round)?.run
+        let others = (byDoc[docId]?.latestRoundByPass ?? [:])
+            .filter { standing == nil || $0.key != standing?.passId }
+            .map(\.value)
+            .sorted { $0.at > $1.at }
+        return (standing.map { [$0] } ?? []) + others
+    }
+
     /// The most recent round number in `passId`'s lane for this document, or
     /// `nil` when the lane has no prior round — which is what makes the next
     /// one round 1.
@@ -743,7 +814,7 @@ final class DiagnosticsStore {
     }
 
     /// Remember the refusal so the offer never renders again for `docId`
-    /// (`DiagnosticsPane.showsColdStartOffer`) — persisted immediately, the
+    /// (`CheckNarrative.showsColdStartOffer`) — persisted immediately, the
     /// same "a decision the writer made must survive a relaunch" discipline
     /// every other write in this store follows. A second refusal of an
     /// already-refused doc is a no-op: nothing changed, nothing to persist
@@ -909,7 +980,7 @@ final class DiagnosticsStore {
     /// other's sidecar. `.raw` is interpolated only here (tripwire 24).
     /// Throws for a doc id that fails `SafeRelativePath.requireDocId`
     /// (tripwire 58): the id is synced, and spelled into the file name.
-    static func sidecarURL(projectRoot: URL, docId: String, device: DeviceSlug) throws -> URL {
+    nonisolated static func sidecarURL(projectRoot: URL, docId: String, device: DeviceSlug) throws -> URL {
         let fileId = try SafeRelativePath.requireDocId(docId)
         return projectRoot
             .appendingPathComponent(".maugham/diagnostics")
@@ -1029,7 +1100,7 @@ final class DiagnosticsStore {
         }
     }
 
-    private static func makeDecoder() -> JSONDecoder {
+    nonisolated private static func makeDecoder() -> JSONDecoder {
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
         return decoder

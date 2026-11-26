@@ -26,6 +26,10 @@ public struct ProjectSearchEngine {
         for (item, fullPath) in manuscriptDocs {
             await Task.yield()
             if Task.isCancelled { break }
+            // A piece a promotion is moving is skipped (shell p4 Task 11 fix
+            // round 1, I1): a match found now would point Replace at a file
+            // mid-move, and after a success at a piece that is no longer here.
+            if store.documentStore?.isWithdrawnForPromotion(path: fullPath) == true { continue }
             // ADR 0018: manuscript content is derived from the op log, never
             // read from the `.md` on disk (which is a derived, potentially
             // stale artifact). For an OPEN doc, the live `Document`'s

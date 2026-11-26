@@ -25,6 +25,40 @@ final class PublicationStoreTests: XCTestCase {
         XCTAssertTrue(pubs.isEmpty)
     }
 
+    /// **The catalogue is read off the main actor** (shell p5a closing round
+    /// B): a window's Publish refresh asks from main, and a slow folder (a
+    /// consent prompt, an iCloud folder not yet downloaded) must never hold
+    /// its first frame. The control: the read itself, run on main, says so.
+    @MainActor
+    func testLoad_readsTheFolderOffTheMainActor() async throws {
+        final class Where: @unchecked Sendable {
+            private let lock = NSLock()
+            private var seen: [Bool] = []
+            func note(_ onMain: Bool) { lock.lock(); seen.append(onMain); lock.unlock() }
+            var all: [Bool] { lock.lock(); defer { lock.unlock() }; return seen }
+        }
+        let where_ = Where()
+        let store = PublicationStore(projectURL: tmp, presenter: nil, read: { url, presenter in
+            where_.note(Thread.isMainThread)
+            return try PublicationStore.catalogue(in: url, presenter: presenter)
+        })
+        _ = try await store.load()
+        XCTAssertEqual(where_.all, [false], "the folder was read off main")
+        where_.note(Thread.isMainThread)
+        XCTAssertEqual(where_.all, [false, true], "control: the check sees main")
+    }
+
+    /// **A superseded refresh applies nothing**: two reads overlap, the
+    /// first finishes last — only the second's ticket is current.
+    @MainActor
+    func testTheNewestRefreshAloneApplies() {
+        let refreshes = LatestOnly()
+        let first = refreshes.begin()
+        let second = refreshes.begin()
+        XCTAssertFalse(refreshes.isCurrent(first), "the older read finished late and applies nothing")
+        XCTAssertTrue(refreshes.isCurrent(second))
+    }
+
     func testAppend_thenLoad_roundTrips() async throws {
         let store = await PublicationStore(projectURL: tmp)
         let pub = Publication(

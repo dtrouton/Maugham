@@ -1141,7 +1141,7 @@ struct ProjectSettingsSheet: View {
         } header: {
             Text("Review Passes")
         } footer: {
-            Text("These are the columns on Review's board and the rows on each piece's pass ladder. Removing every pass restores the four defaults — Structural, Line, Copyedit, Proof — rather than leaving the project with none.")
+            Text("These are the columns on the Book's status board and the rows on each piece's pass ladder. Removing every pass restores the four defaults — Structural, Line, Copyedit, Proof — rather than leaving the project with none.")
                 .font(.footnote)
                 .foregroundStyle(.secondary)
         }

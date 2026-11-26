@@ -185,6 +185,24 @@ final class FigureRenameTests: XCTestCase {
                        totalOps, "the reader's stream was not written")
     }
 
+    /// **A figure rename's relabel is a deliberate sweep: it rewrites a
+    /// cross-reference inside a piece in read-through** (ruling, ADR 0039 §4,
+    /// 2026-11-22): refusing it would leave a dangling `@tbl:` in the book,
+    /// and the rename is the writer's deliberate act. The checkpoint holds
+    /// the reviewed version.
+    func test_aRenamesRelabelRewritesAPieceInReadThrough_deliberately() async throws {
+        let (store, projectStore) = try await openBook(
+            a: "![Cash](../figures/cash.csv){#tbl:cash}\n",
+            b: "See @tbl:cash.\n")
+        let (cash, _, _) = try await cashAndTotal(store, projectStore)
+        projectStore.readThroughPieceIds = { ["doc-b"] }
+        XCTAssertNotNil(projectStore.readThroughGate().refusal(.piece("doc-b")), "premise: B is in read-through")
+
+        _ = try await projectStore.renameFigure(id: cash.id, to: "costs")
+        let b = try await text("b")
+        XCTAssertEqual(b, "See @tbl:costs.", "the reference stays valid inside the piece in read-through")
+    }
+
     /// **The relabel's sites, and only those**: the line's label and file,
     /// bare and bracketed references; a longer label, a code fence and a
     /// line naming another file are left.

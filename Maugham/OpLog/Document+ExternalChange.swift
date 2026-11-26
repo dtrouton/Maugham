@@ -113,9 +113,16 @@ extension Document {
         // stop. Reassigned below only past the echo guard, so this Document's
         // own appends change nothing.
         let amendmentPermits = AmendmentPermits()
+        let lineSigners = LineSigners()
         let loaded = try await opStore.loadDiagnosed(
-            docId: docId, amendmentPermits: amendmentPermits)
+            docId: docId, amendmentPermits: amendmentPermits,
+            lineSigners: lineSigners)
         let ops = loaded.ops
+        // Shell p5 Task 1: taken BEFORE the echo guard, because a seal
+        // arriving (this Document's own included) or a registry change applies
+        // no new op and still changes whose a note is; where it did, the
+        // marks keyed on `annotationsVersion` must redraw (fix round 1, I-2).
+        if adoptSealReadings(lineSigners.resolved) { invalidateAnnotationsCache() }
         if provenance != loaded.provenance { provenance = loaded.provenance }
         let kept = loaded.provenance.ownLinesKeptInHistory
         if ownLinesKeptInHistory != kept { ownLinesKeptInHistory = kept }

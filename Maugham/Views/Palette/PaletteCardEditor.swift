@@ -41,6 +41,10 @@ struct PaletteCardEditor: View {
     let cardId: String
 
     @State private var draft: PaletteCard?
+    /// The card this editor last read (`seed`). Until it is `cardId` — a
+    /// hand-over still settling, or the first read not yet made — the editor
+    /// is loading, never "unavailable" (shell p3 final wave).
+    @State private var seededCardId: String?
     /// The title the draft was last in sync with the store at (seed / last
     /// persist). `persist` treats the draft title as a *rename intent* only when
     /// it has diverged from this baseline — see `reconciledTitle` (finding E2).
@@ -97,6 +101,10 @@ struct PaletteCardEditor: View {
                     .padding(16)
                     .frame(maxWidth: .infinity, alignment: .leading)
                 }
+            } else if Self.isLoading(seededCardId: seededCardId, cardId: cardId) {
+                ProgressView("Loading\u{2026}")
+                    .controlSize(.small)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 ContentUnavailableView(
                     "Card unavailable",
@@ -106,7 +114,22 @@ struct PaletteCardEditor: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-        .task(id: cardId) { seed() }
+        // **A hand-over settles first** (shell p3 Task 7 fix 2): when another
+        // editor of this card has just let it go — the palette wall releasing
+        // it to the card pulled up beside, or the reverse — its edit may still
+        // be waiting in the note door. The file is read only after that edit
+        // has landed, or this editor would seed stale and its next save write
+        // over the other's last words.
+        .task(id: cardId) {
+            if let documentStore = store.documentStore,
+               documentStore.researchNoteHasPendingSave(itemId: cardId) {
+                draft = nil   // never the last card's draft under this id meanwhile
+                seededCardId = nil   // loading meanwhile, not "unavailable"
+                await documentStore.settleResearchNoteEdits(itemId: cardId)
+                if Task.isCancelled { return }
+            }
+            seed()
+        }
         // Shown here: the door hears an outside change to this card only
         // while an editor holds it (let go on a switch or on disappearing).
         .task(id: cardId) { await store.documentStore?.holdResearchNoteOpen(itemId: cardId) }
@@ -147,23 +170,34 @@ struct PaletteCardEditor: View {
     private var kindSection: some View {
         VStack(alignment: .leading, spacing: 4) {
             Text("Kind").font(.caption).foregroundStyle(.secondary)
-            Picker("Kind", selection: kindBinding) {
-                ForEach(PaletteCard.Kind.allCases, id: \.self) { kind in
-                    Label(kind.rawValue.capitalized,
-                          systemImage: PaletteCardTile.kindSymbol(for: kind))
-                        .tag(kind)
-                }
+            // **Segments where they fit, a menu where they do not.** The
+            // segmented control cannot compress: it asked about 336pt of a
+            // 200pt column and widened the whole pulled-up pane past the
+            // window's edge (`PulledUpFitsTheColumnTests`).
+            ViewThatFits(in: .horizontal) {
+                kindPicker.pickerStyle(.segmented)
+                kindPicker.pickerStyle(.menu).fixedSize()
             }
-            .pickerStyle(.segmented)
-            .labelsHidden()
         }
+    }
+
+    private var kindPicker: some View {
+        Picker("Kind", selection: kindBinding) {
+            ForEach(PaletteCard.Kind.allCases, id: \.self) { kind in
+                Label(kind.rawValue.capitalized,
+                      systemImage: PaletteCardTile.kindSymbol(for: kind))
+                    .tag(kind)
+            }
+        }
+        .labelsHidden()
     }
 
     @ViewBuilder
     private var swatchesSection: some View {
         VStack(alignment: .leading, spacing: 6) {
             Text("Swatches").font(.caption).foregroundStyle(.secondary)
-            HStack(spacing: 6) {
+            // Wraps: a card's swatches are as many as the writer keeps.
+            FlowLayout(spacing: 6) {
                 if let swatches = draft?.swatches {
                     ForEach(Array(swatches.enumerated()), id: \.offset) { index, hex in
                         swatchChip(hex: hex, index: index)
@@ -171,6 +205,7 @@ struct PaletteCardEditor: View {
                 }
                 ColorPicker("", selection: $newSwatchColor, supportsOpacity: false)
                     .labelsHidden()
+                    .frame(height: 28)
                     .onChange(of: newSwatchColor) { _, color in
                         if let hex = Self.hexString(from: NSColor(color)) { appendSwatch(hex) }
                     }
@@ -184,7 +219,8 @@ struct PaletteCardEditor: View {
                 }
                 .buttonStyle(.plain)
                 .help("Sample a colour from the screen")
-                Spacer()
+                // The well is 28pt; the picker and the dropper sit on its line.
+                .frame(height: 28)
             }
         }
     }
@@ -300,7 +336,8 @@ struct PaletteCardEditor: View {
             TextField("Add a sensory note…", text: $newNoteText)
                 .textFieldStyle(.roundedBorder)
                 .onSubmit { addNote(sense: nil) }
-            HStack(spacing: 6) {
+            // Wraps: the six senses' words want more than a narrow column.
+            FlowLayout(spacing: 6) {
                 ForEach(PaletteCard.Sense.allCases, id: \.self) { sense in
                     Button { addNote(sense: sense) } label: {
                         Label(sense.rawValue.capitalized,
@@ -499,8 +536,16 @@ struct PaletteCardEditor: View {
 
     // MARK: - Seed / persist / thumbnails
 
+    /// **Loading, not unavailable**, until this card has been read: a
+    /// hand-over settles the other editor's last edit before the read, and
+    /// "Card unavailable" over that wait was the wrong words. Pure.
+    static func isLoading(seededCardId: String?, cardId: String) -> Bool {
+        seededCardId != cardId
+    }
+
     private func seed() {
         let card = store.loadPaletteCards().first { $0.researchItemId == cardId }
+        seededCardId = cardId
         draft = card
         baselineTitle = card?.title
         Self.markRead(cardId, in: store)

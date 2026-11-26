@@ -272,134 +272,7 @@ final class AnnotationPassStampTests: XCTestCase {
 
     // MARK: - 4. The pass filter (pure)
 
-    func test_selectingAPassShowsTheNotesWrittenUnderIt() {
-        XCTAssertTrue(AnnotationPassFilter.matches(note("a", pass: "line"), passId: "line"))
-    }
-
-    /// The spec's rule, and the one that keeps the feature from hiding a
-    /// writer's existing work the day it ships: an unstamped note is in EVERY
-    /// pass's queue.
-    func test_anUnstampedNoteIsInEveryPassesQueue() {
-        for pass in ReviewPass.presets {
-            XCTAssertTrue(
-                AnnotationPassFilter.matches(note("a", pass: nil), passId: pass.id),
-                "an unstamped note must show under \(pass.id)")
-        }
-    }
-
-    func test_aNoteFromAnotherPassIsHidden() {
-        XCTAssertFalse(
-            AnnotationPassFilter.matches(note("a", pass: "structural"), passId: "line"))
-    }
-
-    func test_allPassesShowsEverything() {
-        XCTAssertTrue(AnnotationPassFilter.matches(note("a", pass: "structural"), passId: nil))
-        XCTAssertTrue(AnnotationPassFilter.matches(note("b", pass: nil), passId: nil))
-    }
-
-    /// **The coach's lane is never filtered out** (editorial letter P1,
-    /// Task 6, controller ruling 1).
-    ///
-    /// Her notes are stamped with her own lane id, and she is deliberately
-    /// not a selectable lane — she is not in `effectiveReviewPasses`, so the
-    /// toolbar's pass menu cannot offer her and `AnnotationPassFilter.resolved`
-    /// can never answer her id. Filter her out under a stage and there is NO
-    /// selection left that brings her back: assign a coached piece to a pass
-    /// and every letter she wrote about it disappears from the queue, with
-    /// no control on screen to say why. So her stamp behaves like an
-    /// unstamped note: in every pass's queue.
-    func test_theCoachsNotesSurviveEveryFilterValue() {
-        let letter = note("a", pass: ReviewPass.coachPreset.id)
-        XCTAssertTrue(
-            AnnotationPassFilter.matches(letter, passId: "line"),
-            "a coached piece assigned to Line must keep her letter in view")
-        for pass in ReviewPass.presets {
-            XCTAssertTrue(AnnotationPassFilter.matches(letter, passId: pass.id),
-                          "her notes must show under \(pass.id)")
-        }
-        XCTAssertTrue(AnnotationPassFilter.matches(letter, passId: nil),
-                      "and under every pass")
-    }
-
-    /// The control for the rule above: a STAGE's stamp is still hidden under
-    /// another stage. The coach's exemption is hers alone, and a filter that
-    /// stopped filtering would pass the test above for the wrong reason.
-    func test_aStageStampIsStillHiddenUnderAnotherStage() {
-        XCTAssertFalse(
-            AnnotationPassFilter.matches(note("a", pass: "line"), passId: "structural"))
-    }
-
     // MARK: - 5. What the queue defaults to
-
-    /// The end of the board's click-through (P1 wires the chip to record the
-    /// pass, then open the piece): the writer lands in the queue already
-    /// filtered to the pass they clicked.
-    func test_theDefaultSelectionIsThePiecesActivePass() {
-        var memory = ActivePassMemory.empty
-        memory.record(piece: "piece-1", passId: "copyedit")
-        XCTAssertEqual(
-            AnnotationPassFilter.resolved(
-                .followActivePass, piece: "piece-1",
-                memory: memory, passes: ReviewPass.presets),
-            "copyedit")
-    }
-
-    func test_aPieceWithNoActivePassDefaultsToAllPasses() {
-        XCTAssertNil(AnnotationPassFilter.resolved(
-            .followActivePass, piece: "piece-1",
-            memory: .empty, passes: ReviewPass.presets))
-    }
-
-    /// Project scope has no single piece to take an active pass from, so the
-    /// default there is the whole project's notes. An explicit choice still
-    /// applies across every piece — see the next test.
-    func test_projectScopeWithNoPieceDefaultsToAllPasses() {
-        var memory = ActivePassMemory.empty
-        memory.record(piece: "piece-1", passId: "copyedit")
-        XCTAssertNil(AnnotationPassFilter.resolved(
-            .followActivePass, piece: nil,
-            memory: memory, passes: ReviewPass.presets))
-    }
-
-    func test_anExplicitChoiceBeatsThePiecesActivePass() {
-        var memory = ActivePassMemory.empty
-        memory.record(piece: "piece-1", passId: "copyedit")
-        XCTAssertEqual(
-            AnnotationPassFilter.resolved(
-                .pass("proof"), piece: "piece-1",
-                memory: memory, passes: ReviewPass.presets),
-            "proof")
-        XCTAssertNil(AnnotationPassFilter.resolved(
-            .allPasses, piece: "piece-1",
-            memory: memory, passes: ReviewPass.presets))
-    }
-
-    /// An explicit choice survives having no piece at all — this is what makes
-    /// the pass filter apply across pieces in project scope.
-    func test_anExplicitChoiceAppliesWithNoPiece() {
-        XCTAssertEqual(
-            AnnotationPassFilter.resolved(
-                .pass("proof"), piece: nil, memory: .empty,
-                passes: ReviewPass.presets),
-            "proof")
-    }
-
-    /// `effectiveAuthorFilter`'s self-healing shape: a selection whose pass the
-    /// writer has since removed from the project would otherwise hide every
-    /// stamped note with no control left to say so.
-    func test_aSelectionOfARetiredPassHealsToAllPasses() {
-        XCTAssertNil(AnnotationPassFilter.resolved(
-            .pass("structural"), piece: nil, memory: .empty,
-            passes: [ReviewPass(id: "line", name: "Line")]))
-    }
-
-    func test_theDefaultForARetiredActivePassIsAllPasses() {
-        var memory = ActivePassMemory.empty
-        memory.record(piece: "piece-1", passId: "structural")
-        XCTAssertNil(AnnotationPassFilter.resolved(
-            .followActivePass, piece: "piece-1", memory: memory,
-            passes: [ReviewPass(id: "line", name: "Line")]))
-    }
 
     // MARK: - 6. The wirings, which nothing else guards
 
@@ -450,21 +323,10 @@ final class AnnotationPassStampTests: XCTestCase {
             text.components(separatedBy: "activeReviewPassId(").count - 1, 4)
     }
 
-    /// The pane calls both pure rules. Either one uncalled is a feature that
-    /// passes its own truth table and does nothing on screen.
-    func test_thePaneAppliesTheFilterAndRendersTheNudge() throws {
-        let text = try AnnotationsPaneSource.surfaceSource()
-        XCTAssertTrue(text.contains("AnnotationPassFilter.matches"),
-                      "the pass filter must join the pane's filter chain")
-        XCTAssertTrue(text.contains("AnnotationPassFilter.resolved"),
-                      "the pane's selection must resolve through the one rule")
-        // `advice`, not `openEarlierPass`: the nudge derives from the piece's
-        // recorded active pass, and its entry point takes no filter selection
-        // (fix round 1 — `PassOrderAdviceTests` owns that truth table and the
-        // pane-side census that the two stay uncoupled).
-        XCTAssertTrue(text.contains("PassOrderAdvice.advice("),
-                      "the advisory nudge must be rendered")
-    }
+    /// The queue's pass filter went with the Annotations pane (shell plan 2
+    /// Task 7): To resolve filters by source chips, one per pass
+    /// (`ResolveFilterTests`); the nudge is drawn by its head
+    /// (`PassOrderAdviceTests.test_thePaneNudgeCannotReachTheFilterSelection`).
 
     /// Reading pass states is fine; WRITING them is a closed set
     /// (`PersonaPaneRegistryTests.passStateWritingFiles`), and this file must
@@ -477,8 +339,9 @@ final class AnnotationPassStampTests: XCTestCase {
     /// keeps the file out of the census; the positive half (the closure IS
     /// wired into the nudge) is what keeps the verbs from being dead code.
     func test_theNudgeRoutesItsVerbsThroughTheClosureAndNeverCallsSetPassStateDirectly() throws {
-        let pane = try AnnotationsPaneSource.surfaceSource()
-        XCTAssertFalse(pane.contains("setPassState"),
+        let pane = SourceScan.codeLines(of: try AnnotationsPaneSource.surfaceSource())
+            .joined(separator: "\n")
+        XCTAssertFalse(pane.replacingOccurrences(of: "onSetPassState", with: "").contains("setPassState"),
                        "the queue may let the writer rule on a pass, but only "
                        + "through the host's closure — a direct call here "
                        + "would make this file a fourth member of "

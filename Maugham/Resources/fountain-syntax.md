@@ -286,16 +286,16 @@ She almost said \*yes\* out loud.
 
 The marks show dimmed while the words between them take the style. Emphasis works in action, dialogue and parentheticals, and it never changes what kind of line something is. In a screenplay, emphasis has to open and close on the same line. Strikethrough (`~~`) isn't available in screenplays, because `~` marks a lyric.
 
-### Tasks
+### To-dos
 
-Write `[[todo: ...]]` for a task, or `[[done: ...]]` for one that's finished:
+Write `[[todo: ...]]` for a to-do, or `[[done: ...]]` for one that's finished:
 
 ```
 [[todo: rewrite the meet-cute beat]]
 [[done: confirmed timeline with director]]
 ```
 
-Maugham shows the task as a checkbox; clicking it switches between `todo` and `done`. Tasks don't count toward the page count and don't change what kind of line they're on. The file stays ordinary Fountain that other screenwriting apps can open.
+Maugham shows the to-do as a checkbox; clicking it switches between `todo` and `done`, and the script's To resolve lists it under Mine (⌘⌥T). To-dos don't count toward the page count and don't change what kind of line they're on. The file stays ordinary Fountain that other screenwriting apps can open.
 
 ## Page count
 
@@ -303,7 +303,7 @@ Maugham estimates pages the way Final Draft does: 55 lines to a page, with actio
 
 For a typical feature script, the estimate lands within about 5% of Final Draft's page count. Very short scripts and outline-heavy drafts can differ more, so treat it as a guide rather than an exact figure.
 
-The page count appears in the status line at the bottom of the editor. Set a **Page target** in the Inspector (⌘⌥I) to see your progress, for example "27.5 / 110 pages (25%)".
+The page count appears in the status line under the script. Its right end is a menu: choose **Set Page Target…** to see your progress, for example "27.5 / 110 pages (25%)".
 
 ## Smart typography
 

@@ -1,27 +1,35 @@
 # Try It
 
-A few things worth a minute of your time.
+A few things worth a minute each. Take them in any order.
 
-## Focus mode
+## Say what this chapter is for
 
-Press ⌘\ to dim everything except the line you're writing. It's the fastest way to stop fiddling and start drafting. Press it again to bring the rest of the page back.
+Press ⌘2. Brief opens on this chapter, and it is empty, because nobody has said yet what "Try It" is for.
 
-## The Inspector
+Press ⌘⌥I and write its line, one sentence that sums the chapter up. That sentence is what the Book's cards show. Then press ⌘⌥N and write what the chapter is going for, as long as you like. A sentence is enough to start.
 
-The right-hand pane is the Inspector. Give a chapter a one-line synopsis, set its status (draft, revised, done), and add tags so you can find your way around a long manuscript later. Set a word target and Maugham will quietly track your progress against it.
+What a chapter is going for is yours alone to say. When Claude reads your draft, it reads this to learn what you were trying to do, and it can never write it for you.
 
-## Wiki-links
+## The fold
 
-You can link between documents by wrapping a title in double brackets. This sample links forward to [[Going Further]] — click it to jump straight there. Rename a document and Maugham updates the links that point at it.
+Look at this chapter's row in the binder. Clicking it opened its fold (if you came here by the arrow keys, which never open one, click its chevron), which shows what the chapter draws on: a research note of its own, "The Rain and the Room", and a link to the last chapter. That is the chapter's fold.
 
-## The Outline
+Click the note. It opens on the right, in Pulled up, so you can read it and write in it while this chapter stays where it is. Click its row again to put it away.
 
-Press ⌘⌥O to swap the right pane into the Outline. It shows every chapter as a card or a table row, with synopsis and word count, so you can see the shape of the whole book at a glance.
+A note in a chapter's fold belongs to that chapter. A note in the binder's Research section belongs to the whole book. Where a note is, is whose it is.
+
+## Links
+
+Wrap a chapter's title in double brackets to link to it, like this: [[Going Further]]. Click the link to go there. Rename a chapter in the binder, and every link to it follows the new name.
+
+## Focus
+
+Press ⌘\ for Focus Mode. The toolbar, the status line and the line above the page go, and the binder and the right column stay, so you can still turn to them. Press it again to bring the rest back.
 
 ## To-dos
 
-Start any line with `- [ ]` to make a checkbox. Maugham gathers every checkbox across your project into the Tasks pane — open it with ⌘⌥T. Try these, then check them off:
+Start a line with `- [ ]` and it becomes a checkbox. Every checkbox in the book is gathered into To resolve, beside everything else that's waiting on you, and ⌘⌥T shows just your own. Try these:
 
-- [ ] Open the Tasks pane with ⌘⌥T
-- [ ] Check this box and watch it move to done
-- [ ] Add a standalone task with the + button in the Tasks pane
+- [ ] Press ⌘⌥T and find this list
+- [ ] Tick this box, and watch it move to Settled at the foot of the list
+- [ ] Add a to-do of your own with the + at the top of To resolve

@@ -15,7 +15,7 @@ extension Document {
     /// sourced from the shared `TaskMarkup.lineContainsTaskMarker`
     /// predicate (MaughamCore) — the single source of truth for what
     /// counts as task markup, so this site can't independently drift
-    /// from `TaskAnchorAlignment` or `TasksPane` again.
+    /// from `TaskAnchorAlignment` or the Tasks pane again.
     internal static func changeTouchesTaskMarkup(
         prior: String?, next: String?
     ) -> Bool {
@@ -254,7 +254,7 @@ extension Document {
         // because both keys take the person's row for a task.
         guard localWritePermit.allows(.op(op.kind)) == .yes else {
             documentLog.error(
-                "appendTaskOpInternal: \(op.kind.rawValue, privacy: .public) refused at the task door — nothing appended")
+                "appendTaskOpInternal: \(op.kind.rawValue, privacy: .public) refused at the to-do door — nothing appended")
             declineUndo(.taskNotPermitted)
             return
         }
@@ -285,7 +285,7 @@ extension Document {
             do { try await store.append(op) }
             catch {
                 documentLog.error(
-                    "task op append failed for doc \(docId, privacy: .public): \(error.localizedDescription, privacy: .public)")
+                    "to-do op append failed for doc \(docId, privacy: .public): \(error.localizedDescription, privacy: .public)")
             }
             // Self-prune so the tracking set stays near-empty in steady state
             // (touching only this dict is husk-safe).
@@ -366,7 +366,7 @@ extension Document {
             undoing: .taskCreate, prior: preview,
             docId: docId, device: device, session: session, sessionId: session) {
             OpUndoRegistrar.register(
-                undoManager, actionName: "New Task", target: self,
+                undoManager, actionName: "New To-Do", target: self,
                 workTaskSink: { [weak self] in self?._lastUndoWorkTask = $0 },
                 undo: { doc in
                     // Fire-time guard: only archive if the task still exists and
@@ -424,7 +424,7 @@ extension Document {
                 docId: docId, device: device, session: session, sessionId: session)
         else { return }
         OpUndoRegistrar.register(
-            undoManager, actionName: "Change Task Status", target: self,
+            undoManager, actionName: "Change To-Do Status", target: self,
             workTaskSink: { [weak self] in self?._lastUndoWorkTask = $0 },
             undo: { doc in
                 // Fire-time guard: only revert if the task still holds the value
@@ -462,7 +462,7 @@ extension Document {
                 docId: docId, device: device, session: session, sessionId: session)
         else { return }
         OpUndoRegistrar.register(
-            undoManager, actionName: "Reorder Task", target: self,
+            undoManager, actionName: "Reorder To-Do", target: self,
             workTaskSink: { [weak self] in self?._lastUndoWorkTask = $0 },
             undo: { doc in
                 guard let now = doc.freshTaskSnapshot(id: id), now.priority == priority else {
@@ -501,7 +501,7 @@ extension Document {
                 docId: docId, device: device, session: session, sessionId: session)
         else { return }
         OpUndoRegistrar.register(
-            undoManager, actionName: "Nest Task", target: self,
+            undoManager, actionName: "Nest To-Do", target: self,
             workTaskSink: { [weak self] in self?._lastUndoWorkTask = $0 },
             undo: { doc in
                 // Compare against the sentinel-normalized new value.
@@ -539,7 +539,7 @@ extension Document {
                 docId: docId, device: device, session: session, sessionId: session)
         else { return }
         OpUndoRegistrar.register(
-            undoManager, actionName: "Edit Task", target: self,
+            undoManager, actionName: "Edit To-Do", target: self,
             workTaskSink: { [weak self] in self?._lastUndoWorkTask = $0 },
             undo: { doc in
                 guard let now = doc.freshTaskSnapshot(id: id), now.body == body else {
@@ -555,7 +555,7 @@ extension Document {
 
     /// - Parameter suppressUndoStackClear: ONLY for batch callers that have
     ///   already performed the D1 `removeAllActions` themselves, BEFORE opening
-    ///   their undo group (`TasksPane.archiveAllDone`). The per-call clear below
+    ///   their undo group (the Tasks pane's `archiveAllDone`). The per-call clear below
     ///   would otherwise fire INSIDE the caller's open `beginUndoGrouping` —
     ///   `removeAllActions` inside a manual group corrupts NSUndoManager (the
     ///   T5 crash class: unbalanced group, earlier inverses erased). A batch
@@ -584,7 +584,7 @@ extension Document {
               !splicesText || localWritePermit.allows(.op(.typingBurst)) == .yes
         else {
             documentLog.error(
-                "archiveTask: \(id, privacy: .public) refused at the task door — nothing archived")
+                "archiveTask: \(id, privacy: .public) refused at the to-do door — nothing archived")
             declineUndo(.taskNotPermitted)
             return
         }
@@ -708,7 +708,7 @@ extension Document {
                 docId: docId, device: device, session: session, sessionId: session)
             else { return }
             OpUndoRegistrar.register(
-                undoManager, actionName: "Archive Task", target: self,
+                undoManager, actionName: "Archive To-Do", target: self,
                 workTaskSink: { [weak self] in self?._lastUndoWorkTask = $0 },
                 undo: { doc in
                     // Fire-time guard: only restore if the task is still archived.
@@ -728,7 +728,7 @@ extension Document {
         // Compound (text + op) registration: the inline archive spliced the
         // paragraph, so ⌘Z must restore BOTH the text and the open status.
         OpUndoRegistrar.register(
-            undoManager, actionName: "Archive Task", target: self,
+            undoManager, actionName: "Archive To-Do", target: self,
             workTaskSink: { [weak self] in self?._lastUndoWorkTask = $0 },
             undo: { doc in
                 guard let preState, let preTip, let preOpIds else { return }

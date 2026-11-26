@@ -63,7 +63,7 @@ final class RoundNarrativeTests: XCTestCase {
             RoundNarrative.checkingCopy(counts(new: 3, revised: 0), kind: .check),
             "Checking 3 new paragraphs\u{2026}")
         XCTAssertEqual(
-            DiagnosticsPane.headerCopy(
+            CheckNarrative.headerCopy(
                 for: .running(checking: counts(new: 3, revised: 0), since: nil, progress: nil), annotations: [], passes: []),
             "Checking 3 new paragraphs\u{2026}",
             "Author's pane is the check's home")

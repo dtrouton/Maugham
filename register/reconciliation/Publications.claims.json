@@ -176,5 +176,22 @@
     "evidence": {
       "property_test": null
     }
+  },
+  {
+    "claim_id": "M7-PB-012",
+    "scope": "PDFAnchors.locate / pieceAnchors — the edition's page jump over the emitted paragraph anchors",
+    "kind": "INVARIANT",
+    "statement": "Every emitted paragraph's anchor is named `p-<tag>-<¶id>` with no document in it, and a `¶id` is unique only within its document, so two pieces of one book can emit the same anchor name and the compiled PDF keeps one destination for it. The page jump therefore never takes a piece's first anchor on trust: `PDFAnchors.locate` uses only an anchor the piece does not share with another piece's known order, corroborated by the piece's next anchor when the others' orders are unknown; it answers `.page`, `.ambiguous` (only shared anchors, or unshared ones that disagree), `.notInBook` or `.noAnchors`, and the centre says so rather than scrolling to another chapter's page. The emission is unchanged; the defect is worked around at the reader.",
+    "source": {
+      "type": "PRODUCTION",
+      "ref": "MaughamTests/Publish/PDFAnchorsTests.swift: PDFAnchorsTests.test_theAnchorNamesAreTheContractsShape, PDFAnchorsLocateTests.test_aSharedFirstAnchorIsPassedOverForThePiecesOwn, PDFAnchorsLocateTests.test_anUncorroboratedAnchorIsPassedOver, PDFAnchorsLocateTests.test_nothingUnambiguousIsSaid"
+    },
+    "warrant": "HIGH",
+    "intent": "UNINTENDED at the emission (the anchor contract predates per-piece navigation; pre-existing); the reader's workaround INTENTIONAL — the agent's call, shell plan 4 (ADR 0038 §3), not Denver's",
+    "reachability": "LIVE — an edition's book in the centre, a chapter clicked in the binder (the page jump); the emission on every PDF compile",
+    "evidence": {
+      "property_test": null
+    },
+    "fix_history": "Filed 2026-11-22 with the workaround (shell plan 4, review I1 of the edition's centre: the first anchor that resolved could land on another chapter's page). The defect stands at the emission: adding the document to the anchor name would make every book compiled before it need recompiling."
   }
 ]

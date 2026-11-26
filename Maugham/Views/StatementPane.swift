@@ -6,7 +6,7 @@ import MaughamCore
 /// (publish-department P4 Task 2); M1A spec §4.3.
 ///
 /// **Scope follows the window's subject, and this pane has no say in it.** The
-/// tree is the subject-picker (persona shell §3.3): select a chapter and Intent
+/// tree is the subject-picker (the 2026-08-01 shell spec, §3.3): select a chapter and Intent
 /// shows the chapter's, select the project row and it shows the book's. Visual
 /// language is project-scope, so it simply shows.
 ///
@@ -90,8 +90,9 @@ struct StatementPane: View {
             // Permanent, not interim: unlike `validSubject`, there is no
             // research-tree validation this could grow into.
             return .project
-        case .figure:
-            // A figure carries no craft intent either, for the same reason.
+        case .figure, .inbox, .canvas, .palette, .edition:
+            // A figure (and the shell-p1 subjects) carries no craft intent
+            // either, for the same reason.
             return .project
         }
     }
@@ -140,7 +141,7 @@ struct StatementPane: View {
         // coerces every subject to `.project` for any kind but `.intent`.
         if case .editionBrief(let language) = kind {
             return "How this book reads in "
-                + TranslationReviewIndicator.displayLabel(forLanguageTag: language)
+                + LanguageName.labelled(language)
         }
         // **The ledger is about the writer, not about the book** (editorial
         // letter P2). Scope-blind for the same reason the two above are:
@@ -257,7 +258,7 @@ struct StatementPane: View {
     /// re-fires whenever any of it changes — not only when the (kind, scope)
     /// pair itself changes.
     ///
-    /// **`kind|scope` alone missed the commonest Author-persona shape**: the
+    /// **`kind|scope` alone missed the commonest drafting shape**: the
     /// writer deletes a paragraph in the open manuscript editor while the
     /// Intent pane sits beside it, and a directive anchored there must stop
     /// reading as an ordinary ruling without the pane remounting. Fixed by
@@ -365,7 +366,7 @@ struct StatementPane: View {
     @State private var pendingProposal: StatementProposalStore.Proposal?
     /// Bumped by `.maughamStatementProposalsChanged` so the `.task` re-keys and
     /// re-reads the slot. A counter rather than an `await` in the notification
-    /// closure, `DepartmentPaneHost`'s idiom: the `.task` owns cancellation.
+    /// closure: the `.task` owns cancellation.
     @State private var proposalReloads = 0
     /// What the gate last said — a refusal, or the sentence an adoption or a
     /// discard left behind. Sticky until the slot itself changes, because the
@@ -486,13 +487,14 @@ struct StatementPane: View {
         // gate's own pending check before either discards the slot.
         guard !proposalBusy else { return }
         proposalBusy = true
-        let undoManager = undoManager
+        // Chosen now, at the press, by where the keys are.
+        let undo = StatementVerbUndo.manager(window: undoManager)
         Task { @MainActor in
             defer { proposalBusy = false }
             do {
                 let adoption = try await StatementProposalGate.adopt(
                     proposal, store: store, world: world,
-                    undoManager: undoManager, workTaskSink: { _ in })
+                    undoManager: undo, workTaskSink: { _ in })
                 proposalNotice = StatementProposalCopy.adoptedLine(
                     glossary: adoption.glossaryAppended)
                 if adoption.created {
@@ -598,7 +600,7 @@ struct StatementPane: View {
     /// `_ = bible.version` is the observation — `allFacts()` returns an array
     /// the store rebuilds, so nothing in it is observable on its own and a body
     /// that read only the array would render once and never again
-    /// (`DiagnosticsPane.rows`' idiom, and `test_thePaneRerendersWhenEither
+    /// (`CheckNarrative.rows`' idiom, and `test_thePaneRerendersWhenEither
     /// StoreBumpsItsVersion` is what holds it).
     ///
     /// **The bible belongs to the craft intent, and it is asked so directly**

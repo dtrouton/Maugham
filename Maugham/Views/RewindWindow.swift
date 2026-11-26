@@ -20,6 +20,8 @@ struct RewindWindow: View {
     /// The initial scrubber position. `.now` for the header button;
     /// `.atOp(...)` for the per-row deep-link.
     let initialCursor: RewindCursor
+    /// The preview the sheet opens on: Doc, or Diff for History's Compare….
+    var initialPreview: PreviewMode = .doc
     let scope: RewindScope
     let onComplete: (RewindAction) -> Void
 
@@ -41,7 +43,11 @@ struct RewindWindow: View {
     @State private var showingSnapshotPrompt: Bool = false
     @State private var showingRestoreConfirm: Bool = false
 
-    enum PreviewMode: Equatable { case doc, diff }
+    enum PreviewMode: String, Equatable { case doc, diff }
+
+    /// The rewind post's key naming the preview to open on
+    /// (`PreviewMode.rawValue`); absent opens on Doc.
+    static let initialPreviewKey = "initial_preview"
 
     private static let headerDateFmt: DateFormatter = {
         let f = DateFormatter()
@@ -161,7 +167,7 @@ struct RewindWindow: View {
         HStack(spacing: 14) {
             legendChip(text: "typed", swatchColor: color(for: .typingBurst))
             legendChip(text: "checkpoint", swatchColor: color(for: .checkpoint))
-            legendChip(text: "Claude annotation", swatchColor: color(for: .claudeComment))
+            legendChip(text: "Claude\u{2019}s note", swatchColor: color(for: .claudeComment))
             Spacer()
         }
         .font(.caption2)
@@ -317,7 +323,7 @@ struct RewindWindow: View {
     /// What the window says when the restore door refused a press the sheet
     /// offered before a demotion reached it.
     static let refusedRestoreSentence =
-        "This Mac may not change this piece's text, so it was left as it was."
+        "This Mac may not change this text, so it was left as it was."
 
     // MARK: - Logic
 
@@ -343,6 +349,7 @@ struct RewindWindow: View {
         // preview / diff collapse to nothing.
         nowState = Deriver.deriveWithSequenceFallback(ops: ops)
         cursor = initialCursor
+        previewMode = initialPreview
         updateDerivedStateNow()
     }
 

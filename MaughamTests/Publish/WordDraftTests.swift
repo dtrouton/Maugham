@@ -457,8 +457,8 @@ final class WordDraftTests: XCTestCase {
     func test_aDraftIsNamedDraftN_whereAPublicationIsNamed() async throws {
         let pub = try await exportWord()
         XCTAssertTrue(PublishPreviewCentre.label(for: pub).hasPrefix("Draft 1 · "), PublishPreviewCentre.label(for: pub))
-        XCTAssertFalse(DepartmentCompileState.completedLine(pub).contains("vdraft"),
-                       DepartmentCompileState.completedLine(pub))
+        XCTAssertFalse(CompileRunState.completedLine(pub).contains("vdraft"),
+                       CompileRunState.completedLine(pub))
     }
 
     // MARK: - two devices

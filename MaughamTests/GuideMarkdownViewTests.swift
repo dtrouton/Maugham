@@ -142,6 +142,6 @@ final class GuideMarkdownViewTests: XCTestCase {
                              + "below would pass on an empty parse")
         XCTAssertEqual(rows.count, pipeRows, "one row per documented shortcut")
         XCTAssertEqual(rows.first, ["`⌘N`", "New project"])
-        XCTAssertTrue(rows.contains(["`⌘/`", "Syntax + keyboard reference"]))
+        XCTAssertTrue(rows.contains(["`⌘/`", "Syntax & Keyboard Shortcuts"]))
     }
 }

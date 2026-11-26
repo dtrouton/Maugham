@@ -30,7 +30,7 @@ import MaughamCore
 ///   bracket* — the command comes from another column and the drag begins in one
 ///   (tripwire 32). Through the inside verbs it nests, registers nothing, and
 ///   rides into the writer's next sentence.
-/// - **Does the command work with the Plan persona closed?** That is its whole
+/// - **Does the command work with no canvas open?** That is its whole
 ///   point, so it must exercise the sidecar route as well as the live one.
 @MainActor
 final class InboxToCanvasTests: XCTestCase {
@@ -65,7 +65,7 @@ final class InboxToCanvasTests: XCTestCase {
     }
 
     /// An attached model wired to its store — the shape a send meets while the
-    /// writer has the Plan persona on screen. The DRAG can only ever meet this
+    /// writer has the canvas open. The DRAG can only ever meet this
     /// one (you cannot drop on a canvas that is not mounted); the command meets
     /// both.
     private func attached(_ f: Fixture) -> CanvasModel {
@@ -494,10 +494,10 @@ final class InboxToCanvasTests: XCTestCase {
                         "a ⌘Z aimed at the writer's sentence took the capture with it")
     }
 
-    // MARK: - The Plan persona closed
+    // MARK: - No canvas open
 
     /// **The command's whole point.** A drag needs the canvas on screen; the
-    /// command is reachable with the pane closed, from another persona and from
+    /// command is reachable with the pane closed, with the Inbox in the centre and from
     /// the keyboard, so it must write the sidecar when no canvas is attached —
     /// exactly as `CanvasClaudeWrite`'s second arm does.
     ///
@@ -507,12 +507,12 @@ final class InboxToCanvasTests: XCTestCase {
     /// An implementation that simply refused every send with no canvas open
     /// would pass all three refusal tests and fail this one.
     func test_theCommandWritesTheSidecarWhenNoCanvasIsOpen() async throws {
-        let f = try await openProject("PersonaClosed")
+        let f = try await openProject("CanvasClosed")
         XCTAssertNil(f.store.liveCanvas, "precondition: nobody has this canvas open")
         XCTAssertFalse(
             FileManager.default.fileExists(atPath: sidecarURL(f).path),
             "precondition: no sidecar at all, so there is no arrangement to lose")
-        try await seed(f, [textEntry("t8", "written while the persona was closed")])
+        try await seed(f, [textEntry("t8", "written while the canvas was closed")])
         let entry = try XCTUnwrap(f.inbox.entries.first { $0.id == "t8" })
 
         let id = try await f.inbox.sendToCanvas(
@@ -523,12 +523,12 @@ final class InboxToCanvasTests: XCTestCase {
         XCTAssertNotNil(scene.node(id),
                         "the capture reached the only canvas there was — a send that "
                         + "answered \"sent\" with nothing on disk has lost it")
-        XCTAssertEqual(scraps[id], "written while the persona was closed")
+        XCTAssertEqual(scraps[id], "written while the canvas was closed")
         await assertResolved(f, "t8")
     }
 
     /// A model that has been attached and DETACHED takes the sidecar route too:
-    /// its scene is the snapshot from when the persona closed, so a write into it
+    /// its scene is the snapshot from when the canvas closed, so a write into it
     /// vanishes on the next `attach()`. The discriminator is `isAttached`, never
     /// `liveCanvas != nil`.
     func test_aDetachedCanvasTakesTheSidecarRoute() async throws {
@@ -536,7 +536,7 @@ final class InboxToCanvasTests: XCTestCase {
         let model = attached(f)
         model.detach()
         XCTAssertNotNil(f.store.liveCanvas, "precondition: the store still holds it")
-        try await seed(f, [textEntry("t9", "after the persona closed")])
+        try await seed(f, [textEntry("t9", "after the canvas closed")])
         let entry = try XCTUnwrap(f.inbox.entries.first { $0.id == "t9" })
 
         let id = try await f.inbox.sendToCanvas(
@@ -574,7 +574,7 @@ final class InboxToCanvasTests: XCTestCase {
                        + "failure this route exists to remove")
     }
 
-    /// **And with the Plan persona closed the request is PARKED**, which is the
+    /// **And with no canvas open the request is PARKED**, which is the
     /// case the command exists for: at the moment it is asked there is no
     /// `CanvasView` and no hook, so a version that only called the closure would
     /// drop the reveal exactly when the writer was not already looking.
@@ -591,7 +591,7 @@ final class InboxToCanvasTests: XCTestCase {
         CanvasCapture.show(id, in: f.store)
 
         XCTAssertEqual(model.takePendingReveal(), .node(id),
-                       "dropped here, the writer opens the Plan persona to a "
+                       "dropped here, the writer opens the canvas to a "
                        + "canvas that looks exactly as they left it, with their "
                        + "capture off to the right of everything")
     }
@@ -792,17 +792,17 @@ final class InboxToCanvasTests: XCTestCase {
         withExtendedLifetime(f.documentStore) {}
     }
 
-    /// **The same convergence with the Plan persona closed**, which is the branch
+    /// **The same convergence with no canvas open**, which is the branch
     /// the twin above cannot reach: with no attached model
     /// `CanvasCapture.existingNode` has to answer from the SIDECAR, exactly as
-    /// `send` does one call later, and the command is reachable from another
-    /// persona and from the keyboard — so this is a live route, not a contrived
+    /// `send` does one call later, and the command is reachable with the Inbox
+    /// in the centre and from the keyboard — so this is a live route, not a contrived
     /// one.
     ///
     /// Disable experiment: drop `existingNode`'s sidecar arm (return nil when no
     /// model is live) and this goes red at two files in the well while the
     /// attached twin stays green — which is the gap that made this test necessary.
-    func test_anImageRetryConvergesWithThePlanPersonaClosed() async throws {
+    func test_anImageRetryConvergesWithNoCanvasOpen() async throws {
         let f = try await openProject("ImageRetryConvergeClosed")
         XCTAssertNil(f.store.liveCanvas,
                      "precondition: nobody has this canvas open, so both the query "
@@ -904,8 +904,8 @@ final class InboxToCanvasTests: XCTestCase {
                       file: file, line: line)
     }
 
-    /// **The defect, in its plainest form** (issue #33). With the Plan persona
-    /// closed the send takes the sidecar route, and that route used to `load()` a
+    /// **The defect, in its plainest form** (issue #33). With no canvas
+    /// open the send takes the sidecar route, and that route used to `load()` a
     /// newer build's file as an empty scene and `save()` its own scene straight
     /// back over it — destroying the writer's whole arrangement to add one card.
     func test_aTextCaptureIsRefusedWhenTheSidecarIsUnreadable_andTheFileIsUntouched() async throws {

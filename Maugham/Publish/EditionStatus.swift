@@ -135,6 +135,40 @@ enum EditionStatus {
     /// `translation_status` reports. The same pair for the same reason: the
     /// tool's wire form carries both halves, and folding to `Report` must not
     /// be the only way to learn a chapter was skipped.
+    /// **How a surface asks for the rows** (shell p4 Task 5 fix round): see
+    /// `documentRows`. `translation_status` passes none.
+    struct ReadOptions {
+        /// Each document's open questions (`.query` and language-tagged
+        /// `.craftNote`, open), and the documents whose notes would not read.
+        struct OpenQuestions {
+            var byDoc: [String: [Annotation]]
+            var unreadable: Set<String>
+        }
+        var openQuestions: OpenQuestions?
+        /// Derive only these languages (case-insensitive); nil for all.
+        var languages: Set<String>?
+        /// Yield between chapters and stop when cancelled.
+        var yieldsAndStops = false
+
+        struct Unreadable: LocalizedError {
+            var errorDescription: String? { "Its history could not be read." }
+        }
+    }
+
+    /// **The open questions from the project-wide annotation read**
+    /// (`ProjectStore.listAnnotationsAcrossProject`, cached behind its key and
+    /// shared with To resolve and the Book's Status): an open document's live
+    /// notes, a closed one's derived from its op log — the same rule
+    /// `withAnnotationDocument` reads, with no load.
+    static func openQuestions(in snapshot: ProjectAnnotationsSnapshot) -> ReadOptions.OpenQuestions {
+        var byDoc: [String: [Annotation]] = [:]
+        for entry in snapshot.annotations
+        where [.query, .craftNote].contains(entry.annotation.kind) && entry.annotation.status == .open {
+            byDoc[entry.docId, default: []].append(entry.annotation)
+        }
+        return .init(byDoc: byDoc, unreadable: Set(snapshot.unreadableDocIds))
+    }
+
     struct DocumentReport: Equatable, Sendable {
         var rows: [DocumentRow]
         var unreadable: [UnreadableDocument]
@@ -185,16 +219,15 @@ enum EditionStatus {
     /// must never accidentally acquire a scope.
     ///
     /// `reusingFigures`: the table rows a previous pass counted, folded in
-    /// again instead of recounting them — the desk passes them while a round
-    /// is running, whose per-ingest events would otherwise recount every
-    /// table per event (`DepartmentPaneHost.refillsBudgets`' precedent; the
-    /// round's end re-derives).
+    /// again instead of recounting them, for a caller re-reading while a round
+    /// runs, whose per-ingest events would otherwise recount every table per
+    /// event (the round's end re-derives).
     static func languageRows(
         in store: ProjectStore, projectURL: URL, documentIds: [String],
-        reusingFigures: FigureReport? = nil
+        reusingFigures: FigureReport? = nil, options: ReadOptions = .init()
     ) async -> Report {
         let documents = await documentRows(
-            documentIds: documentIds, store: store, projectURL: projectURL)
+            documentIds: documentIds, store: store, projectURL: projectURL, options: options)
         // The tables those documents use count too (report plan 9e-1 Task 6):
         // the coverage gate refuses an edition over an untranslated cell, so a
         // desk that left them out would read "done" over a compile that fails.
@@ -240,9 +273,12 @@ enum EditionStatus {
         let byDoc = TranslationStore.languagesByDocId(in: projectURL)
         let inScope = Set(scope)
         let manuscript = manuscriptDocumentIds(in: store.manifest).filter(inScope.contains)
-        var layer = manuscript.reduce(into: Set<String>()) { $0.formUnion(byDoc[$1] ?? []) }
+        let removed = store.manifest.removedEditions
+        var layer = Set(BookEditions.listed(
+            manuscript.reduce(into: Set<String>()) { $0.formUnion(byDoc[$1] ?? []) }, removed: removed))
         let tables = (store.manifest.figures ?? []).filter { $0.kind == .table }.map(\.id)
-        let onlyTables = tables.reduce(into: Set<String>()) { $0.formUnion(byDoc[$1] ?? []) }
+        let onlyTables = Set(BookEditions.listed(
+            tables.reduce(into: Set<String>()) { $0.formUnion(byDoc[$1] ?? []) }, removed: removed))
             .subtracting(layer)
         guard !onlyTables.isEmpty else { return layer }
         let figures = await store.translationFigures()
@@ -312,8 +348,15 @@ enum EditionStatus {
     ///
     /// `layerScope`: the edition `layerLanguages` is asked over — nil for the
     /// documents named; `translation_status` passes the whole book.
+    ///
+    /// `options` (an edition's Status and the desk, never `translation_status`):
+    /// the open questions handed in from the project-wide annotation read, so
+    /// no closed chapter is loaded; the languages to derive; and a walk that
+    /// yields between chapters and stops when its task is cancelled. Default:
+    /// today's walk, byte for byte.
     static func documentRows(
-        documentIds: [String], layerScope: [String]? = nil, store: ProjectStore, projectURL: URL
+        documentIds: [String], layerScope: [String]? = nil, store: ProjectStore, projectURL: URL,
+        options: ReadOptions = .init()
     ) async -> DocumentReport {
         var rows: [DocumentRow] = []
         var unreadable: [UnreadableDocument] = []
@@ -337,7 +380,16 @@ enum EditionStatus {
             try TrustResolution.resolve(projectURL: projectURL, identities: .current)
         }
         for documentId in documentIds {
+            if options.yieldsAndStops {
+                // One chapter's work at a time on the main actor, and a walk
+                // whose key moved on stops here rather than piling up.
+                await Task.yield()
+                if Task.isCancelled { break }
+            }
             do {
+                if let questions = options.openQuestions, questions.unreadable.contains(documentId) {
+                    throw ReadOptions.Unreadable()
+                }
                 // All of this chapter's rows or none of them: a document that
                 // failed halfway would otherwise leave the languages it got
                 // through in the answer and the rest out of it, which reads as a
@@ -345,7 +397,8 @@ enum EditionStatus {
                 // happened to land.
                 let read = try await documentRows(
                     documentId: documentId, roleLanguages: roleLanguages, layer: layer,
-                    store: store, projectURL: projectURL, trust: try resolved.get())
+                    store: store, projectURL: projectURL, trust: try resolved.get(),
+                    options: options)
                 rows += read.rows
                 if let text = read.text { texts[documentId] = text }
             } catch {
@@ -396,16 +449,27 @@ enum EditionStatus {
         }
         guard !used.readable.isEmpty else { return FigureReport(rows: [], unreadable: unreadable) }
         let tables = used.readable
+        let removed = store.manifest.removedEditions
         let counted = await Task.detached(priority: .userInitiated) {
-            countRows(tables: tables, languages: languages, layer: layer, projectURL: projectURL)
+            countRows(tables: tables, languages: languages, layer: layer, removed: removed,
+                      projectURL: projectURL)
         }.value
         return FigureReport(rows: counted.rows, unreadable: unreadable + counted.unreadable)
+    }
+
+    /// **The languages a table's rows are reported in** (MCP's `figures`): the
+    /// book's, and any its own file names, a removed edition's never
+    /// (closing review IM2: `rows` and `figures` must agree). Pure.
+    nonisolated static func figureLanguages(languages: Set<String>, onFile: Set<String>,
+                                            removed: [String]?) -> [String] {
+        BookEditions.listed(languages.union(onFile), removed: removed).sorted()
     }
 
     /// `figureRows`' counting half, off the main actor: one trust resolution,
     /// then each table's records read and derived per language.
     nonisolated private static func countRows(
-        tables: [FigureUse.Table], languages: Set<String>, layer: Set<String>, projectURL: URL
+        tables: [FigureUse.Table], languages: Set<String>, layer: Set<String>, removed: [String]?,
+        projectURL: URL
     ) -> FigureReport {
         let byDoc = TranslationStore.languagesByDocId(in: projectURL)
         let resolved = Result {
@@ -416,7 +480,8 @@ enum EditionStatus {
         for use in tables {
             do {
                 var perLanguage: [FigureRow] = []
-                for language in languages.union(byDoc[use.record.id] ?? []).sorted() {
+                for language in figureLanguages(languages: languages, onFile: byDoc[use.record.id] ?? [],
+                                                removed: removed) {
                     guard layer.contains(language) else {
                         perLanguage.append(FigureRow(
                             figureId: use.record.id, name: use.record.name, language: language,
@@ -448,7 +513,7 @@ enum EditionStatus {
     /// half that never does.
     private static func documentRows(
         documentId: String, roleLanguages: [String], layer: Set<String>,
-        store: ProjectStore, projectURL: URL, trust: TrustTable
+        store: ProjectStore, projectURL: URL, trust: TrustTable, options: ReadOptions
     ) async throws -> (rows: [DocumentRow], text: FigureUse.Piece?) {
         // The document's text, read at most once across its languages.
         var state: (sequence: [String], paragraphs: [String: String], projectURL: URL)?
@@ -457,14 +522,25 @@ enum EditionStatus {
             TranslationStore.languages(forDocId: documentId, in: projectURL))
 
         // Open translator questions for this document, resolved the
-        // open/closed way `list_annotations` (and `TranslationReviewPane`'s
+        // open/closed way `list_annotations` (and the translation pane's
         // own filter) do, so every surface's count matches. Fetched once
         // per document; also the source of query-first languages.
-        let openQuestions = try await withAnnotationDocument(
-            store: store, projectURL: projectURL, documentId: documentId
-        ) { document in
-            document.annotations(filter: AnnotationFilter(
-                kinds: [.query, .craftNote], statuses: [.open]))
+        let openQuestions: [Annotation]
+        if let handed = options.openQuestions {
+            openQuestions = handed.byDoc[documentId] ?? []
+        } else {
+            do {
+                openQuestions = try await withAnnotationDocument(
+                    store: store, projectURL: projectURL, documentId: documentId
+                ) { document in
+                    document.annotations(filter: AnnotationFilter(
+                        kinds: [.query, .craftNote], statuses: [.open]))
+                }
+            } catch is ManuscriptBeingPromoted {
+                // A reader skips a piece a promotion is moving (shell p4
+                // Task 11 fix round 1, I1): no questions read from it now.
+                openQuestions = []
+            }
         }
         // The tag does the discriminating: an untagged craft note has a nil
         // `language` and belongs to no edition.
@@ -472,7 +548,13 @@ enum EditionStatus {
         // A language with a layer anywhere in the book reaches every
         // document: one with no file of its own is untranslated into it.
         let languages = editionLanguages(
-            files: fileLanguages.union(layer), queries: queryLanguages, roles: roleLanguages)
+            files: fileLanguages.union(layer), queries: queryLanguages, roles: roleLanguages,
+            removed: store.manifest.removedEditions)
+            .filter { language in
+                options.languages.map { wanted in
+                    wanted.contains { $0.caseInsensitiveCompare(language) == .orderedSame }
+                } ?? true
+            }
 
         var rows: [DocumentRow] = []
         for language in languages {
@@ -528,8 +610,8 @@ enum EditionStatus {
     /// The per-document rows folded into one row per language.
     ///
     /// Pure and `nonisolated` so the fold is assertable on its own, without a
-    /// project on disk — the shape `CanvasMembership` and `DepartmentDesk` both
-    /// take for the same reason.
+    /// project on disk — the shape `CanvasMembership` takes for the same
+    /// reason.
     ///
     /// The translator is a fact about the LANGUAGE rather than about any one
     /// document, so every row for a language already carries the same name and
@@ -578,7 +660,8 @@ enum EditionStatus {
                 language: tag, translator: translatorName(for: tag, in: manifest),
                 fresh: 0, stale: 0, missing: 0, openQueries: 0)
         }
-        return byLanguage.values.sorted { $0.language < $1.language }
+        return byLanguage.values.filter { BookEditions.lists($0.language, removed: manifest.removedEditions) }
+            .sorted { $0.language < $1.language }
     }
 
     /// Every language this book has a stored translator for — the union's third
@@ -618,15 +701,19 @@ enum EditionStatus {
     /// person's language, so a manifest that spells the tag one way and a
     /// translation file that spells it the other must not draw the writer two
     /// rows for one edition.
+    ///
+    /// **A removed edition is hidden** (`ProjectManifest.removedEditions`,
+    /// shell p4 closing round): its files and roles stay, and it is listed
+    /// again the moment it is added back.
     nonisolated static func editionLanguages(
-        files: Set<String>, queries: Set<String>, roles: [String]
+        files: Set<String>, queries: Set<String>, roles: [String], removed: [String]?
     ) -> [String] {
         var languages = files.union(queries)
         var seen = Set(languages.map { $0.lowercased() })
         for tag in roles where seen.insert(tag.lowercased()).inserted {
             languages.insert(tag)
         }
-        return languages.sorted()
+        return BookEditions.listed(languages, removed: removed).sorted()
     }
 
     /// The translator's display name for `language`, read **without minting**.

@@ -32,7 +32,7 @@ enum NewProjectChoice: Hashable {
     var help: String {
         switch self {
         case .kind(.shortStory): return "One document of prose."
-        case .kind(.novel): return "Prose in chapters, arranged in a binder."
+        case .kind(.novel): return "Prose in \(PieceNoun.of(nil, in: PieceNoun.Book(type: .novel)).plural), arranged in a binder."
         case .kind(.screenplay): return "One Fountain screenplay, with a scene navigator."
         case .kind(.collection): return "Separate pieces, each in prose or Fountain."
         case .kind(.unknown): return ""   // excluded from allCases; never offered here
@@ -78,7 +78,7 @@ extension ProjectFactory.ReportShape {
     var help: String {
         switch self {
         case .singleDocument: return "One document, report.md, with numbered headings inside it."
-        case .sections: return "Sections in a binder, starting with an Introduction."
+        case .sections: return "\(PieceNoun.section.capitalisedPlural) in a binder, starting with an Introduction."
         }
     }
 }

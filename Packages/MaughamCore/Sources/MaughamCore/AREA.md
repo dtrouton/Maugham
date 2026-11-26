@@ -68,7 +68,7 @@ Rules for these files are in `Maugham/OpLog/AREA.md` → Rules ("The permit", "T
 - `PermitTimeline.swift` — one person's permits in order; the check reads this, never the record's fields (tripwire 43).
 - `PermitPartition.swift` — judges a file line by line against the timeline, before the parse (tripwire 45).
 - `PermitWords.swift` — the writer-facing words for each rung, shared by both surfaces.
-- `OpLogPermitContext.swift` — the document facts (class, starter, ownership) a reader needs before asking the permit table.
+- `OpLogPermitContext.swift` — the document facts (class, starter, ownership) a reader needs before asking the permit table; `LineSigners` and `NoteOwner`: whose note.
 - `DocumentClass.swift` — maps a stream's document id to the kind of place a permit names.
 - `UnsignedSnapshot.swift` — the photograph of unsigned streams taken at the first narrowing (tripwire 49).
 - `LocalWritePermit.swift` — what this device's own hand may write into one stream; `mayMintOpening` lives here (tripwire 46).
@@ -304,11 +304,11 @@ Checks: the compiler (exhaustive `MarkdownBlock` and AST switches), `ElementCens
 2. `StatementLookup.swift` — add a `StatementConvention` path and a `newPath` row. That switch has a `default:`, so a missing row silently returns `nil`.
 3. Exhaustive switches on `Maugham/` (from `grep -rn 'case \.lessons'`): `Maugham/Canvas/Promotion.swift` (`kindTitle`), `Maugham/Compiler/RulingPerformer.swift` (`noun`), `Maugham/Views/ProjectWindow.swift` (`statementPane(forMark:in:)`).
 4. `if case` sites that default silently: `Maugham/Views/StatementPane.swift` (pane title) and `Maugham/Views/RulingsStratum.swift` (stratum title).
-5. If the kind gets a pane: a `DetailSegment` case in `Maugham/Models/DetailSegment.swift`, its arm in `Maugham/Views/DetailPaneToggle.swift`, a shortcut in `Maugham/MaughamApp.swift`, a place in `PersonaPaneRegistryTests.canonicalPaneOrder`, and membership in each persona's `Persona.panes` (`Maugham/Models/Persona.swift`).
+5. If the kind is pulled up: a `PulledUp` case in `Maugham/Models/PulledUp.swift`, its arm in `Maugham/Views/PulledUpView.swift`, a `PullUpRequest` and its shortcut in `Maugham/MaughamApp.swift` (pinned by `RightColumnMountingTests`).
 6. If Claude reads it: a read tool beside `Maugham/MCP/Tools/LessonsTools.swift`. `CompilerAllowlistTests.statementWriters` must still find no writer.
 7. If the writer writes it: one production file names the kind to `RulingPerformer`, guarded by a census copied from `TripwireGrepTests.test_theLessonsLedgerIsWrittenFromOneFile` or `test_theFirstReadersStatementIsWrittenFromOneFile`.
 
-Checks: the compiler, `StatementTests` and `StatementLookupTests` round-trips, `PersonaPaneRegistryTests` and the allowlist census.
+Checks: the compiler, `StatementTests` and `StatementLookupTests` round-trips, `RightColumnMountingTests` and the allowlist census.
 
 ### Add a ProjectType case
 1. `ProjectType.swift` — add the case and its snake_case raw value, add it to `allCases`, and bump `ProjectManifest.currentSchemaVersion` (ADR 0015).

@@ -23,9 +23,9 @@ import MaughamCore
 /// **What is production, end to end:** `BinderView`'s `List(selection:)` and its
 /// row tags; the `Binding` the two columns share; `ProjectWindow`'s boundary
 /// conversion (called, not copied — see `BinderBesideThePaneProbeView`);
-/// `DetailPaneToggle`'s `segmentContent`; `StatementPane.effectiveScope`; and
-/// `StatementEditorHost.reconcile`, which closes the outgoing `Document` before
-/// opening the incoming one.
+/// `RightColumn`'s `switch` over `RightColumnContent`; Brief's scope
+/// (`BriefScope.of` the faces) and its Going for; and the statement host,
+/// which closes the outgoing `Document` before the incoming one opens.
 ///
 /// **How the resolved scope is observed.** It is `@State` two views down and is
 /// not readable from outside — and the pane's own lesson (`shouldMount`) is that
@@ -41,7 +41,7 @@ final class StatementPaneSelectionDeliveryTests: XCTestCase {
     private var fixtures: [StatementMountFixture] = []
 
     override func tearDown() async throws {
-        for fixture in fixtures { fixture.tearDown() }
+        for fixture in fixtures { await fixture.closeAndTearDown() }
         fixtures.removeAll()
         try await super.tearDown()
     }
@@ -80,7 +80,7 @@ final class StatementPaneSelectionDeliveryTests: XCTestCase {
                                   "the project row is selected, so the Intent pane "
                                   + "must be showing the book's intent")
 
-        await made.selectBinderRow(1, in: window, until: {
+        await made.selectBinderRow(1 + TreeFurniture.topRows, in: window, until: {
             made.subjectProbe.subject == BinderSubject.item(seeded.chapterItemId)
         })
         XCTAssertEqual(made.subjectProbe.subject, .item(seeded.chapterItemId),
@@ -100,11 +100,11 @@ final class StatementPaneSelectionDeliveryTests: XCTestCase {
                                   + "chapter's intent")
     }
 
-    /// **The other half of what the blocker names: `detailSegment`.**
+    /// **The other half of what the blocker names: the column's position.**
     ///
-    /// `⌘⌥N`/`⌘⌥V` is not a scope change — `segmentContent` gives `.intent` and
-    /// `.visualLanguage` separate `case` arms, so the host is **torn down** and a
-    /// fresh one built. Its `@State` does not survive that, and `leave()` exists
+    /// `⌘⌥N`/`⌘⌥V` is not a scope change — Brief and the pulled-up thing are
+    /// separate arms of `RightColumn`'s `switch`, so the host is **torn down**
+    /// and a fresh one built. Its `@State` does not survive that, and `leave()` exists
     /// because a marker that did survive it was a lie. This drives the round trip
     /// with a chapter selected and asserts the pane comes back on the chapter's
     /// intent rather than on the project's or on nothing.
@@ -113,7 +113,7 @@ final class StatementPaneSelectionDeliveryTests: XCTestCase {
         let made = seeded.fixture
         let window = await made.hostTheBinderBesideThePane(subject: nil)
 
-        await made.selectBinderRow(1, in: window, until: {
+        await made.selectBinderRow(1 + TreeFurniture.topRows, in: window, until: {
             made.subjectProbe.subject == BinderSubject.item(seeded.chapterItemId)
         })
         XCTAssertEqual(made.subjectProbe.subject, .item(seeded.chapterItemId),
@@ -127,8 +127,8 @@ final class StatementPaneSelectionDeliveryTests: XCTestCase {
         // `.onDisappear`. This test IS the teardown, so it is not shortened on a
         // proxy for it. Coming back has a condition — the words the assertion
         // below reads.
-        await made.showSegment(.visualLanguage)
-        await made.showSegment(.intent, until: {
+        await made.showVisualLanguage()
+        await made.showBrief(until: {
             made.firstTextView(in: window)?.string == seeded.chapterText
         })
 
@@ -137,36 +137,42 @@ final class StatementPaneSelectionDeliveryTests: XCTestCase {
                                   + "than the one the tree still names")
     }
 
-    /// **The subject the tree cannot name is still the pane's answer.** A group
-    /// is a selectable row and holds no intent of its own — `createStatement`
-    /// throws `.structureMissing` for one — so the pane resolves it to the
-    /// project. Asserted through the delivery path rather than only against
-    /// `effectiveScope`, because this is the case where the tree's subject and
-    /// the pane's scope legitimately DISAGREE, and after slice 1 the header is
-    /// the only thing that says so.
-    func test_selectingAGroupLeavesTheIntentPaneOnTheProjects() async throws {
-        let seeded = try await seededFixture(named: "GroupFallsBack")
+    /// **A group has a Brief of its own, and no intent editor.** A group is a
+    /// selectable row and holds no intent — `createStatement` throws
+    /// `.structureMissing` for one. The old Intent pane resolved it to the
+    /// project's intent (`StatementPane.effectiveScope`, still pinned in
+    /// `StatementPaneTests` for the mounts that pane keeps); Brief shows the
+    /// Part's own (`BriefScope.part`), which lists its pieces and mounts no
+    /// statement editor. Asserted through the delivery path: no editor is on
+    /// screen, so no keystroke can mint an intent for a group.
+    func test_selectingAGroupShowsThePartsBriefAndNoIntentEditor() async throws {
+        let seeded = try await seededFixture(named: "GroupHasItsOwnBrief")
         let made = seeded.fixture
         let group = try await made.store.addStructureItem(
             parentId: nil, title: "Act One", kind: .group)
         let window = await made.hostTheBinderBesideThePane(subject: nil)
+        try await assertPaneShows(seeded.projectText, in: window, of: made,
+                                  "precondition: nothing selected is the Book's Brief")
 
-        let table = try XCTUnwrap(made.firstTableView(in: window))
         // The group is the last row the STRUCTURE contributes, which since
         // stage-2a Task 4 is no longer the last row of the list: the Research
         // and Palette sections sit below it. Counted from the structure rather
         // than from the table's end so a future section cannot move it again.
-        let groupRow = 1 + made.store.manifest.structure.count - 1
+        let groupRow = 1 + TreeFurniture.topRows + made.store.manifest.structure.count - 1
         await made.selectBinderRow(groupRow, in: window, until: {
             made.subjectProbe.subject == BinderSubject.item(group.id)
+                && made.firstTextView(in: window) == nil
         })
         XCTAssertEqual(made.subjectProbe.subject, .item(group.id),
                        "precondition: the row under the project row and the "
                        + "chapters is the group just added")
-
-        try await assertPaneShows(seeded.projectText, in: window, of: made,
-                                  "a group is not a scope — the pane must fall back "
-                                  + "to the project's intent")
+        guard case .part = BriefScope.of(made.columnProbe.subject.faces,
+                                         structure: made.store.manifest.structure,
+                                         projectType: made.store.manifest.type) else {
+            return XCTFail("a group's Brief is the Part's")
+        }
+        XCTAssertNil(made.firstTextView(in: window),
+                     "a group is not a scope — its Brief mounts no intent editor")
     }
 
     // MARK: - Fixtures and assertions

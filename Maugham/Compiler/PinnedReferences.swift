@@ -16,7 +16,7 @@ struct PinnedReference: Identifiable, Equatable, Sendable {
 
     /// **A ROUTING vocabulary, and deliberately coarser than what the canvas
     /// draws with.** Each case answers one question its readers actually ask:
-    /// which surface renders this (the References pane's assistant column) and
+    /// which surface renders this (the pulled-up view) and
     /// which MCP tool fetches it (the compiler's context listing). A research
     /// note, a PDF and a research photograph are one case here because the
     /// answer for all three is the same — `read_document`'s research arm and
@@ -63,6 +63,10 @@ struct PinnedReference: Identifiable, Equatable, Sendable {
 struct PinnedSection: Equatable, Sendable {
     let title: String?
     let references: [PinnedReference]
+    /// The bound region this run is, nil for the research run and the loose
+    /// cards. What tells a region from the loose cards, never the title: a
+    /// region the writer titled "Cards" is still a region.
+    var regionId: CanvasRegionID? = nil
 }
 
 /// **What a document is pinned to, grouped the way the writer arranged it.**
@@ -112,8 +116,8 @@ struct PinnedShelf: Equatable, Sendable {
 /// Novels and silently short for every other project type — in all three of its
 /// readers at once.
 ///
-/// Three readers consume it and none of them may re-derive it: the References
-/// pane and its assistant column, and the author compiler's context listing.
+/// Its readers consume it and none of them may re-derive it: a piece's fold
+/// in the tree and the author compiler's context listing.
 /// That is the whole reason it is a pure function in the model layer rather
 /// than a computed property on a view.
 ///
@@ -138,7 +142,7 @@ enum PinnedReferences {
     ///     its table from `StructureItem.id`).
     ///   - links: `ProjectStore.linkedResearchIds(forDocumentId:)` — research
     ///     item ids the writer linked. **Not** `StructureItem.links`, which is
-    ///     `InspectorLinksSection`'s unrelated document-to-document backlink
+    ///     the unrelated document-to-document link
     ///     field; `linkResearch(researchId:toDocumentId:)` is the only write
     ///     path into `linkedResearchIds`, and it never touches `.links`
     ///     (found wiring this into the compiler, M2 Plan 2 Task 3 — the two
@@ -157,12 +161,20 @@ enum PinnedReferences {
     ///   - items: `CanvasItemIndex.over(research:)` — the canvas's own manifest
     ///     index, which answers both the title and the research-vs-palette
     ///     question. Built once per manifest change at the composition root.
+    ///   - promotedRegionsListTheirCards: the tree's fold only (review M2,
+    ///     2026-11-21). A promoted region's section then holds the note it
+    ///     became AND, after it, its cards in reading order — what the region
+    ///     pulled up beside shows (`PulledUpRegionView.read`), so the fold's
+    ///     region row and the region beside never disagree. Every other
+    ///     reader (the compiler's briefing, the study) keeps §2.3: the note
+    ///     alone.
     static func pinned(forDocId docId: String,
                        links: [String]?,
                        derived: [String],
                        scene: CanvasScene?,
                        scraps: [CanvasNodeID: String],
-                       items: CanvasItemIndex) -> PinnedShelf {
+                       items: CanvasItemIndex,
+                       promotedRegionsListTheirCards: Bool = false) -> PinnedShelf {
 
         var sections: [PinnedSection] = []
         var out: [PinnedReference] = []
@@ -183,10 +195,10 @@ enum PinnedReferences {
         /// which is what makes "no loose cards" and "a region whose every card
         /// is a visitor" come out as an absent heading rather than a heading
         /// over nothing.
-        func close(titled title: String?) {
+        func close(titled title: String?, region: CanvasRegionID? = nil) {
             defer { out = [] }
             guard !out.isEmpty else { return }
-            sections.append(PinnedSection(title: title, references: out))
+            sections.append(PinnedSection(title: title, references: out, regionId: region))
         }
 
         // **The piece's bound regions are resolved BEFORE the untitled run**,
@@ -243,13 +255,17 @@ enum PinnedReferences {
                 // the cards instead — the fact is stale and the writer still
                 // has the material.
                 take(promoted)
+                if promotedRegionsListTheirCards {
+                    for id in readingOrder(ofRegion: region.id, in: scene) {
+                        take(pin(for: id, in: scene, scraps: scraps, items: items))
+                    }
+                }
             } else {
-                for id in Promotion.readingOrder(
-                    CanvasMembership.residents(of: region.id, in: scene), in: scene) {
+                for id in readingOrder(ofRegion: region.id, in: scene) {
                     take(pin(for: id, in: scene, scraps: scraps, items: items))
                 }
             }
-            close(titled: Promotion.regionTitle(region))
+            close(titled: Promotion.regionTitle(region), region: region.id)
         }
 
         // A card the writer tied to the piece ITSELF. `seen` is what keeps one
@@ -263,6 +279,15 @@ enum PinnedReferences {
         close(titled: PinnedShelf.looseCardsTitle)
 
         return PinnedShelf(sections: sections)
+    }
+
+    /// **A region's cards in the canvas's visual order** — its residents
+    /// (never a visitor), top to bottom, then left to right. The one ordering
+    /// of a region's cards: the shelf, the fold and a region pulled up beside
+    /// (`PulledUpRegionView`) all read it.
+    static func readingOrder(ofRegion region: CanvasRegionID,
+                             in scene: CanvasScene) -> [CanvasNodeID] {
+        Promotion.readingOrder(CanvasMembership.residents(of: region, in: scene), in: scene)
     }
 
     /// The piece's regions in the order the shelf shows them: by the title the

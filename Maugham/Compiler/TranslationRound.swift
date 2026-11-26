@@ -149,6 +149,13 @@ struct TranslationRound: Codable, Equatable, Sendable {
         /// before this fix decodes (as `nil` — its dismissal, if it had one, is
         /// in `outcome` and `departureRows` still reads it there).
         var dismissed: Bool? = nil
+        /// **The author filed a ruling on it** — Keep mine or Make it a rule
+        /// (shell p4 Task 6 fix round, controller's ruling: filing settles).
+        /// Set with `dismissed`, so the departure is settled everywhere a
+        /// change "to look at" is counted; kept apart so the report says what
+        /// the author did ("Ruled.") rather than "You said this was fine."
+        /// `nil` on every record an older build wrote.
+        var ruled: Bool? = nil
     }
 
     struct GlossaryProposalRecord: Codable, Equatable, Sendable {
@@ -161,6 +168,21 @@ struct TranslationRound: Codable, Equatable, Sendable {
         /// existing callers compile. `nil` on a record an older build wrote
         /// (no such verb existed yet) and on one nobody has answered.
         var skipped: Bool? = nil
+
+        /// **Which proposal this is, stably** (shell p4 Task 6 fix round):
+        /// the term and its rendering. A verb names a proposal by this and is
+        /// resolved against the record as it stands at the write, never by a
+        /// position a list held — a round rewritten between a draw and a
+        /// press cannot have the wrong term adopted.
+        var identity: String { "\u{AB}" + term + "\u{BB}\u{2192}\u{AB}" + rendering + "\u{BB}" }
+
+        /// **One proposal per identity, the first kept** (shell p4 Task 6 fix
+        /// round 2, N2): a translator that proposes the same pair twice
+        /// records it once, so a verb named by identity answers it whole.
+        static func deduped(_ proposals: [GlossaryProposalRecord]) -> [GlossaryProposalRecord] {
+            var seen = Set<String>()
+            return proposals.filter { seen.insert($0.identity).inserted }
+        }
     }
 
     /// A note or departure the translator declined — the report's
@@ -232,6 +254,12 @@ struct TranslationRound: Codable, Equatable, Sendable {
     /// 9e-2), or nil when the round had none to write. Optional so a round
     /// recorded before cells existed still reads.
     var tableCells: TableCellsRecord?
+    /// **Who the round was signed by, as the cast read when it ran** (shell
+    /// p4 Task 7 fix round, M3). A rename on the edition's Brief applies from
+    /// the next round; a past letter keeps the name it was written under.
+    /// Optional so a round recorded before it existed still reads (and is
+    /// signed by today's name, `signedBy`).
+    var translatorName: String?
 
     /// The cells that landed, and every refusal as the sentence the writer
     /// reads — a table's refused batch is said on the report, never dropped.
@@ -243,6 +271,13 @@ struct TranslationRound: Codable, Equatable, Sendable {
     init(number: Int, language: String, docId: String, startedAt: Date) {
         self.number = number; self.language = language; self.docId = docId
         self.startedAt = startedAt
+    }
+
+    /// The name this round's letter is signed with: the one recorded when it
+    /// ran, else `liveName` (a round from before names were recorded).
+    func signedBy(liveName: String) -> String {
+        translatorName.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .flatMap { $0.isEmpty ? nil : $0 } ?? liveName
     }
 
     /// The leg a failed or cancelled round stopped at, or nil for one that ran

@@ -1,33 +1,50 @@
 import SwiftUI
 import MaughamCore
 
-struct ProjectAltitudePane: View {
+/// **The Book — or a Part, a small Book over its own chapters — in one of its
+/// three views**: Cards, Outline, Status. The header is the title alone: the
+/// switch between the views is the window toolbar's (`CentreViewSwitch`,
+/// shell p4 Task 4). Status is the passes board, a view of the Book and never
+/// a cover (`CentreRoute.editor(altitude:cover:)`).
+///
+/// The board arrives as a view built by its one mount (`CentreColumn`, which
+/// owns its open-notes counts and verbs); this pane only places it.
+struct ProjectAltitudePane<Status: View>: View {
     @Bindable var store: ProjectStore
-    @Binding var layout: OutlineLayout
+    /// The view the route chose (`ProjectWindow.altitudeView`) — what draws.
+    let view: BookView
     @Binding var selectedSubject: BinderSubject?
     let title: String
+    /// The pieces this view lays out: the whole manuscript, or a Part's own.
+    let structure: [StructureItem]
+    @ViewBuilder let status: () -> Status
 
     var body: some View {
         VStack(spacing: 0) {
             header
             Divider()
-            if store.manifest.structure.isEmpty {
-                ContentUnavailableView {
-                    Label("No items yet", systemImage: "list.bullet.indent")
-                } description: {
-                    Text("Add chapters or scenes from the Manuscript binder")
+            switch view {
+            case .status:
+                status()
+            case .outline, .cards:
+                if structure.isEmpty {
+                    ContentUnavailableView {
+                        Label("No items yet", systemImage: "list.bullet.indent")
+                    } description: {
+                        Text("Add your first \(PieceNoun.of(nil, in: store.manifest).singular) from the binder")
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else if view == .outline {
+                    OutlineTable(
+                        items: TreeWalk.collect(in: structure, where: { $0.type == .document }),
+                        store: store,
+                        selectedSubject: $selectedSubject)
+                } else {
+                    CorkboardGrid(
+                        items: TreeWalk.collect(in: structure, where: { $0.type == .document }),
+                        store: store,
+                        selectedSubject: $selectedSubject)
                 }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else if layout == .table {
-                OutlineTable(
-                    items: TreeWalk.collect(in: store.manifest.structure, where: { $0.type == .document }),
-                    store: store,
-                    selectedSubject: $selectedSubject)
-            } else {
-                CorkboardGrid(
-                    items: TreeWalk.collect(in: store.manifest.structure, where: { $0.type == .document }),
-                    store: store,
-                    selectedSubject: $selectedSubject)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
@@ -37,18 +54,8 @@ struct ProjectAltitudePane: View {
         HStack {
             Text(title).font(.headline)
             Spacer()
-            Picker("Layout", selection: $layout) {
-                Image(systemName: "list.bullet").tag(OutlineLayout.table)
-                Image(systemName: "rectangle.grid.2x2").tag(OutlineLayout.cards)
-            }
-            .pickerStyle(.segmented)
-            .labelsHidden()
-            .controlSize(.small)
         }
         .padding(8)
-        .onChange(of: layout) { _, newValue in
-            store.documentStore?.updateUIState { $0.outlineLayout = newValue }
-        }
     }
 
 }

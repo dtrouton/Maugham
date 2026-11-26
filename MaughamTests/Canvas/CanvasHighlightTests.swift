@@ -148,7 +148,7 @@ final class CanvasHighlightTests: XCTestCase {
     /// **An id that resolves to NOTHING is not a subject.**
     ///
     /// This asserted `.group([])` and a dimmed board for slice 3, and that was
-    /// wrong for the same reason `ProjectWindow.validSubject`'s document
+    /// wrong for the same reason `ProjectWindow.validatedSubject`'s document
     /// fallback was: a deletion is not a deliberate entry into the dim. Delete
     /// the chapter the canvas is filtered on and the board went dark with no lit
     /// set, no offer — `CanvasBindingOffer.message` answers only a `.piece` or a

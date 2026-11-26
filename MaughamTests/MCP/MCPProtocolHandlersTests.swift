@@ -20,6 +20,25 @@ final class MCPProtocolHandlersTests: XCTestCase {
         XCTAssertNotNil(caps["tools"])
     }
 
+    /// **`initialize` carries the server's instructions** (shell p5 Task 9
+    /// fix round 1, I3): the one guidance Claude Desktop reads, since it never
+    /// sees the bootstrap skill. One spelling; short; under the line budget
+    /// (tripwire 10); its words are read by `HelpWordsCensusTests`.
+    func test_initialize_sendsTheServersInstructions() async throws {
+        let data = try await MCPInitializeHandler.handle(paramsJSON: nil)
+        let any = try JSONDecoder().decode(AnyJSON.self, from: data)
+        guard case .object(let obj) = any, case .string(let sent) = obj["instructions"] else {
+            return XCTFail("initialize sends no instructions")
+        }
+        XCTAssertEqual(sent, MCPInitializeHandler.instructions)
+        for phrase in ["never write manuscript text", "get_help", "binder", "To resolve (⌘1)",
+                       "Brief (⌘2)", "Pulled up (⌘3)"] {
+            XCTAssertTrue(sent.contains(phrase), "the instructions say \(phrase)")
+        }
+        XCTAssertLessThanOrEqual(sent.split(whereSeparator: \.isWhitespace).count, 125, "a short paragraph")
+        XCTAssertLessThan(data.count, MCPResponseBudget.maxLineBytes)
+    }
+
     func test_toolsList_returnsAllExpectedTools() async throws {
         let data = try await MCPToolsListHandler.handle(paramsJSON: nil)
         let any = try JSONDecoder().decode(AnyJSON.self, from: data)

@@ -301,6 +301,23 @@ public final class JSONLAppendStore<Element: Codable & Sendable> {
 
     /// The strict twin of `readBytes`: absent is still empty, unreadable throws.
     private func readBytesStrict() throws -> Data {
+        try Self.readBytesStrict(fileURL: fileURL, presenter: presenter)
+    }
+
+    /// **`loadStrict` for a plain store (no dedup, sort or chain), off any
+    /// actor**: the coordinated read and the shared parser, so a reader may
+    /// run them detached — a folder slow to answer (a consent prompt, an
+    /// iCloud file not yet downloaded) then never holds the main actor.
+    /// **Never for a chained stream** (the op log, the inbox): those read
+    /// through their store's chain policy. Callers are counted
+    /// (`TripwireGrepTests.countedLists[".loadStrictPlain("]`).
+    public nonisolated static func loadStrictPlain(fileURL: URL,
+                                                   presenter: NSFilePresenter?) throws -> [Element] {
+        parse(bytes: try readBytesStrict(fileURL: fileURL, presenter: presenter)).elements
+    }
+
+    private nonisolated static func readBytesStrict(fileURL: URL,
+                                                    presenter: NSFilePresenter?) throws -> Data {
         guard FileManager.default.fileExists(atPath: fileURL.path) else { return Data() }
         let coord = NSFileCoordinator(filePresenter: presenter)
         var coordErr: NSError?
@@ -581,7 +598,7 @@ public final class JSONLAppendStore<Element: Codable & Sendable> {
             case .translator:
                 return "written by the translation pipeline, which writes only translations"
             case .maugham:
-                return "written by this app's own housekeeping, which writes only task order"
+                return "written by this app's own housekeeping, which writes only to-do order"
             case .author:
                 break
             }
@@ -592,7 +609,7 @@ public final class JSONLAppendStore<Element: Codable & Sendable> {
         case .disposition: clause = "a decision on a note"
         case .passState: clause = "a review pass set"
         case .statement: clause = "written into this book's own statements"
-        case .task: clause = "a task written"
+        case .task: clause = "a to-do written"
         case .translation: clause = "a translation written"
         case .figure: clause = "a table or figure changed"
         case .other: clause = "written"
@@ -641,7 +658,8 @@ public final class JSONLAppendStore<Element: Codable & Sendable> {
     nonisolated static func parse(
         bytes: Data,
         dedupKey: ((Element) -> String)? = nil,
-        sortedBy: ((Element, Element) -> Bool)? = nil
+        sortedBy: ((Element, Element) -> Bool)? = nil,
+        onElement: ((_ line: Int, Element) -> Void)? = nil
     ) -> (elements: [Element], diagnostics: ParseDiagnostics) {
         let dec = JSONDecoder()
         dec.dateDecodingStrategy = Self.dateDecoding
@@ -649,11 +667,15 @@ public final class JSONLAppendStore<Element: Codable & Sendable> {
         var seen = Set<String>()
         var skipped: [ParseDiagnostics.SkippedLine] = []
         var offset = 0
+        // `onElement`'s line number: the index among NON-EMPTY lines, seals
+        // included — the numbering `OpLogChain.verify` gives its own `lines`.
+        var lineNumber = -1
         let slices: [Data] = bytes.split(omittingEmptySubsequences: false, whereSeparator: { (byte: UInt8) in byte == 0x0A })
         for lineBytes in slices {
             let lineLen = lineBytes.count
             defer { offset += lineLen + 1 }  // +1 for the consumed newline
             if lineBytes.isEmpty { continue }  // blank line: not corruption
+            lineNumber += 1
             let data = Data(lineBytes)
             // A seal is a line of its own kind, not an element — it belongs to
             // the chain, and `OpLogChain` is the only thing that reads one. It
@@ -669,6 +691,7 @@ public final class JSONLAppendStore<Element: Codable & Sendable> {
             }
             if let key = dedupKey?(element), !seen.insert(key).inserted { continue }
             elements.append(element)
+            onElement?(lineNumber, element)
         }
         if let sortedBy { elements.sort(by: sortedBy) }
         return (elements, ParseDiagnostics(skipped: skipped))

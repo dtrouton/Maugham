@@ -1,15 +1,14 @@
 import Foundation
 
-/// **Which loop asked for this run** — Author's ⌘R or Review's Run round.
+/// **Which loop asked for this run** — a check (Check Writing, Reread) or a
+/// round (Run Round, Fresh Eyes, the round cockpit's Run).
 ///
-/// The two verbs have always been one act: `CompilerOrchestrator.runRequested`
-/// serves the keystroke in Author and the button in the round cockpit
-/// identically, and the persona the writer is standing in is not an input to
-/// it. That is what this type ends. A run now says which loop it belongs to,
-/// minted at the keystroke in exactly one place (`CompilerRunModifier`, the
-/// only site with a persona to mint from) and carried on `StreamingRun` to the
-/// record, so the preview and the answer that supersedes it cannot describe
-/// two different verbs.
+/// The two verbs were once one act, and then the window's mode decided which
+/// one a keystroke was (two loops P1). Since shell p1 Task 5 the COMMAND names its
+/// kind (`RunCommand`): four File menu items, each posting its own, and every
+/// other caller of `runRequested` names its kind literally. The kind is
+/// carried on `StreamingRun` to the record, so the preview and the answer
+/// that supersedes it cannot describe two different verbs.
 ///
 /// **A typed pair rather than a `Bool`.** `isRound` would read as a modifier
 /// on one verb; these are two, and the difference between them is about to
@@ -29,24 +28,89 @@ import Foundation
 /// two would be the one enumeration a third case could not make the compiler
 /// complain about.
 enum RunKind: String, Codable, Equatable, Sendable, CaseIterable {
-    /// Author's ⌘R: the delta since the marker, read by the reader, filed in
-    /// no lane.
+    /// Check Writing (⌘R): the delta since the marker, read by the reader,
+    /// filed in no lane.
     case check
-    /// Review's Run round: the piece whole, read by the pass's editor, filed
+    /// Run Round (⌃⌘R): the piece whole, read by the pass's editor, filed
     /// as a numbered round in that pass's lane.
     case round
+}
 
-    /// **The mint, and the whole of it.** Review is the round loop; every
-    /// other persona that can reach a run is checking.
-    ///
-    /// Exhaustive rather than `persona == .review ? .round : .check`, so a
-    /// fifth persona is a compile error here — a new mode of the window
-    /// deserves a decision about which loop its runs belong to, not the
-    /// silence a defaulted ternary would give it.
-    static func of(persona: Persona) -> RunKind {
-        switch persona {
-        case .review: return .round
-        case .plan, .author, .publish: return .check
+/// **The File menu's four run commands, each naming its own kind** (shell p1
+/// Task 5). What Run means is a property of the command, never of the window:
+/// ⌘R is always a check, wherever the writer is standing, and a round is only
+/// ever asked for by name.
+///
+/// Exhaustive switches with no `default`, so a fifth command must be given a
+/// kind, a cold-read answer, a title and an event here rather than inheriting
+/// any of them.
+enum RunCommand: CaseIterable, Equatable, Sendable {
+    /// ⌘R — a check over what changed since the last check.
+    case checkWriting
+    /// ⇧⌘R — the check read cold: the warm session ends and the piece is read whole.
+    case reread
+    /// ⌃⌘R — a numbered round by the pass's editor.
+    case runRound
+    /// ⌃⇧⌘R — the round read cold.
+    case freshEyes
+
+    var kind: RunKind {
+        switch self {
+        case .checkWriting, .reread: return .check
+        case .runRound, .freshEyes: return .round
+        }
+    }
+
+    /// Whether the warm session is retired and the piece read whole.
+    var isFreshEyes: Bool {
+        switch self {
+        case .checkWriting, .runRound: return false
+        case .reread, .freshEyes: return true
+        }
+    }
+
+    /// The File menu's title.
+    var title: String {
+        switch self {
+        case .checkWriting: return "Check Writing"
+        case .reread: return "Reread"
+        case .runRound: return "Run Round"
+        case .freshEyes: return "Fresh Eyes"
+        }
+    }
+
+    /// **The File menu's title, for the pass a round would file in** (shell
+    /// p5 Task 7, row 6): "Run Gould’s Round" — the board chip's
+    /// personification (`RoundNarrative.runRoundTitle`) in a menu's title
+    /// case — and the round read cold "Run Gould’s Round with Fresh Eyes".
+    /// A check is nobody's round, and with no pass the fixed titles stand.
+    func menuTitle(editorName: String?) -> String {
+        guard let editorName, kind == .round else { return title }
+        let round = "Run \(editorName)\u{2019}s Round"
+        return isFreshEyes ? round + " with Fresh Eyes" : round
+    }
+
+    /// The key as the writer reads it in a sentence (a tooltip, a teaching
+    /// line), in the menu bar's own order — the one spelling copy names a
+    /// command's key by, so a sentence cannot teach the wrong chord.
+    var keyLabel: String {
+        switch self {
+        case .checkWriting: return "\u{2318}R"
+        case .reread: return "\u{21e7}\u{2318}R"
+        case .runRound: return "\u{2303}\u{2318}R"
+        case .freshEyes: return "\u{2303}\u{21e7}\u{2318}R"
+        }
+    }
+
+    /// The key-window event the menu item posts and `CompilerRunModifier`
+    /// answers. One event per command: four promises, and a receiver that
+    /// read a flag out of a payload could deliver the expensive one by accident.
+    var event: Notification.Name {
+        switch self {
+        case .checkWriting: return .maughamRunCompiler
+        case .reread: return .maughamFreshEyesCompiler
+        case .runRound: return .maughamRunRound
+        case .freshEyes: return .maughamFreshEyesRound
         }
     }
 }

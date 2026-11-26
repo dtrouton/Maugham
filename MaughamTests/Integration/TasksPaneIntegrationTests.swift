@@ -2,7 +2,9 @@ import XCTest
 import MaughamCore
 @testable import Maugham
 
-/// Integration coverage for `TasksPane` — exercises the backing model and
+/// Integration coverage for the to-do verbs To resolve calls
+/// (`ResolveTaskVerbs`, moved out of the Tasks pane in shell plan 2 Task 4;
+/// the pane itself was deleted in Task 7) — exercises the backing model and
 /// the drag/drop classifier directly, not the SwiftUI render path. The
 /// drop classifier is a pure function (`TaskDropIntent.classify`) and
 /// pane mutations route through `Document` / `ProjectStore`, so we can
@@ -65,7 +67,7 @@ final class TasksPaneIntegrationTests: XCTestCase {
         let countBefore = doc.opLogMirrorCount
 
         // Build the pane's visible task list and run the classifier as the
-        // TasksPane would: drop B above A.
+        // To resolve would: drop B above A.
         let pool = doc.tasks(filter: TaskFilter(
             scope: .document(docId: doc.docId),
             statuses: Set(TaskStatus.allCases)))
@@ -73,8 +75,8 @@ final class TasksPaneIntegrationTests: XCTestCase {
             position: .top,
             targetId: a.id,
             targetParentTaskId: a.parentTaskId)
-        let pane = try await makePane(for: doc)
-        pane.apply(intent: intent, dragged: b, in: doc, allTasks: pool)
+        let verbs = try await makeVerbs(for: doc)
+        verbs.apply(intent: intent, dragged: b, in: doc, allTasks: pool)
 
         // Exactly one .taskPriorityChange op (no parent change — same root).
         let newOps = doc.opLogSnapshot.dropFirst(countBefore)
@@ -92,85 +94,11 @@ final class TasksPaneIntegrationTests: XCTestCase {
             "B should appear above A after the reorder")
     }
 
-    // MARK: - 1b. SwiftUI .onMove → handleListMove → reorder
-
-    func test_handleListMove_dragSecondRowToFirst_emitsReorderAbove() async throws {
-        // Mirrors what SwiftUI's `.onMove` produces when the user drags
-        // row 1 (B) above row 0 (A). After the drop, `[B, A]`.
-        let doc = try await makeDocument()
-        let a = doc.createPaneTask(body: "A first", parentTaskId: nil)
-        let b = doc.createPaneTask(body: "B second", parentTaskId: nil)
-
-        let pool = doc.tasks(filter: TaskFilter(
-            scope: .document(docId: doc.docId),
-            statuses: Set(TaskStatus.allCases)))
-        XCTAssertEqual(pool.map(\.id), [a.id, b.id], "pre: A, B")
-
-        let countBefore = doc.opLogMirrorCount
-        let pane = try await makePane(for: doc, registering: doc)
-        // SwiftUI semantic: dragging index 1 (B) to slot 0 means "drop
-        // before the row currently at index 0". destination = 0.
-        pane.handleListMove(
-            from: IndexSet(integer: 1), to: 0, in: pool)
-
-        let newKinds = doc.opLogSnapshot.dropFirst(countBefore).map(\.kind)
-        XCTAssertEqual(newKinds.filter { $0 == .taskPriorityChange }.count, 1,
-            "exactly one .taskPriorityChange expected")
-        let after = doc.tasks(filter: TaskFilter(
-            scope: .document(docId: doc.docId),
-            statuses: [.open]))
-        XCTAssertEqual(after.map(\.id), [b.id, a.id],
-            "B should appear above A after the .onMove")
-    }
-
-    func test_handleListMove_dragFirstRowBelowSecond_emitsReorderBelow() async throws {
-        let doc = try await makeDocument()
-        let a = doc.createPaneTask(body: "A first", parentTaskId: nil)
-        let b = doc.createPaneTask(body: "B second", parentTaskId: nil)
-
-        let pool = doc.tasks(filter: TaskFilter(
-            scope: .document(docId: doc.docId),
-            statuses: Set(TaskStatus.allCases)))
-
-        let countBefore = doc.opLogMirrorCount
-        let pane = try await makePane(for: doc, registering: doc)
-        // SwiftUI semantic: dragging index 0 (A) past index 1 (B) to slot 2.
-        // destination = 2 means "drop at the end" — the row at index 1
-        // becomes the new "above" reference.
-        pane.handleListMove(
-            from: IndexSet(integer: 0), to: 2, in: pool)
-
-        let newKinds = doc.opLogSnapshot.dropFirst(countBefore).map(\.kind)
-        XCTAssertEqual(newKinds.filter { $0 == .taskPriorityChange }.count, 1,
-            "exactly one .taskPriorityChange expected")
-        let after = doc.tasks(filter: TaskFilter(
-            scope: .document(docId: doc.docId),
-            statuses: [.open]))
-        XCTAssertEqual(after.map(\.id), [b.id, a.id],
-            "A should appear below B after the .onMove")
-    }
-
-    func test_handleListMove_dropOnSelf_isNoOp() async throws {
-        let doc = try await makeDocument()
-        let a = doc.createPaneTask(body: "A", parentTaskId: nil)
-        let b = doc.createPaneTask(body: "B", parentTaskId: nil)
-        _ = (a, b)
-
-        let pool = doc.tasks(filter: TaskFilter(
-            scope: .document(docId: doc.docId),
-            statuses: Set(TaskStatus.allCases)))
-        let countBefore = doc.opLogMirrorCount
-        let pane = try await makePane(for: doc, registering: doc)
-        // Drop index 0 onto slot 0 (self): no-op.
-        pane.handleListMove(
-            from: IndexSet(integer: 0), to: 0, in: pool)
-        // Drop index 0 onto slot 1 (right where it already is per
-        // SwiftUI's "insert before slot N" semantics): also no-op.
-        pane.handleListMove(
-            from: IndexSet(integer: 0), to: 1, in: pool)
-        XCTAssertEqual(doc.opLogMirrorCount, countBefore,
-            "no ops should fire for a self-targeted move")
-    }
+    // MARK: - 1b. (retired) SwiftUI `.onMove` → `handleListMove`
+    //
+    // The Tasks pane's `List.onMove` index translation went with the pane
+    // (shell plan 2 Task 7): To resolve has no `List`; a to-do moves by a
+    // drop, `ResolveTaskVerbs.apply(intent:…)`, which section 1 drives.
 
     // MARK: - 2. Inline checkbox click → typingBurst (not taskStatusChange)
 
@@ -187,7 +115,7 @@ final class TasksPaneIntegrationTests: XCTestCase {
         let inlineTask = tasks[0]
 
         let countBefore = doc.opLogMirrorCount
-        // Simulate the pane checkbox click: TasksPane.toggleStatus rewrites
+        // Simulate the row checkbox click: the toggle verb rewrites
         // the underlying paragraph via setParagraph (mirroring the editor
         // markdown-checkbox click path).
         guard let current = doc.paragraph(id: pid) else {
@@ -289,8 +217,8 @@ final class TasksPaneIntegrationTests: XCTestCase {
         // Sanity-check the classifier returned a nest, not a reorder.
         XCTAssertEqual(intent, .nestUnder(parentId: parent.id))
 
-        let pane = try await makePane(for: doc)
-        pane.apply(intent: intent, dragged: child, in: doc, allTasks: pool)
+        let verbs = try await makeVerbs(for: doc)
+        verbs.apply(intent: intent, dragged: child, in: doc, allTasks: pool)
 
         let newOps = doc.opLogSnapshot.dropFirst(countBefore)
         let parentOps = newOps.filter { $0.kind == .taskParentChange }
@@ -332,8 +260,8 @@ final class TasksPaneIntegrationTests: XCTestCase {
         let pool = doc.tasks(filter: TaskFilter(
             scope: .document(docId: doc.docId),
             statuses: Set(TaskStatus.allCases)))
-        let pane = try await makePane(for: doc)
-        pane.apply(intent: intent, dragged: dragged, in: doc, allTasks: pool)
+        let verbs = try await makeVerbs(for: doc)
+        verbs.apply(intent: intent, dragged: dragged, in: doc, allTasks: pool)
 
         let after = doc.tasks(filter: TaskFilter(
             scope: .document(docId: doc.docId),
@@ -403,8 +331,8 @@ final class TasksPaneIntegrationTests: XCTestCase {
         - [x] done two
         - [ ] still open
         """)
-        let pane = try await makePane(for: doc, registering: doc)
-        pane.archiveAllDone(in: .document, undoManager: nil)
+        let verbs = try await makeVerbs(for: doc)
+        verbs.archiveAllDone(in: .document)
         let remaining = doc.tasks(filter: TaskFilter(
             scope: .document(docId: doc.docId),
             statuses: [.open, .done]))
@@ -414,9 +342,9 @@ final class TasksPaneIntegrationTests: XCTestCase {
 
     func test_archiveAllDone_emptyList_noOps() async throws {
         let doc = try await makeDocument()
-        let pane = try await makePane(for: doc, registering: doc)
+        let verbs = try await makeVerbs(for: doc)
         let countBefore = doc.opLogMirrorCount
-        pane.archiveAllDone(in: .document, undoManager: nil)
+        verbs.archiveAllDone(in: .document)
         XCTAssertEqual(doc.opLogMirrorCount, countBefore,
             "no done tasks → no ops")
     }
@@ -425,8 +353,8 @@ final class TasksPaneIntegrationTests: XCTestCase {
         let doc = try await makeDocument()
         let task = doc.createPaneTask(body: "pane thing", parentTaskId: nil)
         doc.setTaskStatus(id: task.id, status: .done)
-        let pane = try await makePane(for: doc, registering: doc)
-        pane.archiveAllDone(in: .document, undoManager: nil)
+        let verbs = try await makeVerbs(for: doc)
+        verbs.archiveAllDone(in: .document)
         let archived = doc.tasks(filter: TaskFilter(
             scope: .document(docId: doc.docId),
             statuses: [.archived]))
@@ -436,21 +364,12 @@ final class TasksPaneIntegrationTests: XCTestCase {
 
     // MARK: - Helpers
 
-    /// Construct a TasksPane bound to a real Document + minimal stores.
-    /// We never render this view; we call `.apply(...)` on it directly.
-    private func makePane(for doc: Document) async throws -> TasksPane {
-        return try await makePane(for: doc, registering: nil)
-    }
-
-    /// Optionally registers `registering` (typically the test document)
-    /// with the pane's `DocumentStore` so `ownerDoc(of:)` lookups
-    /// resolve. Without this, `handleListMove` returns early because the
-    /// pane's stub store doesn't know about externally-created Documents.
-    /// Tests that drive code paths going through `ownerDoc(of:)` need to
-    /// pass `registering: doc`.
-    private func makePane(
-        for doc: Document, registering: Document?
-    ) async throws -> TasksPane {
+    /// The to-do verbs To resolve calls (`ResolveTaskVerbs`), over stub
+    /// stores with `doc` registered and open in the window's centre — a
+    /// to-do's verbs act only there.
+    private func makeVerbs(
+        for doc: Document, undoManager: UndoManager? = nil
+    ) async throws -> ResolveTaskVerbs {
         let url = TestTemp.root
             .appendingPathComponent("PANE-STUB-\(UUID().uuidString)")
         try FileManager.default.createDirectory(
@@ -466,13 +385,8 @@ final class TasksPaneIntegrationTests: XCTestCase {
         let store = try await ProjectStore.load(from: url)
         let ds = try await DocumentStore.open(url: url)
         store.documentStore = ds
-        if let toRegister = registering {
-            ds.register(document: toRegister, for: "stub/\(toRegister.docId).md")
-        }
-        return TasksPane(
-            store: store,
-            documentStore: ds,
-            activeDocId: doc.docId,
-            projectURL: url)
+        ds.register(document: doc, for: "stub/\(doc.docId).md")
+        return ResolveTaskVerbs(store: store, documentStore: ds,
+                                openDocId: doc.docId, undoManager: undoManager)
     }
 }

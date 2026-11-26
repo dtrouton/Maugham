@@ -59,7 +59,7 @@ public struct PublishOrchestrator {
     /// a word of the manuscript is read — and it refuses through the ordinary
     /// `.failed` shape, because that is the shape every caller already reads.
     /// The excerpt is what carries the distinction, and a surface that wants to
-    /// draw the two differently (`DepartmentCompileState.settled(after:)` draws
+    /// draw the two differently (`CompileRunState.settled(after:)` draws
     /// this one as a refusal rather than a failure) reads THIS constant rather
     /// than re-typing the prefix. `CompileToolsTests` pins the wire spelling
     /// `"unknown_imprint: nope"`, so the prefix is part of the tool's contract
@@ -70,7 +70,7 @@ public struct PublishOrchestrator {
     /// refused because an identical one is already minting is not a fault. The
     /// mint gate turned a press away — nothing was rendered, nothing was
     /// written, and the writer's move is to wait rather than to read a log
-    /// (`PublishMintGate`, issue #25). `DepartmentCompileState.settled(after:)`
+    /// (`PublishMintGate`, issue #25). `CompileRunState.settled(after:)`
     /// reads THIS rather than re-typing the prefix; `CompileToolsTests` pins
     /// the wire spelling, so it is part of the tool's contract too.
     public static let mintInFlightLogExcerpt = "mint_in_flight: "
@@ -79,7 +79,7 @@ public struct PublishOrchestrator {
     /// (`PublishConfigValidator.formatError`) is refused at the door by name —
     /// the writer's move is to pick a format, not to read a log. Compile and
     /// preview both prefix their excerpt with it, and
-    /// `DepartmentCompileState.settled(after:)` reads it as a refusal.
+    /// `CompileRunState.settled(after:)` reads it as a refusal.
     public static let unproducibleFormatLogExcerpt = "unproducible_format: "
 
     /// **The fourth**: a Report refused because its book has publish problems
@@ -298,7 +298,7 @@ public struct PublishOrchestrator {
         // question the manager can answer for any particular caller. A caller
         // that means to cancel its OWN compile has to be told which job that
         // is, and this is the only moment anyone can be told: `compile` does
-        // not return until the compile is over. `DeskCompileRunner` is why it
+        // not return until the compile is over. `CompileRunner` is why it
         // exists (its Cancel used to take `allInProgress().last`, which is
         // whichever job registered most recently — Claude's preview, as often
         // as the writer's own book).

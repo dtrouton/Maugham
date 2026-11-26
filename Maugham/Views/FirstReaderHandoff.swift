@@ -2,11 +2,12 @@ import Foundation
 
 /// **A Describe… press in Project Settings, waiting for the sheet to close.**
 ///
-/// `MaughamEvent.postDetailSegment` is scoped `.keyWindow`, and the sheet's
-/// window is key while it is up, so the request is recorded here and acted on
-/// from the `.sheet`'s `onDismiss`. **The hand-off WRITES the segment through
-/// `selectDetailSegment`; it does not post it** — `onDismiss` runs before key
-/// status returns, so a `.keyWindow` post would be dropped.
+/// The right column's posts (`MaughamEvent.postPullUp`) are scoped
+/// `.keyWindow`, and the sheet's window is key while it is up, so the request
+/// is recorded here and acted on from the `.sheet`'s `onDismiss`. **The
+/// hand-off pulls her statement up through `ProjectWindow.pullUp`; it does not
+/// post** — `onDismiss` runs before key status returns, so a `.keyWindow` post
+/// would be dropped.
 ///
 /// **Guarded twice**: `describeFirstReader`'s two awaits leave a window in
 /// which the writer can Escape before the request is recorded, and the request

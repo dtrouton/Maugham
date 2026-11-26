@@ -1,4 +1,4 @@
-import Foundation
+import SwiftUI
 import MaughamCore
 
 /// **The Review board's row list** (M3 P1 Task 7) — a pure pre-order flattening
@@ -88,5 +88,81 @@ enum ReviewBoardRows {
                 append(children, depth: isGroup ? depth + 1 : depth, into: &rows)
             }
         }
+    }
+}
+
+/// **Which Status row is current, and how the keys move it** (shell p4 Task 4
+/// fix round). Pure: the board asks these of its rows and draws the answer
+/// (`ReviewBoardPane`'s fill, its scroll, its ↑/↓/Return).
+///
+/// A row is navigable when a click on it opens something: a piece or a Part.
+/// A reference row opens nothing here, so the keys pass over it.
+enum ReviewBoardKeys {
+
+    /// The rows the keys move over, in board order.
+    static func navigable(_ rows: [ReviewBoardRows.Row]) -> [String] {
+        rows.compactMap { row in
+            switch row.kind {
+            case .piece, .group: return row.id
+            case .reference: return nil
+            }
+        }
+    }
+
+    /// **The current row**: the one last opened from Status (or moved to with
+    /// the keys), else the piece on the faces — each only when the board
+    /// holds it, so a Part's board never claims a chapter outside it.
+    static func current(remembered: String?, faces: BinderSubject, in ids: [String]) -> String? {
+        if let remembered, ids.contains(remembered) { return remembered }
+        if let id = faces.itemID, ids.contains(id) { return id }
+        return nil
+    }
+
+    /// **↑/↓**: one row up or down, held at the ends. With no current row, ↓
+    /// lands on the first and ↑ on the last.
+    static func moving(_ current: String?, by delta: Int, in ids: [String]) -> String? {
+        guard !ids.isEmpty else { return nil }
+        guard let current, let at = ids.firstIndex(of: current) else {
+            return delta >= 0 ? ids.first : ids.last
+        }
+        return ids[min(max(at + delta, 0), ids.count - 1)]
+    }
+}
+
+/// **A Status view's keys** (shell p4 Task 4's holder, shared by Task 5 with
+/// the edition's Status): ↑/↓ move the current row, Return opens it, claimed
+/// on `keyboardRequest`. A zero-size view behind the rows rather than
+/// `.focusable()` on them: wrapping the rows in a focusable container takes
+/// their buttons out of the focus system (measured: no row button mounts its
+/// focus-ring view).
+struct StatusKeyHolder: View {
+    let ids: [String]
+    let current: String?
+    let remembered: Binding<String?>
+    let keyboardRequest: Int
+    let onOpen: (String) -> Void
+    var holdsTheKeys: FocusState<Bool>.Binding
+
+    var body: some View {
+        Color.clear
+            .frame(width: 0, height: 0)
+            .focusable()
+            .focusEffectDisabled()
+            .focused(holdsTheKeys)
+            .accessibilityHidden(true)
+            .onKeyPress(.downArrow) {
+                remembered.wrappedValue = ReviewBoardKeys.moving(current, by: 1, in: ids)
+                return .handled
+            }
+            .onKeyPress(.upArrow) {
+                remembered.wrappedValue = ReviewBoardKeys.moving(current, by: -1, in: ids)
+                return .handled
+            }
+            .onKeyPress(.return) {
+                guard let current else { return .ignored }
+                onOpen(current)
+                return .handled
+            }
+            .onChange(of: keyboardRequest) { _, _ in holdsTheKeys.wrappedValue = true }
     }
 }

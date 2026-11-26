@@ -100,14 +100,14 @@ final class CanvasEventNSView: NSView, NSUserInterfaceValidations {
     /// Task 5 review finding 1)*.
     ///
     /// This used to be `private let escapeMonitor = CanvasEscapeMonitor()`, and
-    /// the assistant column (M2 §6.2) then armed a SECOND instance on the same
-    /// window whenever a writer studied a reference in Plan. Local `NSEvent`
+    /// the reference shown beside the prose (today's pulled-up thing) then
+    /// armed a SECOND instance on the same window. Local `NSEvent`
     /// monitors run most-recently-installed-first and a consumed key
     /// short-circuits the rest, so whichever armed last silently starved the
     /// other — arbitration by action order rather than by decision.
     /// `WindowEscapeArbiter` holds the one monitor per window and offers the key
-    /// to its consumers in a declared priority order; the dim is second, behind
-    /// the column.
+    /// to its consumers in a declared priority order; the dim is last, behind
+    /// the pulled-up thing and the centre item's cover.
     ///
     /// Held weakly and cleared on resign, so `hasEscapeMonitorInstalled` still
     /// answers *"is the canvas watching"* rather than *"is anything watching"*.
@@ -173,7 +173,7 @@ final class CanvasEventNSView: NSView, NSUserInterfaceValidations {
     ///
     /// Both halves are load-bearing since the arbiter landed. The registration
     /// alone would read true after the window's monitor had gone; the armed flag
-    /// alone would read true because the assistant column happened to be open on
+    /// alone would read true because something happened to be pulled up on
     /// the same window.
     var hasEscapeMonitorInstalled: Bool {
         guard let escapeArbiter else { return false }

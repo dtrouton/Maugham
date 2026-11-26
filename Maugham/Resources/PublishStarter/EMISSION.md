@@ -434,7 +434,7 @@ A. Writer\par}
 
 ## Report elements — positive space
 
-Tables, figures, footnotes, citations, cross-references and numbered headings are emitted from the **whole book's resolution**: before any body is written, a resolution pass walks every piece the edition includes — never only the pieces a preview renders — and numbers, resolves and checks. The emitter reads its numbers and never counts on its own, so a preview of chapter 3 still prints "Figure 7" and a reference into another included chapter still resolves. A section the edition leaves out (`include` off, or dropped by an imprint) is outside the book: it is not numbered, and a reference into it is unresolved.
+Tables, figures, footnotes, citations, cross-references and numbered headings are emitted from the **whole book's resolution**: before any body is written, a resolution pass walks every piece the edition includes — never only the pieces a preview renders — and numbers, resolves and checks. The emitter reads its numbers and never counts on its own, so a preview of the third piece still prints "Figure 7" and a reference into another included piece still resolves. A section the edition leaves out (`include` off, or dropped by an imprint) is outside the book: it is not numbered, and a reference into it is unresolved.
 
 The examples below run that real resolution pass, then the real emitter, over a fixed one-piece book: one research item cited as `smith2026` ("Smith, Jane", *Annual Report*, 2026), section numbering on, the lists of figures and tables off. The examples have no project on disk, so the figure example hands the emitter its staged name directly; a real compile stages the image under `build/figures/` with a 16-hex-digit content hash for a name (`0123456789abcdef` below stands in for it).
 
@@ -644,7 +644,7 @@ An element carrying `{#fig:map}`, `{#tbl:sales}` or `{#sec:method}` gets `\hyper
 
 ### Footnotes — `\footnote[n]`
 
-Footnotes are numbered continuously across the book, and the PDF prints the resolution's number explicitly (`\footnote[n]{…}`), so the PDF and the EPUB agree even for a note inside a note. A second reference to the same note in a piece is `\footnotemark[n]`. Where `\footnote` is lost or breaks the compile — a caption, a table cell, a heading, a note's own text — the reference is `\footnotemark[n]` and its `\footnotetext[n]{…}` follows the construct. A footnote label belongs to its piece: `[^1]` in two chapters is two notes.
+Footnotes are numbered continuously across the book, and the PDF prints the resolution's number explicitly (`\footnote[n]{…}`), so the PDF and the EPUB agree even for a note inside a note. A second reference to the same note in a piece is `\footnotemark[n]`. Where `\footnote` is lost or breaks the compile — a caption, a table cell, a heading, a note's own text — the reference is `\footnotemark[n]` and its `\footnotetext[n]{…}` follows the construct. A footnote label belongs to its piece: `[^1]` in two pieces is two notes.
 
 ### Numbered headings
 
@@ -707,7 +707,7 @@ A per-piece file **MAY NOT**: `\usepackage` (packages load only in the preamble)
 
 **Active-catcode tricks destabilize hyperref (field-verified).** Avoid `\catcode`-based active-character tricks in style files (e.g. making a character active via `\catcode\`X=\active`). hyperref's bookmark/anchor machinery re-scans the token stream across multiple passes, and active catcodes introduced mid-document destabilize that machinery in ways that are hard to predict or debug. Use source-level constructs — an ordinary macro invoked where you need the effect — instead of catcode reassignment.
 
-**Required pattern for restyling a heading or a kernel command.** Do NOT renew a kernel command (`\textbf`, `\emph`, `\scene`, …) at style-file top level to restyle a piece's headings. Put the renewal **inside the `\pieceheading` hook** (or the piece environment's own body) so it is scoped to where it fires — e.g. `\renewcommand{\pieceheading}[1]{{\bfseries\Large #1}\addcontentsline{toc}{section}{#1}}`. This is a **MUST**, not a preference, and it is what the Playlist templates use. Reason: a real six-piece field compile once had a piece-2 style file renew `\textbf` to a `\marginpar{...}` at style-file top level and the restyle bled into a piece **two sections later** (a fountain title block and its scene headings), even though a solo compile was correct and `begingroup`/`endgroup` counts in `body.tex` balanced. The isolated compile-probe reproduction of that exact shape does **not** leak under the bundled tectonic (the renewal reverts at `\endgroup` as documented above), so the field mechanism is **unexplained** — the leading unproven suspect is fontspec's lazy bold/em family setup interacting with the deferred `\marginpar` output routine. Because the field failure was real and its trigger is not understood, the hook-scoped pattern is mandatory: it is immune to the failure regardless of the mechanism, so top-level kernel-command renewals in style files are unsupported and may restyle unrelated pieces.
+**Required pattern for restyling a heading or a kernel command.** Do NOT renew a kernel command (`\textbf`, `\emph`, `\scene`, …) at style-file top level to restyle a piece's headings. Put the renewal **inside the `\pieceheading` hook** (or the piece environment's own body) so it is scoped to where it fires — e.g. `\renewcommand{\pieceheading}[1]{{\bfseries\Large #1}\addcontentsline{toc}{section}{#1}}`. This is a **MUST**, not a preference. Reason: a real six-piece field compile once had a piece-2 style file renew `\textbf` to a `\marginpar{...}` at style-file top level and the restyle bled into a piece **two sections later** (a fountain title block and its scene headings), even though a solo compile was correct and `begingroup`/`endgroup` counts in `body.tex` balanced. The isolated compile-probe reproduction of that exact shape does **not** leak under the bundled tectonic (the renewal reverts at `\endgroup` as documented above), so the field mechanism is **unexplained** — the leading unproven suspect is fontspec's lazy bold/em family setup interacting with the deferred `\marginpar` output routine. Because the field failure was real and its trigger is not understood, the hook-scoped pattern is mandatory: it is immune to the failure regardless of the mechanism, so top-level kernel-command renewals in style files are unsupported and may restyle unrelated pieces.
 
 **`\screenplaytitleblock` (F6).** The fountain title block emits via `\screenplaytitleblock{body}` (one argument: all title-page fields in declared order), `\providecommand`-declared per fountain section alongside `\lyricline`/`\centeredline`/`\scenenumber` (default reproduces the classic centered title-page layout byte-for-byte). It is a sanctioned restyle hook, same class as `\pieceheading` above — a dedicated per-purpose command, not a shared kernel one — so restyle it directly rather than reaching into kernel commands to fake the effect.
 
@@ -847,7 +847,7 @@ They are unconditional so the emitted contract is one shape rather than four, an
 
 ## Recovery
 
-Overwriting or clearing a style file moves the prior version to the project's trash folder (`.trash/` at the project root, swept after 30 days). It is Maugham's own safety copy, so it stays out of the Trash pane and Restore Last Deletion; recover it from that folder. There is **no git** in this workflow; the trash is the recovery path. `build/body.<lang>.tex` (the PDF emitter's output for one language — `build/body.tex` is the wrapper over them), `build/body.xhtml`, and `build/compile.log` are readable via `read_publish_file` for diagnosing what the emitter and compiler produced.
+Overwriting or clearing a style file moves the prior version to the project's trash folder (`.trash/` at the project root, swept after 30 days). It is Maugham's own safety copy, so it stays out of the binder's Trash and Restore Last Deletion; recover it from that folder. There is **no git** in this workflow; the trash is the recovery path. `build/body.<lang>.tex` (the PDF emitter's output for one language — `build/body.tex` is the wrapper over them), `build/body.xhtml`, and `build/compile.log` are readable via `read_publish_file` for diagnosing what the emitter and compiler produced.
 
 ## EPUB iteration — open-loop workflow
 
@@ -858,8 +858,8 @@ EPUB output is **OPEN-LOOP**: after each compile, `build/body.xhtml` contains th
 EPUB iteration therefore works as follows:
 
 1. Claude proposes a CSS change in `styles.css` (via `write_publish_file`) and compiles.
-2. Denver loads the new `.epub` in his reading application of choice (e.g. Books, Calibre, Kindle).
-3. Denver describes what he sees — spacing, font size, chapter breaks, etc.
-4. Claude iterates based on Denver's description.
+2. The writer loads the new `.epub` in their reading application of choice (e.g. Books, Calibre, Kindle).
+3. The writer describes what they see — spacing, font size, chapter breaks, etc.
+4. Claude iterates based on the writer's description.
 
 This is the accepted workflow for personal-use EPUB. Closing the loop (embedding a headless reader, capturing screenshots) is out of scope here.

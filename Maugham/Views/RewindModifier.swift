@@ -13,9 +13,11 @@ struct RewindModifier: ViewModifier {
     /// Fallback project URL naming this window's project scope while `store`
     /// hasn't loaded yet (threaded from CheckpointModifier, ADR 0021).
     let url: URL
-    let selectedItemId: String?
     @State private var showingRewindModal: Bool = false
+    /// The piece the sheet is open for — the post's (`rewindTarget`).
+    @State private var rewindDocId: String?
     @State private var rewindInitialCursor: RewindCursor = .now
+    @State private var rewindInitialPreview: RewindWindow.PreviewMode = .doc
     /// The post-restore report (RULING-28's after half) — rendered from
     /// `RewindImpact.toast(for:)`, auto-dismissing; carries Revert when the
     /// restore resolved a vanished moment to the nearest surviving one
@@ -77,15 +79,20 @@ struct RewindModifier: ViewModifier {
                 // Project-scoped (ADR 0021): HistoryPane posts to
                 // `.project(for: projectURL)`, so with multiple ProjectWindows
                 // open only the window on the originating project — and only
-                // while live — presents the modal. `selectedItemId != nil` is
-                // an action precondition (need a doc to rewind), not a scope.
-                guard selectedItemId != nil else { return }
+                // while live — presents the modal. **The piece is the post's,
+                // never the window's faces** (shell p3 final wave, C1): a
+                // pulled-up History keeps its piece while the faces move.
+                guard let docId = Self.rewindTarget(of: note.userInfo, isOpen: {
+                    documentStore?.document(forDocId: $0) != nil
+                }) else { return }
+                rewindDocId = docId
                 if let opId = note.userInfo?["scrub_op_id"] as? String,
                    let at = note.userInfo?["scrub_op_at"] as? Date {
                     rewindInitialCursor = .atOp(opId: opId, at: at)
                 } else {
                     rewindInitialCursor = .now
                 }
+                rewindInitialPreview = Self.initialPreview(of: note.userInfo)
                 showingRewindModal = true
             }
             .sheet(isPresented: $showingRewindModal) {
@@ -93,9 +100,35 @@ struct RewindModifier: ViewModifier {
             }
     }
 
+    /// **The piece a rewind post asks for, if this window may act on it** —
+    /// the post's own `ManuscriptNavigation.docIdKey`, and only while that
+    /// piece's `Document` is the one open (final wave, C1). A post naming no
+    /// piece, or a piece not open, presents nothing: History offers Rewind
+    /// only on its open piece (`HistoryPane.offersRewind(_:documentIsOpen:)`),
+    /// so this is the receiver's half of the same rule, never a fallback to
+    /// the faces.
+    static func rewindTarget(of userInfo: [AnyHashable: Any]?,
+                             isOpen: (String) -> Bool) -> String? {
+        guard let docId = userInfo?[ManuscriptNavigation.docIdKey] as? String,
+              docId != BinderSubject.noDocumentSubject,
+              isOpen(docId) else { return nil }
+        return docId
+    }
+
+    /// The preview a rewind post asks the sheet to open on — Diff for
+    /// History's Compare…, Doc for everything else.
+    static func initialPreview(of userInfo: [AnyHashable: Any]?) -> RewindWindow.PreviewMode {
+        (userInfo?[RewindWindow.initialPreviewKey] as? String)
+            .flatMap(RewindWindow.PreviewMode.init(rawValue:)) ?? .doc
+    }
+
+    /// Said when Restore is pressed for a piece that closed under the sheet.
+    static let pieceClosedSentence =
+        "Nothing was restored: that piece is no longer open. Open it and rewind again."
+
     @ViewBuilder
     private var rewindSheet: some View {
-        if let store, let documentStore, let docId = selectedItemId {
+        if let store, let documentStore, let docId = rewindDocId {
             // Snapshot the window's undo manager before the escaping onComplete
             // closure so the restore registers a ⌘Z action (EditorHost's idiom).
             let um = undoManager
@@ -112,6 +145,7 @@ struct RewindModifier: ViewModifier {
                 documentStore: documentStore,
                 docTitle: title,
                 initialCursor: rewindInitialCursor,
+                initialPreview: rewindInitialPreview,
                 scope: .thisDoc,
                 onComplete: { action in
                     showingRewindModal = false
@@ -128,11 +162,17 @@ struct RewindModifier: ViewModifier {
                             // `.nearest` resolution carries Revert in the notice (RULING-27).
                             let result: RewindRestoreResult
                             do {
-                                guard let restored = try await documentStore
-                                    .document(forDocId: docId)?
+                                // Only the open piece is acted on (C1): a piece
+                                // closed while the sheet was up is said, not
+                                // silently skipped.
+                                guard let document = documentStore.document(forDocId: docId)
+                                else {
+                                    restoreToast = Self.pieceClosedSentence
+                                    restoreToastOffersRevert = false
+                                    return
+                                }
+                                result = try await document
                                     .restoreToOpUndoable(opId: opId, undoManager: um)
-                                else { return }
-                                result = restored
                             } catch is Document.PostureRefusal {
                                 // The restore door refused: a sheet drawn before a demotion
                                 // landed. Said, not swallowed.

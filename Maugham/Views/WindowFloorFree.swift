@@ -16,7 +16,7 @@ import SwiftUI
 /// out: the writer's window stays at a size the window itself still considers
 /// legal while the content has quietly decided it needs more, and every height
 /// in the gap lays out short. That is exactly what Denver's Review smoke found
-/// — swapping the review pass made `AnnotationsPane`'s advisory nudge appear,
+/// — swapping the review pass made the Annotations pane's advisory nudge appear,
 /// the pane's minimum height rose with it, and at window heights inside the new
 /// gap the tree was displaced upward out of the column.
 ///
@@ -52,7 +52,7 @@ struct WindowFloorFreeLayout: Layout {
         // **The width answer is the content's own, unchanged.** Only the height
         // is freed here: reporting `proposal.width` would hand back a zero
         // minimum width on the width query too, and this column has a floor its
-        // toolbar is measured against (`AnnotationsQueueToolbarWidthTests`).
+        // rows are measured against (`ResolveColumnWidthTests`).
         let width = ideal.width
         // An unspecified or infinite height proposal is a question about what
         // the content WANTS, and the honest answer is its ideal. Every other

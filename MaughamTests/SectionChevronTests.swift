@@ -6,7 +6,7 @@ import MaughamCore
 
 /// **The tree's two section headers carry their own disclosure chevron** —
 /// Denver's smoke, 2026-08-10, the second finding in this header after the
-/// wall's door.
+/// wall's door (the door is the Palette row since shell p1 Task 3).
 ///
 /// What he reported: the expand/collapse affordance appears only on mouse-over,
 /// and when it materialises it shoves the `+` and Open Wall icons left. Both
@@ -182,64 +182,32 @@ final class SectionChevronTests: XCTestCase {
     ///
     /// **Identified without assuming the answer.** The Research header carries
     /// exactly ONE button and it is its chevron, so its identity needs no
-    /// position at all; the Palette header carries two, and the one sitting at
-    /// the same x as Research's is that header's chevron. Both claims are
-    /// asserted rather than assumed, which is what stops this test from being a
-    /// tautology about whichever ring happens to be leftmost.
+    /// position at all; the Palette's chevron is its row's outline triangle
+    /// (a `DisclosureGroup` since 2026-11-21), asked of the outline by row.
     func test_theChevronLeadsTheHeaderInBothSections() async throws {
         let mount = try await mountTree()
-        let content = try XCTUnwrap(mount.window.contentView)
-
-        var byHeader: [(rings: [CGRect], menu: CGRect, header: CGRect)] = []
-        for header in sectionHeaders(in: mount.window) {
-            let kids = descendants(of: header)
-            let rings = kids
-                .filter { String(describing: type(of: $0)).contains("FocusRing") }
-                .map { $0.convert($0.bounds, to: content) }
-                .sorted { $0.minX < $1.minX }
-            guard let menu = kids
-                .first(where: { String(describing: type(of: $0))
-                                    .contains("SwiftUIPopupButton") })
-                .map({ $0.convert($0.bounds, to: content) })
-            else { continue }
-            byHeader.append((rings, menu, header.convert(header.bounds, to: content)))
-        }
-        try XCTSkipUnless(byHeader.count == 2,
-                          "this display mounted \(byHeader.count) section headers")
-        XCTAssertEqual(byHeader.map(\.rings.count).sorted(), [1, 2],
-                       "premise: Research carries its chevron alone, Palette the "
-                       + "door beside it — \(byHeader.map(\.rings.count))")
-
-        let research = try XCTUnwrap(byHeader.min(by: { $0.rings.count < $1.rings.count }))
-        let palette = try XCTUnwrap(byHeader.max(by: { $0.rings.count < $1.rings.count }))
-        let researchChevron = try XCTUnwrap(research.rings.first)
+        let research = try headerGeometry(.research, in: mount.window)
+        let palette = try headerGeometry(.palette, in: mount.window)
 
         XCTAssertLessThan(
-            researchChevron.minX, research.menu.minX,
-            "the Research chevron is at x=\(researchChevron.minX), the `+` menu "
+            research.chevron.minX, research.menu.minX,
+            "the Research chevron is at x=\(research.chevron.minX), the `+` menu "
             + "at x=\(research.menu.minX) — the chevron must lead the header, "
             + "not trail its accessories")
         XCTAssertLessThan(
-            researchChevron.minX - research.header.minX, 8,
-            "the chevron sits \(researchChevron.minX - research.header.minX)pt "
-            + "into a header that starts at x=\(research.header.minX) — leading "
+            research.chevron.minX - research.container.minX, 8,
+            "the chevron sits \(research.chevron.minX - research.container.minX)pt "
+            + "into a header that starts at x=\(research.container.minX) — leading "
             + "the TITLE means at the head of the row, not merely somewhere left "
             + "of the `+`")
 
-        let paletteChevron = try XCTUnwrap(palette.rings.first)
-        XCTAssertEqual(
-            paletteChevron.minX, researchChevron.minX, accuracy: 0.5,
-            "the Palette header's leading button is at x=\(paletteChevron.minX) "
-            + "against the Research chevron's x=\(researchChevron.minX) — the two "
-            + "headers must disclose from the same edge, or the leading button "
-            + "here is the door and this header still trails its chevron")
-        let door = try XCTUnwrap(palette.rings.last)
-        XCTAssertLessThan(
-            paletteChevron.minX, door.minX,
-            "the Palette chevron must lead the wall's door, not follow it")
-        XCTAssertLessThan(
-            paletteChevron.minX, palette.menu.minX,
-            "…and lead the `+` menu")
+        // The Palette is a row since shell p1 Task 3 (the wall's door is the
+        // row itself); its chevron still leads its title and its `+`.
+        let title = try XCTUnwrap(palette.title, "the Palette row carries no title mark")
+        XCTAssertLessThan(palette.chevron.minX, title.minX,
+                          "the Palette chevron must lead its title")
+        XCTAssertLessThan(palette.chevron.minX, palette.menu.minX,
+                          "…and lead the `+` menu")
     }
 
     // MARK: - No shift
@@ -251,9 +219,10 @@ final class SectionChevronTests: XCTestCase {
     /// (`NSTrackingArea` needs the window server to move a real pointer). What
     /// IS observable is the property that made the hover shift possible: an
     /// affordance whose presence is conditional takes its space when it arrives.
-    /// Ours is unconditional, so the `+` menu and the Open Wall icon must sit at
-    /// exactly the same x through a full open→closed→open cycle — including the
-    /// closed state, which is the one the system chevron rendered differently.
+    /// Ours is unconditional, so the Palette row's `+` menu and chevron must sit
+    /// at exactly the same x through a full open→closed→open cycle — including
+    /// the closed state, which is the one the system chevron rendered
+    /// differently.
     func test_theAccessoriesDoNotMoveAcrossAnExpansionCycle() async throws {
         let mount = try await mountTree()
         let open = try headerGeometry(.palette, in: mount.window)
@@ -267,12 +236,6 @@ final class SectionChevronTests: XCTestCase {
         let reopened = try headerGeometry(.palette, in: mount.window)
 
         for (state, geometry) in [("closed", closed), ("reopened", reopened)] {
-            XCTAssertEqual(
-                geometry.door.origin.x, open.door.origin.x, accuracy: 0.5,
-                "\(state): the Open Wall icon moved from x=\(open.door.origin.x) "
-                + "to x=\(geometry.door.origin.x). The whole point of drawing "
-                + "our own chevron is that the header's trailing group is the "
-                + "same width in every state")
             XCTAssertEqual(
                 geometry.menu.origin.x, open.menu.origin.x, accuracy: 0.5,
                 "\(state): the `+` menu moved from x=\(open.menu.origin.x) to "
@@ -291,7 +254,7 @@ final class SectionChevronTests: XCTestCase {
     func test_closingASectionHidesItsRowsAndKeepsItsHeader() async throws {
         let mount = try await mountTree()
         let headers = sectionHeaders(in: mount.window).count
-        XCTAssertEqual(headers, 2, "premise: Research and Palette")
+        XCTAssertEqual(headers, 2, "premise: the Research and Editions headers")
 
         mount.state.researchSectionExpanded = false
         await pumpUntil(deadline: 5) { self.rowCount(in: mount.window) < mount.rows }
@@ -308,10 +271,10 @@ final class SectionChevronTests: XCTestCase {
 
     // MARK: - The chevron is a real target
 
-    /// The door's own lesson, applied to the control beside it: a bare `Image`
-    /// in a `Button(.plain)` hit-tests the box it draws in and nothing more, so
-    /// the chevron gets the same explicit frame and content shape. Swept the way
-    /// `PaletteWallDoorHitAreaTests` sweeps the door.
+    /// The old wall door's lesson (measured before the door became the Palette
+    /// row): a bare `Image` in a `Button(.plain)` hit-tests the box it draws in
+    /// and nothing more, so the chevron gets an explicit frame and content
+    /// shape. Swept edge by edge.
     ///
     /// **A window per sample**, for
     /// `test_bothSectionsCarryAChevronThatTogglesTheirOwnFlag`'s reason: the
@@ -355,9 +318,39 @@ final class SectionChevronTests: XCTestCase {
                       + "door's bug")
     }
 
-    /// **The chevron did not cost the header its height.** Same guard the door's
-    /// frame has: both headers must stay the height the row can hold, or the two
-    /// sections at the foot of every tree stop lining up.
+    /// **The `+` menus are live across their whole frame** — carried over from
+    /// the wall door's suite when the door became the Palette row (shell p1
+    /// Task 3). A `SwiftUI.Menu` mounts a real `SwiftUIPopupButton` whose
+    /// frame hit-tests edge to edge; asserted at the `NSView` level for the
+    /// Research header's menu and the Palette row's.
+    func test_theSectionPlusMenusAreLiveAcrossTheirWholeFrame() async throws {
+        let mount = try await mountTree()
+        let content = try XCTUnwrap(mount.window.contentView)
+        let popups = views(in: mount.window).filter {
+            String(describing: type(of: $0)).contains("SwiftUIPopupButton")
+        }
+        XCTAssertGreaterThanOrEqual(popups.count, 2,
+                                    "the tree mounted \(popups.count) `+` menus; it "
+                                    + "carries the Research header's and the Palette row's")
+        for popup in popups {
+            let frame = popup.convert(popup.bounds, to: content)
+            for y in [frame.minY + 0.5, frame.midY, frame.maxY - 0.5] {
+                // `hitTest(_:)` takes the receiver's superview's coordinates.
+                let point = content.superview.map {
+                    $0.convert(CGPoint(x: frame.midX, y: y), from: content)
+                } ?? CGPoint(x: frame.midX, y: y)
+                let hit = content.hitTest(point)
+                XCTAssertTrue(
+                    hit === popup || hit?.isDescendant(of: popup) == true,
+                    "y=\(y) of the `+` menu's own \(frame) hit-tests to "
+                    + "\(hit.map { String(describing: type(of: $0)) } ?? "nothing")")
+            }
+        }
+    }
+
+    /// **The chevron did not cost the header its height**: every drawn
+    /// header stays the height the row can hold, or the sections at the foot
+    /// of every tree stop lining up.
     func test_theChevronDidNotGrowTheHeaderRows() async throws {
         let mount = try await mountTree()
         let heights = sectionHeaders(in: mount.window).map(\.frame.height)
@@ -373,63 +366,73 @@ final class SectionChevronTests: XCTestCase {
         var description: String { rawValue.capitalized }
     }
 
-    /// A header's three trailing accessories, in `content` coordinates.
+    /// A section's disclosure geometry, in `content` coordinates: its
+    /// container (the Research header; the Palette ROW since shell p1 Task 3),
+    /// its chevron (the Palette's is the outline's own triangle since
+    /// 2026-11-21), its `+` menu, and — for the Palette row — its title mark.
     private struct HeaderGeometry {
-        /// The Open Wall icon. `.zero` in the Research header, which has none.
-        let door: CGRect
+        let container: CGRect
         let menu: CGRect
         let chevron: CGRect
+        let title: CGRect?
     }
 
-    /// **Which header is which, without counting rows.** The Palette header is
-    /// the one carrying two buttons (the chevron and the door); Research carries
-    /// only its chevron. Derived rather than indexed, because the row a section
-    /// lands on differs per project type and a hand-counted index is a fixture
-    /// that goes quietly wrong (`BinderTreeMultiselectMountTests`' own lesson).
+    /// **Which container is which, without counting rows.** Research is the
+    /// drawn header carrying a `+` menu; the Palette is the table row whose
+    /// title carries the `.palette` mark. Derived rather than indexed, because
+    /// the row a section lands on differs per project type and a hand-counted
+    /// index is a fixture that goes quietly wrong.
     private func headerGeometry(_ section: Section,
                                 in window: NSWindow) throws -> HeaderGeometry {
         let content = try XCTUnwrap(window.contentView)
-        var byHeader: [(header: NSView, rings: [CGRect], menu: CGRect?)] = []
-        for header in sectionHeaders(in: window) {
-            let kids = descendants(of: header)
-            let rings = kids
-                .filter { String(describing: type(of: $0)).contains("FocusRing") }
-                .map { $0.convert($0.bounds, to: content) }
-                .sorted { $0.minX < $1.minX }
-            let menu = kids
-                .first { String(describing: type(of: $0)).contains("SwiftUIPopupButton") }
-                .map { $0.convert($0.bounds, to: content) }
-            byHeader.append((header, rings, menu))
+        let container: NSView
+        var title: CGRect?
+        switch section {
+        case .research:
+            container = try XCTUnwrap(
+                sectionHeaders(in: window).first { header in
+                    descendants(of: header).contains {
+                        String(describing: type(of: $0)).contains("SwiftUIPopupButton")
+                    }
+                }, "no drawn header carries a `+` menu")
+        case .palette:
+            let mark = try XCTUnwrap(
+                views(in: window).compactMap { $0 as? TreeTravelTargetView }
+                    .first { $0.subject == .palette }, "no Palette row is drawn")
+            var row: NSView? = mark.superview
+            while let current = row, !(current is NSTableRowView) { row = current.superview }
+            container = try XCTUnwrap(row, "the Palette title sits in no table row")
+            title = mark.convert(mark.bounds, to: content)
         }
-        try XCTSkipUnless(byHeader.count == 2,
-                          "this display mounted \(byHeader.count) section headers")
-
-        let wanted = section == .palette
-            ? byHeader.max(by: { $0.rings.count < $1.rings.count })
-            : byHeader.min(by: { $0.rings.count < $1.rings.count })
-        let hit = try XCTUnwrap(wanted)
-        // **Asserted, not skipped.** This is a claim about what production
-        // builds — Palette carries the door AND a chevron, Research a chevron
-        // alone — rather than about what this display could afford, and the two
-        // want different instruments. A skip here would let the whole suite go
-        // quiet the day the chevrons came back out, which is the one day it
-        // exists for.
-        XCTAssertEqual(
-            byHeader.map(\.rings.count).sorted(), [1, 2],
-            "the two headers mounted \(byHeader.map(\.rings.count)) buttons; "
-            + "Palette should carry the door and a chevron, Research a chevron")
-        let menu = try XCTUnwrap(hit.menu, "\(section)'s header mounted no `+` menu")
-        // **The chevron is the LEADING ring** since D1 (2026-09-19) — it used
-        // to be the trailing one, and the door the leading one. Both spellings
-        // are position-derived and both were right in their own era; what keeps
-        // this from going quietly wrong the next time the furniture moves is
-        // `test_theChevronLeadsTheHeaderInBothSections`, which establishes the
-        // edge without assuming it.
-        let chevron = try XCTUnwrap(hit.rings.first,
-                                    "\(section)'s header mounted no chevron")
-        return HeaderGeometry(
-            door: section == .palette ? try XCTUnwrap(hit.rings.last) : .zero,
-            menu: menu, chevron: chevron)
+        let kids = descendants(of: container)
+        let rings = kids
+            .filter { String(describing: type(of: $0)).contains("FocusRing") }
+            .map { $0.convert($0.bounds, to: content) }
+            .sorted { $0.minX < $1.minX }
+        let menu = try XCTUnwrap(
+            kids.first { String(describing: type(of: $0)).contains("SwiftUIPopupButton") }
+                .map { $0.convert($0.bounds, to: content) },
+            "\(section) mounted no `+` menu")
+        let chevron: CGRect
+        switch section {
+        case .research:
+            // **The chevron is the LEADING ring** since D1 (2026-09-19);
+            // `test_theChevronLeadsTheHeaderInBothSections` establishes the
+            // edge without assuming it.
+            chevron = try XCTUnwrap(rings.first, "\(section) mounted no chevron")
+        case .palette:
+            // The Palette is a `DisclosureGroup` since the owner's hand
+            // check of 2026-11-21, so its chevron is the outline's own
+            // triangle, in the gutter beside the row's cell.
+            let outline = try XCTUnwrap(container.superview as? NSOutlineView,
+                                        "the Palette row is in no outline")
+            let row = outline.row(for: container)
+            let cell = outline.frameOfOutlineCell(atRow: row)
+            XCTAssertGreaterThan(cell.width, 0, "the Palette row carries no triangle")
+            chevron = outline.convert(cell, to: content)
+        }
+        return HeaderGeometry(container: container.convert(container.bounds, to: content),
+                              menu: menu, chevron: chevron, title: title)
     }
 
     /// The system's hover chevrons for one header: `NSButton`s sitting beside
@@ -440,9 +443,12 @@ final class SectionChevronTests: XCTestCase {
         (header.superview?.subviews ?? []).filter { $0 is NSButton }
     }
 
+    /// The section headers the tree DRAWS — a headerless `Section` (the
+    /// Palette's, shell p1 Task 3) still mounts a header view, zero points tall.
     private func sectionHeaders(in window: NSWindow) -> [NSView] {
         views(in: window).filter {
             String(describing: type(of: $0)).contains("ListTableHeaderView")
+                && $0.frame.height > 1
         }
     }
 
@@ -582,12 +588,9 @@ private struct SystemChevronProbeView: View {
 private struct ChevronProbeView: View {
     let store: ProjectStore
     let treeState: BinderTreeSectionsState
-    @State private var subject: BinderSubject?
+    @State private var subject = WindowSubject.book
 
     var body: some View {
-        BinderView(store: store, selectedSubject: $subject,
-                   treeState: treeState,
-                   paletteWallTravels: false,
-                   onOpenPaletteWall: {})
+        TreeHostFixture.binder(store: store, subject: $subject, treeState: treeState)
     }
 }

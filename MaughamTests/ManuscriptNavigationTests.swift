@@ -1,197 +1,165 @@
 import XCTest
+import SwiftUI
 import MaughamCore
 @testable import Maugham
 
-/// **Navigating to a manuscript document moves the writer to Author — from a
-/// persona that would not show the document, and from no other.**
+/// **Going to a place opens its piece** (shell p1 Task 4).
 ///
-/// Denver's ruling, 2026-08-02: *"if I'm moving to the manuscript I'm moving to
-/// Author — I shouldn't be writing the manuscript in plan."*
-///
-/// The whole risk lives in HOW the guard asks its question. A hardcoded
-/// `persona == .plan` produces exactly the same behaviour today and ships the
-/// defect the moment Review's left column changes: clicking an annotation or a
-/// history row navigates to a paragraph, and a reviewer ejected into Author
-/// cannot adjudicate — which is the one job Review exists for. So the rule is
-/// asked of the persona's own CENTRE COLUMN, and it is asked here **over a
-/// centre column the test supplies**, because that is the only way to falsify it
-/// in an app whose four personas all agree with the shortcut. (Until
-/// shell-finish stage 2b Task 6 the supplied input was a binder-segment list;
-/// the basis moved because Task 7 deleted both the segment enum and the binder
-/// registries, and the falsification moved with it rather than being lost.)
+/// An annotation row, a history row, a task row, a diagnostic, a figure's
+/// Used-in link, a find result, a `[[wiki-link]]` and a slugline all end with
+/// `open = faces = .item(docId)`, whatever the centre was — the canvas, an
+/// edition, the Inbox, the Book — and `beside` left as it was. This replaces
+/// the persona rule it is named after (Denver's 2026-08-02 *"if I'm moving to
+/// the manuscript I'm moving to Author"*): with no persona, the centre is what
+/// moves.
 @MainActor
 final class ManuscriptNavigationTests: XCTestCase {
 
-    // MARK: - The rule, over centre columns this app does not have
+    private let piece = SubjectSamples.pieceID
+    private let other = "pc02"
 
-    /// **The discriminating test, and the reason `showsManuscriptDocuments` is
-    /// two functions.** Applied to the four real personas, the rule and the
-    /// `== .plan` shortcut agree — Plan is the only persona whose centre column
-    /// is the board today, which is precisely what the plan's ruling says should
-    /// FALL OUT of the rule rather than be asserted by it. Asked of an arbitrary
-    /// centre column, they disagree immediately.
-    ///
-    /// **The synthetic input changed shape in shell-finish stage 2b Task 6 and
-    /// the discrimination survived the change.** It used to be a segment list
-    /// this app does not ship (`[.canvas, .tree, .manuscript]`), because the
-    /// rule was "does this persona's column offer the document home". Task 7
-    /// deleted both the segment enum and the binder registries, so that basis
-    /// could not have been the one that survived; the rule now reads the centre
-    /// column
-    /// (`Persona.centresTheCanvas`). What is asserted is unchanged in kind: the
-    /// answer follows the input, and a persona name appears nowhere in it.
-    func test_theRuleIsAboutTheCentreColumn_notAboutAnyParticularPersona() {
-        // A centre column that is not the board shows documents…
-        XCTAssertTrue(Persona.showsManuscriptDocuments(centresTheCanvas: false),
-                      "a persona whose centre is not the planning canvas shows "
-                      + "the writer their manuscript, whatever it is called")
-        // …and one that is does not, whoever's it is.
-        XCTAssertFalse(Persona.showsManuscriptDocuments(centresTheCanvas: true))
-
-        // **The anti-degeneracy control.** A rule that answered a constant
-        // would satisfy either assertion above on its own and both of them if
-        // the expectations had been bent to match, so the two answers are
-        // pinned against each other as well as against their inputs.
-        XCTAssertNotEqual(Persona.showsManuscriptDocuments(centresTheCanvas: true),
-                          Persona.showsManuscriptDocuments(centresTheCanvas: false),
-                          "the rule answers the same thing for both centre "
-                          + "columns, so nothing below can be discriminating")
-    }
-
-    /// The instance form is the rule applied to the persona's own centre column
-    /// and nothing else — so a future persona whose centre changes moves the
-    /// behaviour with it, and no site re-derives the question.
-    func test_everyPersonaAsksItsOwnCentreColumn() {
-        for persona in Persona.allCases {
-            XCTAssertEqual(
-                persona.showsManuscriptDocuments,
-                Persona.showsManuscriptDocuments(
-                    centresTheCanvas: persona.centresTheCanvas),
-                "\(persona): the instance form must be the static rule over "
-                + "this persona's own centre — a second derivation here is the "
-                + "fifth spelling slice 2 spent two tasks removing")
+    /// **The rule, from every centre.** Whatever is open and whatever the faces
+    /// are on, going to a paragraph in a piece opens that piece and puts the
+    /// faces on it; what is beside stays.
+    func test_goingToAParagraphOpensItsPiece() {
+        for open in SubjectSamples.everyOpen {
+            for beside in [nil, PulledUp.research(SubjectSamples.researchID)] {
+                let current = WindowSubject(open: open, faces: open, beside: beside)
+                let next = ManuscriptNavigation.destination(toDocument: other, current: current)
+                XCTAssertEqual(next, WindowSubject(open: .item(other), faces: .item(other),
+                                                   beside: beside, besideIsLatest: false),
+                               "\(open) open, \(String(describing: beside)) beside")
+                XCTAssertEqual(ProjectWindow.centreRoute(
+                    subject: next, bookView: .outline, projectType: .novel,
+                    structure: SubjectSamples.structure, preview: .nothingCompiled),
+                               ProjectWindow.centreRoute(
+                    subject: SubjectSamples.opened(.item(other)), bookView: .outline,
+                    projectType: .novel, structure: SubjectSamples.structure,
+                    preview: .nothingCompiled),
+                               "\(open): the centre is the piece's editor")
+            }
         }
     }
 
-    /// **And the answers themselves, so the two forms above cannot agree on a
-    /// wrong table.** Plan plans; the other three are where a document is read
-    /// or written. Project type does not enter into it, which is the one thing
-    /// the re-base did change: the old rule asked `documentHome(for:)` because a
-    /// screenplay's home segment was `.scenes`, and there are no segments in the
-    /// answer now.
-    func test_planIsTheOnlyPersonaWhoseCentreIsNotADocument() {
-        XCTAssertFalse(Persona.plan.showsManuscriptDocuments)
-        for persona in Persona.allCases where persona != .plan {
-            XCTAssertTrue(persona.showsManuscriptDocuments,
-                          "\(persona) centres the editor")
+    /// **And it is not the click.** The click rule leaves the canvas and an
+    /// edition in the centre and moves only the faces; going to a place does
+    /// not — the discriminating pair, so the two rules cannot be one.
+    func test_aPlaceIsNotAClickOverTheCanvasOrAnEdition() {
+        for open in [BinderSubject.canvas, .edition(language: "es")] {
+            let current = SubjectSamples.opened(open)
+            let clicked = ClickRule.resolve(.item(other), gesture: .click, current: current,
+                                            structure: SubjectSamples.structure,
+                                            projectType: .novel)
+            XCTAssertEqual(clicked.open, open, "precondition: a click keeps \(open)")
+            XCTAssertEqual(ManuscriptNavigation.destination(toDocument: other,
+                                                            current: current).open,
+                           .item(other), "\(open): a place opens its piece")
         }
     }
 
-    // MARK: - The four personas
-
-    /// **Plan moves; Review, Publish and Author do not.** Review is the case the
-    /// ruling is written around: clicking an annotation or a history row posts
-    /// `.maughamNavigateToParagraph`, and ejecting the reviewer into Author
-    /// would take the notes off their screen.
-    ///
-    /// **Project type left the question in stage 2b Task 7.** The loop used to
-    /// run over it because a screenplay's binder home was `.scenes` and a
-    /// novel's `.manuscript`, and getting that wrong dropped a screenplay writer
-    /// into a one-row novel binder (2026-07-02 smoke). There is no binder
-    /// position in a destination any more, so nothing here can be wrong about a
-    /// project type — and `TreePaneTests` is where the surviving half of that
-    /// question is asked.
-    func test_onlyPlanIsMovedToAuthorAndTheOthersStayWhereTheyAre() {
-        for persona in Persona.allCases {
-            let destination = ManuscriptNavigation.destination(
-                from: persona,
-                currentDetailSegment: persona.defaultPane,
-                memory: .empty)
-            let expected: Persona = persona == .plan ? .author : persona
-            XCTAssertEqual(destination.persona, expected,
-                           "\(persona): expected to land in \(expected)")
+    /// **Which document a paragraph is in**: the payload's `doc_id` wins; with
+    /// none, the faces' piece; with the faces on a Part, the Book or anything
+    /// not a document, nothing — and nothing then moves.
+    func test_aParagraphsDocumentIsThePayloadsElseTheFacesPiece() {
+        let onPiece = WindowSubject(open: .canvas, faces: .item(piece))
+        XCTAssertEqual(ManuscriptNavigation.paragraphDocId(
+            payload: [ManuscriptNavigation.docIdKey: other, "paragraph_id": "p001"],
+            current: onPiece, structure: SubjectSamples.structure), other)
+        XCTAssertEqual(ManuscriptNavigation.paragraphDocId(
+            payload: ["paragraph_id": "p001"],
+            current: onPiece, structure: SubjectSamples.structure), piece)
+        for faces in [BinderSubject.project, .item(SubjectSamples.partID), .canvas,
+                      .research(SubjectSamples.researchID), .inbox] {
+            let current = WindowSubject(open: .canvas, faces: faces)
+            let docId = ManuscriptNavigation.paragraphDocId(
+                payload: ["paragraph_id": "p001"], current: current,
+                structure: SubjectSamples.structure)
+            XCTAssertNil(docId, "\(faces) names no paragraph's document")
+            XCTAssertEqual(ManuscriptNavigation.destination(toDocument: docId, current: current),
+                           current, "\(faces): nothing moves")
         }
     }
 
-    // MARK: - ⌘1 gets the writer back
-
-    /// **What makes the move acceptable rather than destructive.** The departing
-    /// position is recorded, so ⌘1 returns the writer to the tree they were
-    /// arranging — verified by feeding the memory this navigation produces back
-    /// through the real persona switch.
-    ///
-    /// **The left column left this test in stage 2b Task 7**, and what it used
-    /// to assert — ⌘1 returns the writer to the tree they were arranging —
-    /// survives by construction: every persona's left column IS that tree, so
-    /// coming back cannot land anywhere else.
-    ///
-    /// **The pane was `.visualLanguage` until §5.0's right-column re-cut, and
-    /// the swap is worth reading rather than skipping.** `PersonaMemory`
-    /// remembers a pane only if the persona's registry still offers it, so a
-    /// pane Plan reaches by shortcut alone — intent (⌘⌥N) and visual language
-    /// (⌘⌥V), both of which Plan now AUTHORS from the left column instead — is
-    /// deliberately not restored by ⌘1. That is the same rule that has always
-    /// dropped `.outline`, and it is the accepted cost of §5.0's parked build
-    /// rather than a defect this test should be pinning as correct. `.history`
-    /// is a pane Plan really carries, and the assertion below checks it is not
-    /// Plan's default so the restore cannot pass by falling back.
-    func test_theDepartingPlanPositionIsRecordedSoCommand1ComesBack() throws {
-        XCTAssertNotEqual(DetailSegment.history, Persona.plan.defaultPane,
-                          "pick a non-default pane, or the restore assertion is "
-                          + "satisfied by the fallback")
-        let destination = ManuscriptNavigation.destination(
-            from: .plan,
-            currentDetailSegment: .history,
-            memory: .empty)
-        let memory = try XCTUnwrap(
-            destination.memory,
-            "the move must hand back a memory to persist, or ⌘1 lands on "
-            + "Plan's default pane and the writer's place is gone")
-        let back = PersonaModifier.applyPersonaChange(
-            to: .plan, from: destination.persona,
-            currentSegment: destination.detailSegment,
-            memory: memory)
-        XCTAssertEqual(back.persona, .plan)
-        XCTAssertEqual(back.segment, .history,
-                       "⌘1 must return the writer to the pane they were reading "
-                       + "the structure against, not to Plan's default")
+    /// **The posters that know their document name it** — a history row's op
+    /// and a figure's Used-in reveal — so the piece that opens is never a
+    /// guess from the faces.
+    func test_thePostersThatKnowTheirDocumentNameIt() throws {
+        let reveal = TranslationReveal(docId: other, language: nil, paragraphId: "p001")
+        XCTAssertEqual(TranslationReveal.navigatePayload(reveal)[ManuscriptNavigation.docIdKey]
+                        as? String, other)
+        let history = try SourceTree.read("Maugham/Views/HistoryPaneVerbs.swift")
+        XCTAssertTrue(history.contains("ManuscriptNavigation.docIdKey: op.docId"),
+                      "a history row names its op's document")
+        // To resolve's rows — a to-do's among them — go through the one
+        // navigation (shell plan 2 Task 7; the Tasks pane is deleted).
+        let resolve = try SourceTree.read("Maugham/Views/Resolve/ResolveNavigation.swift")
+        XCTAssertTrue(resolve.contains("ManuscriptNavigation.docIdKey: docId"),
+                      "a To resolve row names its document under the same key")
+        XCTAssertEqual(ManuscriptNavigation.docIdKey, "doc_id")
     }
 
-    /// Nothing is persisted when nothing moved — a navigation inside Author must
-    /// not rewrite the memory of a persona the writer never left.
-    func test_noMemoryIsWrittenWhenThePersonaDoesNotMove() {
-        for persona in [Persona.author, .review, .publish] {
-            let destination = ManuscriptNavigation.destination(
-                from: persona,
-                currentDetailSegment: .inspector,
-                memory: .empty)
-            XCTAssertNil(destination.memory,
-                         "\(persona): no persona change, nothing to record")
-            XCTAssertFalse(destination.movesPersona)
+    /// **A right-column pane travelling to a piece opens it** (an annotation
+    /// row about another piece, a figure's use); anything else is the click
+    /// rule's `navigate`.
+    func test_aRightColumnTravelToAPieceOpensIt() {
+        let current = SubjectSamples.opened(.canvas)
+        XCTAssertEqual(ManuscriptNavigation.travel(
+            to: .item(other), current: current,
+            structure: SubjectSamples.structure, projectType: .novel),
+                       WindowSubject(open: .item(other), faces: .item(other)))
+        for target in [BinderSubject.figure(SubjectSamples.figureID), .item(SubjectSamples.partID),
+                       .project] {
+            XCTAssertEqual(ManuscriptNavigation.travel(
+                to: target, current: current,
+                structure: SubjectSamples.structure, projectType: .novel),
+                           ClickRule.navigate(to: target, current: current,
+                                              structure: SubjectSamples.structure,
+                                              projectType: .novel), "\(target)")
         }
     }
 
-    /// The right column moves with the persona. A window whose bar says Author
-    /// while its right pane shows Visual Language — a pane Author's registry
-    /// does not carry — is half a persona switch, and the half that is missing
-    /// is the one `PersonaMemory` then records against Author.
-    func test_theRightColumnLandsOnTheDestinationsOwnPane() {
-        let destination = ManuscriptNavigation.destination(
-            from: .plan,
-            currentDetailSegment: .visualLanguage,
-            memory: .empty)
-        XCTAssertEqual(destination.detailSegment, Persona.author.defaultPane)
-        XCTAssertTrue(Persona.author.panes.contains(destination.detailSegment))
+    /// **Applied once, and only when it changes** — a navigation to the piece
+    /// already open writes nothing, so the editor's reload triggers do not
+    /// churn.
+    func test_goWritesTheSubjectOnlyWhenItChanges() {
+        var writes = 0
+        var stored = SubjectSamples.opened(.item(piece))
+        let binding = Binding(get: { stored }, set: { stored = $0; writes += 1 })
+        var item: CentreItem?
+        let noItem = Binding(get: { item }, set: { item = $0 })
+        ManuscriptNavigation.go(to: stored, subject: binding, centreItem: noItem)
+        XCTAssertEqual(writes, 0)
+        ManuscriptNavigation.go(
+            to: ManuscriptNavigation.destination(toDocument: other, current: stored),
+            subject: binding, centreItem: noItem)
+        XCTAssertEqual(writes, 1)
+        XCTAssertEqual(stored.open, .item(other))
     }
 
-    /// A persona that already shows documents keeps the pane the writer chose:
-    /// clicking a history row in Review must leave Review's own column alone.
-    func test_aNonMovingNavigationLeavesTheRightColumnAlone() {
-        let destination = ManuscriptNavigation.destination(
-            from: .review,
-            currentDetailSegment: .annotations,
-            memory: .empty)
-        XCTAssertEqual(destination.persona, .review)
-        XCTAssertEqual(destination.detailSegment, .annotations)
+    /// **A place closes the centre item's cover first** (shell plan 3 Task 5
+    /// fix, C1) — even one in the piece already open, whose subject does not
+    /// change: a paragraph shown under a cover is a paragraph nobody can see.
+    func test_aPlaceClosesTheCentreItemFirst() throws {
+        var stored = SubjectSamples.opened(.item(piece))
+        let binding = Binding(get: { stored }, set: { stored = $0 })
+        var item: CentreItem? = .statement(kind: .intent, scope: .document(piece))
+        let itemBinding = Binding(get: { item }, set: { item = $0 })
+        ManuscriptNavigation.go(to: stored, subject: binding, centreItem: itemBinding)
+        XCTAssertNil(item, "a paragraph in the open piece: the cover goes, the subject stays")
+        XCTAssertEqual(stored.open, .item(piece))
+        item = .history(docId: piece)
+        ManuscriptNavigation.go(
+            to: ManuscriptNavigation.destination(toDocument: other, current: stored),
+            subject: binding, centreItem: itemBinding)
+        XCTAssertNil(item)
+        XCTAssertEqual(stored.open, .item(other))
+
+        // The translation reveal onto the chapter already up never calls
+        // `go`; it closes the cover itself.
+        let reveal = SourceScan.codeLines(
+            of: try SourceTree.sourceOfType("ReadingLanguageModifier", under: ["Maugham"]))
+        let now = try XCTUnwrap(reveal.firstIndex { $0.contains("case .now:") })
+        XCTAssertTrue(reveal[now + 1].contains("if centreItem != nil { centreItem = nil }"),
+                      "\(reveal[now + 1])")
     }
 }

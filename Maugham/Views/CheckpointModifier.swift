@@ -55,8 +55,40 @@ extension CheckpointFlashDecision {
         backups: BackupCoordinator,
         flash: () -> Void
     ) async {
-        await run(projectURL: projectURL, onSuccess: flash) {
-            _ = try await CheckpointCapture.run(
+        switch await labelledCapture(
+            label, projectURL: projectURL, activeDocId: activeDocId, allDocIds: allDocIds,
+            figureIds: figureIds, device: device, session: session,
+            activeDocument: activeDocument, posture: posture) {
+        case .landed, .refused:
+            flash()
+        case .failed(let error):
+            MaughamEvent.postNotice(
+                "Couldn’t save a checkpoint — \(error.localizedDescription)",
+                projectURL: projectURL)
+        }
+        await backUp(projectURL: projectURL, using: backups)
+    }
+
+    /// What a labelled capture came to: the checkpoint written, the door's
+    /// refusal (nothing written), or a thrown error.
+    enum LabelledOutcome {
+        case landed(Checkpoint)
+        case refused
+        case failed(Error)
+    }
+
+    /// **The labelled capture alone** — no flash, no notice, no backup — so a
+    /// caller that must say something else (read-through's Start, which names
+    /// the read-through in its notice) decides from the outcome. `labelled` is
+    /// this plus ⇧⌘S's flash, notice and backup.
+    @MainActor
+    static func labelledCapture(
+        _ label: String, projectURL: URL, activeDocId: String, allDocIds: [String],
+        figureIds: [String], device: String, session: String, activeDocument: Document?,
+        posture: @escaping @MainActor (String) async -> Posture
+    ) async -> LabelledOutcome {
+        do {
+            return .landed(try await CheckpointCapture.run(
                 projectURL: projectURL,
                 activeDocId: activeDocId,
                 allDocIds: allDocIds,
@@ -65,9 +97,12 @@ extension CheckpointFlashDecision {
                 session: session,
                 label: label,
                 activeDocument: activeDocument,
-                posture: posture)
+                posture: posture))
+        } catch CheckpointRefusal.notYourText {
+            return .refused
+        } catch {
+            return .failed(error)
         }
-        await backUp(projectURL: projectURL, using: backups)
     }
 
     /// **The backup a checkpoint runs** — ⌘S, ⇧⌘S's Confirm and ⇧⌘S's
@@ -99,12 +134,9 @@ struct CheckpointModifier: ViewModifier {
     /// Fallback project URL, threaded to RewindModifier for its project scope
     /// when `store` hasn't loaded yet (ADR 0021).
     let url: URL
-    /// The item the tree names, already converted at `ProjectWindow`'s
-    /// boundary — `nil` for the project and for no selection alike.
-    let selectedItemId: String?
-    /// The breadcrumb's stream id, from the same boundary — taken, never
-    /// re-derived here.
-    let activeDocId: String
+    /// The window's subject. ⌘S and ⇧⌘S read its OPEN piece, never the
+    /// faces (`CheckpointTarget.of`, shell closing A1).
+    let subject: WindowSubject
     @Binding var showingCheckpointLabelSheet: Bool
     let onSaveFlash: () -> Void
     @Environment(BackupCoordinator.self) private var backupCoordinator
@@ -115,10 +147,8 @@ struct CheckpointModifier: ViewModifier {
                 guard let store, let documentStore else { return }
                 let allDocIds = ProjectWindow.documentIds(in: store.manifest.structure)
                 let figureIds = (store.manifest.figures ?? []).map(\.id)
-                let activeDoc = activeDocument(
-                    selectedItemId: selectedItemId,
-                    structure: store.manifest.structure,
-                    documentStore: documentStore)
+                let target = CheckpointTarget.of(subject, structure: store.manifest.structure)
+                let activeDoc = target.document(in: documentStore)
                 Task { @MainActor in
                     try? await activeDoc?.flushBurstNow()
                     await CheckpointFlashDecision.run(
@@ -126,7 +156,7 @@ struct CheckpointModifier: ViewModifier {
                     ) {
                         _ = try await CheckpointCapture.run(
                             projectURL: store.url,
-                            activeDocId: activeDocId,
+                            activeDocId: target.docId,
                             allDocIds: allDocIds,
                             figureIds: figureIds,
                             device: _checkpointDeviceId,
@@ -147,13 +177,14 @@ struct CheckpointModifier: ViewModifier {
                 // **⇧⌘S over text this Mac may not change says why instead of
                 // opening** (plan ruling R5). An ACTING decision — the sheet is
                 // the first half of a write — so it asks the settled door.
-                guard let subject = CheckpointCapture.documentSubject(
-                    of: activeDocId, in: allDocIds) else {
+                let target = CheckpointTarget.of(subject, structure: store.manifest.structure)
+                guard let subjectDoc = CheckpointCapture.documentSubject(
+                    of: target.docId, in: allDocIds) else {
                     showingCheckpointLabelSheet = true
                     return
                 }
                 Task { @MainActor in
-                    let posture = await documentStore.settledPosture(forDocId: subject)
+                    let posture = await documentStore.settledPosture(forDocId: subjectDoc)
                     if posture.allows(.checkpoint) {
                         showingCheckpointLabelSheet = true
                     } else {
@@ -170,18 +201,31 @@ struct CheckpointModifier: ViewModifier {
                 documentStore: documentStore,
                 store: store,
                 window: window,
-                url: url,
-                selectedItemId: selectedItemId))
+                url: url))
+    }
+}
+
+/// **What a checkpoint key acts on: the piece OPEN in the centre** (shell
+/// closing A1). The faces can sit on another piece (a Brief link), the Book
+/// or an edition (⌘⌥K) while the writer types in the open one; a checkpoint
+/// keyed on the faces flushed the wrong burst, breadcrumbed the wrong stream
+/// and asked the wrong piece's posture. Both checkpoint keys and ⌘⌥C build
+/// this one value, from `WindowSubject.openPiece`, so the flushed document,
+/// the breadcrumb and the posture question cannot name different pieces.
+struct CheckpointTarget: Equatable {
+    /// The breadcrumb's stream id — `BinderSubject.noDocumentSubject` when no
+    /// structure item is open (`CheckpointCapture` then writes no breadcrumb).
+    let docId: String
+    /// The open piece's manuscript path, whose live `Document` is flushed.
+    let path: String?
+
+    static func of(_ subject: WindowSubject, structure: [StructureItem]) -> CheckpointTarget {
+        CheckpointTarget(docId: subject.openDocId, path: subject.openPiece(in: structure)?.path)
     }
 
-    private func activeDocument(
-        selectedItemId: String?,
-        structure: [StructureItem],
-        documentStore: DocumentStore
-    ) -> Document? {
-        guard let id = selectedItemId,
-              let item = TreeWalk.find(id: id, in: structure),
-              let path = item.path else { return nil }
-        return documentStore.document(for: path)
+    /// The open piece's live `Document`, when the editor registry holds one.
+    @MainActor
+    func document(in documentStore: DocumentStore) -> Document? {
+        path.flatMap { documentStore.document(for: $0) }
     }
 }

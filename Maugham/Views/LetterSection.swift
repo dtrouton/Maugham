@@ -4,9 +4,9 @@ import MaughamCore
 /// **The letter on screen** — the compiler's sixth section, drawn as prose
 /// rather than a list of findings (editorial letter P1 Task 9, spec §3.5).
 ///
-/// One view, two hosts. Author's Diagnostics pane mounts it at the top of the
+/// One view, two hosts. The Diagnostics pane mounts it at the top of the
 /// report, above This check and Conformance, because the letter is what the
-/// writer reads first and the notes are the margin. Review's round cockpit
+/// writer reads first and the notes are the margin. The round cockpit
 /// mounts the identical view inside a disclosure under its own status line.
 /// A second spelling would be two letters that could disagree about what the
 /// same run said.
@@ -44,7 +44,7 @@ struct LetterSection: View {
     static let habitsTitle = "Habits"
     static let questionsTitle = "Questions"
     static let scenesTitle = "Scenes"
-    static let acceptTitle = "Accept as task"
+    static let acceptTitle = "Accept as To-Do"
     static let addToIntentTitle = "Add to intent"
     /// **The same offer, when the piece is measured against the book's
     /// intent** (final review, Critical). A piece with no intent of its own
@@ -85,7 +85,7 @@ struct LetterSection: View {
     /// What a Fresh Eyes round can say: it read the whole piece cold, which is
     /// the evidence §6 says a retirement stands on. Drawn with the offer.
     static func freshRetiredLine(_ heading: String) -> String {
-        "I didn't find \u{201C}\(heading)\u{201D} anywhere in this piece."
+        "I didn't find \u{201C}\(heading)\u{201D} anywhere in what I read."
     }
 
     /// **The caption over the process line** (P3 Task 5, spec §3.1/§5) — one
@@ -169,7 +169,7 @@ struct LetterSection: View {
     /// channel. Not in the plan's input list and added deliberately: without
     /// it a ruling the op log refused would leave a button that looks pressed
     /// and an intent that never moved — the silent-refusal defect
-    /// `AnnotationsPane.performAccept`'s named catch exists to prevent.
+    /// the Annotations pane's `performAccept`'s named catch exists to prevent.
     var offerFailure: String? = nil
     /// What Keep this letter said once it had kept one — *Kept as "…"*,
     /// naming the note the store actually made (`LetterKeep.confirmation`).
@@ -356,7 +356,7 @@ struct LetterSection: View {
     }
 
     /// The words a jump chip carries — **never a paragraph id**
-    /// (`DiagnosticsPane.jumpExcerpt`'s rule, one layer out). The live
+    /// (the finding chip's rule, `ExcerptChip`). The live
     /// paragraph when it can be read, the ref's own remembered excerpt when
     /// it cannot, and `nil` when neither has any words in it.
     static func chipRef(
@@ -370,7 +370,7 @@ struct LetterSection: View {
         guard !words.isEmpty else { return nil }
         return Diagnostic.Ref(
             paragraphId: ref.paragraphId,
-            excerpt: DiagnosticsPane.truncatedDriftQuote(words))
+            excerpt: CheckNarrative.truncatedDriftQuote(words))
     }
 
     /// "and N more" for the refs beyond the first. `nil` for a row with one

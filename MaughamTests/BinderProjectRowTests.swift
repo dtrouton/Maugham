@@ -23,10 +23,10 @@ private struct BinderProbeView: View {
     let treeState = BinderTreeSectionsState()
 
     var body: some View {
-        BinderView(
+        TreeHostFixture.binder(
             store: store,
-            selectedSubject: Binding(get: { probe.subject },
-                                     set: { probe.subject = $0 }),
+            subject: .tree(Binding(get: { probe.subject },
+                                     set: { probe.subject = $0 })),
             treeState: treeState)
     }
 }
@@ -55,11 +55,10 @@ final class BinderProjectRowTests: XCTestCase {
     private var temp: TempDirectory!
     private var windows: [NSWindow] = []
 
-    /// Rows the Research and Palette sections contribute at the foot of the
-    /// tree when a project has neither yet (stage-2a Task 4): a header and one
-    /// placeholder row each. Every fixture in this suite is a bare factory
-    /// novel, so every count below is "what the binder had, plus the furniture".
-    private let emptySectionRows = (1 + 1) + (1 + 1)
+    /// Rows every fresh tree draws besides the Book row and the manuscript
+    /// (shell p1 Task 3): the Canvas row above, and the sections' furniture
+    /// below (`TreeFurniture`). Every fixture here is a bare factory project.
+    private let emptySectionRows = TreeFurniture.topRows + TreeFurniture.emptySections
 
     override func setUp() async throws {
         temp = TempDirectory()
@@ -121,7 +120,7 @@ final class BinderProjectRowTests: XCTestCase {
         await select(row: 0, in: table, until: { probe.subject == .project })
         XCTAssertEqual(probe.subject, .project)
 
-        await select(row: 1, in: table,
+        await select(row: TreeFurniture.firstManuscriptRow, in: table,
                      until: { probe.subject == .item(firstDoc.id) })
         XCTAssertEqual(probe.subject, .item(firstDoc.id),
                        "the chapter below the project row must still select "
@@ -147,7 +146,7 @@ final class BinderProjectRowTests: XCTestCase {
         XCTAssertFalse(hasDraggingDestination(row: 0, in: table),
                        "the project row must not accept a drop — there is "
                        + "nothing for a chapter dragged onto it to mean")
-        XCTAssertTrue(hasDraggingDestination(row: 1, in: table),
+        XCTAssertTrue(hasDraggingDestination(row: TreeFurniture.firstManuscriptRow, in: table),
                       "control: a chapter row does mount one, so the assertion "
                       + "above is reading something real")
     }
@@ -307,7 +306,14 @@ final class BinderProjectRowTests: XCTestCase {
         guard let content = window.contentView else { return nil }
         let rect = table.rect(ofRow: row)
         let centre = CGPoint(x: rect.midX, y: rect.midY)
-        return content.hitTest(content.convert(centre, from: table))
+        // `hitTest(_:)` takes a point in the receiver's SUPERVIEW's
+        // coordinates. The hosting content view is flipped and its superview
+        // is not, so converting into the content view mirrored every row
+        // top-to-bottom — invisible while the overlay sat centred (shell p1
+        // Task 3 moved it to the column's foot).
+        let point = content.superview.map { $0.convert(centre, from: table) }
+            ?? content.convert(centre, from: table)
+        return content.hitTest(point)
     }
 
     /// Whether the row mounts the AppKit view SwiftUI installs for

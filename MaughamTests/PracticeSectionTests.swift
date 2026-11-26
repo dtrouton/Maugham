@@ -274,9 +274,11 @@ final class PracticeSectionTests: XCTestCase {
     /// receiver ignores `paragraph_id` today, so a row that said "Goes to this
     /// paragraph" would be a lie the excerpt exists to make unnecessary.
     func test_theRowsHelpPromisesTheChapterAndNeverAScroll() {
-        XCTAssertEqual(PracticeSection.opensTheChapter, "Opens the chapter")
-        XCTAssertEqual(PracticeSection.opensTheScene, "Opens the scene\u{2019}s file")
-        for promise in [PracticeSection.opensTheChapter, PracticeSection.opensTheScene] {
+        XCTAssertEqual(PracticeSection.opensThePiece(.chapter), "Opens the chapter")
+        XCTAssertEqual(PracticeSection.opensThePiece(.story), "Opens the story")
+        XCTAssertEqual(PracticeSection.opensThePiece(.script), "Opens the script",
+                       "a screenplay's row opens the one script, not a scene's file (fix round 1, M6)")
+        for promise in [PracticeSection.opensThePiece(.chapter), PracticeSection.opensThePiece(.script)] {
             XCTAssertFalse(promise.lowercased().contains("scroll"), promise)
             XCTAssertFalse(promise.lowercased().contains("paragraph"), promise)
         }
@@ -451,7 +453,7 @@ final class PracticeSectionTests: XCTestCase {
 
         XCTAssertEqual(
             axAttribute(button, "accessibilityHelp") as? String,
-            PracticeSection.opensTheChapter)
+            PracticeSection.opensThePiece(.chapter))
     }
 
     /// While the window is still walking the op logs the section says so, so
@@ -509,7 +511,7 @@ final class PracticeSectionTests: XCTestCase {
         onSelectChapter: @escaping (String) -> Void = { _ in }
     ) -> NSWindow {
         mount(AnyView(PracticeSection(
-            practice: practice, onSelectChapter: onSelectChapter)))
+            practice: practice, noun: .chapter, onSelectChapter: onSelectChapter)))
     }
 
     private func mount(_ view: AnyView) -> NSWindow {

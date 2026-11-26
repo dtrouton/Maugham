@@ -40,7 +40,7 @@ enum ScreenplayScriptSource {
     /// Whether the window must derive the script itself.
     ///
     /// Three conditions, and each one is load-bearing. The census over the whole
-    /// `(persona, project type)` product —
+    /// `(subject, project type)` product —
     /// `ScreenplayScriptSourceTests.test_onlySluglineSurfacesWithNoEditorBehindThemDerive`
     /// — is what holds them to exactly one derive, and it has now caught a
     /// widening twice.
@@ -54,27 +54,32 @@ enum ScreenplayScriptSource {
     ///   one would be an op-log decode nobody reads. **This is where
     ///   `BinderSegment.showsSceneNavigator(for:)` went** (stage 2b Task 6): it
     ///   asked the segment a question only the project type could answer.
-    /// - the persona centres the canvas — which is what says *there is no editor
-    ///   here to produce it*. Author shows the same navigator but mounts
-    ///   `EditorHost` beside it, so the coordinator posts within a frame and a
-    ///   derivation there would be duplicate work racing a fresher value.
+    /// - the subject's `open` names no piece — the Book, an edition, the
+    ///   canvas, the Inbox, the palette, a research item or a figure — which is
+    ///   what says *no editor here is loading the script* (shell p1 final fix,
+    ///   M8: it was the canvas and the Inbox alone, so a cold open on any other
+    ///   of them listed no sluglines). A piece in the centre mounts `EditorHost`
+    ///   beside the same navigator, so the coordinator posts within a frame and
+    ///   a derivation there would be duplicate work racing a fresher value; an
+    ///   editor still holding the script under an edition has already
+    ///   produced its parse, which `existing` answers.
     ///
     /// **A fourth condition died with the strip in Task 7**, and it is worth
-    /// recording why it was ever there. Plan's left column was four panes, and
+    /// recording why it was ever there. the left column beside the canvas was four panes, and
     /// only one of them drew `TreePane`'s answer — the Canvas tab put the old
     /// research pane there instead — so the term was `interimSegment == .tree`,
     /// spelled as the case rather than through a predicate because the obvious
     /// predicate ("is the left pane a tree") was wrong and the census caught it:
     /// the manuscript segment mounted `BinderView` unconditionally, so on a
     /// screenplay it showed a one-row novel binder and never sluglines. With one
-    /// left column per persona, a Plan screenplay's left column IS the navigator
+    /// left column, a screenplay's left column IS the navigator
     /// and the term has nothing left to exclude.
-    static func needsDerivation(persona: Persona,
+    static func needsDerivation(subject: WindowSubject,
                                 projectType: ProjectType,
                                 existing: FountainScript?) -> Bool {
         existing == nil
             && TreePane(for: projectType) == .sceneNavigator
-            && persona.centresTheCanvas
+            && subject.open.itemID == nil
     }
 
     /// The project's one script, parsed — or `nil` when the project has no
@@ -114,5 +119,51 @@ enum ScreenplayScriptSource {
             text = derived
         }
         return FountainTokenizer().parse(text)
+    }
+}
+
+/// **The window's parsed screenplay, with the piece it parses** (shell p5a
+/// closing round B). `ProjectWindow`'s one value (`lastParsedScript` reads
+/// its `script`): the editor's post says which document it parsed
+/// (`payload`), the op-log derivation names its one script. To resolve uses
+/// the parse only for that piece (`ResolvePane.scenes`) — a parse is never
+/// read as another piece's, whatever the window heard last.
+struct WindowScript: Equatable {
+    /// The piece parsed; nil where the producer could not say (never matched).
+    let docId: String?
+    let script: FountainScript
+
+    static let docIdKey = "document_id"
+
+    /// What the editor's `.maughamScriptDidUpdate` post carries.
+    static func payload(docId: String?) -> [AnyHashable: Any] {
+        docId.map { [docIdKey: $0] } ?? [:]
+    }
+
+    /// **The parse, only where it is live** (closing round B2, M1): the
+    /// editor's parse of the piece open in it, kept current keystroke by
+    /// keystroke. Anything else — the op-log derivation made at open, which
+    /// never re-derives once it exists, or a parse of a piece no longer open
+    /// — can trail the text (another Mac's edit arriving), so To resolve
+    /// parses the text it holds instead (`SceneParseMemo`).
+    static func live(_ script: WindowScript?, openDocId: String?) -> WindowScript? {
+        guard let script, let openDocId, script.docId == openDocId else { return nil }
+        return script
+    }
+
+    /// The window's value from a post: its object, and the piece it names.
+    static func of(_ note: Notification) -> WindowScript? {
+        guard let script = note.object as? FountainScript else { return nil }
+        return WindowScript(docId: note.userInfo?[docIdKey] as? String, script: script)
+    }
+}
+
+extension ScreenplayScriptSource {
+    /// `derive`, naming the one script it parsed.
+    @MainActor
+    static func deriveWindowScript(store: ProjectStore) -> WindowScript? {
+        guard let script = derive(store: store) else { return nil }
+        let docId = TreeWalk.first(in: store.manifest.structure, where: { $0.type == .document })?.id
+        return WindowScript(docId: docId, script: script)
     }
 }

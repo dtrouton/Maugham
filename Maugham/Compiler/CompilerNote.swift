@@ -157,9 +157,9 @@ struct CompilerMintContext: Equatable, Sendable {
     /// The run these notes came from — `CompilerRun.id`, so a note and the
     /// report it was raised in name the same check.
     let runId: String
-    /// The review pass the round belonged to, or `nil` for a passless ⌘R. An
-    /// unstamped note appears in every pass's queue, which is what a note
-    /// raised outside any pass should do.
+    /// The review pass the round belonged to, or `nil` for a passless ⌘R. A
+    /// passless check's notes carry no pass; To resolve lists them under
+    /// Checks, never under a pass (ADR 0036).
     let passId: String?
     let round: Int?
     let freshEyes: Bool

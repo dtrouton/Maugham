@@ -651,6 +651,135 @@ final class TripwireGrepTests: XCTestCase {
             + offenders.joined(separator: "\n"))
     }
 
+    // MARK: - Every bespoke mover caller says whether it moves Research (#145)
+
+    /// What a caller of the typed mover (`relocateUserContent`,
+    /// `relocate(plan:)`) moves, as the note door needs to know it: a verb that moves Research files enters
+    /// `ProjectStore.withResearchItemsInFlight` around its mover call (#142
+    /// T2's span), so a note save landing mid-move takes the door's "being
+    /// moved" route and is never written afresh at the old path; any other
+    /// caller says why no Research file is under what it moves.
+    enum MoverSpan: Equatable {
+        case entersSpan
+        case holdsNoResearch(String)
+    }
+
+    /// **Every production function in `Maugham/Stores` that calls
+    /// `relocateUserContent(` or `relocate(plan:`**, keyed
+    /// `"<file>: <function>"` (the innermost enclosing `func`). A new caller
+    /// is unlisted and fails; an `entersSpan` entry whose body does not call
+    /// `withResearchItemsInFlight(` fails. #145 found the piece reorder and
+    /// rename moving `pieces/…/research/` outside the span.
+    static let userContentMoverCallers: [String: MoverSpan] = [
+        "ProjectStore+CollectionPieces.swift: movePiece": .entersSpan,
+        "ProjectStore+CollectionPieces.swift: renamePiece": .entersSpan,
+        "ProjectStore+Research.swift: updateResearchItem": .entersSpan,
+        "ProjectStore+Structure.swift: renameStructureItem": .holdsNoResearch(
+            "moves one manuscript file or group folder; a piece's .md moves alone, never its folder, "
+            + "so no research root is under it"),
+        "DocumentStore+Figures.swift: moveFigureFile": .holdsNoResearch(
+            "moves a figure's file inside figures/, which is no research root"),
+        "ProjectStore+ResearchMove.swift: moveResearchItems": .entersSpan,
+        "ProjectStore+Structure.swift: moveStructureItem": .holdsNoResearch(
+            "renumbers manuscript files and group folders under one structure parent; a Collection's "
+            + "pieces reorder through movePiece, and a piece's .md would move alone, never its folder"),
+        "ProjectStore+Structure.swift: tidyFilenames": .holdsNoResearch(
+            "renumbers manuscript files and group folders under one structure parent; a piece's .md "
+            + "would move alone, never its folder, so no research root is under it"),
+    ]
+
+    /// The functions under `dir` calling `relocateUserContent(` or
+    /// `relocate(plan:`, each with whether its body calls `withResearchItemsInFlight(`. A function is
+    /// found by brace depth from its `func` line over code with string
+    /// literals and line comments removed; a call is credited to the
+    /// innermost function around it.
+    static func userContentMoverCallerScan(in dir: URL) throws -> [String: Bool] {
+        func code(_ line: String) -> String {
+            line.replacingOccurrences(of: #""[^"]*""#, with: "\"\"", options: .regularExpression)
+                .components(separatedBy: "//").first ?? ""
+        }
+        let declaration = try NSRegularExpression(pattern: #"\bfunc\s+(\w+)"#)
+        var found: [String: Bool] = [:]
+        let files = try FileManager.default.contentsOfDirectory(atPath: dir.path)
+            .filter { $0.hasSuffix(".swift") }
+        for name in files {
+            let lines = try String(contentsOf: dir.appendingPathComponent(name), encoding: .utf8)
+                .components(separatedBy: "\n").map(code)
+            var functions: [(name: String, start: Int, end: Int)] = []
+            for (i, line) in lines.enumerated() {
+                guard let match = declaration.firstMatch(in: line, range: NSRange(line.startIndex..., in: line)),
+                      let range = Range(match.range(at: 1), in: line) else { continue }
+                var depth = 0, started = false, j = i
+                while j < lines.count {
+                    depth += lines[j].filter { $0 == "{" }.count - lines[j].filter { $0 == "}" }.count
+                    if lines[j].contains("{") { started = true }
+                    if started && depth <= 0 { break }
+                    j += 1
+                }
+                functions.append((String(line[range]), i, min(j, lines.count - 1)))
+            }
+            for (i, line) in lines.enumerated()
+            where (line.contains("relocateUserContent(") || line.contains("relocate(plan:"))
+                && !line.contains("func ") {
+                guard let owner = functions.filter({ $0.start < i && i <= $0.end }).max(by: { $0.start < $1.start })
+                else { found["\(name): <top level>"] = false; continue }
+                let enters = lines[owner.start...owner.end].contains { $0.contains("withResearchItemsInFlight(") }
+                found["\(name): \(owner.name)"] = enters
+            }
+        }
+        return found
+    }
+
+    func test_everyBespokeMoverCallerSaysWhetherItMovesResearch() throws {
+        let found = try Self.userContentMoverCallerScan(in: sourceDir.appendingPathComponent("Stores"))
+        XCTAssertEqual(Set(found.keys), Set(Self.userContentMoverCallers.keys),
+            "The production callers of `relocateUserContent` / `relocate(plan:)` moved. Classify each new one in "
+            + "`userContentMoverCallers`: `.entersSpan` if it can move a Research file (wrap its mover "
+            + "call in `withResearchItemsInFlight`), else `.holdsNoResearch(\"<why>\")`. Found: "
+            + "\(found.keys.sorted())")
+        let notEntering = Self.userContentMoverCallers
+            .filter { $0.value == .entersSpan && found[$0.key] == false }.keys.sorted()
+        XCTAssertEqual(notEntering, [],
+            "These are listed as entering the in-flight span but never call `withResearchItemsInFlight(`")
+    }
+
+    /// The control: a planted caller outside the span, one inside it, and a
+    /// comment naming the mover are told apart, and a nested helper's call
+    /// is credited to the helper.
+    func test_theBespokeMoverCensusSeesAPlantedCaller() throws {
+        let dir = TestTemp.root.appendingPathComponent("mover-census-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        try """
+        extension ProjectStore {
+            // relocateUserContent( in a comment is not a call
+            func movePlanted() async throws {
+                try await ds.relocateUserContent(affectedPaths: []) { }
+            }
+            func spannedPlanted() async throws {
+                try await withResearchItemsInFlight(ids) {
+                    try await ds.relocateUserContent(affectedPaths: []) { }
+                }
+            }
+            func planPlanted() async throws {
+                try await documentStore.relocate(plan: plan)
+            }
+            func outerPlanted() async throws {
+                func innerPlanted() async throws {
+                    try await ds.relocateUserContent(affectedPaths: []) { }
+                }
+                try await withResearchItemsInFlight(ids) { try await innerPlanted() }
+            }
+        }
+        """.write(to: dir.appendingPathComponent("ProjectStore+Planted.swift"), atomically: true, encoding: .utf8)
+        XCTAssertEqual(try Self.userContentMoverCallerScan(in: dir), [
+            "ProjectStore+Planted.swift: movePlanted": false,
+            "ProjectStore+Planted.swift: spannedPlanted": true,
+            "ProjectStore+Planted.swift: innerPlanted": false,
+            "ProjectStore+Planted.swift: planPlanted": false,
+        ])
+    }
+
     // MARK: - No `.skipsHiddenFiles` in a production scan
 
     /// Recurrence-tripper: `.skipsHiddenFiles` honours the BSD `hidden` FLAG
@@ -751,7 +880,7 @@ final class TripwireGrepTests: XCTestCase {
     /// grow a fifth spelling of the toolchain's versions.
     private var toolchainCensusDirs: [URL] {
         // `Views/Publish` joined the list in imprints P3 Task 5, when
-        // `DeskCompileRunner` became the second production construction of
+        // `CompileRunner` became the second production construction of
         // `PublishOrchestrator` — a compile stamp is minted in this directory
         // now, so a fifth spelling could grow here too.
         ["Publish", "MCP", "Compiler", "Views/Publish"].map {
@@ -1136,49 +1265,69 @@ final class TripwireGrepTests: XCTestCase {
         XCTAssertTrue(seatHits[0].hasPrefix("RoundEditor.swift:"), seatHits[0])
     }
 
-    // MARK: - A run's kind is minted from the persona in one place (two loops P1)
+    // MARK: - Every run names its kind (two loops P1; shell p1 Task 5)
 
-    /// Lines that mention the mint but are not a CALL of it: any comment
-    /// naming it, and the string literals in the wiring censuses that assert
-    /// on the modifier's source.
-    private func runKindMintNonCall(_ line: String) -> Bool {
-        line.trimmingCharacters(in: .whitespaces).hasPrefix("//")
+    /// The `kind:` argument of every CALL of `runRequested(` under `dir`, as
+    /// `File.swift: <argument>`. A call is any `runRequested(` that is not the
+    /// declaration (`func runRequested(`) and not on a comment line; its
+    /// argument is read up to the next `,` or `)`.
+    static func runRequestedKindArguments(in dir: URL) throws -> [String] {
+        var hits: [String] = []
+        let fm = FileManager.default
+        guard let walker = fm.enumerator(at: dir, includingPropertiesForKeys: nil) else { return [] }
+        for case let url as URL in walker where url.pathExtension == "swift" {
+            let text = try String(contentsOf: url, encoding: .utf8)
+            let lines = text.components(separatedBy: "\n")
+            for (i, line) in lines.enumerated() {
+                let trimmed = line.trimmingCharacters(in: .whitespaces)
+                guard trimmed.contains("runRequested("), !trimmed.hasPrefix("//"),
+                      !trimmed.contains("func runRequested(") else { continue }
+                let call = lines[i..<min(i + 4, lines.count)].joined(separator: " ")
+                guard let open = call.range(of: "runRequested(") else { continue }
+                let rest = call[open.upperBound...]
+                guard let kind = rest.range(of: "kind:") else {
+                    hits.append("\(url.lastPathComponent): <no kind>")
+                    continue
+                }
+                let argument = rest[kind.upperBound...]
+                    .prefix { $0 != "," && $0 != ")" }
+                    .trimmingCharacters(in: .whitespaces)
+                hits.append("\(url.lastPathComponent): \(argument)")
+            }
+        }
+        return hits.sorted()
     }
 
-    /// **Tripwire: `RunKind.of(persona:)` is called in exactly ONE production
-    /// file — `CompilerRunModifier.swift`, the run keys' delivery path.**
+    /// **Every run names its kind: a literal `.check` or `.round`, or the run
+    /// command's own (`request.kind`, in `CompilerRunModifier.swift` alone).**
     ///
-    /// Which loop a run belongs to is one decision, made at the keystroke from
-    /// the key window's persona. A second site minting a kind is a second
-    /// answer to "which verb is this", and the two would part company the
-    /// moment the loops do — a surface holding a persona and reaching for the
-    /// mint would file a round as a check, or worse, file a check as a round
-    /// on a piece nobody is reading. Every other caller of `runRequested`
-    /// belongs to one loop by construction and names it literally, which is a
-    /// claim a reader can check; a second mint is one they cannot.
-    func test_theRunKindIsMintedFromThePersonaInOneFile() throws {
-        let offenders = try grepSwift(
-            in: sourceDir,
-            patterns: ["RunKind.of(persona:"],
-            excludeLine: { self.runKindMintNonCall($0) })
-        XCTAssertEqual(
-            Set(offenders.compactMap { $0.split(separator: ":").first.map(String.init) }),
-            ["CompilerRunModifier.swift"],
-            "the kind is minted from a persona in one place \u{2014} the run "
-            + "keys' own modifier \u{2014} and every other caller says which "
-            + "loop it belongs to literally. Offenders:\n"
-            + offenders.joined(separator: "\n"))
-        XCTAssertEqual(
-            offenders.count, 1,
-            "…once, in `CompilerRunModifier.request`, which both run keys ask "
-            + "(`CompilerRunCommandTests` pins each key's request). Hits:\n"
-            + offenders.joined(separator: "\n"))
+    /// Which loop a run belongs to is the COMMAND's (`RunCommand`): Check
+    /// Writing and Reread are checks, Run Round and Fresh Eyes rounds, and
+    /// every other caller of `runRequested` belongs to one loop by
+    /// construction and names it literally — a claim a reader can check. A
+    /// kind derived from anything else (a window's mode, a subject, a stored
+    /// flag) is a second answer to "which verb is this", the shape that filed
+    /// every Author ⌘R as a round once (tripwire 34's history). Replaces the
+    /// persona-mint census (`RunKind.of(persona:)` died with the persona's
+    /// say in it).
+    func test_everyRunNamesItsKindLiterallyOrByItsCommand() throws {
+        let hits = try Self.runRequestedKindArguments(in: sourceDir)
+        XCTAssertFalse(hits.isEmpty, "premise: production calls runRequested")
+        let offenders = hits.filter { hit in
+            hit.hasSuffix(": .check") || hit.hasSuffix(": .round") ? false
+                : hit != "CompilerRunModifier.swift: request.kind"
+        }
+        XCTAssertTrue(offenders.isEmpty,
+            "a run's kind is a literal, or its command's in CompilerRunModifier "
+            + "alone. Offenders:\n" + offenders.joined(separator: "\n"))
+        XCTAssertEqual(hits.filter { $0 == "CompilerRunModifier.swift: request.kind" }.count, 1,
+            "the commands' request reaches the compiler once. Hits:\n" + hits.joined(separator: "\n"))
     }
 
-    /// CONTROL for the census above: it is not passing because the pattern
-    /// matches nothing. A planted second mint is caught, and a comment naming
-    /// the call is not.
-    func test_theRunKindMintCensusFiresOnAPlantedOffender() throws {
+    /// CONTROL for the census above: a planted kind derived from a window's
+    /// mode is caught, a literal on a continuation line is not, and neither
+    /// is a comment naming the call.
+    func test_theRunKindCensusFiresOnAPlantedOffender() throws {
         let fm = FileManager.default
         let tmp = TestTemp.root
             .appendingPathComponent("tripwire-runkind-selfcheck-\(UUID().uuidString)")
@@ -1187,23 +1336,21 @@ final class TripwireGrepTests: XCTestCase {
 
         try """
         struct SecondMint {
-            // A comment naming RunKind.of(persona: persona) is not a call.
-            func run(persona: Persona) {
+            // A comment naming orchestrator.runRequested(docId: d, kind: mode.kind) is not a call.
+            func run(mode: Mode) {
                 orchestrator.runRequested(
-                    docId: docId, kind: RunKind.of(persona: persona))
+                    docId: docId, kind: mode.kind)
+                orchestrator.runRequested(
+                    docId: docId,
+                    kind: .round, freshEyes: true)
             }
         }
         """.write(to: tmp.appendingPathComponent("SecondMint.swift"),
                   atomically: true, encoding: .utf8)
 
-        let offenders = try grepSwift(
-            in: tmp,
-            patterns: ["RunKind.of(persona:"],
-            excludeLine: { self.runKindMintNonCall($0) })
-        XCTAssertEqual(offenders.count, 1,
-            "Self-check: the planted mint should be the one caught, and not "
-            + "the comment. Got:\n" + offenders.joined(separator: "\n"))
-        XCTAssertTrue(offenders[0].hasPrefix("SecondMint.swift:"), offenders[0])
+        XCTAssertEqual(try Self.runRequestedKindArguments(in: tmp),
+                       ["SecondMint.swift: .round", "SecondMint.swift: mode.kind"],
+                       "Self-check: the planted mint and the literal are read, the comment is not")
     }
 
     // MARK: - Filing a research note has a known set of callers (editorial letter P1)
@@ -2420,11 +2567,9 @@ final class TripwireGrepTests: XCTestCase {
     static let pressThenWaitRepresentatives: Set<String> = [
         "AnnotationsPaneChoiceTests.swift test_theSheetCommitsTheWriterSentence",
         "AnnotationsPaneChoiceTests.swift test_theSheetRefusesABlankHeadingBeforeTheVerbIsCalled",
-        "AssistantColumnTests.swift test_theColumnNamesWhatIsBeingStudiedAndCanBeClosed",
-        "DepartmentPaneTests.swift test_theSheetOffersTheBooksOwnLanguageCheckedAndCompilesIt",
+        "EditionLanguagesTests.swift test_theSheetOffersTheBooksOwnLanguageCheckedAndCompilesIt",
         "LetterSectionTests.swift test_addToIntentCallsTheHostsHandler",
         "PracticeSectionTests.swift test_pressingAHotspotRowOpensThatRowsOwnChapter",
-        "ReferencesPaneTests.swift test_theShelfDrawsARowPerPinAndAClickPromotesIt",
         "ReviewRoundCockpitTests.swift test_clearingTheAskReachesTheHostAndStartsNoRun",
         "StatementDraftHandoffTests.swift test_aMintThatDepositedTheWritersCharacterKeepsItsStatement",
         // Found when the arm learned `waitOut(` (plan 3, C14): the same file's
@@ -2500,7 +2645,7 @@ final class TripwireGrepTests: XCTestCase {
     /// presses — followed, later in the same body, by a wait — a
     /// `selfWaitTokens` line outside a string literal, or a call to an in-file
     /// helper that waits. Order matters: a helper that waits for its control to
-    /// be DRAWN and then presses it (`DepartmentRunTests.pressRowControl`)
+    /// be DRAWN and then presses it (the desk suite's old `pressRowControl`)
     /// waits on the premise, not the effect. A helper calling a self-waiting
     /// helper is one. Test functions are never helpers. Same file only, as the
     /// click arm's reasoning has it: a call is read by its spelling, and the
@@ -2767,6 +2912,137 @@ final class TripwireGrepTests: XCTestCase {
         ])
     }
 
+    // MARK: - Every manuscript load passes the promotion door (shell p4 Task 11 fix round 1)
+
+    /// The production `Document.load(` call sites allowed outside the door,
+    /// by file and count: the door's own two (strict and recovery), and the
+    /// three statement loads — a statement's path is never a piece's, and its
+    /// own gate (`lockStatementOpen`) is what a promotion takes for it.
+    static let rawDocumentLoadSites: [String: Int] = [
+        "DocumentStore.swift": 2,
+        "ProjectStore+Statements.swift": 1,
+        "ProjectStore+StatementAdoption.swift": 1,
+        "StatementEditorHost.swift": 1,
+    ]
+
+    /// **No load reaches a manuscript without the promotion door**
+    /// (`DocumentStore.loadManuscript`). The hold first protected
+    /// `EditorHost` alone, and Replace All, the relabel, the rename sweep and
+    /// every MCP read went on loading the held path — the half-rule shape. A
+    /// new `Document.load(` anywhere else in `Maugham/` fails here: route it
+    /// through the door, or, if it is not a manuscript's path, name it above
+    /// with the reason.
+    func test_everyManuscriptLoadPassesThePromotionDoor() throws {
+        let found = try Self.rawDocumentLoadCounts(under: sourceDir)
+        XCTAssertEqual(found, Self.rawDocumentLoadSites,
+            "A production `Document.load(` outside the promotion door. A load of a "
+            + "piece's path goes through `DocumentStore.loadManuscript(path:…through:)`, "
+            + "which refuses a path a promotion holds (`ManuscriptBeingPromoted`).")
+    }
+
+    /// Self-check: counts a planted raw load (two lines, as production writes
+    /// them), leaves `FigureDocument.load(`, the door's own spelling and a
+    /// comment alone.
+    func test_theManuscriptLoadDoorCensusFiresOnAPlantedLoad() throws {
+        let fm = FileManager.default
+        let tmp = TestTemp.root
+            .appendingPathComponent("tripwire-load-door-\(UUID().uuidString)")
+        try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: tmp) }
+        try """
+        let doc = try await Document.load(
+            url: url, actor: .author, session: "s", presenter: nil)
+        """.write(to: tmp.appendingPathComponent("Planted.swift"), atomically: true, encoding: .utf8)
+        try """
+        // Document.load( named in prose is not a load.
+        let figure = try await FigureDocument.load(url: url)
+        let doc = try await DocumentStore.loadManuscript(
+            path: p, url: url, actor: .author, session: "s", presenter: nil, through: store)
+        """.write(to: tmp.appendingPathComponent("Control.swift"), atomically: true, encoding: .utf8)
+        XCTAssertEqual(try Self.rawDocumentLoadCounts(under: tmp), ["Planted.swift": 1])
+    }
+
+    /// Per file, the code lines holding a raw `Document.load(` (not
+    /// `FigureDocument.load(`); comment lines skipped.
+    static func rawDocumentLoadCounts(under dir: URL) throws -> [String: Int] {
+        guard let walker = SourceTreeCache.enumerator(at: dir) else { return [:] }
+        var counts: [String: Int] = [:]
+        for case let url as URL in walker where url.pathExtension == "swift" {
+            for line in try SourceTreeCache.text(url).components(separatedBy: "\n") {
+                let code = line.trimmingCharacters(in: .whitespaces)
+                guard !code.hasPrefix("//"),
+                      let hit = code.range(of: "Document.load(") else { continue }
+                let before = code[code.startIndex..<hit.lowerBound]
+                if before.hasSuffix("Figure") || before.last?.isLetter == true { continue }
+                counts[url.lastPathComponent, default: 0] += 1
+            }
+        }
+        return counts
+    }
+
+    // MARK: - No test writes the general pasteboard (shell p4 Task 11)
+
+    /// **`NSPasteboard.general` is every process's.** The writer's own ⌘C, or
+    /// a Universal Clipboard arrival, replaced a test's picture mid-paste
+    /// (`StatementImageIngestTests`, red once in a full gate, 15.6 s). A test
+    /// writes and pastes from a pasteboard of its own
+    /// (`MaughamTextView.paste(from:)`; ⌘V's `paste(_:)` is that with
+    /// `.general`), and calls no `paste(nil)`, which reads `.general`.
+    func test_noTestWritesTheGeneralPasteboard() throws {
+        let testsDir = repoRoot.appendingPathComponent("MaughamTests", isDirectory: true)
+        // The two census files quote production's spelling; they paste nothing.
+        let offenders = try Self.generalPasteboardUses(under: testsDir)
+            .filter { !$0.hasPrefix("TripwireGrepTests.swift:") && !$0.hasPrefix("WiringCensusTests.swift:") }
+        XCTAssertEqual(offenders, [],
+            "A test touches the general pasteboard, which every process on the machine "
+            + "shares: give it its own (`NSPasteboard(name:)`, released in tearDown) and "
+            + "paste with `paste(from:)`.")
+    }
+
+    /// Self-check: fires on a planted write, a `pasteboard: .general` and a
+    /// `paste(nil)`; quiet on a named pasteboard and on prose.
+    func test_theGeneralPasteboardCensusFiresOnPlantedOffenders() throws {
+        let fm = FileManager.default
+        let tmp = TestTemp.root
+            .appendingPathComponent("tripwire-pasteboard-selfcheck-\(UUID().uuidString)")
+        try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: tmp) }
+        try """
+        func test_a() { NSPasteboard.general.clearContents() }
+        func test_b() { coordinator.pasteFigure(from: .general) }
+        func test_c() { textView.paste(nil) }
+        """.write(to: tmp.appendingPathComponent("Planted.swift"), atomically: true, encoding: .utf8)
+        try """
+        /// Prose naming NSPasteboard.general is not a use.
+        func test_d() {
+            let pasteboard = NSPasteboard(name: NSPasteboard.Name("maugham-test-1"))
+            textView.paste(from: pasteboard)
+        }
+        """.write(to: tmp.appendingPathComponent("Control.swift"), atomically: true, encoding: .utf8)
+        XCTAssertEqual(try Self.generalPasteboardUses(under: tmp),
+                       ["Planted.swift:1", "Planted.swift:2", "Planted.swift:3"])
+    }
+
+    /// `file:line` of every code line under `dir` that names the general
+    /// pasteboard or pastes from it implicitly. Comment lines are skipped.
+    static func generalPasteboardUses(under dir: URL) throws -> [String] {
+        guard let walker = SourceTreeCache.enumerator(at: dir) else { return [] }
+        let shapes = ["NSPasteboard.general", "from: .general", "pasteboard: .general",
+                      "NSPasteboard(name: .general)", ".paste(nil)"]
+        var hits: [String] = []
+        for case let url as URL in walker where url.pathExtension == "swift" {
+            let lines = try SourceTreeCache.text(url).components(separatedBy: "\n")
+            for (index, line) in lines.enumerated() {
+                let code = line.trimmingCharacters(in: .whitespaces)
+                guard !code.hasPrefix("//") else { continue }
+                if shapes.contains(where: { code.contains($0) }) {
+                    hits.append("\(url.lastPathComponent):\(index + 1)")
+                }
+            }
+        }
+        return hits.sorted()
+    }
+
     // MARK: - Tripwire 33, the click arm
 
     /// **The click arm (plan 3 carry C14).** A synthesised mouse click is the
@@ -2800,15 +3076,6 @@ final class TripwireGrepTests: XCTestCase {
         // the seam every other canvas test drives takes the flag by hand — the
         // 1C-a shape. Sent synchronously, pumped once; nothing polls.
         "CanvasViewMountingRegionTests.swift test_aShiftDragBetweenTwoCardsReachesTheSceneThroughTheRealEventPath",
-        // A hit area: the door's live band swept down (and across) the icon.
-        // SwiftUI hit-tests inside one hosting view, so no `hitTest` can see it.
-        "PaletteWallDoorHitAreaTests.swift test_theWholeOpenWallIconOpensTheWall",
-        // The sweep's control — without a miss it can see, the sweep asserts nothing.
-        "PaletteWallDoorHitAreaTests.swift test_control_theSweepCanSeeAMiss",
-        // The real delivery path: the door's click through the real
-        // `PaletteWallModifier`, whose persona observer is what the press's
-        // token ordering exists to survive.
-        "PaletteWallDoorTests.swift test_pressingTheDoorInPlanLandsTheWriterInAuthorWithTheWallOpen",
         // The real delivery path: the only proof the altitude overlay's card can
         // be reached by a mouse at all (a `Button(.plain)` in a `LazyVGrid`).
         "ProjectAltitudeCentreTests.swift test_clickingACorkboardCardOpensThatChapterInTheHostThatWasAlreadyUp",
@@ -2830,13 +3097,17 @@ final class TripwireGrepTests: XCTestCase {
         // `Button` inside a `.draggable` tree row — only a real click shows the
         // button, not the row's drag or selection, takes it (plan 8a review I2).
         "BinderTreeSectionsTests.swift test_aClickOnAPieceRowsFigureCountFiltersAndSelectsNothing",
+        // A hit area: the Palette row is a selectable subject (the wall), and
+        // only a real click shows its chevron's button takes the click rather
+        // than the row's selection.
+        "BinderTreeSectionsTests.swift test_aClickOnThePaletteRowsChevronFoldsItAndSelectsNothing",
         // A hit area: a click on the row's NAME selects (stage 3b's regression,
         // invisible to a `rect.midX` click) — and, with the watcher installed,
-        // stays one click: the persona does not move.
+        // stays one click: nothing opens in the centre.
         "TreeTravelTests.swift test_aSingleClickOnTheRowsNameSelectsIt",
-        // The real delivery path: the travel is an `NSEvent` local monitor
+        // The real delivery path: the double-click is an `NSEvent` local monitor
         // reading `clickCount == 2`, which only `NSApp`'s own dispatch runs.
-        "TreeTravelTests.swift test_aDoubleClickOnTheRowsNameTravelsToAuthor",
+        "TreeTravelTests.swift test_aDoubleClickOnTheRowsNameOpensItInTheCentre",
     ]
 
     /// Every `File.swift test_name` under `dir` whose body synthesises a mouse
@@ -3629,11 +3900,14 @@ final class TripwireGrepTests: XCTestCase {
     static let editorSurfaceMountSites: Set<String> = [
         // The manuscript editor. Primary in its window.
         "EditorHost.swift",
-        // A research note in the centre column. Primary in its window — it
-        // replaces the manuscript editor rather than sitting beside it.
+        // A research note: primary in the centre column, where it replaces
+        // the manuscript editor; a SECOND editor when pulled up in the right
+        // column (`isSecondEditor: true` from `ResearchSubjectInspector`,
+        // shell p3 Task 7), which sets the flag.
         "ResearchNoteEditor.swift",
-        // M1A's Intent / Visual Language panes, in the right column. The only
-        // one that is a SECOND editor, and the only one setting the flag.
+        // A statement's editor — Brief's Going for, a pulled-up Book
+        // statement, the centre's cover: always a second editor, always
+        // setting the flag.
         "StatementEditorHost.swift",
     ]
 
@@ -3969,7 +4243,7 @@ final class TripwireGrepTests: XCTestCase {
     /// `func`, `init`) is found, that VStack's own modifier chain — the lines
     /// from its closing brace to the end of the chain — must carry
     /// `.frame(… alignment: .top)`. A site factored into a helper with no
-    /// VStack of its own (most `DetailPaneToggle` panes, every phone use, which
+    /// VStack of its own (most right-column panes, every phone use, which
     /// sit in a `List` or a `NavigationStack`) has no enclosing VStack in its
     /// declaration and is not judged by this half.
     static func unalignedContentUnavailableViewStacks(
@@ -4281,7 +4555,7 @@ final class TripwireGrepTests: XCTestCase {
     /// Self-check: prove the frame guard FIRES on a planted frameless
     /// `ContentUnavailableView` and does NOT fire on one whose frame chain
     /// sits at the edge of the window (distance 4, matching real call sites
-    /// like DetailPaneToggle.swift).
+    /// like RightColumn.swift).
     func test_contentUnavailableViewFrameGuardFiresOnPlantedOffender() throws {
         let fm = FileManager.default
         let tmp = TestTemp.root
@@ -4892,20 +5166,76 @@ final class TripwireGrepTests: XCTestCase {
     /// is a shipped-bug shape. The `if let symbol { Image } else { Text }`
     /// spelling makes a `_ConditionalContent` whose branch is cached per
     /// position; the picker updates its `NSSegmentedControl` in place, so the
-    /// first list reshape (a persona change) leaves stale branches on the wrong
-    /// indices — the binder rendered `Pieces | 🎨Research | 🎨`, and a persona
-    /// with no Palette segment showed a palette icon that selected Research.
+    /// first list reshape (then a window-mode change, now a subject change)
+    /// leaves stale branches on the wrong indices — the binder rendered
+    /// `Pieces | 🎨Research | 🎨`, and a picker with no Palette segment showed a
+    /// palette icon that selected Research.
     ///
-    /// **One picker left, and it is the right pane's.** The binder's own
+    /// **No segmented picker is left in either column.** The binder's own
     /// (`BinderSegmentPicker`) was the surface the defect was FOUND on, and it
-    /// died with the strip in shell-finish stage 2b Task 7 — every persona's
-    /// left column is the project's tree now, so there is nothing there to pick
-    /// between. `DetailPaneToggle` has the identical shape and the identical
-    /// exposure, which is why the rule outlives the file it was written for.
+    /// died with the strip in shell-finish stage 2b Task 7; the right pane's
+    /// picker had the identical shape and died in shell plan 3 Task 9. The
+    /// right column's control is three plain buttons in a `ForEach`
+    /// (`RightColumnControl`), whose every segment is one kind of child (the
+    /// title's `Text` is always there, empty where no title is drawn). The
+    /// rule outlives both files it was written for: it reads the right
+    /// column's files, so a `Picker` that comes back with a conditional child
+    /// goes red here — and the planted offender below shows the scan can see
+    /// one.
+    static let segmentedPickerFiles = ["Views/RightColumn.swift", "Views/RightColumnControl.swift"]
+
     func test_segmentedPickerForEachBodiesHaveNoConditionalChildren() throws {
-        for relative in ["Views/DetailPaneToggle.swift"] {
+        for relative in Self.segmentedPickerFiles {
             let content = try String(
                 contentsOf: sourceDir.appendingPathComponent(relative), encoding: .utf8)
+            XCTAssertEqual(Self.conditionalPickerChildren(in: content), [],
+                "\(relative) — a segmented Picker's ForEach body must emit ONE "
+                + "kind of child. A conditional here is _ConditionalContent, whose branch "
+                + "is cached per position; the first list reshape puts a stale child on "
+                + "the wrong segment (2026-07-25 smoke, defect C). Move the variation "
+                + "INSIDE one child expression, or change every segment together.")
+        }
+        // The control's own ForEach holds no conditional child either, Picker
+        // or not: the same stale-branch shape, one container over.
+        let control = try String(
+            contentsOf: sourceDir.appendingPathComponent("Views/RightColumnControl.swift"),
+            encoding: .utf8)
+        XCTAssertEqual(Self.conditionalPickerChildren(in: control, container: "HStack(spacing: 4) {"), [],
+                       "the control's ForEach emits one kind of child per segment")
+    }
+
+    /// Self-check: the scan fires on a planted picker whose ForEach branches,
+    /// and not on one whose children are uniform.
+    func test_theSegmentedPickerCensusFiresOnAPlantedOffender() {
+        let planted = """
+        Picker("Right pane", selection: $segment) {
+            ForEach(segments, id: \\.self) { seg in
+                if let symbol = seg.symbol {
+                    Image(systemName: symbol).tag(seg)
+                } else {
+                    Text(seg.title).tag(seg)
+                }
+            }
+        }
+        """
+        XCTAssertFalse(Self.conditionalPickerChildren(in: planted).isEmpty,
+                       "the census cannot see a conditional child")
+        let uniform = """
+        Picker("Right pane", selection: $segment) {
+            ForEach(segments, id: \\.self) { seg in
+                Image(systemName: seg.symbol).tag(seg)
+            }
+        }
+        """
+        XCTAssertEqual(Self.conditionalPickerChildren(in: uniform), [])
+    }
+
+    /// The lines of a `container`'s `ForEach` body that branch.
+    private static func conditionalPickerChildren(
+        in content: String, container: String = "Picker("
+    ) -> [String] {
+        var offenders: [String] = []
+        do {
             let lines = content.components(separatedBy: .newlines)
             var insidePicker = false
             var insideForEach = false
@@ -4914,137 +5244,29 @@ final class TripwireGrepTests: XCTestCase {
                 let line = raw.trimmingCharacters(in: .whitespaces)
                 // Skip doc comments — they discuss the very shape we ban.
                 if line.hasPrefix("//") || line.hasPrefix("///") { continue }
-                if line.contains("Picker(") { insidePicker = true; depth = 0 }
+                if line.contains(container) { insidePicker = true; depth = 0 }
                 guard insidePicker else { continue }
-                if insideForEach {
-                    XCTAssertFalse(
-                        line.hasPrefix("if ") || line.hasPrefix("} else")
-                            || line.hasPrefix("else ") || line.contains(" ? ") ,
-                        "\(relative):\(i + 1) — a segmented Picker's ForEach body must emit ONE "
-                        + "kind of child. A conditional here is _ConditionalContent, whose branch "
-                        + "is cached per position; the first list reshape puts a stale child on "
-                        + "the wrong segment (2026-07-25 smoke, defect C). Move the variation "
-                        + "INSIDE one child expression, or change every segment together.")
+                if insideForEach,
+                   line.hasPrefix("if ") || line.hasPrefix("} else")
+                    || line.hasPrefix("else ") || line.contains(" ? ") {
+                    offenders.append("\(i + 1): \(line)")
                 }
                 if line.contains("ForEach(") { insideForEach = true; depth = 0 }
                 depth += line.filter { $0 == "{" }.count - line.filter { $0 == "}" }.count
                 if insideForEach && depth <= 0 { insideForEach = false; insidePicker = false }
             }
         }
+        return offenders
     }
 
-    // MARK: - Coercion call-site census (persona pane-selection wiring)
-
-    /// Recurrence-tripper: DetailPaneToggle has two critical segment-snapping call
-    /// sites that MUST consult different `visibleSegments` lists — swapping them is
-    /// a shipped-bug shape (happened 3 times on this branch, Critical at merge gate).
-    /// The distinction:
-    ///   - `.onAppear` calls `snapSegmentIntoPicker()`, which calls `mountSelection()`
-    ///     and MUST eventually consult `visibleSegments(..., including:)` — the
-    ///     selection-carrying list. This preserves out-of-persona pane selections
-    ///     reached via ⌘⌥ shortcuts, even when the current persona doesn't register them.
-    ///   - `.onChange(of: persona)` calls `coerceSegmentIntoView(of:)`, which MUST
-    ///     consult `visibleSegments(persona:)` WITHOUT `including:` —
-    ///     the bare registry. On persona change, coercion is the intent and an
-    ///     out-of-persona pane is deliberately dropped.
-    /// If those function calls are swapped between the two event handlers, the suite
-    /// still passes because the tests pin the pure functions, not the wiring. A census
-    /// (plus a plainly-written failure message) is the only guard.
-    func test_coercionCallSitesCensus() throws {
-        let fileURL = sourceDir.appendingPathComponent("Views/DetailPaneToggle.swift")
-        let content = try SourceTreeCache.text(fileURL)
-
-        // Check 1: `.onAppear` MUST call `snapSegmentIntoPicker()`
-        guard let onAppearRange = content.range(of: ".onAppear") else {
-            XCTFail("Could not find .onAppear in DetailPaneToggle.swift")
-            return
-        }
-        let afterOnAppear = content[onAppearRange.lowerBound...]
-        let nextModifierEnd = afterOnAppear.range(of: "}")?.lowerBound ?? afterOnAppear.endIndex
-        let onAppearBody = String(afterOnAppear[..<nextModifierEnd])
-        let onAppearHasSnapSegmentIntoPicker = onAppearBody.contains("snapSegmentIntoPicker()")
-        XCTAssertTrue(onAppearHasSnapSegmentIntoPicker,
-            ".onAppear MUST call snapSegmentIntoPicker() (which uses the selection-carrying list). "
-            + "If this is false, the event handler may have been rewired to call coerceSegmentIntoView "
-            + "instead (which uses the bare registry). Swapping these is a Critical shipped-bug shape.")
-
-        // Check 2: `.onChange(of: persona)` MUST call `coerceSegmentIntoView(`
-        guard let onPersonaChangeRange = content.range(of: ".onChange(of: persona)") else {
-            XCTFail("Could not find .onChange(of: persona) in DetailPaneToggle.swift")
-            return
-        }
-        let afterPersonaChange = content[onPersonaChangeRange.lowerBound...]
-        let personaModifierEnd = afterPersonaChange.range(of: "}")?.lowerBound ?? afterPersonaChange.endIndex
-        let onPersonaChangeBody = String(afterPersonaChange[..<personaModifierEnd])
-        let onPersonaChangeHasCoerce = onPersonaChangeBody.contains("coerceSegmentIntoView(")
-        XCTAssertTrue(onPersonaChangeHasCoerce,
-            ".onChange(of: persona) MUST call coerceSegmentIntoView() (which uses the bare registry). "
-            + "If this is false, the event handler may have been rewired to call snapSegmentIntoPicker "
-            + "instead (which uses the selection-carrying list). Swapping these is a Critical shipped-bug shape.")
-    }
-
-    /// Self-check: prove the census FIRES when the two call sites are swapped
-    /// (the real defect this test guards against). Plants a synthetic file with
-    /// the calls reversed and confirms the test fails with useful guidance.
-    func test_coercionCallSitesCensusFiresOnPlantedSwap() throws {
-        let fm = FileManager.default
-        let tmp = TestTemp.root
-            .appendingPathComponent("tripwire-coercion-swapped-\(UUID().uuidString)")
-        try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
-        defer { try? fm.removeItem(at: tmp) }
-
-        // Plant a synthetic file with the call sites swapped (the bug)
-        let planted = tmp.appendingPathComponent("DetailPaneToggle.swift")
-        try """
-        struct DetailPaneToggle<Inspector: View>: View {
-            func snapSegmentIntoPicker() {
-                // WRONG: calling with bare list instead of including:
-                let snapped = Self.mountSelection(segment, persona: persona)
-                if snapped != segment { segment = snapped }
-            }
-
-            private func coerceSegmentIntoView(of persona: Persona) {
-                // WRONG: calling with including: instead of bare list
-                let visible = Self.visibleSegments(persona: persona, including: segment)
-                let coerced = Self.snappedSelection(segment, in: visible, fallback: persona.defaultPane)
-                if coerced != segment { segment = coerced }
-            }
-
-            static func mountSelection(
-                _ current: DetailSegment,
-                persona: Persona
-            ) -> DetailSegment {
-                let carrying = visibleSegments(
-                    persona: persona, including: current)
-                return snappedSelection(current, in: carrying, fallback: persona.defaultPane)
-            }
-        }
-        """.write(to: planted, atomically: true, encoding: .utf8)
-
-        // Run the census check
-        let content = try SourceTreeCache.text(planted)
-        let lines = content.split(separator: "\n", omittingEmptySubsequences: false)
-            .map(String.init)
-
-        var visibleSegmentsCalls: [(line: Int, text: String, hasIncluding: Bool)] = []
-        for (i, line) in lines.enumerated() {
-            if line.contains("visibleSegments(") {
-                let hasIncluding = line.contains("including:") ||
-                    (i + 1 < lines.count && lines[i + 1].contains("including:"))
-                visibleSegmentsCalls.append((line: i + 1, text: line.trimmingCharacters(in: .whitespaces), hasIncluding: hasIncluding))
-            }
-        }
-
-        // With the swapped calls, we should have:
-        // - Line with "WRONG: calling with including:" in coerceSegmentIntoView = 1 (with including)
-        // - Line in mountSelection inside the let carrying statement = 1 (with including)
-        // Total = 2, but count of "with including" should still be 2, which violates the census
-        let withIncluding = visibleSegmentsCalls.filter { $0.hasIncluding }
-        XCTAssertEqual(withIncluding.count, 2,
-            "Self-check: with the swapped call sites, there should be TWO calls "
-            + "with 'including:', which violates the census. The test should fail "
-            + "when this happens. Got \(withIncluding.count) calls with including.")
-    }
+    // The mount-snap call-site census (`test_mountSnapCallSitesCensus` and its
+    // planted twin) retired with the pane picker (shell plan 3 Task 9): the
+    // right column's positions are always drawn — the pulled-up one whenever
+    // it is the one selected (`RightColumnControl.segments`) — so nothing
+    // snaps a requested position away on mount. What a key that reveals a
+    // hidden column lands on is `RightColumnMountingTests`'
+    // `test_everyRequestedPositionLandsUnderEverySubject` and
+    // `test_theControlIsTheOneOrderUnderEverySubject`.
 
     /// Self-check: prove the guard FIRES on a planted bare `ParagraphID.mint()`
     /// call and does NOT fire on the safe `ParagraphID.mintUnique(excluding:)`
@@ -7125,11 +7347,19 @@ final class TripwireGrepTests: XCTestCase {
     /// (`test_whereBothDropKindsMeetTheStringDestinationIsMountedFirst` still
     /// orders that pair).
     func test_theProviderRouteIsMountedOnTheCanvasAndTheResearchHeaderOnly() throws {
+        // `TreeTopRows.swift` since shell p4 Task 10: the tree's Canvas row takes
+        // what the canvas takes (a capture, a research id, a file) through the
+        // canvas's own one provider drop, and mounts no String destination at
+        // all, so there is no pair to order.
         XCTAssertEqual(try filesNaming(Self.providerRouteToken, under: sourceDir),
-                       ["CanvasView.swift", "BinderTreeSections.swift"],
-            "`\(Self.providerRouteToken)` is mounted on the canvas and the Research "
-            + "header only. A new surface that takes both drag kinds outside a List "
-            + "row belongs here with its reason.")
+                       ["CanvasView.swift", "BinderTreeSections.swift", "TreeTopRows.swift"],
+            "`\(Self.providerRouteToken)` is mounted on the canvas, the Research "
+            + "header and the tree's Canvas row only. A new surface that takes both "
+            + "drag kinds belongs here with its reason.")
+        let topRows = try SourceTreeCache.text(
+            sourceDir.appendingPathComponent("Views/TreeTopRows.swift"))
+        XCTAssertEqual(stringDestinationCount(in: topRows), 0,
+                       "the Canvas row's one drop is the provider route")
 
         let sectionsURL = sourceDir.appendingPathComponent("Views/BinderTreeSections.swift")
         let sections = try SourceTreeCache.text(sectionsURL)
@@ -7305,9 +7535,14 @@ final class TripwireGrepTests: XCTestCase {
     /// - `showsPictureWell` — the same, for the drop well's visibility. It
     ///   carries no correctness: `take` does not consult it.
     /// - `canMount` / `body` — the mount condition, which is what the marker is
-    ///   FOR.
-    /// - `reconcile` — the one place it is derived.
-    /// - `leave` — the one place it is retracted.
+    ///   FOR; `body` also retracts it when the bound `Document` was withdrawn
+    ///   from under the editor (`wasWithdrawn`), synchronously.
+    /// - `reconcile` — where it is derived for a scope.
+    /// - `leave` — where it is retracted on the way out.
+    /// - `mintAndBind` — drops to the placeholder while a held statement's
+    ///   load waits, and re-mounts once it binds; both writes are gated on the
+    ///   named destination (`target.wantedScope == wanted`), never on the
+    ///   marker.
     ///
     /// An async member appearing here is the regression: anything that resumes
     /// after a suspension must name what it is acting on, not ask a marker.
@@ -7319,6 +7554,12 @@ final class TripwireGrepTests: XCTestCase {
         "body",
         "reconcile",
         "leave",
+        // WRITES it only, as `reconcile` does (shell plan 3 Task 4 fix 2, N1):
+        // a mint that found another host holding the statement drops the
+        // editor to the placeholder and re-mounts after its waiting load
+        // binds. Each write is gated on the named destination
+        // (`target.wantedScope == wanted`), never on the marker.
+        "mintAndBind",
     ]
 
     /// Which members of a Swift file mention `token` in CODE, keyed by the
@@ -7462,6 +7703,10 @@ final class TripwireGrepTests: XCTestCase {
         "ProjectStore+StatementAdoption.swift:adopt",
         "ProjectStore+CollectionPieces.swift:promotePieceToProject",
         "StatementEditorHost.swift:load",
+        // A host letting go of its Document: forget, close, release under the
+        // gate, so no opener loads the path while the close flushes (shell
+        // plan 3 Task 4 fix, I1).
+        "ProjectStore+Statements.swift:closeStatementDocument",
     ]
 
     private static let statementOpenGateToken = "lockStatementOpen("
@@ -8175,8 +8420,8 @@ final class TripwireGrepTests: XCTestCase {
             "A name from the binder strip killed in stage 2b Task 7 survives "
             + "outside comments. BinderSegment, binderSegments(for:), "
             + "binderHome(for:), findActive and selectedResearchId are all "
-            + "dead — see ManuscriptForceCensusTests, TreePaneTests and "
-            + "PersonaMemoryTests for their successors. Offenders:\n"
+            + "dead — see ManuscriptForceCensusTests and TreePaneTests for "
+            + "their successors. Offenders:\n"
             + offenders.joined(separator: "\n"))
     }
 
@@ -8221,353 +8466,10 @@ final class TripwireGrepTests: XCTestCase {
             + "naming all five must not suppress any of them — got \(offenders)")
     }
 
-    // MARK: - Who decides the persona (stage 2b Task 8, T7 report §6)
-
-    /// **T7's report closed with a named open question rather than a built
-    /// census**: "does any site write `selectedSubject` without going through
-    /// the rule that decides the persona with it." Building that census
-    /// literally is the wrong shape, and the reason is worth recording rather
-    /// than silently doing something else.
-    ///
-    /// `grep -rn "selectedSubject = " Maugham/` finds roughly twenty sites —
-    /// `BinderTreeSections`, `CorkboardGrid`, `SceneNavigatorPane`,
-    /// `OutlineTable`, `BinderView`, and a dozen more inside `ProjectWindow`
-    /// itself — and asking each "did you call `ManuscriptNavigation.go` first"
-    /// would fail on nearly all of them, because nearly all of them are
-    /// correct as written: a click in whatever tree the writer is already
-    /// looking at needs no persona decision to go with it. Which document or
-    /// research item the centre column HOLDS is answered by
-    /// `Persona.centresTheCanvas`/`showsManuscriptDocuments`
-    /// (`ManuscriptNavigationTests`), never by `selectedSubject`'s write
-    /// history — so a census demanding every subject write route through the
-    /// persona rule would be a forbidden-pattern census whose "forbidden"
-    /// pattern is the normal case. That is what "vacuous" means for this
-    /// class of test (task 8 brief, item 1's own escape hatch), and the three
-    /// notification receivers that DO need the rule — `.maughamNavigateToDocument`,
-    /// `.maughamNavigateToParagraph`, `.maughamNavigateToScene` — already have
-    /// their own census: `ManuscriptForceCensusTests
-    /// .test_everyNavigationReceiverStillRoutesThroughTheNavigation`.
-    ///
-    /// **The stronger fact underneath both of those, asserted here.** If
-    /// `selectedSubject`'s write history is irrelevant to which persona is
-    /// showing, the only way the two could ever disagree is a site deciding to
-    /// move the PERSONA on its own — reinventing `ManuscriptNavigation`'s rule
-    /// one level up, which is exactly this file's own doc comment's warning
-    /// ("a route added and nothing goes red") about a different value. So the
-    /// census asks of `persona` what T7's question asked of `selectedSubject`:
-    /// every production site that WRITES the window's `persona` is one of a
-    /// small, named, closed set — nowhere else invents its own persona-moving
-    /// logic. `ManuscriptNavigation.go` is the one sanctioned cross-context
-    /// arrival; `PersonaModifier`'s `.maughamSetPersona` handler is the one
-    /// sanctioned direct choice (⌘1–4 and the picker); `CanvasClaudeArrivalModifier`
-    /// is Claude's own arrival (1C-c3), reviewed separately; `TreeTravel.swift`'s
-    /// `TreeTravelModifier` is the tree's own double-click arrival (shell-finish
-    /// stage 3b) — through `PersonaModifier.applyPersonaChange` directly rather
-    /// than `ManuscriptNavigation.go`, because the travel rule's question ("is
-    /// there a persona to travel TO") is not `ManuscriptNavigation`'s ("does the
-    /// CURRENT persona already show a document"), and routing one through the
-    /// other would let a rule answer a premise it was never asked about;
-    /// `UIState.swift` is the model's own init/decode, not a live decision; and
-    /// the two `self.persona = persona` lines in `AssistantColumn.swift` and
-    /// `DetailPaneToggle.swift` are init-parameter captures for a subview
-    /// reading the persona it was handed, not a place that moves anything.
-    func test_theWindowsPersonaIsWrittenOnlyFromTheClosedSetOfDecisionSites() throws {
-        let (bySite, unresolved, offendersByFile) = try personaDecisionSites(in: sourceDir)
-        XCTAssertTrue(unresolved.isEmpty, "persona decision sites: \(unresolved)")
-        XCTAssertEqual(
-            Set(bySite.keys), Self.personaDecisionSites,
-            "a new file writes the window's persona directly — either route it "
-            + "through ManuscriptNavigation.go / PersonaModifier, or if it is a "
-            + "genuinely new sanctioned decision site, add it here by name "
-            + "rather than widening the census silently. Found:\n"
-            + offendersByFile.map { "\($0.key): \($0.value.joined(separator: " / "))" }
-                .sorted().joined(separator: "\n"))
-    }
-
-    /// The closed set. A type key claims its type's DECLARATIONS: a write in a
-    /// child view sharing a file with `extension ProjectWindow` answers under
-    /// that file's own name, and fails the census. `PersonaModifier` (the
-    /// `.maughamSetPersona` handler, the one sanctioned direct choice) lives in
-    /// `ProjectWindow.swift` beside the window, so it is named by its own type.
-    static let personaDecisionSites: Set<String> = [
-        "ManuscriptNavigation.swift", "CanvasClaudeArrivalModifier.swift",
-        "type:ProjectWindow", "type:PersonaModifier", "TreeTravel.swift",
-    ]
-
-    /// Every persona write under `dir`, folded into `personaDecisionSites`'
-    /// keys (`bySite`), plus each file's raw writes for the failure message.
-    private func personaDecisionSites(in dir: URL) throws
-        -> (bySite: [String: [String]], unresolved: [String], offendersByFile: [String: [String]]) {
-        let walker = try XCTUnwrap(
-            SourceTreeCache.enumerator(at: dir))
-        var offendersByFile: [String: [String]] = [:]
-        var hits: [(hit: SourceTree.Hit, value: [String])] = []
-        for case let url as URL in walker where url.pathExtension == "swift" {
-            let name = url.lastPathComponent
-            if name == "UIState.swift" { continue }
-            let text = try SourceTreeCache.text(url)
-            for line in SourceScan.numberedCodeLines(of: text) {
-                let trimmed = line.text.trimmingCharacters(in: .whitespaces)
-                guard Self.isPersonaStateWrite(trimmed) else { continue }
-                if trimmed == "self.persona = persona" { continue }   // init capture
-                offendersByFile[name, default: []].append(trimmed)
-                hits.append((SourceTree.Hit(file: name, line: line.number), [trimmed]))
-            }
-        }
-        let (bySite, unresolved) = SourceTree.foldingIntoTypeKeys(
-            hits, keyedLike: Self.personaDecisionSites, in: [dir], combine: +)
-        return (bySite, unresolved, offendersByFile)
-    }
-
-    /// **The type key claims the window's declarations, not its files**
-    /// (plan 2 final review, I1). A persona write inside `extension
-    /// ProjectWindow` answers as `type:ProjectWindow`; one in a child view
-    /// that shares the file answers under the FILE, which is not a site.
-    func test_personaDecisionCensusCatchesAWriteInAChildViewSharingTheWindowsFile() throws {
-        let dir = try SourceTree.plantedTree([
-            "Views/ProjectWindow.swift": "struct ProjectWindow {\n    func a() { persona = .plan }\n}\n",
-            "Views/ProjectWindow+Columns.swift": """
-            extension ProjectWindow {
-                func b() { persona = .author }
-            }
-
-            struct ChildInspector {
-                func c() { persona = .review }
-            }
-            """,
-        ]).appendingPathComponent("Views")
-        let inside = try personaDecisionSites(in: dir)
-        XCTAssertEqual(Set(inside.bySite["type:ProjectWindow"] ?? []),
-                       ["func a() { persona = .plan }", "func b() { persona = .author }"],
-                       "both writes inside the window's declarations fold into the key")
-        XCTAssertEqual(inside.bySite["ProjectWindow+Columns.swift"], ["func c() { persona = .review }"],
-                       "the child view's write is the file's own, not the window's")
-        XCTAssertFalse(Set(inside.bySite.keys).isSubset(of: Self.personaDecisionSites),
-                       "so the census fails on it")
-    }
-
-    /// A line writes the persona state if it assigns through one of the three
-    /// shapes production actually uses — a plain `persona =`, a `Binding`'s
-    /// `.wrappedValue`, or the keyed `UIState` mutation closure's `$0.persona`.
-    /// The trailing space in each pattern is load-bearing: `persona == .plan`
-    /// does NOT contain `"persona = "` (the second `=` sits where the pattern
-    /// wants a space), so a bare comparison never matches and needs no special
-    /// exclusion — verified rather than assumed, because the same-line guard
-    /// shape (`if persona == .plan { persona = .author }`) would have made an
-    /// exclusion on the substring `"persona =="` blind the whole line to the
-    /// real write sharing it.
-    private static func isPersonaStateWrite(_ trimmed: String) -> Bool {
-        trimmed.contains("persona = ")
-            || trimmed.contains("persona.wrappedValue = ")
-            || trimmed.contains("$0.persona = ")
-    }
-
-    /// Self-check: a planted direct write in a file outside the closed set
-    /// must fire, and the same census run over just the three sanctioned files
-    /// (stood up as a fixture, so the test does not depend on the real tree's
-    /// line numbers) must not.
-    func test_personaDecisionCensusFiresOnAPlantedDirectWrite() throws {
-        let fm = FileManager.default
-        let tmp = TestTemp.root
-            .appendingPathComponent("tripwire-persona-decision-selfcheck-\(UUID().uuidString)")
-        try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
-        defer { try? fm.removeItem(at: tmp) }
-
-        try """
-        struct ManuscriptNavigation {
-            static func go() { persona.wrappedValue = .author }
-        }
-        """.write(to: tmp.appendingPathComponent("ManuscriptNavigation.swift"),
-                  atomically: true, encoding: .utf8)
-        try """
-        struct AssistantColumn {
-            init(persona: Persona) {
-                self.persona = persona
-            }
-        }
-        """.write(to: tmp.appendingPathComponent("AssistantColumn.swift"),
-                  atomically: true, encoding: .utf8)
-        try """
-        struct RogueRow {
-            // The guard on its own must not fire the census — only the write
-            // below it, which shares the same comparison a blind exclusion on
-            // "persona ==" would have hidden.
-            func tap() {
-                if persona == .plan {
-                    persona = .author
-                }
-            }
-        }
-        """.write(to: tmp.appendingPathComponent("RogueRow.swift"),
-                  atomically: true, encoding: .utf8)
-
-        var offendersByFile: [String: [String]] = [:]
-        let walker = try XCTUnwrap(
-            SourceTreeCache.enumerator(at: tmp))
-        for case let url as URL in walker where url.pathExtension == "swift" {
-            let name = url.lastPathComponent
-            if name == "UIState.swift" { continue }
-            let text = try SourceTreeCache.text(url)
-            for line in SourceScan.codeLines(of: text) {
-                let trimmed = line.trimmingCharacters(in: .whitespaces)
-                guard Self.isPersonaStateWrite(trimmed) else { continue }
-                if trimmed == "self.persona = persona" { continue }
-                offendersByFile[name, default: []].append(trimmed)
-            }
-        }
-        XCTAssertEqual(offendersByFile["RogueRow.swift"], ["persona = .author"],
-            "the planted direct write must fire, and only the comparison-free "
-            + "assignment inside it — the guard's own `persona == .plan` must "
-            + "not")
-        XCTAssertNil(offendersByFile["AssistantColumn.swift"],
-            "the init-parameter capture must not fire — it is not a decision")
-        XCTAssertEqual(offendersByFile["ManuscriptNavigation.swift"],
-            ["static func go() { persona.wrappedValue = .author }"],
-            "the sanctioned file still reports its own write — the closed-set "
-            + "test is what allows it, not this census")
-    }
-
-    // MARK: - A view asks a persona predicate, never a persona name (foundations plan 4 Task 6)
-
-    /// One allowance: a FILE and the exact SPELLING that may compare a persona
-    /// there, with the reason it is not a gate a predicate should answer.
-    struct PersonaComparisonAllowance {
-        let file: String
-        let spelling: String
-        let reason: String
-    }
-
-    /// **File plus spelling, an array with a reason each — count the array,
-    /// never a prose number about it.** Every other persona comparison in
-    /// `Maugham/Views` is a gate, and a gate asks a named `Persona` predicate
-    /// (`centresTheCanvas`, `showsPaletteWall`, `showsIntentStrip`,
-    /// `showsExports`, …), because a name compared at four sites reads the same
-    /// at all four and drifts at the fifth.
-    static let personaComparisonAllowed: [PersonaComparisonAllowance] = [
-        PersonaComparisonAllowance(
-            file: "AssistantColumn.swift",
-            spelling: "old.persona == new.persona",
-            reason: "compares two SNAPSHOTS of the window's persona to tell a "
-                + "pane change from a persona switch (`paneChangeEndsTheStudy`); "
-                + "it names no persona, so there is no predicate it could ask"),
-    ]
-
-    /// `persona ==`, `persona != .x` / `persona != Persona.x`, and the same two
-    /// through a binding (`persona.wrappedValue ==` / `!=`) — the shapes a
-    /// name-gate takes. `persona != nil` is not a gate and is not matched.
-    /// **Known limits**: `candidate == persona` (the picker's own selection
-    /// test) and a persona compared from the other side (`.plan == persona`)
-    /// are not matched, nor are `switch persona` / `case .plan` and
-    /// `[…].contains(persona)` — a gate spelled any of those escapes.
-    static let personaComparisonPattern = try! NSRegularExpression(
-        pattern: #"\bpersona\s*==|\bpersona\s*!=\s*(\.|Persona\.)|\bpersona\.wrappedValue\s*(==|!=)"#)
-
-    /// Every persona comparison under `root`'s `Maugham/Views` that no
-    /// allowance admits, as `"<path>: <line>"`, plus every allowance that
-    /// admitted nothing (a stale entry is a hole someone can walk through).
-    /// Read through the source mask, so a comment or a string naming
-    /// `persona == .plan` is not a hit.
-    static func personaComparisonOffenders(
-        base: URL = SourceTree.repoRoot,
-        allowed: [PersonaComparisonAllowance] = personaComparisonAllowed
-    ) throws -> (offenders: [String], unused: [String]) {
-        var used = Set<Int>()
-        var offenders: [String] = []
-        for file in try SourceTree.maskedSources(under: "Maugham/Views", base: base) {
-            let name = (file.path as NSString).lastPathComponent
-            let masked = String(decoding: file.masked, as: UTF8.self)
-                .split(separator: "\n", omittingEmptySubsequences: false)
-            let raw = file.text.split(separator: "\n", omittingEmptySubsequences: false)
-            for index in masked.indices {
-                let line = String(masked[index])
-                let range = NSRange(line.startIndex..., in: line)
-                guard personaComparisonPattern.firstMatch(in: line, range: range) != nil
-                else { continue }
-                let rawLine = raw[index].trimmingCharacters(in: .whitespaces)
-                if let hit = allowed.indices.first(where: {
-                    allowed[$0].file == name && rawLine.contains(allowed[$0].spelling)
-                }) {
-                    used.insert(hit)
-                    continue
-                }
-                offenders.append("\(file.path): \(rawLine)")
-            }
-        }
-        let unused = allowed.indices.filter { !used.contains($0) }
-            .map { "\(allowed[$0].file): \(allowed[$0].spelling)" }
-        return (offenders, unused)
-    }
-
-    /// **No view gates on a persona's NAME.** Before this census the window
-    /// asked `persona != .plan` for the palette wall, `IntentStrip` asked
-    /// `persona == .author` twice and both binder toggles asked `persona !=
-    /// .plan` for the Exports footer; each is a named predicate now
-    /// (`Persona.showsPaletteWall`, `.showsIntentStrip`, `.showsExports`).
-    func test_noViewComparesAPersonaByName() throws {
-        let result = try Self.personaComparisonOffenders()
-        XCTAssertTrue(result.offenders.isEmpty,
-            "A view compares the persona by name. Ask a named `Persona` predicate "
-            + "(an exhaustive switch in `Persona.swift`) instead, or — if the "
-            + "comparison is not a gate — add a FILE plus SPELLING allowance "
-            + "with its reason. Offenders:\n" + result.offenders.joined(separator: "\n"))
-        XCTAssertTrue(result.unused.isEmpty,
-            "An allowance admits nothing any more — remove it: \(result.unused)")
-        for allowance in Self.personaComparisonAllowed {
-            XCTAssertFalse(allowance.reason.isEmpty, "\(allowance.file) carries no reason")
-        }
-    }
-
-    /// The control: planted name-gates of both shapes fire; a comment, a
-    /// string, the picker's `candidate == persona` and a predicate do not; the
-    /// allowed spelling passes in its own FILE and fires under any other name;
-    /// and an allowance whose spelling is gone is reported as unused.
-    func test_thePersonaComparisonCensusFiresOnPlantedOffenders() throws {
-        let base = try SourceTree.plantedTree([
-            "Maugham/Views/RogueStrip.swift": """
-            struct RogueStrip {
-                // persona == .author would be the old gate, in prose.
-                let label = "persona != .plan"
-                func a(persona: Persona) -> Bool { persona == .author }
-                func b(persona: Persona) -> Bool { persona != .plan }
-                func c(box: Box) -> Bool { box.persona==.review }
-                func d(candidate: Persona, persona: Persona) -> Bool { candidate == persona }
-                func e(persona: Persona) -> Bool { persona.showsExports }
-                func g(persona: Persona) -> Bool { persona != Persona.review }
-                func h(persona: Binding<Persona>) -> Bool { persona.wrappedValue == .plan }
-                func i(persona: Binding<Persona>) -> Bool { persona.wrappedValue != .plan }
-                func j(persona: Persona?) -> Bool { persona != nil }
-            }
-            """,
-            "Maugham/Views/AssistantColumn.swift": """
-            struct AssistantColumn {
-                static func f(old: S, new: S) -> Bool { old.persona == new.persona }
-            }
-            """,
-            "Maugham/Views/Elsewhere/NotTheAssistant.swift": """
-            struct NotTheAssistant {
-                static func f(old: S, new: S) -> Bool { old.persona == new.persona }
-            }
-            """,
-        ])
-        let planted = try Self.personaComparisonOffenders(base: base)
-        XCTAssertEqual(planted.offenders.sorted(), [
-            "Maugham/Views/Elsewhere/NotTheAssistant.swift: static func f(old: S, new: S) -> Bool { old.persona == new.persona }",
-            "Maugham/Views/RogueStrip.swift: func a(persona: Persona) -> Bool { persona == .author }",
-            "Maugham/Views/RogueStrip.swift: func b(persona: Persona) -> Bool { persona != .plan }",
-            "Maugham/Views/RogueStrip.swift: func c(box: Box) -> Bool { box.persona==.review }",
-            "Maugham/Views/RogueStrip.swift: func g(persona: Persona) -> Bool { persona != Persona.review }",
-            "Maugham/Views/RogueStrip.swift: func h(persona: Binding<Persona>) -> Bool { persona.wrappedValue == .plan }",
-            "Maugham/Views/RogueStrip.swift: func i(persona: Binding<Persona>) -> Bool { persona.wrappedValue != .plan }",
-        ].sorted(), "every shape fires, nothing else does, and the allowance is by FILE")
-        XCTAssertEqual(planted.unused, [], "the planted AssistantColumn used its allowance")
-
-        let stale = try Self.personaComparisonOffenders(
-            base: base,
-            allowed: Self.personaComparisonAllowed + [PersonaComparisonAllowance(
-                file: "RogueStrip.swift", spelling: "persona == .gone", reason: "planted")])
-        XCTAssertEqual(stale.unused, ["RogueStrip.swift: persona == .gone"],
-                       "an allowance that admits nothing is reported")
-    }
+    // `test_theWindowsPersonaIsWrittenOnlyFromTheClosedSetOfDecisionSites`,
+    // `test_noViewComparesAPersonaByName` and their planted controls retired
+    // with the personas (shell p1 Task 6): there is no persona to write or to
+    // compare, and `NoPersonaCensusTests` covers every production file.
 
     // MARK: - Canvas zoom rendering guard (tripwire 25, ADR 0026)
 
@@ -9058,7 +8960,9 @@ final class TripwireGrepTests: XCTestCase {
     /// call, so what is guarded is the number and identity of its callers.
     ///
     /// Two sanctioned sites, and the second is a deliberate exception:
-    /// `TranslationReviewPaneLogic.purgeOrphans` appends TOMBSTONES ONLY. It
+    /// `ResolvePieceInLanguage.clear` (a piece read in a language's Clear of
+    /// its left-over translations, shell p4 Task 9; the translation review
+    /// pane's orphan purge before it) appends TOMBSTONES ONLY. It
     /// builds no translated text, stamps no source hash against live text (an
     /// orphan's paragraph is gone, so it hashes `""`), and validates nothing
     /// the pipeline validates, because a purge has no `text` entry to check.
@@ -9070,7 +8974,7 @@ final class TripwireGrepTests: XCTestCase {
         XCTAssertEqual(sites.count, 2,
             "Expected exactly TWO production appendBatch sites: "
             + "TranslationWritePipeline.swift (the one write pipeline) and "
-            + "TranslationReviewPane.swift (the tombstone-only orphan purge). "
+            + "ResolvePieceInLanguage.swift (the tombstone-only Clear of left-over translations). "
             + "A new site is a second write pipeline — route it through "
             + "TranslationWritePipeline.perform instead, so the MCP tool and "
             + "the ingest path cannot disagree about validation or the "
@@ -9079,12 +8983,12 @@ final class TripwireGrepTests: XCTestCase {
         XCTAssertEqual(sites.filter { $0.hasPrefix("TranslationWritePipeline.swift:") }.count, 1,
             "The one write pipeline should append exactly once. Found:\n"
             + sites.joined(separator: "\n"))
-        XCTAssertEqual(sites.filter { $0.hasPrefix("TranslationReviewPane.swift:") }.count, 1,
-            "The orphan purge should append exactly once. Found:\n"
+        XCTAssertEqual(sites.filter { $0.hasPrefix("ResolvePieceInLanguage.swift:") }.count, 1,
+            "The left-over Clear should append exactly once. Found:\n"
             + sites.joined(separator: "\n"))
         XCTAssertTrue(sites.allSatisfy {
             $0.hasPrefix("TranslationWritePipeline.swift:")
-                || $0.hasPrefix("TranslationReviewPane.swift:")
+                || $0.hasPrefix("ResolvePieceInLanguage.swift:")
         }, "Unsanctioned appendBatch site. Found:\n" + sites.joined(separator: "\n"))
 
         // Carried over from the retired WriteTranslationToolTests census: a
@@ -9475,7 +9379,7 @@ final class TripwireGrepTests: XCTestCase {
         // runs from one window file into the next.
         let sources = try SourceTree.windowSources()
         let modifier = try SourceTree.declaration(
-            named: "struct TranslationReviewModifier", under: "Maugham")
+            named: "struct ReadingLanguageModifier", under: "Maugham")
 
         XCTAssertTrue(sources.contains(where: Self.reportArmPostsTheReveal(in:)),
             "the round report's `onReveal` must call TranslationReveal.post — "
@@ -9494,8 +9398,8 @@ final class TripwireGrepTests: XCTestCase {
             + "— it is the window's one source-paragraph reveal. It belongs in the "
             + "`case .publishProblems(let problems):` arm of the centre's switch.")
 
-        XCTAssertTrue(Self.translationReviewModifierHandlesTheReveal(in: modifier),
-            "TranslationReviewModifier must handle .maughamRevealTranslation — "
+        XCTAssertTrue(Self.readingLanguageModifierHandlesTheReveal(in: modifier),
+            "ReadingLanguageModifier must handle .maughamRevealTranslation — "
             + "it is the only thing in the window that knows which chapter is "
             + "open, so it is where the reveal's plan (.now vs .afterSelecting) "
             + "is made. Without the receiver the post reaches nobody and the "
@@ -9503,14 +9407,14 @@ final class TripwireGrepTests: XCTestCase {
     }
 
     /// Self-check: prove both halves fire on the pre-task shape — the Task 3
-    /// stub closure, and a `TranslationReviewModifier` with no reveal receiver —
+    /// stub closure, and a `ReadingLanguageModifier` with no reveal receiver —
     /// and that a comment naming either call suppresses neither. A grep pin that
     /// cannot fail is a comment.
     func test_theTranslationRevealPinsFireOnThePlantedStub() throws {
         let planted = """
         struct ProjectWindow: View {
             var body: some View {
-                switch Self.publishCentre(persona: persona, subject: selectedSubject) {
+                switch Self.publishCentre(subject: subject) {
                 case .translationRound(let round):
                     // A comment naming TranslationReveal.post( is not the call.
                     TranslationRoundReportHost(
@@ -9525,12 +9429,12 @@ final class TripwireGrepTests: XCTestCase {
             }
         }
 
-        private struct TranslationReviewModifier: ViewModifier {
+        private struct ReadingLanguageModifier: ViewModifier {
             // A comment naming .onKeyWindowCommand(.maughamRevealTranslation is
             // not a receiver.
             func body(content: Content) -> some View {
                 content
-                    .onKeyWindowCommand(.maughamEnterTranslationReview, window: window) { _ in }
+                    .onKeyWindowCommand(.maughamReadInLanguage, window: window) { _ in }
             }
         }
 
@@ -9563,8 +9467,8 @@ final class TripwireGrepTests: XCTestCase {
             "self-check: the Task 3 stub `onReveal: { _ in }` must fire the "
             + "poster pin — neither a comment naming the call nor the same call "
             + "in the NEXT switch arm may satisfy it")
-        XCTAssertFalse(Self.translationReviewModifierHandlesTheReveal(in: planted),
-            "self-check: a TranslationReviewModifier with no reveal receiver "
+        XCTAssertFalse(Self.readingLanguageModifierHandlesTheReveal(in: planted),
+            "self-check: a ReadingLanguageModifier with no reveal receiver "
             + "must fire the handler pin — neither a comment naming the "
             + "receiver nor the receiver in ANOTHER modifier, which would have "
             + "no activeDocId to plan against, may satisfy it")
@@ -9597,12 +9501,12 @@ final class TripwireGrepTests: XCTestCase {
         return lines[start..<end].contains { $0.contains("TranslationReveal.post(") }
     }
 
-    /// `TranslationReviewModifier` receives `.maughamRevealTranslation`. Scoped
+    /// `ReadingLanguageModifier` receives `.maughamRevealTranslation`. Scoped
     /// to that one declaration, so the receiver landing in some other modifier —
     /// which would not have `activeDocId` to plan against — does not pass.
-    private static func translationReviewModifierHandlesTheReveal(in source: String) -> Bool {
+    private static func readingLanguageModifierHandlesTheReveal(in source: String) -> Bool {
         guard let body = topLevelDeclaration(
-            named: "struct TranslationReviewModifier", in: source) else { return false }
+            named: "struct ReadingLanguageModifier", in: source) else { return false }
         return body.contains {
             $0.contains(".onKeyWindowCommand(.maughamRevealTranslation")
         }
@@ -12305,6 +12209,10 @@ final class TripwireGrepTests: XCTestCase {
             "type:DocumentStore": 4, "type:ProjectStore": 2,
             "EditorCoordinator+Typography.swift": 1,
         ],
+        // The plain strict read off any actor (shell p5a closing round B2):
+        // the publications catalogue alone. Never a chained stream — the op
+        // log and the inbox read through their store's chain policy.
+        ".loadStrictPlain(": ["type:PublicationStore": 1],
     ]
 
     /// Every line naming `pattern` under `roots`, comments excluded.
@@ -12371,6 +12279,40 @@ final class TripwireGrepTests: XCTestCase {
             of: ".wordCount(", keyedLike: ["type:DocumentStore": 1], in: [dir])
         XCTAssertEqual(unresolved, [])
         XCTAssertEqual(found, ["type:DocumentStore": 1])
+    }
+
+    /// The control for `countedLists[".loadStrictPlain("]`: the catalogue's
+    /// call is found under its type, and a planted read of a chained stream
+    /// (an op log) is found as an extra caller — the census fires on it; a
+    /// comment naming the door is not counted.
+    func test_thePlainStrictReadCensusFindsAPlantedChainedReader() throws {
+        let dir = TestTemp.root
+            .appendingPathComponent("plain-read-census-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        try """
+            extension PublicationStore {
+                func read(_ url: URL) throws -> [Publication] {
+                    try JSONLAppendStore<Publication>.loadStrictPlain(fileURL: url, presenter: nil)
+                }
+            }
+            """.write(to: dir.appendingPathComponent("PublicationStore+Planted.swift"),
+                      atomically: true, encoding: .utf8)
+        try """
+            extension OpLogStore {
+                // JSONLAppendStore<Op>.loadStrictPlain( in a comment is fine.
+                func skipTheChain(_ url: URL) throws -> [Op] {
+                    try JSONLAppendStore<Op>.loadStrictPlain(fileURL: url, presenter: nil)
+                }
+            }
+            """.write(to: dir.appendingPathComponent("OpLogStore+Planted.swift"),
+                      atomically: true, encoding: .utf8)
+        let (found, unresolved) = try countedListFound(
+            of: ".loadStrictPlain(", keyedLike: ["type:PublicationStore": 1], in: [dir])
+        XCTAssertEqual(unresolved, [])
+        XCTAssertEqual(found["type:PublicationStore"], 1, "control: the catalogue's call is counted")
+        XCTAssertNotEqual(found, ["type:PublicationStore": 1], "the chained reader is an extra caller: \(found)")
+        XCTAssertEqual(found.values.reduce(0, +), 2, "the comment is not counted: \(found)")
     }
 
     // MARK: - …and the planted offenders that prove they fire
@@ -13946,8 +13888,11 @@ final class TripwireGrepTests: XCTestCase {
         // `createProjectPaneTask`'s append, and its ⌘Z inverse's.
         "ProjectStore+Tasks.swift": 2,
         // `archiveProjectTask`'s append (whose ⌘Z is registered only when it
-        // landed), and its inverse's.
-        "TasksPane.swift": 2,
+        // landed), and its inverse's — moved with the to-do verbs out of the
+        // tasks pane (shell plan 2 Task 4); and a Book to-do's status change
+        // and its inverse, which To resolve's Book Settled needs (it was a
+        // silent no-op in the tasks pane).
+        "ResolveTaskVerbs.swift": 4,
     ]
 
     static func projectTaskOpAppendExcludeLine(_ line: String) -> Bool {
@@ -14864,10 +14809,9 @@ extension TripwireGrepTests {
             "let encoder = JSONEncoder()",
             "try encoder.encode(linkFile).write(to: linkURL, options: .atomic)",
         ]),
-        "DocumentStore.swift": ("the sessions log and ui-state.json, never the manifest", [
+        "DocumentStore.swift": ("the sessions log, never the manifest (ui-state.json is `UIState.write`'s)", [
             "let encoder = JSONEncoder()",
             "let data = try encoder.encode(next)",
-            "let data = try JSONEncoder().encode(state)",
         ]),
         "ProjectStore+Structure.swift": ("a trashed structure item's metadata", [
             "let metadata = try JSONEncoder().encode(item)",
@@ -14880,7 +14824,7 @@ extension TripwireGrepTests {
         "FirstReaderTools.swift": ("MCP first-reader response", nil),
         "TestProjectTools.swift": ("MCP test-tool response", nil),
         // Codable `encode(to:)` bodies: container writes, not bytes.
-        "UIState.swift": ("UIState.encode(to:) containers", nil),
+        "UIState.swift": ("UIState.encode(to:) containers, and write(toProject:), the ui-state.json door", nil),
         "ActivePassMemory.swift": ("ActivePassMemory.encode(to:) container", nil),
         "ProjectProfile.swift": ("ProjectProfile.encode(to:) single-value container",
                                  ["try c.encode(rawValue)"]),
@@ -14978,7 +14922,7 @@ extension TripwireGrepTests {
         // A line allowance admits its own line and nothing else.
         try """
         // ProjectManifest
-        let data = try JSONEncoder().encode(state)
+        let data = try encoder.encode(next)
         let raw = try JSONEncoder().encode(manifest)
         """.write(to: tmp.appendingPathComponent("DocumentStore.swift"), atomically: true, encoding: .utf8)
         XCTAssertEqual(try manifestEncoderOffenders(in: [tmp]),
@@ -15647,7 +15591,7 @@ extension TripwireGrepTests {
     /// `SafeRelativePath` confines a path to the project, not to research, so
     /// a write site that does not ask writes over the manuscript or the op log.
     /// - `ResearchTableHost.swift:write(_:by:restoring:source:secondRead:)` — the table door, `tablePath(`.
-    /// - `ResearchNoteDoor.swift:write(_:text:by:restoring:source:owner:in:secondRead:)` — the
+    /// - `ResearchNoteDoor.swift:write(_:text:by:restoring:source:expectingBytesHash:owner:in:secondRead:)` — the
     ///   note door, `noteLookup(` (which asks `ResearchNoteDoor.takes` →
     ///   `ResearchTextRole.of`).
     /// Since palette cards keep versions (2026-11-11) every card writer —
@@ -15669,7 +15613,7 @@ extension TripwireGrepTests {
     /// in different folders (keys use the file name, not its folder).
     static let researchFileSaveFunctions: [String: String] = [
         "ResearchTableHost.swift:write(_:by:restoring:source:secondRead:)": "ResearchTextRole.tablePath(",
-        "ResearchNoteDoor.swift:write(_:text:by:restoring:source:owner:in:secondRead:)": "noteLookup(",
+        "ResearchNoteDoor.swift:write(_:text:by:restoring:source:expectingBytesHash:owner:in:secondRead:)": "noteLookup(",
     ]
     static let researchFileSaveExempt: Set<String> = ["DocumentStore.swift:open(url:)"]
 
@@ -16025,6 +15969,7 @@ extension TripwireGrepTests {
         "ResearchPasteImporter.swift": 2,          // a pasted image's and text's temporary file, outside the project
         "ResearchTableHost.swift": 4,              // the table door's own writes (×3) and a table's sidecar
         "ResearchTableSidecar.swift": 1,           // a table's sidecar (MaughamCore)
+        "UIState.swift": 1,                        // the ui-state.json door (`write(toProject:)`)
     ]
 
     /// Code that names one of these handles Research items.

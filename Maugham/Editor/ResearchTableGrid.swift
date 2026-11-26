@@ -6,7 +6,7 @@ import MaughamCore
 //
 // A Research CSV selected in the tree opens in the table figures' grid
 // (`FigureGridController` over a `ResearchTableHost`) — in the centre, or in
-// Plan's right column beside the canvas — and saves back to its file. Not a
+// the right column beside the canvas beside the canvas — and saves back to its file. Not a
 // figure: no `FigureWindows` hold, no figure line, none of the figure's own
 // commands.
 
@@ -40,7 +40,7 @@ final class ResearchTableMount {
     /// The visit ending after the mount left (a test awaits it).
     @ObservationIgnored private(set) var finishing: Task<Void, Never>?
     @ObservationIgnored private(set) var hasLeft = false
-    @ObservationIgnored private(set) var readOnly: Bool
+    @ObservationIgnored private(set) var readThrough: ReadThroughRefusal?
     @ObservationIgnored private(set) var shareIsReadOnly: Bool
     @ObservationIgnored private let presence: FigureGridPresence?
     @ObservationIgnored private var panel: FigureGridPanel?
@@ -51,9 +51,9 @@ final class ResearchTableMount {
     @ObservationIgnored private let settlerId = UUID()
     @ObservationIgnored private var focusWatch: NSObjectProtocol?
 
-    init(itemId: String, readOnly: Bool, shareIsReadOnly: Bool, presence: FigureGridPresence?) {
+    init(itemId: String, readThrough: ReadThroughRefusal?, shareIsReadOnly: Bool, presence: FigureGridPresence?) {
         self.itemId = itemId
-        self.readOnly = readOnly
+        self.readThrough = readThrough
         self.shareIsReadOnly = shareIsReadOnly
         self.presence = presence
     }
@@ -118,24 +118,26 @@ final class ResearchTableMount {
         Task { @MainActor in await host.fileMayHaveChanged() }
     }
 
-    /// **The gate**: Review (`!Persona.editsResearchInTheCentre`) and a
-    /// view-only share read the table. The share is the project's, so the
-    /// shared host refuses every edit under it too; Review is this window's,
-    /// so it is this grid's gate alone (as a figure's is).
+    /// **The gate**: a view-only share and the table's piece in read-through
+    /// read the table. The share is the project's, so the shared host refuses
+    /// every edit under it too; read-through is this grid's gate alone (as a
+    /// figure's is) — the writer's own refusal, which no other writer obeys.
     func refreshAccess() {
         guard let controller, let host, !hasLeft else { return }
         let mode = FigureGridGate.mode(
             figureMayEdit: true, parked: false, hostClosed: host.isClosed,
-            shareIsReadOnly: shareIsReadOnly, isReviewMode: readOnly, isTranslationReview: false)
+            shareIsReadOnly: shareIsReadOnly,
+            isInReadThrough: readThrough != nil, naming: readThrough,
+            isReadingTranslation: false)
         host.refusal = shareIsReadOnly ? .viewOnlyShare : nil
         guard mode != controller.mode else { return }
         controller.setAccess(mode, captionMayEdit: false)
     }
 
     /// The view's inputs changed: the gate is asked again.
-    func update(readOnly: Bool, shareIsReadOnly: Bool) {
-        guard readOnly != self.readOnly || shareIsReadOnly != self.shareIsReadOnly else { return }
-        self.readOnly = readOnly
+    func update(readThrough: ReadThroughRefusal?, shareIsReadOnly: Bool) {
+        guard readThrough != self.readThrough || shareIsReadOnly != self.shareIsReadOnly else { return }
+        self.readThrough = readThrough
         self.shareIsReadOnly = shareIsReadOnly
         refreshAccess()
     }
@@ -251,8 +253,9 @@ struct ResearchTableGrid: View {
     let store: ProjectStore
     let documentStore: DocumentStore
     let typography: TypographySettings
-    /// `!Persona.editsResearchInTheCentre` — Review reads, never edits.
-    let readOnly: Bool
+    /// The table's piece in read-through, named (`ReadThroughGate.refusal`):
+    /// it reads, never edits, and its reason names the piece.
+    let readThrough: ReadThroughRefusal?
     let shareIsReadOnly: Bool
     /// The project window's presence, which Format ▸ Table reads.
     var presence: FigureGridPresence? = nil
@@ -262,7 +265,7 @@ struct ResearchTableGrid: View {
     @State private var mount: ResearchTableMount?
 
     private struct Access: Equatable {
-        let readOnly: Bool, shareIsReadOnly: Bool
+        let readThrough: ReadThroughRefusal?, shareIsReadOnly: Bool
     }
 
     var body: some View {
@@ -292,13 +295,13 @@ struct ResearchTableGrid: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .onAppear {
             let mount = ResearchTableMount(
-                itemId: itemId, readOnly: readOnly, shareIsReadOnly: shareIsReadOnly, presence: presence)
+                itemId: itemId, readThrough: readThrough, shareIsReadOnly: shareIsReadOnly, presence: presence)
             self.mount = mount
             mount.open(title: title, store: documentStore, projectStore: store, typography: typography)
         }
         .onDisappear { mount?.leave() }
-        .onChange(of: Access(readOnly: readOnly, shareIsReadOnly: shareIsReadOnly)) { _, next in
-            mount?.update(readOnly: next.readOnly, shareIsReadOnly: next.shareIsReadOnly)
+        .onChange(of: Access(readThrough: readThrough, shareIsReadOnly: shareIsReadOnly)) { _, next in
+            mount?.update(readThrough: next.readThrough, shareIsReadOnly: next.shareIsReadOnly)
         }
         // The window's close: the grid's last edit is written before the store closes.
         .onReceive(NotificationCenter.default.publisher(for: NSWindow.willCloseNotification)) { note in

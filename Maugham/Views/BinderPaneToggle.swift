@@ -11,7 +11,8 @@ import MaughamCore
 /// overlay of the whole column.
 struct BinderPaneToggle: View {
     @Bindable var store: ProjectStore
-    @Binding var selectedSubject: BinderSubject?
+    /// The window's subject, on its way to the tree (shell p1 Task 3).
+    @Binding var subject: WindowSubject
     let projectType: ProjectType
     let lastParsedScript: FountainScript?
     /// The sections' state, on its way from the window to whichever tree this
@@ -19,25 +20,17 @@ struct BinderPaneToggle: View {
     let treeState: BinderTreeSectionsState
     /// **Find, as an overlay of this column** (shell-finish stage 2b Task 1).
     /// `ProjectWindow.treeFindActive` — window state, not segment state, which
-    /// is why ⌘⌥F moves nothing else and why the overlay rides through a persona
-    /// switch untouched. While it is up, the search panel is the whole left
+    /// is why ⌘⌥F moves nothing else and why the overlay rides through a subject
+    /// change untouched. While it is up, the search panel is the whole left
     /// column; `ProjectSearchView.close()` is the only way down.
     @Binding var treeFindActive: Bool
-    /// The window's working mode. It no longer decides which SURFACE this
-    /// column shows — every persona gets the project's own tree — only whether
-    /// the Exports footer and the palette wall's door belong here.
-    let persona: Persona
-    /// Opens the palette wall in the centre column — `ProjectWindow`'s
-    /// `showsPaletteWall = true` (stage 2b Task 5). Defaulted so tests that
-    /// mount this toggle without caring about the wall's door keep compiling.
-    var onOpenPaletteWall: () -> Void = {}
     /// What a restore in the foot disclosure has to say (RULING-40/42), on its
     /// way to `ProjectWindow.restoreOutcome` — see `TrashView.onRestoreOutcome`
-    /// for why the message cannot be shown down here. Defaulted for
-    /// `onOpenPaletteWall`'s reason.
+    /// for why the message cannot be shown down here. Defaulted so tests that
+    /// mount this toggle without caring about the foot keep compiling.
     var onRestoreOutcome: (String) -> Void = { _ in }
-    /// Plan's Tab to the canvas and back, on its way to `BinderView` — see
-    /// `TreeCanvasKeyboard`. Defaulted for `onOpenPaletteWall`'s reason.
+    /// The tree's Tab to the canvas and back, on its way to `BinderView` — see
+    /// `TreeCanvasKeyboard`. Defaulted for `onRestoreOutcome`'s reason.
     var canvasKeyboard = TreeCanvasKeyboard()
     /// The foot disclosure's own expand/collapse flag (shell-finish stage 2b
     /// Task 2) — collapsed by default, private to this view. It is `@State`
@@ -76,21 +69,9 @@ struct BinderPaneToggle: View {
                     sceneNavigator
                 }
             }
-            // The Exports footer belongs under the project's manuscript tree in
-            // a persona that publishes, and nowhere else — it's a
-            // publishing-pipeline surface, not part of arranging structure.
-            //
-            // **A predicate of its own (`Persona.showsExports`), not derived
-            // from another one.** It was the persona's NAME here until
-            // foundations plan 4 Task 6 named it. The reason it stands alone
-            // is that the question this gate asks has no derived answer left: the Exports list is about the
-            // LEFT column, and since Task 7 all four personas have the same left
-            // column, so nothing about the tree can tell them apart. What is
-            // left is what the writer is *doing* — a compile-output list is not
-            // part of planning — and that is what the predicate names. Deriving it
-            // from `centresTheCanvas` would say the Exports list is a fact about
-            // the centre column, which it is not.
-            if persona.showsExports && PublishStarter.isInitialized(in: store.url) {
+            // The Exports footer: under the tree whenever publishing is
+            // initialised (shell p1 Task 3 — what is open does not decide it).
+            if PublishStarter.isInitialized(in: store.url) {
                 Divider()
                 ExportsListView(projectURL: store.url)
             }
@@ -98,7 +79,7 @@ struct BinderPaneToggle: View {
             // sections, below the Exports footer, below everything — present
             // only while there is something in it. This is Trash's whole home
             // now; nothing selects a Trash surface any more, so the
-            // transient-exit arm that used to live here (return to the persona's
+            // transient-exit arm that used to live here (return to the window's
             // binder home when the last item left the trash) has nothing left to
             // guard. Find's twin of that arm went the same way in stage 2b Task
             // 1, for the same reason: there is no longer a segment to be ejected
@@ -123,10 +104,8 @@ struct BinderPaneToggle: View {
     /// The manuscript tree. Extracted because two arms render it and a second
     /// literal is how the two would come to differ.
     private var binderTree: some View {
-        BinderView(store: store, selectedSubject: $selectedSubject,
+        BinderView(store: store, subject: $subject,
                    treeState: treeState,
-                   paletteWallTravels: paletteWallTravels,
-                   onOpenPaletteWall: onOpenPaletteWall,
                    canvasKeyboard: canvasKeyboard)
     }
 
@@ -136,7 +115,7 @@ struct BinderPaneToggle: View {
             store: store,
             script: lastParsedScript,
             projectTitle: store.manifest.title,
-            selectedSubject: $selectedSubject,
+            subject: $subject,
             // A screenplay is one `.fountain` (the Phase 3d invariant), so the
             // document its sluglines live in is the project's one document.
             // Derived here, once per render of the pane rather than once per row
@@ -150,17 +129,6 @@ struct BinderPaneToggle: View {
                 MaughamEvent.post(
                     .maughamNavigateToScene, to: .keyWindow,
                     payload: ["lineLocation": lineLocation])
-            },
-            paletteWallTravels: paletteWallTravels,
-            onOpenPaletteWall: onOpenPaletteWall)
-    }
-
-    /// Whether the wall's door TRAVELS from here — the tooltip's whole job
-    /// (stage 3b Task 4). Asked of `ProjectWindow` rather than spelled `persona
-    /// == .plan` locally, because the same question decides what the press
-    /// actually does (`ProjectWindow.pressPaletteWallDoor`) and a door whose
-    /// label and behaviour came from two spellings is a door that can lie.
-    private var paletteWallTravels: Bool {
-        ProjectWindow.paletteWallDoorTravels(persona: persona)
+            })
     }
 }

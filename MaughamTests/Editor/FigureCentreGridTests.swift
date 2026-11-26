@@ -48,13 +48,13 @@ final class FigureCentreGridTests: FigureGridMountedTestCase {
 
     // MARK: - The probe
 
-    /// What the window hands the figure route: the subject, the persona and
-    /// the control plane (review mode, the share), moved by a test.
+    /// What the window hands the figure route: the subject, its read-through
+    /// gate and the control plane (the share), moved by a test.
     @Observable
     @MainActor
     final class CentreBox {
         var figureId: String?
-        var persona: Persona = .author
+        var readThrough = ReadThroughGate.writing
         var control = EditorControl()
     }
 
@@ -76,7 +76,7 @@ final class FigureCentreGridTests: FigureGridMountedTestCase {
                     FigureSubjectSurface(
                         figureID: id, store: store, documentStore: documentStore, figureWindows: windows,
                         presence: presence, listing: listing, control: box.control,
-                        persona: box.persona, window: window)
+                        readThrough: box.readThrough, window: window)
                 } else {
                     Color.clear
                 }
@@ -97,12 +97,12 @@ final class FigureCentreGridTests: FigureGridMountedTestCase {
     private var centres: [Centre] = []
 
     /// The centre mounted on `m`'s figure in a second window of the project.
-    private func centre(_ m: Mounted, windows: FigureWindows, persona: Persona = .author,
+    private func centre(_ m: Mounted, windows: FigureWindows, readThrough: ReadThroughGate = .writing,
                         listing: FigureListingModel? = nil,
                         figureId: String? = nil) throws -> Centre {
         let listing = listing ?? FigureListingModel()
         let box = CentreBox()
-        box.persona = persona
+        box.readThrough = readThrough
         box.figureId = try figureId ?? XCTUnwrap(m.figure?.id)
         let presence = FigureGridPresence()
         let ds = try XCTUnwrap(m.store.documentStore)
@@ -505,6 +505,7 @@ final class FigureCentreGridTests: FigureGridMountedTestCase {
         defer { ProjectStore.beforeSendParksForTesting = nil }
         var said: String?
         let actions = FigureActions(store: m.store, figureWindows: windows, typography: .defaults,
+                                    windowRefusesWrites: { false }, readThrough: { .writing },
                                     report: { said = $0 })
         let row = FigureListing.Row(figureId: c.figureId, kind: .table, name: "t", caption: "",
                                     number: FigureListing.unusedNumber, usedIn: [], referencedFrom: [],
@@ -555,27 +556,31 @@ final class FigureCentreGridTests: FigureGridMountedTestCase {
 
     // MARK: - Read-only reasons
 
-    /// Review (a persona that does not edit figures) opens read-only with
-    /// the review reason; the window's ⌘⌥⇧R flips an open grid; a view-only
-    /// share is read-only.
-    func test_reviewPersonaAndTheReviewToggleAndAViewOnlyShareAreReadOnly() async throws {
+    /// A figure whose piece is in read-through opens read-only and says so;
+    /// a Start or Resume flips an open grid; a view-only share is read-only.
+    func test_readThroughAndAViewOnlyShareAreReadOnly() async throws {
         let m = try await mount()
         let windows = FigureWindows()
-        let review = try centre(m, windows: windows, persona: .review)
+        let piece = try XCTUnwrap(m.store.manifest.figures?.first { $0.id == m.figure?.id }?.piece,
+                                  "premise: the figure is its chapter's")
+        let reading = ReadThroughGate(pieces: [piece], structure: m.store.manifest.structure, research: [],
+                                      projectType: m.store.manifest.type, figures: m.store.manifest.figures ?? [], figureLines: [])
+        let review = try centre(m, windows: windows, readThrough: reading)
         let r = try await mounted(review)
-        XCTAssertEqual(r.mode, .readOnly(.reviewMode))
+        XCTAssertEqual(r.mode.readOnlyReason?.isReadThrough, true)
+        XCTAssertTrue(r.bars.reasonMessage?.contains("is in read-through") == true, "named")
         XCTAssertFalse(r.bars.nameField.isEditable)
         review.box.figureId = nil
         let released = await RunLoopPump.until(deadline: 5) { windows.inPlaceHolds[r.figureId] == nil }
-        XCTAssertTrue(released, "premise: the review centre let the figure go")
+        XCTAssertTrue(released, "premise: the read-only centre let the figure go")
 
         let author = try centre(m, windows: windows)
         let c = try await mounted(author)
         XCTAssertEqual(c.mode, .editable)
-        author.box.control.isManualReviewMode = true
-        let flipped = await RunLoopPump.until(deadline: 5) { c.mode == .readOnly(.reviewMode) }
-        XCTAssertTrue(flipped, "⌘⌥⇧R turns the open grid read-only")
-        author.box.control.isManualReviewMode = false
+        author.box.readThrough = reading
+        let flipped = await RunLoopPump.until(deadline: 5) { c.mode.readOnlyReason?.isReadThrough == true }
+        XCTAssertTrue(flipped, "the figure's piece in read-through turns the open grid read-only")
+        author.box.readThrough = .writing
         let back = await RunLoopPump.until(deadline: 5) { c.mode == .editable }
         XCTAssertTrue(back)
         author.box.control.shareIsReadOnly = true

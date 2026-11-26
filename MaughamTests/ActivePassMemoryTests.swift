@@ -2,14 +2,12 @@ import XCTest
 import MaughamCore
 @testable import Maugham
 
-/// `ActivePassMemory` (M3-P1 Task 5) copies `PersonaMemory`'s tolerant
-/// keyed-map shape exactly: a `[String: String]` on the wire, an unreadable
-/// map decodes empty, and nothing here throws. The one difference from
-/// `PersonaMemory` is that both the key (piece id) and value (pass id) are
-/// already bare `String`s — there is no closed-enum value type to fail
-/// per-entry at decode, so the "unknown entries drop individually" half of
-/// the copied contract has nothing to exercise here beyond the whole-map
-/// tolerant fallback.
+/// `ActivePassMemory` (M3-P1 Task 5) is a tolerant keyed map: a
+/// `[String: String]` on the wire, an unreadable map decodes empty, and
+/// nothing here throws. Both the key (piece id) and value (pass id) are bare
+/// `String`s — there is no closed-enum value type to fail per-entry at
+/// decode, so there is nothing to exercise beyond the whole-map tolerant
+/// fallback.
 final class ActivePassMemoryTests: XCTestCase {
 
     // MARK: - Defaults
@@ -52,9 +50,8 @@ final class ActivePassMemoryTests: XCTestCase {
     /// `ProjectManifest.effectiveReviewPasses` — the type has no access to
     /// that list and does not validate against it. Filtering a stale id down
     /// to "no active pass" is a READ-TIME decision for whoever consults
-    /// `effectiveReviewPasses` (the board, a later task), mirroring
-    /// `PersonaMemory.restoredDetailSegment`'s own validity check happening
-    /// at the reader rather than inside the stored map. This test pins the
+    /// `effectiveReviewPasses` (the board, a later task) — the validity check
+    /// happens at the reader rather than inside the stored map. This test pins the
     /// "never swept" half: the raw entry is exactly what was recorded,
     /// regardless of whether a caller-side filter would currently honour it.
     func test_aPassIdRetiredFromTheProjectsListStillReadsBackRaw() {

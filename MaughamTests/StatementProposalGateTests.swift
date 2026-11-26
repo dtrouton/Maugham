@@ -231,11 +231,11 @@ final class StatementProposalGateTests: XCTestCase {
 
     func test_theCopyNamesTheAuthorAndTheStatement() {
         let p = proposal(.editionBrief("es"), "x", rationale: "because")
-        // Built from `TranslationReviewIndicator.displayLabel`, not a
+        // Built from `LanguageName.labelled`, not a
         // hardcoded "Spanish": every other test in the suite that names a
         // language does the same, since the label's exact rendering is the
         // function's business, not this test's guess at it.
-        let spanishBrief = TranslationReviewIndicator.displayLabel(forLanguageTag: "es") + " edition brief"
+        let spanishBrief = LanguageName.labelled("es") + " edition brief"
         XCTAssertEqual(StatementProposalCopy.bannerTitle(p), "Claude proposed a \(spanishBrief)")
         XCTAssertEqual(StatementProposalCopy.bannerTitle(proposal(.visualLanguage, "x")),
                        "Claude proposed a visual language")

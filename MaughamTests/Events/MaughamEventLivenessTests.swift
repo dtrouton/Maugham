@@ -201,6 +201,66 @@ final class MaughamEventLivenessTests: XCTestCase {
         _ = coordinator
     }
 
+    // MARK: - Read-through's request (shell read-through Task 1)
+
+    /// `.maughamSetReadThrough` is a key-window command: a closed window, and
+    /// a live window that is not key, receive nothing; only the key window
+    /// acts on it (`ReadThroughModifier`).
+    func test_readThroughRequest_reachesOnlyALiveKeyWindow() {
+        let w = makeWindow()
+        var delivered = 0
+        let token = MaughamEvent.observe(
+            .maughamSetReadThrough,
+            context: { .forWindow(w, kind: .keyWindow) },
+            handler: { _ in delivered += 1 })
+        defer { NotificationCenter.default.removeObserver(token) }
+        w.close()
+        ReadThrough.post(.init(docId: "doc-abc", on: true))
+        XCTAssertEqual(delivered, 0, "a closed window must not start a read-through")
+
+        var keyDelivered = 0, notKeyDelivered = 0
+        let key = MaughamEvent.observe(
+            .maughamSetReadThrough,
+            context: { EventReceiverContext(kind: .keyWindow, isWindowLive: true, isWindowKey: true) },
+            handler: { _ in keyDelivered += 1 })
+        let notKey = MaughamEvent.observe(
+            .maughamSetReadThrough,
+            context: { EventReceiverContext(kind: .keyWindow, isWindowLive: true, isWindowKey: false) },
+            handler: { _ in notKeyDelivered += 1 })
+        defer {
+            NotificationCenter.default.removeObserver(key)
+            NotificationCenter.default.removeObserver(notKey)
+        }
+        ReadThrough.post(.init(docId: "doc-abc", on: false))
+        XCTAssertEqual(keyDelivered, 1)
+        XCTAssertEqual(notKeyDelivered, 0, "a window behind the key one acts on nothing")
+    }
+
+    /// `.maughamTypingRefused` (shell read-through Task 2) is a key-window
+    /// post: only the key window's quiet line pulses, never a closed window's
+    /// or one behind it.
+    func test_typingRefused_reachesOnlyALiveKeyWindow() {
+        let w = makeWindow()
+        var closedDelivered = 0, keyDelivered = 0, notKeyDelivered = 0
+        let closed = MaughamEvent.observe(
+            .maughamTypingRefused, context: { .forWindow(w, kind: .keyWindow) },
+            handler: { _ in closedDelivered += 1 })
+        let key = MaughamEvent.observe(
+            .maughamTypingRefused,
+            context: { EventReceiverContext(kind: .keyWindow, isWindowLive: true, isWindowKey: true) },
+            handler: { _ in keyDelivered += 1 })
+        let notKey = MaughamEvent.observe(
+            .maughamTypingRefused,
+            context: { EventReceiverContext(kind: .keyWindow, isWindowLive: true, isWindowKey: false) },
+            handler: { _ in notKeyDelivered += 1 })
+        defer { [closed, key, notKey].forEach { NotificationCenter.default.removeObserver($0) } }
+        w.close()
+        MaughamEvent.post(.maughamTypingRefused, to: .keyWindow)
+        XCTAssertEqual(closedDelivered, 0, "a closed window's line does not pulse")
+        XCTAssertEqual(keyDelivered, 1)
+        XCTAssertEqual(notKeyDelivered, 0)
+    }
+
     // MARK: - Teardown discipline (Task 8, ADR 0021)
     // Pins the two headless-testable teardown obligations traced in
     // docs/superpowers/notes/2026-07-02-window-teardown-audit.md.
@@ -235,21 +295,22 @@ final class MaughamEventLivenessTests: XCTestCase {
     /// `receiverContext` returning nil once `isDetached` (braces). This pins a
     /// SECOND observer beyond the navigate one already covered by
     /// `test_detachedCoordinator_receivesNoNavigateToScene`: a detached
-    /// coordinator must not flip its review membrane on a `.maughamToggleReviewMode`
-    /// post. (The two mechanisms are not independently isolable headlessly —
+    /// coordinator must not flip its membrane on a `.maughamSetReadThrough`
+    /// post for its own document. (The two mechanisms are not independently isolable headlessly —
     /// detach() both removes the token AND nils `textView` so `receiverContext`
     /// returns nil — so this is a behavioral belt-and-braces net for a distinct
     /// observer, not a token-removal-in-isolation assertion.)
     func test_detach_silencesReviewToggleObserver() {
         let w = makeWindow()
         let (coordinator, _) = makeAttachedCoordinator(in: w)
-        XCTAssertFalse(coordinator.isReviewMode)
+        XCTAssertFalse(coordinator.isInReadThrough)
+        coordinator.documentId = "d-1"
         coordinator.detach()
 
-        MaughamEvent.post(.maughamToggleReviewMode, to: .keyWindow)
+        ReadThrough.post(.init(docId: "d-1", on: true))
 
-        XCTAssertFalse(coordinator.isReviewMode,
-            "a detached coordinator must not flip review mode on a scoped toggle post")
+        XCTAssertFalse(coordinator.isInReadThrough,
+            "a detached coordinator must not flip read-through on a scoped post")
         _ = coordinator
         w.close()
     }

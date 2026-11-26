@@ -8,14 +8,22 @@ struct FigureRowActions {
     /// Whether the posture lets this Mac edit the figure (Send to Research,
     /// Rename) — asked by the context menu's builder, never per render.
     let mayEdit: () -> Bool
+    /// Why it may not, where a piece's read-through refuses it — named and
+    /// shown in the menu, never silent (`FigureActions.readThroughRefusal`).
+    let refusal: () -> String?
     /// Send to Research's scopes, in menu order.
     let sendDestinations: [FigureResearchDestination]
+    /// Each scope's title, in the project's word for the piece.
+    let sendTitle: (FigureResearchDestination) -> String
     let openInWindow: () -> Void
     let sendToResearch: (FigureResearchDestination) -> Void
     let rename: (_ newName: String) -> Void
     /// A drag dropped on the row (`BinderTreeSections.figuresDrop`): accepted
     /// or refused by the classifier, never by the row.
     let drop: ([String]) -> Bool
+    /// What the row shows while a drag is over it (shell p4 Task 10): the
+    /// same classification `drop` performs.
+    var dropAnswers: () -> TreeDropAnswers = { .none }
 }
 
 /// **One row of the tree's Figures section** (report plan 8a Task 4, spec
@@ -30,6 +38,8 @@ struct FigureRowActions {
 /// with no drag modifiers, its focus deferred from `.onAppear` and
 /// `.onChange(of: renamingItemId)` (tripwire 16) — `BinderRow`'s shape.
 struct FigureRow: View {
+    /// A drag over the row (`TreeDropHover`).
+    @State private var dropTargeted = false
     let row: FigureTreeRow
     @Binding var renamingItemId: String?
     let actions: FigureRowActions
@@ -39,7 +49,7 @@ struct FigureRow: View {
 
     var body: some View {
         content
-            .tag(BinderSubject.figure(row.id))
+            .tag(TreeRowTag.subject(.figure(row.id)))
             .id(BinderSubject.figure(row.id))
     }
 
@@ -102,7 +112,8 @@ struct FigureRow: View {
             // here is *Use in Document*; another figure is refused.
             .dropDestination(for: String.self) { ids, _ -> Bool in
                 return actions.drop(ids)
-            }
+            } isTargeted: { dropTargeted = $0 }
+            .treeDropHover(internalTargeted: dropTargeted, answers: actions.dropAnswers)
             .contextMenu { menu }
         }
     }
@@ -121,10 +132,13 @@ struct FigureRow: View {
     @ViewBuilder
     private var menu: some View {
         Button("Open in Window", action: actions.openInWindow)
+        if let refusal = actions.refusal() {
+            Text(refusal)
+        }
         if actions.mayEdit() {
             SwiftUI.Menu(FigureTableMenu.sendToResearchTitle) {
                 ForEach(actions.sendDestinations, id: \.self) { destination in
-                    Button(destination.title) { actions.sendToResearch(destination) }
+                    Button(actions.sendTitle(destination)) { actions.sendToResearch(destination) }
                 }
             }
             Divider()
@@ -162,6 +176,8 @@ struct FigureRow: View {
 struct LegacyFigureRowActions {
     /// Whether *Move into Figures* is offered — asked by the menu's builder.
     let mayMove: () -> Bool
+    /// Why it is withheld while the line's piece is in read-through, named.
+    let moveRefusal: () -> String?
     let move: () -> Void
     let showInText: () -> Void
 }
@@ -202,6 +218,8 @@ struct LegacyFigureRow: View {
                 Text(LegacyFigureTreeRow.notInResearch)
             } else if actions.mayMove() {
                 Button("Move into Figures", action: actions.move)
+            } else if let refusal = actions.moveRefusal() {
+                Text(refusal)
             }
             Button("Show in Text", action: actions.showInText)
         }
@@ -225,6 +243,6 @@ struct FigureCountButton: View {
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .help("Show this piece\u{2019}s figures")
+        .help("Show its figures")
     }
 }

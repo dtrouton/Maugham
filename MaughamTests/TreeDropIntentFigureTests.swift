@@ -43,7 +43,7 @@ final class TreeDropIntentFigureTests: XCTestCase {
         let research: [ResearchItem]
 
         func classify(_ payload: String, _ target: TreeDropIntent.Target) -> Intent {
-            TreeDropIntent.classify(payloadId: payload, target: target, structure: structure,
+            TreeDropIntent.classify(payloadId: payload, target: target, sourcePiece: nil, structure: structure,
                                     research: research, figures: TreeDropIntentFigureTests.figures,
                                     projectType: type)
         }

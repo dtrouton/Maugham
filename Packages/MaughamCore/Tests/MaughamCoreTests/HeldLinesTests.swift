@@ -77,7 +77,7 @@ final class HeldLinesTests: XCTestCase {
             (DeviceSlug.make(from: "abcdefghijklmnopqrstuvwx").raw,
              "a Mac, under the name it had then (\u{201C}abcdefghijklmnopqrstuvwx\u{201D})"),
             (DeviceSlug.make(from: "mcp").raw, "edits made through MCP"),
-            (DeviceSlug.make(from: "rebalance").raw, "the task rebalance"),
+            (DeviceSlug.make(from: "rebalance").raw, "the to-do rebalance"),
             (DeviceSlug.make(from: "wiki-rename").raw, "wiki-link renames"),
             (DeviceSlug.make(from: "find-replace").raw, "find and replace"),
             (DeviceSlug.make(from: "phone:18B59020-1A2B-4C3D-8E9F-0123456789AB").raw,

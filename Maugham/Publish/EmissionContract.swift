@@ -236,8 +236,8 @@ public enum EmissionContract {
     is written, a resolution pass walks every piece the edition includes — \
     never only the pieces a preview renders — and numbers, resolves and \
     checks. The emitter reads its numbers and never counts on its own, so a \
-    preview of chapter 3 still prints "Figure 7" and a reference into another \
-    included chapter still resolves. A section the edition leaves out \
+    preview of the third piece still prints "Figure 7" and a reference into \
+    another included piece still resolves. A section the edition leaves out \
     (`include` off, or dropped by an imprint) is outside the book: it is not \
     numbered, and a reference into it is unresolved.
 
@@ -366,7 +366,7 @@ public enum EmissionContract {
     lost or breaks the compile — a caption, a table cell, a heading, a note's \
     own text — the reference is `\\footnotemark[n]` and its \
     `\\footnotetext[n]{…}` follows the construct. A footnote label belongs \
-    to its piece: `[^1]` in two chapters is two notes.
+    to its piece: `[^1]` in two pieces is two notes.
 
     ### Numbered headings
 
@@ -502,8 +502,7 @@ public enum EmissionContract {
     top level to restyle a piece's headings. Put the renewal **inside the \
     `\\pieceheading` hook** (or the piece environment's own body) so it is \
     scoped to where it fires — e.g. `\\renewcommand{\\pieceheading}[1]{{\\bfseries\\Large #1}\\addcontentsline{toc}{section}{#1}}`. \
-    This is a **MUST**, not a preference, and it is what the Playlist templates \
-    use. Reason: a real six-piece field compile once had a piece-2 style file \
+    This is a **MUST**, not a preference. Reason: a real six-piece field compile once had a piece-2 style file \
     renew `\\textbf` to a `\\marginpar{...}` at style-file top level and the \
     restyle bled into a piece **two sections later** (a fountain title block and \
     its scene headings), even though a solo compile was correct and \
@@ -767,7 +766,7 @@ public enum EmissionContract {
 
     Overwriting or clearing a style file moves the prior version to the \
     project's trash folder (`.trash/` at the project root, swept after 30 days). \
-    It is Maugham's own safety copy, so it stays out of the Trash pane and \
+    It is Maugham's own safety copy, so it stays out of the binder's Trash and \
     Restore Last Deletion; recover it from that folder. There is **no git** in \
     this workflow; the trash is the recovery path. `build/body.<lang>.tex` \
     (the PDF emitter's output for one language — `build/body.tex` is the \
@@ -794,10 +793,10 @@ public enum EmissionContract {
 
     1. Claude proposes a CSS change in `styles.css` (via `write_publish_file`) and \
     compiles.
-    2. Denver loads the new `.epub` in his reading application of choice (e.g. \
-    Books, Calibre, Kindle).
-    3. Denver describes what he sees — spacing, font size, chapter breaks, etc.
-    4. Claude iterates based on Denver's description.
+    2. The writer loads the new `.epub` in their reading application of choice \
+    (e.g. Books, Calibre, Kindle).
+    3. The writer describes what they see — spacing, font size, chapter breaks, etc.
+    4. Claude iterates based on the writer's description.
 
     This is the accepted workflow for personal-use EPUB. Closing the loop \
     (embedding a headless reader, capturing screenshots) is out of scope here.

@@ -4,22 +4,21 @@ import SwiftUI
 import MaughamCore
 @testable import Maugham
 
-/// **Multiselect on the delivery path** (shell-finish stage-2b Task 3).
+/// **Multiselect on the delivery path** (shell-finish stage-2b Task 3; re-made
+/// in shell p4 Task 11).
 ///
 /// `BinderTreeMultiselectTests` asks the rules over their whole input; this
-/// drives the real `NSTableView` SwiftUI mounted, because the rules being right
-/// says nothing about whether the `List` is wired to them — M1A's lesson was 22
-/// green undo tests sitting on a ⌘Z that could not reach the stack. What is
-/// asserted here is what a writer does: pick one note, ⌘-click a second, and
-/// find the verbs acting on both while the editor stays where it was.
+/// file holds what only a mounted tree can say, read without waiting: that each
+/// host's table takes a second row at all, that the tree-travel watcher's
+/// "is this the one selected row" question is AppKit's, and the batch drag and
+/// reorder routes over a selection the tree records. The select-then-wait
+/// tests that drove `selectRowIndexes` and waited for SwiftUI's write-back are
+/// culled (tripwire 33's shape; red once in a full gate with nothing wrong).
 ///
 /// **The context menu itself is not readable from a mounted SwiftUI row** (the
-/// measurement `BinderProjectRowTests` records: a row's subtree carries no
-/// `NSTextField` and no accessibility tree in this host). So "Delete 2 Items
-/// appears" is asserted at the value the menu is BUILT from —
-/// `ResearchTreeActions.selectionForRow`, whose count is literally what
-/// `ResearchTreeNode` titles the item with — and "and works" by running the verb
-/// the item calls and reading the manifest afterwards.
+/// measurement `BinderProjectRowTests` records), so "Delete 2 Items" is
+/// asserted where the menu is BUILT from, `ResearchTreeActions.selectionForRow`,
+/// in `BinderTreeMultiselectTests`.
 @MainActor
 final class BinderTreeMultiselectMountTests: XCTestCase {
 
@@ -42,153 +41,116 @@ final class BinderTreeMultiselectMountTests: XCTestCase {
         temp = nil
     }
 
-    // MARK: - Two notes, one tree
+    // MARK: - Each tree takes a second row
 
-    /// The whole task in one test: two rows selected through the real table, the
-    /// acting set the batch verbs are built from, and the batch verb doing what
-    /// it says.
-    func test_twoNotesSelectedInTheTreeAreWhatTheBatchVerbsActOn() async throws {
-        let store = try await novel(notes: ["Ships", "Tides"])
-        let ships = try XCTUnwrap(research(named: "Ships", in: store))
-        let tides = try XCTUnwrap(research(named: "Tides", in: store))
-        let (window, probe) = try await hostSections(store: store)
-        let table = try XCTUnwrap(firstTableView(in: window))
-
-        let shipsRow = try await rowIndex(of: .research(ships.id), in: table, probe: probe)
-        let tidesRow = try await rowIndex(of: .research(tides.id), in: table, probe: probe)
-
-        XCTAssertTrue(table.allowsMultipleSelection,
-                      "a `Set` selection is what makes the table take a second "
-                      + "⌘-click at all — without it every rule below is unreachable")
-
-        await select(rows: [shipsRow], in: table,
-                     until: { probe.subject == .research(ships.id) })
-        await select(rows: [shipsRow, tidesRow], in: table,
-                     until: { self.state.selection.count == 2 })
-
-        XCTAssertEqual(state.selection,
-                       [.research(ships.id), .research(tides.id)],
-                       "both rows are in the tree's selection")
-        XCTAssertEqual(probe.subject, .research(ships.id),
-                       "and the window is still about the note the writer had "
-                       + "open — a second ⌘-click adds a row, it does not move "
-                       + "the editor")
-
-        let actions = BinderTreeVerbs(store: store, state: state,
-                                      selectedSubject: probeBinding(probe)).bundle
-        XCTAssertEqual(actions.selectionForRow(tides.id), [ships.id, tides.id],
-                       "the acting set is both notes in tree order — this is the "
-                       + "value `ResearchTreeNode` titles \"Delete 2 Items\" from "
-                       + "and hands to `Move to ▸`")
-
-        actions.deleteMany([ships.id, tides.id])
-        await pumpUntil(deadline: 5) {
-            store.manifest.research.allSatisfy { $0.title != "Ships" && $0.title != "Tides" }
+    /// **What is left of the mounted half, and why** (shell p4 Task 11). This
+    /// file used to select rows through the mounted table and then WAIT for
+    /// SwiftUI's write-back (`selectRowIndexes`, then `pumpUntil` or a fixed
+    /// `waitOut(0.4)`) — the select-then-wait shape tripwire 33 bans, which
+    /// went red once in a full gate (0.41 s) with nothing wrong in the app.
+    /// Those tests are culled. What they guarded stays pinned without a wait:
+    /// the rules — two ⌘-clicks keep the window's subject, the acting set is
+    /// `selectionForRow`'s in tree order, a row outside the set acts alone —
+    /// by `BinderTreeMultiselectTests` over plain values; the structural half
+    /// here, read synchronously off each host as mounted: SwiftUI sets
+    /// `allowsMultipleSelection` from the selection's TYPE, so a host whose
+    /// binding went single-valued refuses the second row outright.
+    func test_everyTreeTakesASecondRow() async throws {
+        let novel = try await novel(notes: ["Ships", "Tides"])
+        let collection = try await collection(pieces: ["One"], notes: ["Ships", "Tides"])
+        let screenplay = try await screenplay(notes: ["Ships", "Tides"])
+        let hosts: [(String, NSWindow)] = [
+            ("sections", try await hostSections(store: novel).0),
+            ("novel", try await hostBinder(store: novel).0),
+            ("collection", try await hostCollection(store: collection).0),
+            ("screenplay", try await hostNavigator(store: screenplay).0),
+        ]
+        for (name, window) in hosts {
+            let table = try XCTUnwrap(firstTableView(in: window), "\(name): no table mounted")
+            XCTAssertTrue(table.allowsMultipleSelection,
+                          "\(name): this tree's List selects a single value, so a "
+                          + "second ⌘-click is thrown away")
         }
-        XCTAssertNil(research(named: "Ships", in: store), "…and it works")
-        XCTAssertNil(research(named: "Tides", in: store))
-        XCTAssertNil(state.pendingError,
-                     "the store refused the batch the tree offered")
     }
 
-    /// The other half of the acting set: a row the writer right-clicked WITHOUT
-    /// selecting acts alone, even with two rows highlighted. Standard Mac
-    /// behaviour, and the reason `selectionForRow` takes the row at all.
-    func test_aRowOutsideTheSelectionStillActsAlone() async throws {
+    /// **The tree-travel watcher hears a click only on the ONE selected row**
+    /// (fix round M2): with two rows selected a click on one collapses the
+    /// set, which the `List` writes, so the watcher must not answer it too.
+    /// `TreeTravel.rowIsSelected(holding:)` is AppKit's question alone — asked
+    /// here of a plain table whose selection AppKit sets synchronously, with
+    /// no SwiftUI write-back to wait for.
+    func test_aRowCountsAsSelectedOnlyWhenItIsTheOneSelectedRow() throws {
+        let rows = PlainRows(count: 3)
+        let table = NSTableView(frame: NSRect(x: 0, y: 0, width: 200, height: 120))
+        table.addTableColumn(NSTableColumn(identifier: .init("c")))
+        table.allowsMultipleSelection = true
+        table.dataSource = rows
+        table.delegate = rows
+        let window = TestWindow.make(contentRect: CGRect(x: 0, y: 0, width: 200, height: 120),
+                                     present: .unshown)
+        windows.append(window)
+        window.contentView = table
+        table.reloadData()
+        let cell = try XCTUnwrap(table.view(atColumn: 0, row: 0, makeIfNecessary: true))
+        let mark = NSView(frame: NSRect(x: 0, y: 0, width: 10, height: 10))
+        cell.addSubview(mark)
+
+        table.selectRowIndexes([1], byExtendingSelection: false)
+        XCTAssertFalse(TreeTravel.rowIsSelected(holding: mark), "another row is the selected one")
+        table.selectRowIndexes([0], byExtendingSelection: false)
+        XCTAssertTrue(TreeTravel.rowIsSelected(holding: mark),
+                      "one row selected: a click on it is the watcher's to hear")
+        table.selectRowIndexes([0, 1], byExtendingSelection: false)
+        XCTAssertFalse(TreeTravel.rowIsSelected(holding: mark),
+                       "two rows selected: a click on one collapses the set, which the "
+                       + "`List` writes — the watcher must not answer it too")
+    }
+
+    // MARK: - The batch verbs over the tree's selection
+
+    /// Two notes in the tree's selection (recorded as the mounted `List`
+    /// records it): the acting set the menu is built from is both, in tree
+    /// order, and the batch verb removes both — the store's work awaited, no
+    /// control pressed. A row outside the set acts alone.
+    func test_theBatchVerbsActOnTheTreesSelection() async throws {
         let store = try await novel(notes: ["Ships", "Tides", "Moon"])
         let ships = try XCTUnwrap(research(named: "Ships", in: store))
         let tides = try XCTUnwrap(research(named: "Tides", in: store))
         let moon = try XCTUnwrap(research(named: "Moon", in: store))
-        let (window, probe) = try await hostSections(store: store)
-        let table = try XCTUnwrap(firstTableView(in: window))
-        let shipsRow = try await rowIndex(of: .research(ships.id), in: table, probe: probe)
-        let tidesRow = try await rowIndex(of: .research(tides.id), in: table, probe: probe)
+        state.record(selection: [.research(ships.id), .research(tides.id)],
+                     subject: WindowSubject(open: .project, faces: .project,
+                                            beside: .research(ships.id)))
+        let actions = verbs(store, subject: .research(ships.id)).bundle
 
-        await select(rows: [shipsRow, tidesRow], in: table,
-                     until: { self.state.selection.count == 2 })
-
-        let actions = BinderTreeVerbs(store: store, state: state,
-                                      selectedSubject: probeBinding(probe)).bundle
+        XCTAssertEqual(actions.selectionForRow(tides.id), [ships.id, tides.id],
+                       "the acting set is both notes in tree order — the value "
+                       + "`ResearchTreeNode` titles \"Delete 2 Items\" from")
         XCTAssertEqual(actions.selectionForRow(moon.id), [moon.id],
                        "a right-click on an unselected row is about that row")
-    }
 
-    // MARK: - Each host takes a second row
-
-    func test_theNovelTreeHoldsTwoRowsAndKeepsItsAnchor() async throws {
-        let store = try await novel(notes: ["Ships", "Tides"])
-        try await assertHoldsTwoResearchRows(
-            store: store, mount: { try await self.hostBinder(store: store) })
-    }
-
-    func test_theCollectionTreeHoldsTwoRowsAndKeepsItsAnchor() async throws {
-        let store = try await collection(pieces: ["One"], notes: ["Ships", "Tides"])
-        try await assertHoldsTwoResearchRows(
-            store: store, mount: { try await self.hostCollection(store: store) })
-    }
-
-    func test_theScreenplayTreeHoldsTwoRowsAndKeepsItsAnchor() async throws {
-        let store = try await screenplay(notes: ["Ships", "Tides"])
-        try await assertHoldsTwoResearchRows(
-            store: store, mount: { try await self.hostNavigator(store: store) })
-    }
-
-    /// **The selection-shape test every host gets.** The three trees are three
-    /// different `List`s over three different projections, and a host whose
-    /// binding stayed single-valued would take the second ⌘-click and throw it
-    /// away — with nothing else failing, because its rows still select one at a
-    /// time perfectly. `allowsMultipleSelection` is the structural half of that:
-    /// SwiftUI sets it from the selection's TYPE, so on a single-valued binding
-    /// the table refuses the second row outright and the selection below is one
-    /// row, not two.
-    ///
-    /// **What it deliberately does not claim.** The hosts own their sections'
-    /// state privately, so this cannot read the acting set — and the table's own
-    /// `selectedRowIndexes` is AppKit's answer, not the binding's: a resolver
-    /// that took both rows and stored one was planted, and this assertion did
-    /// NOT catch it (the `List` does not push a shrinking `get` back over a
-    /// selection the user just made). The behaviour behind the shape is asserted
-    /// where the state is readable —
-    /// `test_twoNotesSelectedInTheTreeAreWhatTheBatchVerbsActOn`, which the same
-    /// plant did fail.
-    private func assertHoldsTwoResearchRows(
-        store: ProjectStore, mount: () async throws -> (NSWindow, BinderSubjectProbe)
-    ) async throws {
-        let ships = try XCTUnwrap(research(named: "Ships", in: store))
-        let tides = try XCTUnwrap(research(named: "Tides", in: store))
-        let (window, probe) = try await mount()
-        let table = try XCTUnwrap(firstTableView(in: window))
-        let shipsRow = try await rowIndex(of: .research(ships.id), in: table, probe: probe)
-        let tidesRow = try await rowIndex(of: .research(tides.id), in: table, probe: probe)
-
-        XCTAssertTrue(table.allowsMultipleSelection,
-                      "this tree's List still selects a single value")
-
-        await select(rows: [shipsRow], in: table,
-                     until: { probe.subject == .research(ships.id) })
-        await select(rows: [shipsRow, tidesRow], in: table,
-                     until: { table.selectedRowIndexes.count == 2 })
-
-        XCTAssertEqual(table.selectedRowIndexes, IndexSet([shipsRow, tidesRow]),
-                       "the table took both rows — on a single-valued binding "
-                       + "it would have taken one")
-        XCTAssertEqual(probe.subject, .research(ships.id),
-                       "and the window is still about the first — the anchor "
-                       + "survives a grown set")
+        actions.deleteMany([ships.id, tides.id])
+        await settle(store) {
+            store.manifest.research.allSatisfy { $0.title != "Ships" && $0.title != "Tides" }
+        }
+        XCTAssertNil(research(named: "Ships", in: store), "…and it works")
+        XCTAssertNil(research(named: "Tides", in: store))
+        XCTAssertNotNil(research(named: "Moon", in: store))
     }
 
     // MARK: - A batch DRAG
 
     /// **"Drag-multi into a piece rescopes both."** A real drag session is not
     /// synthesisable headless (`BinderTreeDrops`' own note), so this drives the
-    /// route the row's `.dropDestination` calls, over the selection a mounted
-    /// tree produces — which the tests above prove is what the table writes.
+    /// route the row's `.dropDestination` calls, over a selection recorded as
+    /// a mounted tree records it (`BinderTreeSectionsState.record`).
     func test_twoSelectedNotesDraggedOntoAPieceBothMoveIntoIt() async throws {
         let store = try await collection(pieces: ["One"], notes: ["Ships", "Tides"])
         let ships = try XCTUnwrap(research(named: "Ships", in: store))
         let tides = try XCTUnwrap(research(named: "Tides", in: store))
         let piece = try XCTUnwrap(store.manifest.structure.first)
-        state.selection = [.research(ships.id), .research(tides.id)]
+        state.record(selection: [.research(ships.id), .research(tides.id)],
+                     subject: WindowSubject(open: .project, faces: .project,
+                                            beside: .research(ships.id)))
 
         let accepted = verbs(store, subject: .research(ships.id)).routePieceRowDrop(
             draggedId: ships.id, documentId: piece.id,
@@ -215,7 +177,9 @@ final class BinderTreeMultiselectMountTests: XCTestCase {
         let store = try await collection(pieces: ["One"], notes: ["Ships", "Tides"])
         let ships = try XCTUnwrap(research(named: "Ships", in: store))
         let piece = try XCTUnwrap(store.manifest.structure.first)
-        state.selection = [.research(ships.id)]
+        state.record(selection: [.research(ships.id)],
+                     subject: WindowSubject(open: .project, faces: .project,
+                                            beside: .research(ships.id)))
 
         XCTAssertTrue(verbs(store, subject: .research(ships.id)).routePieceRowDrop(
             draggedId: ships.id, documentId: piece.id, structureReorder: {}))
@@ -235,8 +199,10 @@ final class BinderTreeMultiselectMountTests: XCTestCase {
         let store = try await collection(pieces: ["One"], notes: ["Ships", "Tides"])
         let ships = try XCTUnwrap(research(named: "Ships", in: store))
         let piece = try XCTUnwrap(store.manifest.structure.first)
-        state.selection = [.research(ships.id), .research(
-            try XCTUnwrap(research(named: "Tides", in: store)).id), .item(piece.id)]
+        state.record(selection: [.research(ships.id), .research(
+            try XCTUnwrap(research(named: "Tides", in: store)).id), .item(piece.id)],
+                     subject: WindowSubject(open: .project, faces: .project,
+                                            beside: .research(ships.id)))
 
         XCTAssertTrue(verbs(store, subject: .research(ships.id)).routePieceRowDrop(
             draggedId: ships.id, documentId: piece.id, structureReorder: {}))
@@ -261,7 +227,9 @@ final class BinderTreeMultiselectMountTests: XCTestCase {
         let ships = try XCTUnwrap(research(named: "Ships", in: store))
         let inside = try await store.createResearchNote(
             scope: .document(piece.id), title: "Tides")
-        state.selection = [.research(ships.id), .research(inside.id)]
+        state.record(selection: [.research(ships.id), .research(inside.id)],
+                     subject: WindowSubject(open: .project, faces: .project,
+                                            beside: .research(ships.id)))
 
         XCTAssertTrue(verbs(store, subject: .research(ships.id)).routePieceRowDrop(
             draggedId: ships.id, documentId: piece.id, structureReorder: {}))
@@ -286,7 +254,9 @@ final class BinderTreeMultiselectMountTests: XCTestCase {
         let a = try await store.createResearchNote(scope: .document(piece.id), title: "A")
         let b = try await store.createResearchNote(scope: .document(piece.id), title: "B")
         let c = try await store.createResearchNote(scope: .document(piece.id), title: "C")
-        state.selection = [.research(a.id), .research(b.id)]
+        state.record(selection: [.research(a.id), .research(b.id)],
+                     subject: WindowSubject(open: .project, faces: .project,
+                                            beside: .research(a.id)))
 
         XCTAssertTrue(verbs(store, subject: .research(a.id)).routeResearchRowDrop(
             draggedId: a.id, position: .bottom,
@@ -350,7 +320,7 @@ final class BinderTreeMultiselectMountTests: XCTestCase {
     private func verbs(_ store: ProjectStore, subject: BinderSubject?) -> BinderTreeVerbs {
         let box = BinderSubjectProbe(subject)
         return BinderTreeVerbs(store: store, state: state,
-                               selectedSubject: probeBinding(box))
+                               subject: .tree(probeBinding(box)))
     }
 
     private func probeBinding(_ probe: BinderSubjectProbe) -> Binding<BinderSubject?> {
@@ -419,42 +389,6 @@ final class BinderTreeMultiselectMountTests: XCTestCase {
         return window
     }
 
-    /// Which row of the mounted table writes `subject`, found by asking every
-    /// row rather than counting headers and placeholders — the row a note lands
-    /// on differs per host, and a hand-counted index is a fixture that goes
-    /// quietly wrong the next time the tree grows furniture.
-    ///
-    /// The subject is cleared before each candidate, so a row that REFUSES to
-    /// write (a placeholder, a section header) cannot be mistaken for a match by
-    /// leaving the previous answer in place.
-    private func rowIndex(of subject: BinderSubject, in table: NSTableView,
-                          probe: BinderSubjectProbe) async throws -> Int {
-        for row in 0..<table.numberOfRows {
-            probe.subject = nil
-            state.selection = []
-            // A short deadline, because most rows in this scan are EXPECTED to
-            // write nothing — a section header, a placeholder — and waiting the
-            // full write-back budget on each of those is the difference between
-            // a fast test and a minute of nothing happening.
-            await select(rows: [row], in: table, deadline: 0.6,
-                         until: { probe.subject != nil })
-            if probe.subject == subject { return row }
-        }
-        XCTFail("no row in this tree writes \(subject)")
-        throw XCTSkip("row not found")
-    }
-
-    private func select(rows: [Int], in table: NSTableView,
-                        deadline: TimeInterval = 5,
-                        until settled: (() -> Bool)? = nil) async {
-        table.selectRowIndexes(IndexSet(rows), byExtendingSelection: false)
-        if let settled {
-            await pumpUntil(deadline: deadline, settled)
-        } else {
-            await waitOut(0.4)
-        }
-    }
-
     private func firstTableView(in window: NSWindow) -> NSTableView? {
         guard let root = window.contentView else { return nil }
         var found: [NSTableView] = []
@@ -475,6 +409,17 @@ final class BinderTreeMultiselectMountTests: XCTestCase {
 /// it. The state is the TEST's, which is the only reason the acting set is
 /// readable at all — the three real hosts take one from the window (stage-3a
 /// Task 4), and the tests that mount a whole host read the table instead.
+/// A plain AppKit table of `count` empty rows.
+@MainActor
+private final class PlainRows: NSObject, NSTableViewDataSource, NSTableViewDelegate {
+    let count: Int
+    init(count: Int) { self.count = count }
+    func numberOfRows(in tableView: NSTableView) -> Int { count }
+    func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
+        NSView(frame: NSRect(x: 0, y: 0, width: 200, height: 20))
+    }
+}
+
 @MainActor
 private struct SectionsOnlyProbeView: View {
     let store: ProjectStore
@@ -482,13 +427,14 @@ private struct SectionsOnlyProbeView: View {
     let state: BinderTreeSectionsState
 
     var body: some View {
-        let subject = Binding(get: { probe.subject }, set: { probe.subject = $0 })
+        let subject = Binding<WindowSubject>.tree(
+            Binding(get: { probe.subject }, set: { probe.subject = $0 }))
         List(selection: BinderTreeSelection.binding(
                 subject: subject, state: state, store: store)) {
-            BinderTreeSections(store: store, state: state, selectedSubject: subject)
+            BinderTreeSections(store: store, state: state, subject: subject)
         }
         .listStyle(.sidebar)
-        .binderTreeSections(store: store, state: state, selectedSubject: subject)
+        .binderTreeSections(store: store, state: state, subject: subject)
     }
 }
 
@@ -500,9 +446,9 @@ private struct MultiselectBinderProbeView: View {
     let treeState = BinderTreeSectionsState()
 
     var body: some View {
-        BinderView(store: store,
-                   selectedSubject: Binding(get: { probe.subject },
-                                            set: { probe.subject = $0 }),
+        TreeHostFixture.binder(store: store,
+                   subject: .tree(Binding(get: { probe.subject },
+                                            set: { probe.subject = $0 })),
                    treeState: treeState)
     }
 }
@@ -515,10 +461,10 @@ private struct MultiselectCollectionProbeView: View {
     let treeState = BinderTreeSectionsState()
 
     var body: some View {
-        CollectionPiecesPane(
+        TreeHostFixture.collection(
             store: store,
-            selectedSubject: Binding(get: { probe.subject },
-                                     set: { probe.subject = $0 }),
+            subject: .tree(Binding(get: { probe.subject },
+                                     set: { probe.subject = $0 })),
             renamingItemId: $renaming,
             treeState: treeState)
     }
@@ -532,13 +478,11 @@ private struct MultiselectNavigatorProbeView: View {
     let treeState = BinderTreeSectionsState()
 
     var body: some View {
-        SceneNavigatorPane(
+        TreeHostFixture.scenes(
             store: store,
             script: FountainTokenizer().parse("INT. KITCHEN - DAY\n\nLarry sits.\n"),
-            projectTitle: store.manifest.title,
-            selectedSubject: Binding(get: { probe.subject },
-                                     set: { probe.subject = $0 }),
-            documentID: documentID,
+            subject: .tree(Binding(get: { probe.subject },
+                                     set: { probe.subject = $0 })),
             treeState: treeState,
             onSelect: { _ in })
     }

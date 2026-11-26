@@ -11,7 +11,7 @@ import MaughamCore
 /// Diagnostics pane knew the round — and none of it was where the work is.
 ///
 /// **It is a second delivery site for ⌘R, exactly as the cold-start offer's
-/// Read button is** (`DiagnosticsPane.coldStartOffer`): the buttons call
+/// Read button is** (`CheckNarrative.coldStartOffer`): the buttons call
 /// `CompilerOrchestrator.runRequested` directly. They deliberately carry NO
 /// `keyboardShortcut` — ⌘R and ⌘⇧R are `MaughamApp`'s menu commands and the
 /// spec's keystroke-only rule is about there being ONE trigger, not one
@@ -24,7 +24,7 @@ import MaughamCore
 /// docId-scoped run phase, the report line's mutual exclusion and the empty
 /// queue's teaching all be tested without a window — and what keeps Review's
 /// copy from drifting from Author's, which is the whole reason `RoundNarrative`
-/// stopped living on `DiagnosticsPane`.
+/// stopped living on the Diagnostics pane.
 ///
 /// The strip is **document scope only** and the pane's mount is where that is
 /// enforced: it is a statement about ONE piece's pass, round and next run, and
@@ -98,7 +98,7 @@ struct ReviewRoundCockpit: View {
     /// again here or in the pane.
     let onSetActivePass: (_ passId: String) -> Void
     /// End the run in flight — `CompilerOrchestrator.cancel()`, the exact
-    /// verb `DiagnosticsPane`'s own Cancel button calls. Cancel's semantics
+    /// verb the Diagnostics pane's own Cancel button calls. Cancel's semantics
     /// come free: it ends the turn through `.sessionDied(detail: .cancelled)`,
     /// which `CompilerRunFailure.isTheWritersOwnDoing` already routes to
     /// `.idle` before `runState` is ever set (`finish`'s failure arm) — so
@@ -110,14 +110,14 @@ struct ReviewRoundCockpit: View {
     /// ruling) — the two arms where a run holds the window's session.
     let onCancel: () -> Void
 
-    /// **The gear menu's persisted choice** — `DiagnosticsPane`'s own
+    /// **The gear menu's persisted choice** — the Diagnostics pane's own
     /// `compilerModel`, threaded here so Review carries the same control
     /// (editorial letter P1, Task 8). Depth is a per-PROJECT setting, not a
-    /// per-persona one: a writer who set Deep in Author must find Deep here
+    /// per-surface one: a writer who set Deep in Diagnostics must find Deep here
     /// too, and a change made from either home is the one write.
     let compilerModel: CompilerModelChoice
     /// Reaches `ProjectWindow`'s ONE handler — the same closure
-    /// `DiagnosticsPane` calls, never a second spelling of the persistence.
+    /// the Diagnostics pane calls, never a second spelling of the persistence.
     let onCompilerModelChange: (CompilerModelChoice) -> Void
 
     /// **What the last run's letter says, in one line** (editorial letter P1
@@ -127,7 +127,7 @@ struct ReviewRoundCockpit: View {
     ///
     /// Defaulted so a caller that predates the letter — every probe mount,
     /// and any host with no sidecar behind it — keeps compiling with a strip
-    /// that simply has no letter in it. `AnnotationsPane` is the one
+    /// that simply has no letter in it. the Annotations pane is the one
     /// production caller and passes both (its own census).
     var letterLine: String? = nil
     /// The section the disclosure opens: the host's own `LetterSection`,
@@ -175,7 +175,7 @@ struct ReviewRoundCockpit: View {
     /// exactly like a clean idle, so a round that died at the session budget is
     /// indistinguishable from one that came back with no notes. Denver read two
     /// timed-out rounds (Structural, then Line) as "returned nothing" and only
-    /// found the failure in Author's Diagnostics pane, a persona away from the
+    /// found the failure in the Diagnostics pane, a pane away from the
     /// button he pressed. A failure must surface where the run was launched.
     ///
     /// `.nothingNew` stays folded into `.idle`: it is a run that worked and had
@@ -212,7 +212,7 @@ struct ReviewRoundCockpit: View {
     // MARK: - The decisions, pure
 
     /// **The second reader of `orchestrator.runState`, scoped the way the
-    /// first one is** (`DiagnosticsPane.headerState`'s `where runDocId == docId`).
+    /// first one is** (`CheckNarrative.headerState`'s `where runDocId == docId`).
     ///
     /// Drop the scope and a run on chapter 2 makes chapter 1's strip claim it
     /// is being checked, drawing chapter 2's counts as its own round — the
@@ -326,7 +326,7 @@ struct ReviewRoundCockpit: View {
     /// Exposed and pure for `ReviewBoardChipVerbs.chipMenuItems`' reason: a
     /// SwiftUI `Menu` builds its items only when the writer opens it, so a
     /// hosted test can neither see them nor press one (measured in
-    /// `InspectorPassLadderTests`). A checkmark rule asserted nowhere is how a
+    /// `PassLadderTests`). A checkmark rule asserted nowhere is how a
     /// picker that ticks the wrong lane — or every lane — ships green.
     ///
     /// **`current` naming a pass this project does not have leaves NOTHING
@@ -376,46 +376,19 @@ struct ReviewRoundCockpit: View {
         return line + RoundNarrative.readInSuffix(run?.timing)
     }
 
-    /// **What an empty queue says now** — the Review copy carry.
-    ///
-    /// It used to name one of the two ways the queue fills ("ask Claude for
-    /// editorial feedback") and it was no longer the one Review is built
-    /// around. Both are named, the round first and by its editor's name, so
-    /// the empty state teaches the loop instead of describing the absence of
-    /// one (spec §7).
-    ///
-    /// The offer itself is `RoundNarrative.runRoundTitle` — the same spelling
-    /// the board chip's menu verb carries (M4 P2 Task 4), so the two places a
-    /// reviewer meets the round in the same minute name it the same way.
-    static func emptyQueueTeaching(editorName: String?) -> String {
-        // `nil` here means no pass is active yet — there is no editor for
-        // `RoundNarrative.runRoundTitle(editorName:)` to name (its parameter
-        // is non-optional on purpose), so this arm is its own hand-written
-        // sentence rather than a call through it with a placeholder editor.
-        // **And it asks for the pass first** (two loops P1 Task 8): with none
-        // set the keystroke is refused, so "Run a round (⌘R)" over an
-        // unassigned piece taught a loop the writer cannot yet enter.
-        guard let editorName else {
-            return "Claude proposes; you dispose. Set a pass and run its "
-                + "editor\u{2019}s round (\u{2318}R), or ask Claude in Claude Desktop."
-        }
-        let round = "\(RoundNarrative.runRoundTitle(editorName: editorName)) (\u{2318}R)"
-        return "Claude proposes; you dispose. \(round), or ask Claude in Claude Desktop."
-    }
-
     // MARK: - The letter's bound
 
     /// **How tall the opened letter may grow inside the strip** (Denver's
     /// 2026-09-03 Review smoke).
     ///
-    /// `AnnotationsPane.body` stacks this strip above the scrolling queue in a
+    /// the Annotations pane's `body` stacks this strip above the scrolling queue in a
     /// NON-scrolling `VStack`: every strip in it demands its full height as a
     /// MINIMUM (that stack's own note, and `WindowFloorFree.swift`'s). So an
     /// expanded disclosure drawing the host's whole `LetterSection` inline
     /// demanded a letter's worth of height from a pane that had a column's —
     /// SwiftUI cannot compress a minimum, so the letter ran off the bottom of
     /// the pane unread and the queue below it was squeezed to nothing. Author's
-    /// `DiagnosticsPane` never had this: its report is inside a `ScrollView`
+    /// the Diagnostics pane never had this: its report is inside a `ScrollView`
     /// already.
     ///
     /// **A constant rather than a fraction of the pane.** Half the column's
@@ -443,7 +416,7 @@ struct ReviewRoundCockpit: View {
     static let noEditorReason =
         "A round is an editor\u{2019}s. Set a pass and its editor runs the round."
 
-    static let runTitle = "Run round"
+    static let runTitle = "Run Round"
     static let freshEyesTitle = "Fresh Eyes"
     /// **The invitation names what setting a pass is FOR** (two loops P1
     /// Task 8). "Set a pass" alone reads as a lane picker's placeholder and
@@ -456,7 +429,7 @@ struct ReviewRoundCockpit: View {
     /// control says why. Nothing is queued — there is one session per window,
     /// and a second turn is what the next keystroke does.
     static let busyReason =
-        "This piece is being checked. The next round is the next keystroke."
+        "A check is running here. The next round is the next keystroke."
 
     /// The tooltip names the round the press would actually produce — the
     /// offer, plus its NUMBER, which is the one thing the empty state's copy
@@ -473,7 +446,7 @@ struct ReviewRoundCockpit: View {
         guard let pass else { return noEditorReason }
         let offer = RoundNarrative.runRoundTitle(
             editorName: pass.effectiveEditorName)
-        return "\(offer) \(next) (\u{2318}R)"
+        return "\(offer) \(next) (\(RunCommand.runRound.keyLabel))"
     }
 
     /// **The tooltip behind the idle line** — `RoundNarrative`'s one
@@ -485,14 +458,14 @@ struct ReviewRoundCockpit: View {
     }
 
     static let freshEyesHelp =
-        "Read the whole piece cold (\u{2318}\u{21e7}R) \u{2014} the warm session is "
+        "Read the whole piece cold (\(RunCommand.freshEyes.keyLabel)) \u{2014} the warm session is "
         + "retired and this round is briefed on no prior findings."
 
     /// One tooltip for both states, because it asks the question the control
     /// answers in both: it reads as an invitation over "Set a pass" and as an
     /// offer to change lanes over a lane line.
     static let setAPassHelp =
-        "Which pass is this piece being read through? The round is filed in "
+        "Which pass is this being read through? The round is filed in "
         + "that lane, and its editor signs the notes."
 
     /// **The one thing, else the say-back** — the derivation, in one place,
@@ -523,7 +496,7 @@ struct ReviewRoundCockpit: View {
     // Named rather than inlined into the controls so a test can drive the one
     // the mounted menu cannot: a SwiftUI `Menu` builds its items when the
     // writer opens it, so the picker's item is unreachable from a hosted view
-    // (measured in `InspectorPassLadderTests`). `setPass` is the identical code
+    // (measured in `PassLadderTests`). `setPass` is the identical code
     // path, minus AppKit's menu.
     //
     // **That substitution is only honest while the item actually calls it**,
@@ -604,7 +577,7 @@ struct ReviewRoundCockpit: View {
     /// sentence, verbatim (Denver, 2026-10-17). `static let` so it is
     /// assertable without a mount.
     static let authorsCheckIsRunningLine =
-        "Author's check is running \u{2014} Run waits until it finishes."
+        "A check is running \u{2014} Run waits until it finishes."
 
     /// The one line this strip says about the OTHER loop's run (#77 F7), or
     /// `nil`. Drawn under the strip's own status line rather than in place
@@ -656,7 +629,7 @@ struct ReviewRoundCockpit: View {
         if let line {
             Text(line)
                 .font(.caption)
-                // Red only for a failure, on `DiagnosticsPane.header`'s
+                // Red only for a failure, on `CheckNarrative.header`'s
                 // rule: the strip's ordinary lines are secondary, and a
                 // colour that never changes is a colour that says nothing.
                 .foregroundStyle(isFailure ? Color.red : Color.secondary)
@@ -715,7 +688,7 @@ struct ReviewRoundCockpit: View {
     /// **What it opens SCROLLS, inside `letterDisclosureMaxHeight`** (Denver's
     /// 2026-09-03 Review smoke). Author's pane has this for free — its whole
     /// report is inside a `ScrollView` — and this strip is the opposite case:
-    /// it lives in `AnnotationsPane.body`'s non-scrolling stack, where its
+    /// it lives in the Annotations pane's `body`'s non-scrolling stack, where its
     /// height is a MINIMUM propagated out to the pane, so an inline letter
     /// demanded a letter's worth of column, ran off the bottom unread, and
     /// squeezed the queue below it to nothing. The bound is a ceiling and not a
@@ -768,7 +741,7 @@ struct ReviewRoundCockpit: View {
     /// reason: a project may name any number of passes and the column's floor
     /// is 240pt. **No `.fixedSize()`** — the passless label was two short words
     /// and could afford one; a lane line carries a writer's own pass name and
-    /// must stay compressible, which is what `AnnotationsQueueToolbarWidthTests`
+    /// must stay compressible, which is what `ResolveColumnWidthTests`
     /// measures. The `Spacer` is what keeps it left rather than a `maxWidth`
     /// frame, so the pressable area is the line and its chevron and not the
     /// whole width of the column.
@@ -810,7 +783,7 @@ struct ReviewRoundCockpit: View {
             .menuStyle(.borderlessButton)
             .help(Self.setAPassHelp)
             Spacer(minLength: 0)
-            // **The same depth control Author's Diagnostics pane carries**
+            // **The same depth control the Diagnostics pane carries**
             // (editorial letter P1, Task 8) — trailing, after the Spacer, so
             // it sits at the row's far edge the way the pane's own gear menu
             // sits at its header's far edge, rather than crowding the lane
@@ -842,7 +815,7 @@ struct ReviewRoundCockpit: View {
     /// review Author's check too — the tracked follow-up from the
     /// failure-visibility review. At the 300s timeout the strip can say
     /// "Checking N paragraphs…" for up to five minutes with nothing to press;
-    /// `DiagnosticsPane`'s header carries the identical control
+    /// the Diagnostics pane's header carries the identical control
     /// (`.bordered`, `.controlSize(.small)`) for the same run, and this is the
     /// strip that launched it. It calls `onCancel` and nothing else — the
     /// writer-caused mapping that returns the strip to idle is the
@@ -904,7 +877,7 @@ struct ReviewRoundCockpit: View {
 /// toolbar is measured against; this one sits INSIDE that column, wrapping
 /// content a model wrote, and a letter with one unbreakable line in it must
 /// never widen the queue — an inflated layout width is
-/// `AnnotationsQueueToolbarWidthTests`' own defect, in which SwiftUI centres the
+/// `ResolveColumnWidthTests`' own defect, in which SwiftUI centres the
 /// overflow and clips annotation bodies at the left edge.
 ///
 /// A nil-width proposal falls back to the content's ideal, and that is right

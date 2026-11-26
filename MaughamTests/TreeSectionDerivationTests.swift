@@ -38,7 +38,7 @@ final class TreeSectionDerivationTests: XCTestCase {
         let palette = group("pal", title: "Palette", role: .paletteGroup)
         let shared = asset("res-1", title: "Sarah")
         let roots = TreeSectionDerivation.sharedResearchRoots(
-            research: [shared, palette], projectType: .novel)
+            structure: [], research: [shared, palette], projectType: .novel)
         XCTAssertEqual(roots.map(\.id), ["res-1"])
     }
 
@@ -47,7 +47,7 @@ final class TreeSectionDerivationTests: XCTestCase {
         let palette = group("pal", title: "Palette", path: "research/palette")
         let shared = asset("res-1", title: "Sarah")
         let roots = TreeSectionDerivation.sharedResearchRoots(
-            research: [shared, palette], projectType: .shortStory)
+            structure: [], research: [shared, palette], projectType: .shortStory)
         XCTAssertEqual(roots.map(\.id), ["res-1"])
     }
 
@@ -56,14 +56,14 @@ final class TreeSectionDerivationTests: XCTestCase {
         // but the filter must be a collection-only rule, not path-shaped.
         let odd = asset("res-1", title: "Odd", path: "pieces/x/research/odd.md")
         let roots = TreeSectionDerivation.sharedResearchRoots(
-            research: [odd], projectType: .shortStory)
+            structure: [], research: [odd], projectType: .shortStory)
         XCTAssertEqual(roots.map(\.id), ["res-1"])
     }
 
     func test_sharedResearchRoots_screenplay_noPiecesFilterApplies() {
         let odd = asset("res-1", title: "Odd", path: "pieces/x/research/odd.md")
         let roots = TreeSectionDerivation.sharedResearchRoots(
-            research: [odd], projectType: .screenplay)
+            structure: [], research: [odd], projectType: .screenplay)
         XCTAssertEqual(roots.map(\.id), ["res-1"])
     }
 
@@ -75,7 +75,7 @@ final class TreeSectionDerivationTests: XCTestCase {
         let pieceGroup = group(
             "res-piece-grp", title: "Piece Group", path: "pieces/alpha/research/grp")
         let roots = TreeSectionDerivation.sharedResearchRoots(
-            research: [shared, pieceRoot, pieceGroup, palette], projectType: .collection)
+            structure: [alphaPiece], research: [shared, pieceRoot, pieceGroup, palette], projectType: .collection)
         XCTAssertEqual(roots.map(\.id), ["res-shared"])
     }
 
@@ -83,8 +83,25 @@ final class TreeSectionDerivationTests: XCTestCase {
         let pieceRoot = asset(
             "res-piece", title: "Piece Note", path: "pieces/alpha/research/note.md")
         let roots = TreeSectionDerivation.sharedResearchRoots(
-            research: [pieceRoot], projectType: .collection)
+            structure: [alphaPiece], research: [pieceRoot], projectType: .collection)
         XCTAssertTrue(roots.isEmpty)
+    }
+
+    /// A Collection piece whose folder holds research.
+    private var alphaPiece: StructureItem {
+        document("piece-alpha", title: "Alpha", path: "pieces/alpha/manuscript.md",
+                 pieceKind: .loose)
+    }
+
+    /// **Nothing is invisible** (shell p5 Task 4a, B): research under a piece
+    /// folder no live piece owns (a half-swept manifest, a piece gone) has no
+    /// fold to be drawn in, so it is the book's — the section draws it.
+    func test_sharedResearchRoots_collection_aFolderNoLivePieceOwnsIsTheBooks() {
+        let orphan = asset(
+            "res-piece", title: "Piece Note", path: "pieces/alpha/research/note.md")
+        let roots = TreeSectionDerivation.sharedResearchRoots(
+            structure: [], research: [orphan], projectType: .collection)
+        XCTAssertEqual(roots.map(\.id), ["res-piece"])
     }
 
     func test_sharedResearchRoots_pathlessItemsAreKeptInACollection() {
@@ -92,7 +109,7 @@ final class TreeSectionDerivationTests: XCTestCase {
         // must not be swept out by an unwrapped-optional mistake.
         let link = ResearchItem(id: "res-link", title: "A Link", type: .asset, kind: .link)
         let roots = TreeSectionDerivation.sharedResearchRoots(
-            research: [link], projectType: .collection)
+            structure: [], research: [link], projectType: .collection)
         XCTAssertEqual(roots.map(\.id), ["res-link"])
     }
 
@@ -191,8 +208,9 @@ final class TreeSectionDerivationTests: XCTestCase {
             linkedResearchIds: ["res-sarah"])
         XCTAssertEqual(
             TreeSectionDerivation.pieceFold(
-                for: chapter, structure: [chapter],
-                research: [sarah], projectType: .novel),
+                for: chapter, projectType: .novel,
+                homes: ResearchHomes.derive(structure: [chapter], research: [sarah],
+                                            projectType: .novel)),
             TreeSectionDerivation.pieceFold(
                 forDocumentId: "ch-1", structure: [chapter],
                 research: [sarah], projectType: .novel))
@@ -204,21 +222,19 @@ final class TreeSectionDerivationTests: XCTestCase {
             "res-owned", title: "Owned", path: "pieces/alpha/research/note.md")
         XCTAssertEqual(
             TreeSectionDerivation.pieceFold(
-                for: piece, structure: [piece],
-                research: [owned], projectType: .collection),
+                for: piece, projectType: .collection,
+                homes: ResearchHomes.derive(structure: [piece], research: [owned],
+                                            projectType: .collection)),
             TreeSectionDerivation.pieceFold(
                 forDocumentId: "piece-alpha", structure: [piece],
                 research: [owned], projectType: .collection))
     }
 
     /// An item the structure does not contain. The by-id spelling cannot find
-    /// it and answers `.empty`; the item spelling is handed the item and never
-    /// searches, so it answers from the item's own links. **The difference is
-    /// deliberate and unreachable from the tree** — a row is only ever drawn
-    /// for an item the structure holds — and it is asserted rather than left
-    /// implicit because it is what says the linked fold reads the item and not
-    /// the tree a second time.
-    func test_pieceFold_theItemSpellingOnAStrangerIsStillJustItsRouting() {
+    /// it and answers `.empty`; the item spelling reads the homes it is
+    /// handed (shell p5 Task 4a), in which a piece the structure does not hold
+    /// is no home — its links name nothing the tree draws under it.
+    func test_pieceFold_theItemSpellingOnAStrangerHoldsNothing() {
         let stranger = document(
             "ch-gone", title: "Deleted", path: "manuscript/gone.md",
             linkedResearchIds: ["res-sarah"])
@@ -230,11 +246,12 @@ final class TreeSectionDerivationTests: XCTestCase {
             .empty)
         XCTAssertEqual(
             TreeSectionDerivation.pieceFold(
-                for: stranger, structure: [],
-                research: [sarah], projectType: .novel).items.map(\.id),
-            ["res-sarah"],
-            "the item spelling answers for the item it was given — the tree "
-            + "only ever hands it a row it is drawing")
+                for: stranger, projectType: .novel,
+                homes: ResearchHomes.derive(structure: [], research: [sarah],
+                                            projectType: .novel)).items.map(\.id),
+            [],
+            "a link held by a piece the structure lost is no home: the note is "
+            + "the book's (`ResearchHomes`)")
     }
 
     // MARK: - showsDisclosure: which folds the tree draws a chevron for (Task 6)

@@ -236,7 +236,7 @@ final class InboxPendingTests: XCTestCase {
 
         let window = TestWindow.mount(
             AnyView(InboxPane(store: inbox, projectStore: projectStore,
-                              activeDocumentId: nil, canTranscribe: false,
+                              canTranscribe: false,
                               retranscribe: { _ in })
                 .frame(maxWidth: .infinity, maxHeight: .infinity)),
             size: CGSize(width: 420, height: 600))

@@ -3,7 +3,10 @@ import MaughamCore
 
 struct BinderView: View {
     @Bindable var store: ProjectStore
-    @Binding var selectedSubject: BinderSubject?
+    /// The window's subject (shell p1 Task 3). The `List` selects through
+    /// `BinderTreeSelection` — a click is the click rule; a verb that makes a
+    /// row points the window at it through `ClickRule.navigate`.
+    @Binding var subject: WindowSubject
     /// **The Research and Palette sections' state, owned by the WINDOW**
     /// (stage-3a Task 4). It was `@State` here until the sections learned to be
     /// opened and closed: `ProjectWindow.openResearchItem` and its Show twin
@@ -13,12 +16,7 @@ struct BinderView: View {
     /// host — a default would allocate a fresh state per body pass and lose the
     /// writer's disclosure and selection on the next render.
     let treeState: BinderTreeSectionsState
-    /// Threaded to `BinderTreeSections`' Palette header — see its own doc
-    /// comment (stage 3b Task 4). Defaulted for the mounted-tree fixtures that
-    /// do not care about the wall's door.
-    var paletteWallTravels: Bool = false
-    var onOpenPaletteWall: () -> Void = {}
-    /// Plan's Tab to the canvas and ⇧Tab back — see `TreeCanvasKeyboard`.
+    /// The tree's Tab to the canvas and ⇧Tab back — see `TreeCanvasKeyboard`.
     /// Defaulted for the tree fixtures with no canvas beside them; the window's
     /// argument is censused in `PromotionCommandTests`.
     var canvasKeyboard = TreeCanvasKeyboard()
@@ -72,19 +70,26 @@ struct BinderView: View {
         // already in the tree it addresses.
         ScrollViewReader { proxy in
             List(selection: BinderTreeSelection.binding(
-                    subject: $selectedSubject, state: treeState, store: store)) {
+                    subject: $subject, state: treeState, store: store)) {
+                // The rows in `TreeRowSlot`'s order: the Book, Inbox and
+                // Canvas, the manuscript, then the sections (Figures,
+                // Research, Palette, Editions). The project row stays row zero.
                 projectRow
+                TreeTopRows(hasInbox: TreeTopRows.hasInbox(
+                    state: treeState, store: store, subject: subject),
+                            hasNewCaptures: TreeTopRows.hasNewCaptures(store: store),
+                            canvasDrop: .init(store: store, state: treeState,
+                                              open: subject.open))
                 outline(items: store.manifest.structure)
-                // Below everything the tree already had — the sections are
-                // furniture at the foot of the column, and the project row
-                // stays row zero.
                 BinderTreeSections(store: store, state: treeState,
-                                   selectedSubject: $selectedSubject,
-                                   paletteWallTravels: paletteWallTravels,
-                                   onOpenPaletteWall: onOpenPaletteWall)
+                                   subject: $subject)
             }
             .listStyle(.sidebar)
-            // Plan's Tab hands the keyboard to the canvas; anywhere else, or
+            .treeRowStates(state: treeState, subject: subject)
+            // Return/Space pull a fold row up; ⌘↓ opens any row in the centre.
+            .treeRowKeys(store: store, state: treeState, subject: $subject,
+                         hostIsRenaming: renamingItemId != nil)
+            // The tree's Tab hands the keyboard to the canvas; anywhere else, or
             // during a rename, it is ignored and travels on as before.
             .onKeyPress(keys: [.tab], phases: .down) { press in
                 guard canvasKeyboard.tabGoesToTheCanvas(
@@ -99,28 +104,37 @@ struct BinderView: View {
             .onChange(of: canvasKeyboard.treeKeyboardRequest) { _, _ in
                 listHoldsTheKeyboard = true
             }
-            .overlay {
+            // At the column's foot, its own height (shell p1 Task 3): the
+            // tree's rows — the Book, Canvas, the sections, the Editions — fill
+            // its head, and a centred full-height overlay's buttons sat over
+            // one of them.
+            .overlay(alignment: .bottom) {
                 if store.manifest.structure.isEmpty { emptyState }
             }
             .binderTreeSections(store: store, state: treeState,
-                                selectedSubject: $selectedSubject)
+                                subject: $subject)
+            .pieceFoldIndex(store: store, state: treeState)
+            // A picture row's thumbnail is resolved under this project.
+            .environment(\.rowThumbnailRoot, store.url)
             // Root context menu — attached at the binder level so it's
             // available even when the structure is empty (right-clicking
             // a row gives the per-row menu instead, no overlap).
             .contextMenu {
                 // **Starting a piece is the book author's** (P3c Task 8,
                 // ruling R3): hidden, never greyed, where the posture refuses.
+                // File ▸ New Chapter / New Part's twins: the same post, one
+                // receiver (`.maughamAddBinderItem`).
                 if mayStartAPiece {
-                    Button("New Document") {
-                        Task {
-                            await addItem(
-                                parent: nil, kind: .document(store.manifest.type.primaryFormat))
-                        }
-                    }
-                    Button("New Group") {
-                        Task { await addItem(parent: nil, kind: .group) }
-                    }
+                    Button(Self.newPieceTitle(noun)) { MaughamEvent.postAddBinderItem(.piece) }
+                    Button(Self.newGroupTitle(noun)) { MaughamEvent.postAddBinderItem(.group) }
                 }
+            }
+            // A piece the File menu or a root verb made goes into rename here,
+            // once its row exists (the receiver adds it before it asks).
+            .onChange(of: treeState.pendingBinderRenameId, initial: true) { _, id in
+                guard let id else { return }
+                renamingItemId = id
+                treeState.pendingBinderRenameId = nil
             }
             .alert("Couldn't update project",
                    isPresented: Binding(
@@ -188,7 +202,7 @@ struct BinderView: View {
             // still has to stay off `.tag`'s own row-wide selection target
             // rather than widen onto it.
             .treeTravelOnDoubleClick(.project)
-            .tag(BinderSubject.project)
+            .tag(TreeRowTag.subject(.project))
     }
 
     /// `depth` exists ONLY to place `ProjectRowLabel.childIndent`, and only at
@@ -205,13 +219,14 @@ struct BinderView: View {
         let indent = depth == 0 ? ProjectRowLabel.childIndent : 0
         return ForEach(items) { item in
             if item.type == .group, let children = item.children {
-                DisclosureGroup {
+                // Bound, so ⌘⌥E can open the Parts above the chapter it shows.
+                DisclosureGroup(isExpanded: treeState.groupExpansion(of: item.id)) {
                     AnyView(outline(items: children, depth: depth + 1))
                 } label: {
                     row(for: item)
                 }
                 .padding(.leading, indent)
-                .tag(BinderSubject.item(item.id))
+                .tag(TreeRowTag.subject(.item(item.id)))
                 // The scroll target a find manuscript match lands on
                 // (stage-3b Task 8) — the same value the tag above already
                 // carries.
@@ -232,43 +247,35 @@ struct BinderView: View {
     /// already uses — the `.tag` and the inset go on the `DisclosureGroup` so
     /// the children move with the row they belong to (see `outline`).
     ///
-    /// **An empty fold gets no chevron** (`PieceFold.showsDisclosure`): a
-    /// triangle onto nothing is noise on every chapter of a novel whose writer
-    /// has linked nothing yet. The row is still where the first item lands —
-    /// Task 7 makes it a drop target.
+    /// **An empty fold gets no chevron**: a triangle onto nothing is noise on
+    /// every chapter of a novel whose writer has linked nothing yet. The row is
+    /// still where the first item lands — it is a drop target.
     ///
-    /// **Derived per render, from the manifest** (tripwire 4): the fold is a
-    /// manifest walk, never a read. Deliberately no cache — a parallel copy of
-    /// the manifest is a second source of truth for what a chapter's research
-    /// is, and `manifest.modified` is the key it would have to be built on if
-    /// profiling ever asks for one.
+    /// **Looked up, never computed** (tripwire 4): the fold's contents and
+    /// layout are `PieceFoldIndex`'s, built once per key in `.task`
+    /// (`pieceFoldIndex(store:state:)` on the list) — shell p3 Task 7.
     @ViewBuilder
     private func documentEntry(for item: StructureItem, indent: CGFloat) -> some View {
-        let fold = TreeSectionDerivation.pieceFold(
-            for: item,
-            structure: store.manifest.structure,
-            research: store.manifest.research,
-            projectType: store.manifest.type)
-        if fold.showsDisclosure {
+        if let layout = treeState.foldLayout(of: item.id, in: store.manifest) {
             // Bound rather than SwiftUI-private (stage-3b Task 7): a
             // piece-scoped research id is revealed by OPENING this fold, and a
             // flag the window cannot reach is a fold the reveal cannot open.
             DisclosureGroup(isExpanded: treeState.foldExpansion(of: item.id)) {
                 BinderPieceFold(store: store, state: treeState,
-                                selectedSubject: $selectedSubject,
-                                documentId: item.id, fold: fold)
+                                subject: $subject,
+                                documentId: item.id, layout: layout)
             } label: {
                 row(for: item)
             }
             .padding(.leading, indent)
-            .tag(BinderSubject.item(item.id))
+            .tag(TreeRowTag.subject(.item(item.id)))
             // The find manuscript-match scroll target — `outline`'s comment
             // carries the reasoning, not restated here.
             .id(BinderSubject.item(item.id))
         } else {
             row(for: item)
                 .padding(.leading, indent)
-                .tag(BinderSubject.item(item.id))
+                .tag(TreeRowTag.subject(.item(item.id)))
                 .id(BinderSubject.item(item.id))
         }
     }
@@ -313,6 +320,14 @@ struct BinderView: View {
                     providers: providers, position: position,
                     target: .pieceRow(item.id))
             },
+            // What the row shows while a drag is over it: the drop's own
+            // classification, with the same posture refusal (shell p4 Task 10).
+            dropAnswers: {
+                treeVerbs.dropAnswers(on: .pieceRow(item.id), refusesStructure: { id in
+                    TreeWalk.find(id: id, in: store.manifest.structure)
+                        .map { !structureVerbs(for: $0).move } ?? false
+                })
+            },
             // The figures this chapter's text uses (D8-1), read off the
             // tree's cached rows; pressing it filters the Figures section.
             figureCount: treeState.figureCountText(
@@ -325,13 +340,13 @@ struct BinderView: View {
             // guard of their own — roles guard the words, not the binder.
             let verbs = structureVerbs(for: item)
             if verbs.newInside {
-                Button("New Document") {
+                Button(Self.newPieceTitle(noun)) {
                     Task {
                         await addItem(
                             parent: item, kind: .document(store.manifest.type.primaryFormat))
                     }
                 }
-                Button("New Group") {
+                Button(Self.newGroupTitle(noun)) {
                     Task { await addItem(parent: item, kind: .group) }
                 }
                 Divider()
@@ -353,6 +368,11 @@ struct BinderView: View {
                 Divider()
                 Button("Link Research…", action: openLinkPicker)
             }
+            // Tags…, Link to Another Chapter…, Publishing… (shell p3 Task 8):
+            // the old Inspector's controls, offered by the same verbs.
+            PieceRowMenuButtons(item: item, verbs: verbs, state: treeState,
+                                offersTarget: PieceRowMenus.target(for: item, store: store) != nil,
+                                noun: PieceNoun.of(item, in: store.manifest))
             if verbs.tidy, item.type == .group {
                 Divider()
                 Button("Tidy Filenames") {
@@ -373,9 +393,7 @@ struct BinderView: View {
     /// the window nils its store a frame before the tree goes, so the absence
     /// fails CLOSED — as `postureDrawn(forDocId:)` does — never open.
     func structureVerbs(for item: StructureItem) -> TreeStructureVerbs {
-        guard let documentStore = store.documentStore else { return .none }
-        return TreeStructureVerbs.decide(
-            for: item, postureOf: { documentStore.posture(forDocId: $0) })
+        TreeStructureVerbs.decide(for: item, in: store)
     }
 
     /// New Document / New Group at the root, and the empty state's buttons.
@@ -398,7 +416,7 @@ struct BinderView: View {
     /// asked and never re-derived.
     ///
     /// Not `private`: `.contextMenu`'s `NSMenu` is built on right-click and
-    /// unreachable from a headless test (`PlanTreeStructureCreationTests`'
+    /// unreachable from a headless test (`TreeStructureCreationTests`'
     /// own note on this SDK), so `ResearchLinkPickerTests` asserts the
     /// boundary at this predicate directly rather than trying to press a menu
     /// item that does not exist until a real click builds one.
@@ -418,22 +436,33 @@ struct BinderView: View {
     /// it is a handful of closures over the store, and nothing in it is state.
     private var treeVerbs: BinderTreeVerbs {
         BinderTreeVerbs(store: store, state: treeState,
-                        selectedSubject: $selectedSubject)
+                        subject: $subject)
     }
 
     private func addItem(parent: StructureItem?, kind: StructureItemKind) async {
         do {
             let item = try await Self.addItem(parent: parent, kind: kind, in: store)
             renamingItemId = item.id  // immediately go to rename mode
-            selectedSubject = .item(item.id)
+            $subject.navigate(to: .item(item.id), in: store)
         } catch {
             pendingError = error.localizedDescription
         }
     }
 
-    /// **New Document / New Group's verb, windowless** — what every creation
+    /// What the project calls a piece (`PieceNoun`): every creation verb
+    /// and the empty binder say it.
+    private var noun: PieceNoun { PieceNoun.of(nil, in: store.manifest) }
+
+    /// "New Chapter" / "New Part" — the binder's creation verbs, in the
+    /// project's words; a project with no word for a group says "Group".
+    static func newPieceTitle(_ noun: PieceNoun) -> String { "New \(noun.capitalised)" }
+    static func newGroupTitle(_ noun: PieceNoun) -> String { "New \(noun.group ?? "Group")" }
+    static func emptyTitle(_ noun: PieceNoun) -> String { "No \(noun.plural) yet" }
+    static func emptyHint(_ noun: PieceNoun) -> String { "Add your first \(noun.singular)." }
+
+    /// **New Chapter / New Part's verb, windowless** — what every creation
     /// button and menu item in the tree runs, pinned without a press
-    /// (tripwire 33, `PlanTreeStructureCreationTests`): a document or group
+    /// (tripwire 33, `TreeStructureCreationTests`): a document or group
     /// inside `parent` when it is a group, beside it otherwise, at the root
     /// for `nil`. The view's own `addItem` adds the rename and the selection.
     static func addItem(parent: StructureItem?, kind: StructureItemKind,
@@ -444,10 +473,11 @@ struct BinderView: View {
                 ? parent.id
                 : findParent(childId: parent.id, in: store.manifest.structure, parent: nil)
         }()
+        let noun = PieceNoun.of(nil, in: store.manifest)
         let title: String
         switch kind {
-        case .document: title = "New Document"
-        case .group:    title = "New Group"
+        case .document: title = newPieceTitle(noun)
+        case .group:    title = newGroupTitle(noun)
         }
         let item = try await store.addStructureItem(
             parentId: parentId, title: title, kind: kind)
@@ -464,30 +494,24 @@ struct BinderView: View {
             Image(systemName: "doc.text")
                 .imageScale(.large)
                 .foregroundStyle(.secondary)
-            Text("No documents yet")
+            Text(Self.emptyTitle(noun))
                 .font(.headline)
-            Text(
-                store.manifest.type.primaryFormat.isScreenplay
-                ? "Add your first screenplay."
-                : "Add your first chapter or scene.")
+            Text(Self.emptyHint(noun))
                 .font(.callout)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
             if mayStartAPiece {
                 HStack(spacing: 8) {
                     Button {
-                        Task {
-                            await addItem(
-                                parent: nil, kind: .document(store.manifest.type.primaryFormat))
-                        }
+                        MaughamEvent.postAddBinderItem(.piece)
                     } label: {
-                        Label("New Document", systemImage: "doc.badge.plus")
+                        Label(Self.newPieceTitle(noun), systemImage: "doc.badge.plus")
                     }
                     .buttonStyle(.borderedProminent)
                     Button {
-                        Task { await addItem(parent: nil, kind: .group) }
+                        MaughamEvent.postAddBinderItem(.group)
                     } label: {
-                        Label("New Group", systemImage: "folder.badge.plus")
+                        Label(Self.newGroupTitle(noun), systemImage: "folder.badge.plus")
                     }
                     .buttonStyle(.bordered)
                 }
@@ -495,7 +519,7 @@ struct BinderView: View {
             }
         }
         .padding(24)
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .frame(maxWidth: .infinity)
     }
 
     private func rename(id: String, to newTitle: String) async {
@@ -507,7 +531,7 @@ struct BinderView: View {
         }
     }
 
-    /// **No subject repair here.** It used to clear `selectedSubject` when the
+    /// **No subject repair here.** It used to clear the subject when the
     /// deleted id WAS the subject, which is the right answer for a document and
     /// the wrong one for a group — `TreeWalk.remove` takes the group's children
     /// with it, and the selected child's id is not the group's, so the subject
@@ -556,7 +580,7 @@ struct BinderView: View {
         do {
             let copy = try await store.duplicateStructureItem(id: id)
             renamingItemId = copy.id  // immediately offer rename
-            selectedSubject = .item(copy.id)
+            $subject.navigate(to: .item(copy.id), in: store)
         } catch {
             pendingError = error.localizedDescription
         }
@@ -650,6 +674,17 @@ struct TreeStructureVerbs: Equatable {
         newInside || duplicate || rename || delete || move || linkResearch || tidy
     }
 
+    /// **A row's verbs, from the window's posture door** — the one wrapper
+    /// every tree asks (the binder, the Collection's pieces, a screenplay's
+    /// script row). A `ProjectStore` with no `DocumentStore` behind it offers
+    /// NOTHING: `ProjectStore.documentStore` is weak and the window nils its
+    /// store a frame before the tree goes, so the absence fails CLOSED.
+    @MainActor
+    static func decide(for item: StructureItem, in store: ProjectStore) -> TreeStructureVerbs {
+        guard let documentStore = store.documentStore else { return .none }
+        return decide(for: item, postureOf: { documentStore.posture(forDocId: $0) })
+    }
+
     static func decide(
         for item: StructureItem, postureOf: (String) -> Posture
     ) -> TreeStructureVerbs {
@@ -685,7 +720,7 @@ struct TreeStructureVerbs: Equatable {
     }
 }
 
-/// Plan's Tab between the binder and the canvas (spec §1, "Getting to the
+/// The tree's Tab between the binder and the canvas (spec §1, "Getting to the
 /// canvas from the binder"), handed down by `ProjectWindow`. Both directions
 /// are one-way counters (tripwire 2): Tab here calls
 /// `giveTheCanvasTheKeyboard`, which bumps the window's request the canvas
@@ -694,7 +729,8 @@ struct TreeStructureVerbs: Equatable {
 ///
 /// The default is the tree with no canvas beside it: Tab stays AppKit's.
 struct TreeCanvasKeyboard {
-    /// `Persona.centresTheCanvas` — whether there is a canvas to hand to.
+    /// Whether the canvas is open in the centre — whether there is a canvas
+    /// to hand to.
     var tabReachesTheCanvas = false
     var giveTheCanvasTheKeyboard: () -> Void = {}
     var treeKeyboardRequest = 0

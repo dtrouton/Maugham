@@ -118,13 +118,16 @@ enum FigureGridFoldCause {
     /// The figure is being sent to Research from its grid (plan 7d Task 9,
     /// R7d-7): it folds first, and the send is not undoable (ruling P1).
     case sentToResearch
+    /// The piece goes into read-through: the open edit is committed, and the
+    /// visit — cells typed before the entry — leaves no window step.
+    case readThroughEntry
 
     /// The grid cannot stay: an open formula that will not read is said as a
     /// notice carrying its text, never kept in a grid with nowhere to be.
     var isForced: Bool {
         switch self {
         case .grid, .textTookFocus: false
-        case .navigation, .lineGone, .teardown, .sentToResearch: true
+        case .navigation, .lineGone, .teardown, .sentToResearch, .readThroughEntry: true
         }
     }
     /// The caret goes to the end of the figure line (a line gone leaves it
@@ -133,7 +136,7 @@ enum FigureGridFoldCause {
     /// The text takes the focus, when the grid had it.
     var focusesTheText: Bool {
         switch self {
-        case .grid, .navigation, .lineGone, .sentToResearch: true
+        case .grid, .navigation, .lineGone, .sentToResearch, .readThroughEntry: true
         case .textTookFocus, .teardown: false
         }
     }
@@ -144,7 +147,7 @@ enum FigureGridFoldCause {
     var collapsesTheVisit: Bool {
         switch self {
         case .grid, .textTookFocus, .navigation, .lineGone: true
-        case .teardown, .sentToResearch: false
+        case .teardown, .sentToResearch, .readThroughEntry: false
         }
     }
 }
@@ -591,10 +594,11 @@ extension EditorCoordinator {
               let opening = figureGridOpening, let windows = opening.windows else { return }
         foldFigureGrid(commit: true)
         guard figureGrid !== expansion else { return }
-        // Review mode carries into the window (final review I2).
+        // Read-through follows the figure's piece into the window
+        // (`FigureWindows.isInReadThrough`), not this editor.
         windows.handOff(expansion.figureId, .init(
             number: controller.line.number, caption: controller.line.caption, piece: controller.researchPiece,
-            typography: typography, isReviewMode: isManualReviewMode, from: ObjectIdentifier(self)))
+            typography: typography))
         windows.setShareIsReadOnly(shareIsReadOnly)
         opening.openWindow(expansion.figureId)
     }
@@ -617,6 +621,7 @@ extension EditorCoordinator {
         withObservationTracking {
             _ = windows.openFigureIds
             _ = windows.inPlaceHolds
+            _ = windows.readThrough
         } onChange: { [weak self] in
             // The list is the main actor's: its change is announced there.
             MainActor.assumeIsolated {
@@ -670,7 +675,10 @@ extension EditorCoordinator {
         figureThumbnailOverlay?.needsDisplay = true
         if let expansion = figureGrid, figureGridOpening?.windows?.isOpen(expansion.figureId) == true {
             forceFoldFigureGrid(.navigation)
+            return
         }
+        // The read-through gate may have moved (another piece of the figure's).
+        refreshFigureGridAccess()
     }
 
     // MARK: Folding
@@ -801,7 +809,13 @@ extension EditorCoordinator {
             // is owed no step — so none shows for even a moment.
             if recorded, cause.collapsesTheVisit, host.visitHasRecorded || controller.writesInFlight > 0,
                let windowUndo = undoManagerOverrideForTesting ?? textView?.undoManager {
-                lastFigureVisitStep = FigureVisitUndo.register(on: windowUndo, host: host, visit: visit)
+                let figureId = host.figureId
+                lastFigureVisitStep = FigureVisitUndo.register(
+                    on: windowUndo, host: host, visit: visit,
+                    readThrough: { [weak windows = figureGridOpening?.windows] in
+                        windows?.readThroughRefusal(figureId)
+                    })
+                if let step = lastFigureVisitStep { noteFigureVisitStep(step) }
             }
         }
         // The figure is free for another grid, which begins its visit once
@@ -921,15 +935,25 @@ extension EditorCoordinator {
 
     /// **The gate's answer for a figure** (`FigureGridGate`): the figure's
     /// drawing posture from the window's door, the share, the editor's modes.
-    /// Review mode is the window's EXPLICIT one only — never the review
-    /// forced where the text is refused (R7c-6: a Mac that may change the
-    /// figure but not the text around it gets an editable grid, its caption
-    /// locked).
+    /// Never the review forced where the text is refused (R7c-6: a Mac that
+    /// may change the figure but not the text around it gets an editable
+    /// grid, its caption locked). Read-through, which the writer chose,
+    /// refuses typing into it by the one rule a figure window and the centre
+    /// ask (`FigureWindows.isInReadThrough`: any of the figure's pieces), and
+    /// by this buffer's own piece at once — the line is in it, so the rule
+    /// would say the same once the window's gate catches up.
     func figureGridGateMode(figureId: String, parked: Bool, hostClosed: Bool) -> FigureGridGate.Mode {
-        FigureGridGate.mode(
+        // The figure's pieces by the one rule, plus this buffer's own piece
+        // (its line is here) before the window's gate catches up; the first
+        // in read-through is named.
+        let gate = figureGridOpening?.windows?.readThrough ?? .writing
+        let own: Set<String> = isInReadThrough ? Set([documentId].compactMap { $0 }) : []
+        let refusal = gate.refusal(among: gate.owners(of: .figure(figureId)).union(own))
+        return FigureGridGate.mode(
             figureMayEdit: figureGridOpening?.figureMayEdit(figureId) ?? false,
             parked: parked, hostClosed: hostClosed, shareIsReadOnly: shareIsReadOnly,
-            isReviewMode: isManualReviewMode, isTranslationReview: isTranslationReview)
+            isInReadThrough: isInReadThrough || refusal != nil, naming: refusal,
+            isReadingTranslation: isReadingTranslation)
     }
 
     /// The gate over a visit's own host.
@@ -941,7 +965,8 @@ extension EditorCoordinator {
     /// The caption is the line's text: the text's membrane decides (R7c-6).
     var figureGridCaptionMayEdit: Bool {
         EditorEditPolicy.allowsTextMutation(
-            isReviewMode: isReviewMode, lockEditing: lockEditing, isTranslationReview: isTranslationReview)
+            isReviewMode: isReviewMode, lockEditing: lockEditing, isReadingTranslation: isReadingTranslation,
+            isInReadThrough: isInReadThrough)
     }
 
     /// **Ask the gate again** for the expanded grid — at a `figureCardVersion`

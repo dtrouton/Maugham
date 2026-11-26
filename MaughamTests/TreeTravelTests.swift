@@ -7,72 +7,96 @@ import MaughamCore
 
 // MARK: - The pure rule
 
-/// **The destination rule, over the boolean it is actually about** — the same
-/// falsification shape `ManuscriptNavigationTests` uses for
-/// `Persona.showsManuscriptDocuments`: the travel rule reads
-/// `Persona.centresTheCanvas`, never `== .plan`, so a persona named anything
-/// else that started centring the board would travel too, and the assertions
-/// below are written against the boolean rather than the name to make that
-/// swap invisible to this suite.
+/// **A double-click is the click rule's `.openInCentre`, and nothing else**
+/// (shell p1 Task 3): no travel and no persona. `TreeTravel.openInCentre` is
+/// the receiver's whole decision.
 @MainActor
 final class TreeTravelDestinationTests: XCTestCase {
 
-    func test_planTravelsToAuthor() {
-        XCTAssertEqual(TreeTravel.treeTravelDestination(persona: .plan), .author,
-                       "Plan is the one persona whose centre column is the "
-                       + "board — a double-clicked row has nowhere to open "
-                       + "there")
+    private func double(_ row: BinderSubject, over current: WindowSubject) -> WindowSubject {
+        TreeTravel.openInCentre(row, current: current, structure: SubjectSamples.structure,
+                                projectType: .novel)
     }
 
-    func test_everyPersonaThatAlreadyShowsTheManuscriptHasNowhereToTravel() {
-        for persona in Persona.allCases where persona != .plan {
-            XCTAssertNil(TreeTravel.treeTravelDestination(persona: persona),
-                        "\(persona) already centres the manuscript — a "
-                        + "double-click there means nothing beyond the click "
-                        + "a single click already gave it")
+    /// **Every row, from every centre**: what the click rule's explicit open
+    /// answers.
+    func test_aDoubleClickIsTheClickRulesOpenInCentre() {
+        for current in SubjectSamples.everySubject {
+            for row in SubjectSamples.everyOpen {
+                XCTAssertEqual(
+                    double(row, over: current),
+                    ClickRule.resolve(row, gesture: .openInCentre, current: current,
+                                      structure: SubjectSamples.structure,
+                                      projectType: .novel),
+                    "\(row) double-clicked over \(current.open)")
+                XCTAssertEqual(double(row, over: current).open, row,
+                               "a double-click always takes the centre")
+            }
         }
     }
 
-    /// **Anti-degeneracy control.** A rule that answered a constant would
-    /// satisfy the two assertions above on their own; pinning the answer
-    /// against the boolean it is actually asking is what
-    /// `ManuscriptNavigationTests` does for the sibling rule, and this is the
-    /// same shape.
-    func test_theRuleAgreesWithCentresTheCanvasForEveryPersona() {
-        for persona in Persona.allCases {
-            XCTAssertEqual(
-                TreeTravel.treeTravelDestination(persona: persona) != nil,
-                persona.centresTheCanvas,
-                "\(persona): the travel rule and centresTheCanvas must agree "
-                + "on whether there is a destination")
+    /// **A research row double-clicked takes the centre**, where a click
+    /// would only have opened it beside; the beside it was opened in is put
+    /// away.
+    func test_aDoubleClickOnAResearchRowTakesTheCentre() {
+        let note = BinderSubject.research(SubjectSamples.researchID)
+        let clicked = ClickRule.resolve(note, gesture: .click, current: .book,
+                                        structure: SubjectSamples.structure,
+                                        projectType: .novel)
+        XCTAssertEqual(clicked, WindowSubject(open: .project, faces: .project, beside: PulledUp(treeSubject: note)),
+                       "premise: the click before it opened the note beside")
+        XCTAssertEqual(double(note, over: clicked),
+                       WindowSubject(open: note, faces: note, beside: nil))
+    }
+
+    /// **A single click on the row already selected** is the one click the
+    /// `List` writes nothing for; the receiver answers it with the click rule
+    /// only where the rule changes something — the row beside, put away
+    /// (controller ruling 2).
+    func test_aClickOnTheSelectedBesideRowPutsItAway() {
+        let note = BinderSubject.research(SubjectSamples.researchID)
+        let beside = WindowSubject(open: .project, faces: .project, beside: PulledUp(treeSubject: note))
+        func heard(_ row: BinderSubject, selected: Bool, over current: WindowSubject) -> WindowSubject {
+            TreeTravel.clickOnTheSelectedRow(row, rowWasSelected: selected, current: current,
+                                             structure: SubjectSamples.structure,
+                                             projectType: .novel)
         }
+        XCTAssertEqual(heard(note, selected: true, over: beside), .book)
+        XCTAssertEqual(heard(note, selected: false, over: beside), beside,
+                       "a row that was not selected is the `List`'s to deliver")
+        // The Book row drawn selected means the Book was clicked after the
+        // note (`WindowSubject.besideIsLatest`, shell p1 final fix I1).
+        let bookLatest = WindowSubject(open: .project, faces: .project, beside: PulledUp(treeSubject: note),
+                                       besideIsLatest: false)
+        XCTAssertEqual(heard(.project, selected: true, over: bookLatest), bookLatest,
+                       "any other selected row: nothing for the click rule to change")
+        XCTAssertEqual(heard(note, selected: true, over: .book),
+                       WindowSubject(open: .project, faces: .project, beside: PulledUp(treeSubject: note)),
+                       "a note still drawn selected after it was put away reopens "
+                       + "on the next click (fix round, I1)")
+    }
+
+    /// A piece double-clicked while the canvas is open opens the piece — the
+    /// click only moved the faces.
+    func test_aDoubleClickOnAPieceOverTheCanvasOpensIt() {
+        let piece = BinderSubject.item(SubjectSamples.pieceID)
+        let canvas = SubjectSamples.opened(.canvas)
+        let clicked = ClickRule.resolve(piece, gesture: .click, current: canvas,
+                                        structure: SubjectSamples.structure,
+                                        projectType: .novel)
+        XCTAssertEqual(clicked.open, .canvas, "premise: the click kept the canvas")
+        XCTAssertEqual(double(piece, over: clicked), SubjectSamples.opened(piece))
     }
 }
 
 // MARK: - Mounted: the receiver
 
 /// **`TreeTravelModifier`, mounted and driven through a real
-/// `.maughamTreeTravel` post** — the same shape `PaletteWallDoorTests` uses
-/// for `CanvasClaudeArrivalModifier.show`/`ManuscriptNavigation.go`: post the
-/// event the row's own gesture would post, and watch what the mounted
-/// receiver does with it. `MaughamEvent.post` is the one sanctioned spelling
-/// of that post (`Maugham/Events/MaughamEvent.swift`), so driving it directly
-/// exercises the exact call `treeTravelOnDoubleClick` makes — nothing about
-/// the receiver's own behaviour depends on how the row got there.
-///
-/// **This class posts directly; the mounted class below drives real clicks.**
-/// Until 2026-08-12 nothing drove a real one, and the note here said a
-/// synthetic double-click was unreachable: the `.onTapGesture(count: 2)`
-/// recognizer never fired for any synthetic timing tried. That was true, and
-/// it was a symptom — SwiftUI's gesture graph is not driven by
-/// `NSApp.postEvent`-delivered events. It is no longer a limit, because the
-/// travel rule is no longer a SwiftUI gesture: it is an `NSEvent` monitor over
-/// a hit-test-transparent marker (`TreeTravel.swift`'s doc comment has the
-/// measurement), and AppKit-level mechanisms ARE reachable synthetically.
-/// `TreeTravelRowMountingTests.test_aDoubleClickOnTheRowsNameTravelsToAuthor`
-/// is that test. What is proven here instead is the receiver's own behaviour —
-/// the persona guard, the memory write, the `.keyWindow` scope — which a click
-/// would only reach through three more layers.
+/// `.maughamTreeTravel` post**: post the event the row's own mark would post,
+/// and watch what the mounted receiver does with it. `MaughamEvent.post` is
+/// the one sanctioned spelling of that post, so driving it directly exercises
+/// the exact call `TreeTravelClickWatcher` makes. The mounted class below
+/// drives real clicks.
 @MainActor
 final class TreeTravelReceiverTests: XCTestCase {
 
@@ -94,106 +118,64 @@ final class TreeTravelReceiverTests: XCTestCase {
         temp = nil
     }
 
-    /// **Contract: double-click travels to Author with the row's own
-    /// subject.** Posted directly rather than clicked — see the class doc.
-    func test_postedInPlanMovesToAuthorWithThePostedSubject() async throws {
-        let probe = try await hostReceiver(persona: .plan, detailSegment: .inbox)
+    /// **Contract: a double-click opens the row's own subject in the
+    /// centre**, whatever was open — the canvas included.
+    func test_aPostedDoubleClickOpensThePostedSubjectInTheCentre() async throws {
+        let probe = try await hostReceiver(subject: SubjectSamples.opened(.canvas))
         let subject = BinderSubject.item("abcd")
 
         post(subject, window: probe.window)
-        await pumpUntil(deadline: 5) { probe.persona == .author }
+        await pumpUntil(deadline: 5) { probe.subject.open == subject }
 
-        XCTAssertEqual(probe.persona, .author,
-                       "Plan is the one persona whose centre is the board — "
-                       + "a travel must land in Author")
-        XCTAssertEqual(probe.subject, subject,
-                       "the receiver must write the POSTED subject — the "
-                       + "row's own tag, never something re-derived from "
-                       + "selection state")
+        XCTAssertEqual(probe.subject, SubjectSamples.opened(subject),
+                       "the receiver must open the POSTED subject — the row's own "
+                       + "tag, never something re-derived from selection state")
     }
 
-    /// **Contract: "In Author, a double-click is a no-op — one control."**
-    /// The poster does not know the persona — `treeTravelOnDoubleClick`
-    /// always posts unconditionally; the guard lives entirely on the
-    /// receiver (`TreeTravel.treeTravelDestination`). Neither field moves,
-    /// because the guard returns before either write.
-    func test_postedInAuthorIsANoOp() async throws {
-        let probe = try await hostReceiver(persona: .author, detailSegment: .inbox)
-
-        post(.project, window: probe.window)
-        await waitOut(0.4)
-
-        XCTAssertEqual(probe.persona, .author,
-                       "there is no persona to travel to from Author")
-        XCTAssertNil(probe.subject,
-                     "the guard refuses before writing anything at all — "
-                     + "including the subject")
-    }
-
-    /// **The same refusal for the other two personas that show the
-    /// manuscript** — Review and Publish, so the guard is proven over the
-    /// actual set rather than just its most obvious member.
-    func test_postedInReviewOrPublishIsANoOp() async throws {
-        for persona in [Persona.review, .publish] {
-            let probe = try await hostReceiver(persona: persona, detailSegment: .inbox)
-            post(.project, window: probe.window)
-            await waitOut(0.3)
-            XCTAssertEqual(probe.persona, persona,
-                           "\(persona) already centres the manuscript — no "
-                           + "destination, so no move")
-        }
-    }
-
-    /// **Contract: "the departing Plan position is recorded — one
-    /// applyPersonaChange-shaped assertion."** ⌘1 has to bring the writer
-    /// back to the tree they were arranging, which only happens if the
-    /// travel records where Plan itself was standing before it moves off it
-    /// — `ManuscriptNavigation.go`'s own reasoning, reused here (through
-    /// `PersonaModifier.applyPersonaChange` directly) rather than re-derived.
-    func test_theDepartingPlanPositionIsRecordedInPersonaMemory() async throws {
-        let probe = try await hostReceiver(persona: .plan, detailSegment: .inbox)
-
-        post(.item("chap1"), window: probe.window)
-        await pumpUntil(deadline: 5) { probe.persona == .author }
-
-        XCTAssertEqual(probe.persona, .author, "precondition: the travel fired")
-        let memory = try XCTUnwrap(probe.documentStore?.uiState.personaMemory)
-        XCTAssertEqual(memory.restoredDetailSegment(for: .plan), .inbox,
-                       "the pane Plan was standing on before the travel must "
-                       + "be recorded, so ⌘1 restores it rather than Plan's "
-                       + "bare default")
+    /// **A single click on the selected row beside puts it away**, through
+    /// the mounted receiver.
+    func test_aPostedClickOnTheSelectedBesideRowPutsItAway() async throws {
+        let note = BinderSubject.research("r-1")
+        let probe = try await hostReceiver(
+            subject: WindowSubject(open: .project, faces: .project, beside: PulledUp(treeSubject: note)))
+        MaughamEvent.post(.maughamTreeTravel, to: .keyWindow,
+                          payload: [MaughamEvent.treeTravelSubjectKey: note,
+                                    MaughamEvent.treeTravelClickCountKey: 1,
+                                    MaughamEvent.treeTravelRowWasSelectedKey: true])
+        await pumpUntil(deadline: 5) { probe.subject.beside == nil }
+        XCTAssertEqual(probe.subject, .book)
     }
 
     /// **`.keyWindow` scope, declared at the post site (ADR 0021).** A
-    /// window that never became key must not act — the same liveness/scope
-    /// contract every other `.keyWindow` receiver in `ProjectWindow` carries.
-    func test_aNonKeyWindowDoesNotReceiveTheTravel() async throws {
-        let probe = try await hostReceiver(persona: .plan, detailSegment: .inbox,
+    /// window that never became key must not act.
+    func test_aNonKeyWindowDoesNotReceiveTheDoubleClick() async throws {
+        let probe = try await hostReceiver(subject: SubjectSamples.opened(.canvas),
                                            makeKey: false)
         post(.item("chap1"), window: probe.window)
         await waitOut(0.4)
-        XCTAssertEqual(probe.persona, .plan,
-                       "a non-key window must not travel on a `.keyWindow`-"
-                       + "scoped post")
+        XCTAssertEqual(probe.subject, SubjectSamples.opened(.canvas),
+                       "a non-key window must not act on a `.keyWindow`-scoped post")
     }
 
     // MARK: - Hosting
 
     private func post(_ subject: BinderSubject, window: NSWindow?) {
         MaughamEvent.post(.maughamTreeTravel, to: .keyWindow,
-                          payload: [MaughamEvent.treeTravelSubjectKey: subject])
+                          payload: [MaughamEvent.treeTravelSubjectKey: subject,
+                                    MaughamEvent.treeTravelClickCountKey: 2])
     }
 
     private func hostReceiver(
-        persona: Persona, detailSegment: DetailSegment, makeKey: Bool = true
+        subject: WindowSubject, makeKey: Bool = true
     ) async throws -> TreeTravelProbe {
         let url = try await ProjectFactory.createNovelProject(
             named: "Receiver-\(UUID().uuidString.prefix(6))", in: temp.url)
+        let store = try await ProjectStore.load(from: url)
         let ds = try await DocumentStore.open(url: url)
+        store.documentStore = ds
         documentStores.append(ds)
 
-        let probe = TreeTravelProbe(persona: persona, detailSegment: detailSegment,
-                                    documentStore: ds)
+        let probe = TreeTravelProbe(subject: subject, store: store)
         // Built unshown so `reportsKey` is set before the window is ordered in,
         // exactly as it was when this suite made its own window.
         let window: KeyTestWindow = TestWindow.mount(
@@ -211,7 +193,7 @@ final class TreeTravelReceiverTests: XCTestCase {
 // MARK: - Mounted: rows still select and still drag
 
 /// **The half of the row wiring a mounted test CAN prove safely**: a single
-/// click still only selects (no persona move, whatever the row), and every
+/// click still only selects (a click, never an open), and every
 /// row this milestone touched still mounts the platform view `.draggable` /
 /// `.dropDestination` install — unwidened by the added gesture.
 /// `BinderProjectRowTests.test_theProjectRowIsNeitherDraggableNorADropTarget`'s
@@ -221,8 +203,8 @@ final class TreeTravelReceiverTests: XCTestCase {
 /// application, and say so out loud when it isn't** — see `click(at:…)`'s
 /// premise helpers for the measurement. They are tripwire 33's click
 /// representatives for this file: a click on the NAME selects (the hit area
-/// stage 3b broke) and stays one click, and a double-click on it travels
-/// through the local monitor (the real delivery path). Three more were cut in
+/// stage 3b broke) and stays one click, and a double-click on it opens the
+/// row in the centre through the local monitor (the real delivery path). Three more were cut in
 /// plan 3's C14 — the double-click past the name (the mark's extent is the
 /// kept name test's `label.width < row width` read and
 /// `TreeTravelGestureAttachmentTests.test_theGestureAttachesBeforeTheRowWidens`),
@@ -282,8 +264,10 @@ final class TreeTravelRowMountingTests: XCTestCase {
         try await store.renameStructureItem(
             id: firstDoc.id, newTitle: "A Chapter With A Rather Long Name")
         let (window, probe, table) = try await hostBinder(store: store)
+        let row = try XCTUnwrap(rowIndex(of: .item(firstDoc.id), in: table),
+                                "the chapter's row carries no travel mark")
 
-        let label = try XCTUnwrap(labelFrame(ofRow: 1, in: table),
+        let label = try XCTUnwrap(labelFrame(ofRow: row, in: table),
                                   "row 1 carries no travel mark at all — "
                                   + "`treeTravelOnDoubleClick` is missing, or "
                                   + "has gone back to being a gesture")
@@ -291,62 +275,60 @@ final class TreeTravelRowMountingTests: XCTestCase {
                              "the label is too narrow for this test to be "
                              + "about clicking text — premise failing, not "
                              + "the row")
-        XCTAssertLessThan(label.width, table.rect(ofRow: 1).width,
+        XCTAssertLessThan(label.width, table.rect(ofRow: row).width,
                           "the mark spans the whole row, so it is on the "
                           + "container rather than the label leaf — the "
                           + "TaskRow scar (tripwire 9)")
 
         try await click(at: CGPoint(x: label.midX, y: label.midY),
                         in: table, window: window)
-        await pumpUntil(deadline: 5) { probe.subject == .item(firstDoc.id) }
+        await pumpUntil(deadline: 5) { probe.subject.open == .item(firstDoc.id) }
 
-        XCTAssertEqual(table.selectedRow, 1,
+        XCTAssertEqual(table.selectedRow, row,
                        "a single click on the row's NAME must select it — "
                        + "this is stage 3b's regression: the icon and the "
                        + "trailing whitespace selected, the title did not")
-        XCTAssertEqual(probe.subject, .item(firstDoc.id),
+        XCTAssertEqual(probe.subject, SubjectSamples.opened(.item(firstDoc.id)),
                        "and the selection must reach the window's subject "
-                       + "through `List(selection:)`'s own binding")
-        XCTAssertEqual(probe.persona, .plan,
-                       "one click is not a travel")
+                       + "through `List(selection:)`'s own binding — a click, "
+                       + "over the Book, opens the chapter")
     }
 
-    /// **The other half of the same click, now reachable.** A double-click on
-    /// the name travels to Author on that row's subject — driven as a real
-    /// synthetic double-click, which the SwiftUI gesture this replaced could
-    /// not be (see `TreeTravelReceiverTests`' class doc). A mechanism that can
-    /// be driven end-to-end is worth more than one that has to be asserted in
-    /// two disconnected halves, and it is the reason the fix went to AppKit
-    /// rather than to a different SwiftUI gesture.
-    func test_aDoubleClickOnTheRowsNameTravelsToAuthor() async throws {
+    /// **The other half of the same click.** A double-click on the name
+    /// opens the row in the centre — driven as a real synthetic double-click.
+    /// Over the canvas, so the two clicks are told apart: the first moves the
+    /// faces, the second takes the centre.
+    func test_aDoubleClickOnTheRowsNameOpensItInTheCentre() async throws {
         let store = try await novel(named: "NameDoubleClick")
         let firstDoc = try XCTUnwrap(store.manifest.structure.first)
         try await store.renameStructureItem(
             id: firstDoc.id, newTitle: "A Chapter With A Rather Long Name")
-        let (window, probe, table) = try await hostBinder(store: store)
+        let (window, probe, table) = try await hostBinder(
+            store: store, subject: SubjectSamples.opened(.canvas))
         // The receiver is `.keyWindow`-scoped and reads the window
         // `WindowAccessor` resolves a runloop hop after mount; clicking before
         // it lands drives a live poster at a dead receiver.
         let ready = await pumpUntil(deadline: 5) { probe.window != nil }
         XCTAssertTrue(ready, "the probe's window never resolved — premise")
 
-        let label = try XCTUnwrap(labelFrame(ofRow: 1, in: table))
+        let row = try XCTUnwrap(rowIndex(of: .item(firstDoc.id), in: table))
+        let label = try XCTUnwrap(labelFrame(ofRow: row, in: table))
         try await click(at: CGPoint(x: label.midX, y: label.midY),
                         in: table, window: window, clicks: 2)
-        await pumpUntil(deadline: 5) { probe.persona == .author }
+        await pumpUntil(deadline: 5) { probe.subject.open == .item(firstDoc.id) }
 
-        XCTAssertEqual(probe.persona, .author,
-                       "a double-click on a tree row's name in Plan takes the "
-                       + "writer to Author — Denver's travel rule")
-        XCTAssertEqual(probe.subject, .item(firstDoc.id),
-                       "on that row's OWN subject")
+        XCTAssertEqual(probe.subject, SubjectSamples.opened(.item(firstDoc.id)),
+                       "a double-click on a tree row's name opens that row's OWN "
+                       + "subject in the centre, the canvas's place taken")
     }
 
     func test_theChapterRowStillMountsItsDragMachinery() async throws {
         let store = try await novel(named: "DragMachinery")
         let (_, _, table) = try await hostBinder(store: store)
+        let firstDoc = try XCTUnwrap(store.manifest.structure.first)
+        let row = try XCTUnwrap(rowIndex(of: .item(firstDoc.id), in: table))
 
-        XCTAssertTrue(hasDraggingDestination(row: 1, in: table),
+        XCTAssertTrue(hasDraggingDestination(row: row, in: table),
                       "the chapter row must still mount .draggable / "
                       + ".dropDestination after the travel gesture was added "
                       + "to its label")
@@ -382,11 +364,16 @@ final class TreeTravelRowMountingTests: XCTestCase {
         let loaded = await pumpUntil(deadline: 5) { !treeState.cards.isEmpty }
         XCTAssertTrue(loaded, "the palette card never loaded into state.cards")
 
-        table.selectRowIndexes(IndexSet(integer: table.numberOfRows - 1),
-                               byExtendingSelection: false)
-        await pumpUntil(deadline: 5) { probe.subject == .research(card.id) }
+        let cardRow = await pumpUntil(deadline: 5) {
+            self.rowIndex(of: .research(card.id), in: table) != nil
+        }
+        XCTAssertTrue(cardRow, "the card's row never drew")
+        table.selectRowIndexes(
+            IndexSet(integer: try XCTUnwrap(rowIndex(of: .research(card.id), in: table))),
+            byExtendingSelection: false)
+        await pumpUntil(deadline: 5) { probe.subject.beside == .research(card.id) }
 
-        XCTAssertEqual(probe.subject, .research(card.id),
+        XCTAssertEqual(probe.subject.beside, .research(card.id),
                        "the palette card's row must select through the "
                        + "tree's real binding — a card's subject IS its "
                        + "research id (`PaletteCard.id`)")
@@ -394,15 +381,15 @@ final class TreeTravelRowMountingTests: XCTestCase {
 
     func test_thePieceRowStillMountsItsDragMachinery() async throws {
         let store = try await collection(named: "PieceDrag")
-        _ = try await store.addLoosePiece(title: "Drag Piece", format: .markdown)
+        let piece = try await store.addLoosePiece(title: "Drag Piece", format: .markdown)
         let (_, _, table) = try await hostCollectionPieces(store: store)
-        // `CollectionPiecesPane` carries the same Research/Palette sections
-        // BinderView does: project, the piece, Research header, Research's
-        // own empty-section placeholder, Palette header, Palette's own
-        // empty-section placeholder.
-        try await waitForRowCount(6, in: table)
+        let drawn = await pumpUntil(deadline: 5) {
+            self.rowIndex(of: .item(piece.id), in: table) != nil
+        }
+        XCTAssertTrue(drawn, "the piece's row never drew")
+        let row = try XCTUnwrap(rowIndex(of: .item(piece.id), in: table))
 
-        XCTAssertTrue(hasDraggingDestination(row: 1, in: table),
+        XCTAssertTrue(hasDraggingDestination(row: row, in: table),
                       "the piece row must still mount .draggable after the "
                       + "travel gesture was added to its label")
     }
@@ -462,12 +449,16 @@ final class TreeTravelRowMountingTests: XCTestCase {
     /// clear that it names the *kind* of thing rather than being a special
     /// case, and the travel rule treats it the same way. `hostSceneNavigator`
     /// always passes a `documentID`, so this row is always row 1, right below
-    /// the project row (`SceneNavigatorProjectRowTests`' own row layout).
+    /// the project row and the Canvas row — found by its mark.
     func test_theScriptRowStillMountsNoDragMachinery() async throws {
         let store = try await screenplay(named: "ScriptRowControl")
         let (_, _, table) = try await hostSceneNavigator(store: store)
+        // The script's own id, as `BinderPaneToggle` derives it — never a
+        // hand-given one (shell p4 Task 1).
+        let script = try XCTUnwrap(TreeHostFixture.sceneDocumentID(in: store))
+        let row = try XCTUnwrap(rowIndex(of: .item(script), in: table))
 
-        XCTAssertFalse(hasDraggingDestination(row: 1, in: table),
+        XCTAssertFalse(hasDraggingDestination(row: row, in: table),
                        "the script row has never been a drag source — "
                        + "confirms the travel gesture did not add one")
     }
@@ -510,12 +501,11 @@ final class TreeTravelRowMountingTests: XCTestCase {
     // MARK: - Hosting and driving
 
     private func hostBinder(
-        store: ProjectStore, persona: Persona = .plan,
+        store: ProjectStore, subject: WindowSubject = .book,
         treeState: BinderTreeSectionsState? = nil
     ) async throws -> (NSWindow, TreeTravelProbe, NSTableView) {
         let treeState = treeState ?? BinderTreeSectionsState()
-        let probe = TreeTravelProbe(persona: persona, detailSegment: .inbox,
-                                    documentStore: store.documentStore)
+        let probe = TreeTravelProbe(subject: subject, store: store)
         let window: KeyTestWindow = TestWindow.mount(
             AnyView(BinderTravelProbeView(store: store, probe: probe, treeState: treeState)),
             size: CGSize(width: 420, height: 700), as: KeyTestWindow.self,
@@ -526,10 +516,9 @@ final class TreeTravelRowMountingTests: XCTestCase {
     }
 
     private func hostCollectionPieces(
-        store: ProjectStore, persona: Persona = .plan
+        store: ProjectStore
     ) async throws -> (NSWindow, TreeTravelProbe, NSTableView) {
-        let probe = TreeTravelProbe(persona: persona, detailSegment: .inbox,
-                                    documentStore: store.documentStore)
+        let probe = TreeTravelProbe(subject: .book, store: store)
         let window: KeyTestWindow = TestWindow.mount(
             AnyView(CollectionPiecesTravelProbeView(store: store, probe: probe)),
             size: CGSize(width: 420, height: 700), as: KeyTestWindow.self,
@@ -539,16 +528,14 @@ final class TreeTravelRowMountingTests: XCTestCase {
         return (window, probe, table)
     }
 
-    /// `documentID` is the literal `"doc-1"`, unconnected to any real
-    /// structure item — `SceneNavigatorProjectRowTests`' own vocabulary, and
-    /// the project row this test drives does not read it at all. `script:
-    /// nil` for the same reason: the project row's contract has nothing to
-    /// do with slugline content.
+    /// The script row's document is the store's own, derived as
+    /// `BinderPaneToggle` derives it (`TreeHostFixture.scenes`). `script:
+    /// nil`: the project row's contract has nothing to do with slugline
+    /// content.
     private func hostSceneNavigator(
-        store: ProjectStore, persona: Persona = .plan
+        store: ProjectStore
     ) async throws -> (NSWindow, TreeTravelProbe, NSTableView) {
-        let probe = TreeTravelProbe(persona: persona, detailSegment: .inbox,
-                                    documentStore: store.documentStore)
+        let probe = TreeTravelProbe(subject: .book, store: store)
         let window: KeyTestWindow = TestWindow.mount(
             AnyView(SceneNavigatorTravelProbeView(store: store, probe: probe)),
             size: CGSize(width: 420, height: 700), as: KeyTestWindow.self,
@@ -562,12 +549,6 @@ final class TreeTravelRowMountingTests: XCTestCase {
         await pumpUntil(deadline: 5) { self.firstTableView(in: window) != nil }
         return try XCTUnwrap(firstTableView(in: window),
                              "the tree's List never reached the hierarchy")
-    }
-
-    private func waitForRowCount(_ count: Int, in table: NSTableView) async throws {
-        let reached = await pumpUntil(deadline: 5) { table.numberOfRows == count }
-        XCTAssertTrue(reached, "expected \(count) rows, found \(table.numberOfRows) — "
-                      + "fixture row-count assumption is stale")
     }
 
     private func firstTableView(in window: NSWindow) -> NSTableView? {
@@ -591,6 +572,19 @@ final class TreeTravelRowMountingTests: XCTestCase {
     /// as the label's `.background`, so it has exactly the label's frame, and a
     /// click at its midpoint is a click on the writer's own text whatever the
     /// font, the title or the window width turn out to be.
+    /// The row whose label carries `subject`'s mark — found by the mark,
+    /// never by position, which moves whenever the tree's furniture grows.
+    private func rowIndex(of subject: BinderSubject, in table: NSTableView) -> Int? {
+        var found: Int?
+        walk(table) { view in
+            guard let target = view as? TreeTravelTargetView,
+                  target.subject == subject, !target.isHidden else { return }
+            let row = table.row(for: target)
+            if row >= 0 { found = row }
+        }
+        return found
+    }
+
     private func labelFrame(ofRow row: Int, in table: NSTableView) -> CGRect? {
         guard let rowView = table.rowView(atRow: row, makeIfNecessary: true)
         else { return nil }
@@ -911,22 +905,22 @@ final class TreeTravelGestureAttachmentTests: XCTestCase {
             Expectation(file: "Maugham/Views/PieceRow.swift", widensAt: ".draggable("),
             Expectation(file: "Maugham/Views/ResearchRow.swift", widensAt: ".draggable("),
             Expectation(file: "Maugham/Views/BinderTreeSections.swift", widensAt: ".draggable("),
-            Expectation(file: "Maugham/Views/BinderView.swift", widensAt: ".tag(BinderSubject.project)"),
+            Expectation(file: "Maugham/Views/BinderView.swift", widensAt: ".tag(TreeRowTag.subject(.project))"),
             // The other two project rows — `ProjectWindow.binderColumn`
             // mounts exactly one of the three per project type, but the
             // gesture belongs on all three since the rule is "any tree row",
             // not "any tree row this app happens to show at once".
             Expectation(file: "Maugham/Views/CollectionPiecesPane.swift",
-                       widensAt: ".tag(BinderSubject.project)"),
+                       widensAt: ".tag(TreeRowTag.subject(.project))"),
             Expectation(file: "Maugham/Views/SceneNavigatorPane.swift",
-                       widensAt: ".tag(BinderSubject.project)"),
+                       widensAt: ".tag(TreeRowTag.subject(.project))"),
             // `SceneNavigatorPane`'s SECOND mark-bearing row: the script
             // row, tagging the screenplay's one document — the last row the
             // set closes with (structure rows, project rows, research/palette
             // rows, and this one; scene rows excluded because they already
             // navigate through `ManuscriptNavigation` on a single click).
             Expectation(file: "Maugham/Views/SceneNavigatorPane.swift",
-                       widensAt: ".tag(BinderSubject.item(documentID))"),
+                       widensAt: ".tag(TreeRowTag.subject(.item(documentID)))"),
         ]
         for expectation in expectations {
             let text = try source(expectation.file)
@@ -1078,27 +1072,23 @@ final class TreeTravelGestureAttachmentTests: XCTestCase {
 
 // MARK: - Probe + hosting views
 
-/// Holds the three values `TreeTravelModifier` reads and writes, outside the
-/// view — `BinderSubjectProbe`'s own shape, widened for the persona and
-/// detail segment `TreeTravelModifier` also owns. `window` is read back by
-/// the receiver tests once `WindowAccessor` resolves it, so a post can be
-/// scoped correctly without the test threading its own window reference
-/// through two layers of `Binding`.
+/// Holds what `TreeTravelModifier` reads and writes, outside the view.
+/// `window` is read back by the receiver tests once `WindowAccessor` resolves
+/// it, so a post can be scoped correctly.
 @Observable
 @MainActor
 final class TreeTravelProbe {
-    var persona: Persona
-    var detailSegment: DetailSegment
-    var subject: BinderSubject?
+    var subject: WindowSubject
     var window: NSWindow?
-    let documentStore: DocumentStore?
+    let store: ProjectStore?
 
-    init(persona: Persona, detailSegment: DetailSegment,
-        subject: BinderSubject? = nil, documentStore: DocumentStore? = nil) {
-        self.persona = persona
-        self.detailSegment = detailSegment
+    init(subject: WindowSubject = .book, store: ProjectStore? = nil) {
         self.subject = subject
-        self.documentStore = documentStore
+        self.store = store
+    }
+
+    var binding: Binding<WindowSubject> {
+        Binding(get: { self.subject }, set: { self.subject = $0 })
     }
 }
 
@@ -1112,13 +1102,8 @@ private struct TreeTravelReceiverProbeView: View {
     var body: some View {
         Color.clear
             .background(WindowAccessor(window: $window))
-            .modifier(TreeTravelModifier(
-                window: window,
-                persona: Binding(get: { probe.persona }, set: { probe.persona = $0 }),
-                detailSegment: Binding(get: { probe.detailSegment },
-                                       set: { probe.detailSegment = $0 }),
-                selectedSubject: Binding(get: { probe.subject }, set: { probe.subject = $0 }),
-                documentStore: probe.documentStore))
+            .modifier(TreeTravelModifier(window: window, subject: probe.binding, centreItem: .constant(nil),
+                                         store: probe.store))
             .onChange(of: window, initial: true) { _, new in probe.window = new }
     }
 }
@@ -1133,23 +1118,14 @@ private struct BinderTravelProbeView: View {
     @State private var window: NSWindow?
 
     var body: some View {
-        BinderView(
-            store: store,
-            selectedSubject: Binding(get: { probe.subject }, set: { probe.subject = $0 }),
-            treeState: treeState)
+        TreeHostFixture.binder(store: store, subject: probe.binding, treeState: treeState)
             .background(WindowAccessor(window: $window))
-            .modifier(TreeTravelModifier(
-                window: window,
-                persona: Binding(get: { probe.persona }, set: { probe.persona = $0 }),
-                detailSegment: Binding(get: { probe.detailSegment },
-                                       set: { probe.detailSegment = $0 }),
-                selectedSubject: Binding(get: { probe.subject }, set: { probe.subject = $0 }),
-                documentStore: probe.documentStore))
+            .modifier(TreeTravelModifier(window: window, subject: probe.binding, centreItem: .constant(nil),
+                                         store: store))
             // The click tests wait on this before driving a double-click: the
             // receiver is `.keyWindow`-scoped and reads the window
             // `WindowAccessor` resolves a runloop hop after mount, so a click
-            // sent before it lands drives a live poster at a dead receiver —
-            // and reads exactly like a broken travel rule.
+            // sent before it lands drives a live poster at a dead receiver.
             .onChange(of: window, initial: true) { _, new in probe.window = new }
     }
 }
@@ -1164,19 +1140,11 @@ private struct CollectionPiecesTravelProbeView: View {
     @State private var window: NSWindow?
 
     var body: some View {
-        CollectionPiecesPane(
-            store: store,
-            selectedSubject: Binding(get: { probe.subject }, set: { probe.subject = $0 }),
-            renamingItemId: $renamingItemId,
-            treeState: treeState)
+        TreeHostFixture.collection(store: store, subject: probe.binding,
+                             renamingItemId: $renamingItemId, treeState: treeState)
             .background(WindowAccessor(window: $window))
-            .modifier(TreeTravelModifier(
-                window: window,
-                persona: Binding(get: { probe.persona }, set: { probe.persona = $0 }),
-                detailSegment: Binding(get: { probe.detailSegment },
-                                       set: { probe.detailSegment = $0 }),
-                selectedSubject: Binding(get: { probe.subject }, set: { probe.subject = $0 }),
-                documentStore: probe.documentStore))
+            .modifier(TreeTravelModifier(window: window, subject: probe.binding, centreItem: .constant(nil),
+                                         store: store))
     }
 }
 
@@ -1190,21 +1158,14 @@ private struct SceneNavigatorTravelProbeView: View {
     @State private var window: NSWindow?
 
     var body: some View {
-        SceneNavigatorPane(
+        TreeHostFixture.scenes(
             store: store,
             script: nil,
-            projectTitle: "Screenplay",
-            selectedSubject: Binding(get: { probe.subject }, set: { probe.subject = $0 }),
-            documentID: "doc-1",
+            subject: probe.binding,
             treeState: treeState,
             onSelect: { _ in })
             .background(WindowAccessor(window: $window))
-            .modifier(TreeTravelModifier(
-                window: window,
-                persona: Binding(get: { probe.persona }, set: { probe.persona = $0 }),
-                detailSegment: Binding(get: { probe.detailSegment },
-                                       set: { probe.detailSegment = $0 }),
-                selectedSubject: Binding(get: { probe.subject }, set: { probe.subject = $0 }),
-                documentStore: probe.documentStore))
+            .modifier(TreeTravelModifier(window: window, subject: probe.binding, centreItem: .constant(nil),
+                                         store: store))
     }
 }

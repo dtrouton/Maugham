@@ -53,21 +53,39 @@ enum MaughamEvent {
     static let scopeKindKey = "maugham.scope.kind"
     static let scopeIdKey = "maugham.scope.id"
 
-    /// Payload key for `.maughamSetPersona`. One spelling shared by both post
-    /// sites (the View menu's ⌘1–⌘4 and the persona bar) and the receiver in
-    /// `PersonaModifier`, so a rename cannot silently make the post a no-op.
-    static let personaKey = "persona"
+    /// Payload key for `.maughamSetRightColumn`: a
+    /// `RightColumnPosition.rawValue`. One spelling shared by every post and
+    /// `ProjectWindow`'s receiver, so a rename cannot silently make the post
+    /// a no-op.
+    static let positionKey = "position"
 
-    /// Payload key for `.maughamSetDetailSegment`. One spelling shared by every
-    /// `postSegment(_:)` call in `MaughamApp`'s View menu, the inspector's Intent
-    /// affordance (M1A) and `ProjectWindow`'s receiver — same reason as
-    /// `personaKey`. (`PersonaKeyspaceTests` is what holds the menu to one item
-    /// per `DetailSegment`; a number written here would be a count over a list,
-    /// and the comment this replaced said "nine".)
-    static let detailSegmentKey = "segment"
+    /// Payload key for `.maughamSetRightColumn`'s filter half (shell plan 2
+    /// Task 7): a `ResolveKeyFilter.rawValue` riding beside the position when
+    /// a key that used to open the Annotations, Diagnostics or Tasks pane
+    /// opens To resolve on its filter. Absent for every other post.
+    static let resolveFilterKey = "resolve_filter"
+
+    /// Payload key for `.maughamAddLanguage`: the language a proposed brief
+    /// names, which the Add Language sheet opens on. Absent for the Editions
+    /// `+`.
+    static let proposedLanguageKey = "proposed_language"
+
+    /// Payload key for `.maughamSetRightColumn`: a `BriefField.rawValue` on
+    /// ⌘⌥I's and ⌘⌥N's posts — Brief, with the keys in that field.
+    static let briefFieldKey = "brief_field"
+
+    /// Payload key for `.maughamPullUp`: a `PullUpRequest.rawValue`.
+    static let pullUpKey = "pull_up"
+
+    /// Payload key for `.maughamPullUp`: the piece a History is of, on a tree
+    /// row's History (`postPullUpHistory(ofPiece:)`). Absent on the keys'.
+    static let pullUpPieceKey = "pull_up_piece"
+
+    /// Payload key for `.maughamChooseCentreView`: `CentreViewSwitch.token`.
+    static let centreViewKey = "centre_view"
 
     /// Payload keys for `.maughamCanvasNodesAdded`. Constants for the reason
-    /// `personaKey` is one: the post site (`AddCanvasScrapsTool`) and whatever
+    /// `positionKey` is one: the post site (`AddCanvasScrapsTool`) and whatever
     /// announces the arrival are written by different hands at different times,
     /// and a rename on one side must not quietly make the other read nil.
     static let canvasScrapCountKey = "scrap_count"
@@ -79,13 +97,21 @@ enum MaughamEvent {
     /// no `rawValue` by design (`BinderSubject`'s own doc comment: a site that
     /// wants a bare id has to say what the project means to it) — string-
     /// encoding it here would be inventing the very sentinel that type exists
-    /// to end. Same reason as `personaKey`: the post sites are five row views
+    /// to end. Same reason as `positionKey`: the post sites are five row views
     /// and the receiver is `TreeTravel.swift`, so a rename on either side must
     /// not silently make the post reach nobody.
     static let treeTravelSubjectKey = "subject"
 
+    /// Payload keys for `.maughamTreeTravel`'s gesture (shell p1 Task 3): the
+    /// click count (`Int`, 1 or 2), and whether the row was already the tree's
+    /// selected row when the click arrived (`Bool`) — a click on the row
+    /// already selected writes nothing through the `List`, so the receiver is
+    /// the only place it is heard.
+    static let treeTravelClickCountKey = "clickCount"
+    static let treeTravelRowWasSelectedKey = "rowWasSelected"
+
     /// Payload key for `.maughamDocumentNotice` — the finished sentence the
-    /// window puts in front of the writer. Same reason as `personaKey`: the
+    /// window puts in front of the writer. Same reason as `positionKey`: the
     /// post sites live in `Maugham/OpLog/` and the receiver in
     /// `ProjectWindow.swift`, so a rename must not quietly make the toast read
     /// nil and show nothing, which is the very failure these notices exist to
@@ -93,7 +119,7 @@ enum MaughamEvent {
     static let noticeMessageKey = "notice_message"
 
     /// Payload key for `.maughamAnnotationsChanged` — the document whose notes
-    /// changed. Same reason as `personaKey`: the post sites are in
+    /// changed. Same reason as `positionKey`: the post sites are in
     /// `Maugham/OpLog/` and `Maugham/Stores/`, the readers are two panes and a
     /// window's count column, and a rename on one side must not silently make
     /// the other read nil.
@@ -155,6 +181,14 @@ enum MaughamEvent {
                        "round": round.number])
     }
 
+    /// **The one spelling of the round-record post** (shell p4 Task 6 fix
+    /// round): a verb rewrote a round's record (`TranslationRoundStore.mutate`
+    /// through `TranslationRoundActions.production`). `projectURL` is the
+    /// project ROOT, as for `postTranslationRoundEnded`.
+    static func postTranslationRoundChanged(projectURL: URL) {
+        post(.maughamTranslationRoundChanged, to: .project(for: projectURL))
+    }
+
     /// Whether an admission request is the WRITER asking (History's *Admit…*)
     /// rather than the book reporting a stranger it has just noticed.
     static let admissionForcedKey = "maugham.admission.forced"
@@ -181,38 +215,149 @@ enum MaughamEvent {
         post(.maughamAdmissionSettled, to: .project(for: projectURL))
     }
 
-    /// Ask the key window's right column to show `segment`.
+    /// Ask the key window's right column to show `position` (⌘1, ⌘2, ⌘3; the
+    /// old pane keys that land on a position; the drift line).
     ///
-    /// **The one spelling of this post**, because there are now two kinds of
-    /// caller: the View menu's items, and an inspector arm handing the writer to
-    /// a different segment of the column it is itself in (M1A Task 8). Scoped
-    /// `.keyWindow` because it is a command, not a data event — only the focused
-    /// project window switches.
-    static func postDetailSegment(_ segment: DetailSegment) {
-        post(.maughamSetDetailSegment, to: .keyWindow,
-             payload: [detailSegmentKey: segment.rawValue])
+    /// **The one spelling of this post.** Scoped `.keyWindow` because it is a
+    /// command, not a data event — only the focused project window moves.
+    static func postPosition(_ position: RightColumnPosition) {
+        post(.maughamSetRightColumn, to: .keyWindow,
+             payload: [positionKey: position.rawValue])
     }
 
-    /// Ask the key window to check what has been written since its last run.
-    ///
-    /// No payload: which document is checked is the receiving window's own
-    /// answer (its `activeDocId`), not the menu's — the menu has no idea what
-    /// any window is looking at.
-    static func postCompilerRun() {
-        post(.maughamRunCompiler, to: .keyWindow)
+    /// Ask the key window's right column to show To resolve on `filter`
+    /// (shell plan 2 Task 7) — ⌘⌥A, ⌘⌥D and ⌘⌥T, and the translation round's
+    /// Open queue. The same event as `postPosition`, so the receiver's one
+    /// selection act (`ProjectWindow.selectPosition`) still reveals the
+    /// column; the filter key is what it reads next.
+    static func postResolve(_ filter: ResolveKeyFilter) {
+        post(.maughamSetRightColumn, to: .keyWindow,
+             payload: [positionKey: RightColumnPosition.resolve.rawValue,
+                       resolveFilterKey: filter.rawValue])
     }
 
-    /// Ask the key window to read its piece **whole**, on a session that has
-    /// read nothing (⌘⇧R).
+    /// Ask the key window to show the Brief of the piece open in its centre
+    /// (the line above the prose, `IntentStrip`): the faces go to the open
+    /// piece, then Brief shows.
+    static func postBriefOfTheOpenPiece() {
+        post(.maughamShowOpenPieceBrief, to: .keyWindow)
+    }
+
+    /// Payload keys for `.maughamShowParagraphInResolve`: the piece (beside
+    /// `annotationDocIdKey`'s spelling) and its paragraph.
+    static let marginParagraphIdKey = "paragraph_id"
+    /// Payload key for `.maughamSetMargin`: a `MarginSetting.rawValue`.
+    static let marginSettingKey = "margin_setting"
+
+    /// **A margin mark was clicked** (shell p5 Task 2): the key window's To
+    /// resolve shows `paragraphId`'s group, revealing a hidden right column —
+    /// a click is a deliberate act. The editor receives nothing.
+    static func postShowParagraphInResolve(docId: String, paragraphId: String, annotationId: String? = nil) {
+        var payload: [AnyHashable: Any] = [annotationDocIdKey: docId, marginParagraphIdKey: paragraphId]
+        if let annotationId { payload[marginAnnotationIdKey] = annotationId }
+        post(.maughamShowParagraphInResolve, to: .keyWindow, payload: payload)
+    }
+
+    /// Payload key for `.maughamShowParagraphInResolve`: the note whose dot
+    /// was clicked, when the mark is one note's.
+    static let marginAnnotationIdKey = "annotation_id"
+
+    /// The note a margin click names, or nil (a tick, or several notes' dot).
+    static func marginAnnotationId(of userInfo: [AnyHashable: Any]?) -> String? {
+        userInfo?[marginAnnotationIdKey] as? String
+    }
+
+    /// What a `.maughamShowParagraphInResolve` asks, or nil.
+    static func paragraphInResolve(of userInfo: [AnyHashable: Any]?) -> (docId: String, paragraphId: String)? {
+        guard let docId = userInfo?[annotationDocIdKey] as? String,
+              let paragraphId = userInfo?[marginParagraphIdKey] as? String else { return nil }
+        return (docId, paragraphId)
+    }
+
+    /// View ▸ Margin's items: the key window's setting.
+    static func postMarginSetting(_ setting: MarginSetting) {
+        post(.maughamSetMargin, to: .keyWindow, payload: [marginSettingKey: setting.rawValue])
+    }
+
+    /// What a `.maughamSetMargin` asks, or nil.
+    static func marginSetting(of userInfo: [AnyHashable: Any]?) -> MarginSetting? {
+        (userInfo?[marginSettingKey] as? String).flatMap(MarginSetting.init(rawValue:))
+    }
+
+    /// ⌘⌥K: the To resolve of the edition the window is reading in, else
+    /// the Source edition's (shell p4 Task 7) — the faces move to that
+    /// edition (`EditionWiring.editionForTheKey`).
+    static func postShowEditionResolve() {
+        post(.maughamShowEditionResolve, to: .keyWindow)
+    }
+
+    /// Start an edition (shell p4 Task 7): the key window presents the Add
+    /// Language sheet — from the Editions `+`, the Source row's menu, or a
+    /// proposed brief's Add (`proposing` its language).
+    static func postAddLanguage(proposing language: String? = nil) {
+        var payload: [AnyHashable: Any] = [:]
+        if let language { payload[proposedLanguageKey] = language }
+        post(.maughamAddLanguage, to: .keyWindow, payload: payload)
+    }
+
+    /// A translated edition's row menu and File ▸ Remove Edition…: the
+    /// window asks, then hides `language`'s edition (`EditionWiring`).
+    static func postRemoveEdition(_ language: String) {
+        post(.maughamRemoveEdition, to: .keyWindow, payload: [removeEditionLanguageKey: language])
+    }
+
+    static let removeEditionLanguageKey = "language"
+
+    /// ⌘⌥I and ⌘⌥N: Brief, with the keys in its line or in Going for's editor
+    /// (`BriefField`). The field takes them only where the faces' Brief has
+    /// it (`BriefField.isOffered(in:)`).
+    static func postBriefField(_ field: BriefField) {
+        post(.maughamSetRightColumn, to: .keyWindow,
+             payload: [positionKey: RightColumnPosition.brief.rawValue,
+                       briefFieldKey: field.rawValue])
+    }
+
+    /// Ask the key window to pull `request` up beside its centre (⌘⌥G, ⌘⌥Y,
+    /// ⌘⌥V, ⌃⌘H; the standing line's History).
+    static func postPullUp(_ request: PullUpRequest) {
+        post(.maughamPullUp, to: .keyWindow,
+             payload: [pullUpKey: request.rawValue])
+    }
+
+    /// Ask the key window to pull up `docId`'s History — a tree row's
+    /// History, which is of that row's piece, not of the faces (appraisal 6).
+    static func postPullUpHistory(ofPiece docId: String) {
+        post(.maughamPullUp, to: .keyWindow,
+             payload: [pullUpKey: PullUpRequest.historyOfTheFaces.rawValue,
+                       pullUpPieceKey: docId])
+    }
+
+    /// Ask the key window to pull up again what was pulled up before (⌘[,
+    /// View ▸ Back; `PulledUpHistory`).
+    static func postPullUpPrevious() {
+        post(.maughamPullUpPrevious, to: .keyWindow)
+    }
+
+    /// Ask the key window to add a piece or a group at its binder's root
+    /// (File ▸ New Chapter / New Part; the binder's own root verbs).
+    static func postAddBinderItem(_ request: BinderItemRequest) {
+        post(.maughamAddBinderItem, to: .keyWindow, payload: [BinderItemRequest.key: request.rawValue])
+    }
+
+    /// Ask the key window's tree to open the faces' piece's fold (⌘⌥E).
+    static func postShowPieceFold() {
+        post(.maughamShowPieceFold, to: .keyWindow)
+    }
+
+    /// Ask the key window to run `command` (`RunCommand`: Check Writing,
+    /// Reread, Run Round, Fresh Eyes) — each its own event, so the command
+    /// names its kind and no receiver infers one.
     ///
-    /// A second event rather than a payload on the first: the two keystrokes
-    /// are different promises — one costs a delta, the other costs the piece —
-    /// and a receiver that had to read a flag out of a `userInfo` dictionary
-    /// could deliver the expensive one by accident. No payload here either,
-    /// for `postCompilerRun`'s reason: which document is read is the receiving
-    /// window's own answer.
-    static func postCompilerFreshEyes() {
-        post(.maughamFreshEyesCompiler, to: .keyWindow)
+    /// No payload: which piece is read is the receiving window's own answer
+    /// (its subject, `CompilerRunModifier.request`), not the menu's — the menu
+    /// has no idea what any window is looking at.
+    static func postRun(_ command: RunCommand) {
+        post(command.event, to: .keyWindow)
     }
 
     /// Post `name` to the given scope. `object` and `payload` pass through to

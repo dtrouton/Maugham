@@ -122,6 +122,14 @@ public final class DocumentStore {
     /// How many closed-document passes have landed. Test only.
     @ObservationIgnored var closedPassesLandedForTesting = 0
 
+    /// The manuscript paths a promotion holds (`withdrawForPromotion`), each
+    /// with the loads waiting for it to be given back.
+    @ObservationIgnored private var withdrawnForPromotion: [String: PromotionHoldState] = [:]
+    /// Moves each time a promotion gives its piece's path back
+    /// (`returnFromPromotion`). Observed: `EditorHost` loads again on it, so
+    /// an editor the promotion closed under is never left on the husk.
+    private(set) var promotionReturns = 0
+
     /// A manifest from another device that arrived while a structural verb
     /// was running, held until `structuralVerbsSettled` decides who wrote last
     /// (F7 fix round, I1). Nil almost always.
@@ -370,6 +378,19 @@ public final class DocumentStore {
     /// run their own autosave internally (see `Document.performAutosave`).
     private var fileSaveScheduler: DebounceScheduler<FileSavePayload>!
 
+    /// Brief's pending lines by piece (`scheduleBriefLine`), and their one
+    /// debounce. Not observed: nothing draws from them.
+    @ObservationIgnored private var pendingBriefLines: [String: String] = [:]
+    @ObservationIgnored private var _briefLineScheduler: DebounceScheduler<Int>?
+    private var briefLineScheduler: DebounceScheduler<Int> {
+        if let existing = _briefLineScheduler { return existing }
+        let scheduler = DebounceScheduler<Int>(delay: .milliseconds(500)) { [weak self] _ in
+            await self?.writePendingBriefLines()
+        }
+        _briefLineScheduler = scheduler
+        return scheduler
+    }
+
     /// The synced paths a debounced save has already refused and logged
     /// (tripwire 58): a note whose manifest path leaves the project is
     /// refused on every save, and said once, not once per typing pause.
@@ -524,10 +545,7 @@ public final class DocumentStore {
     }
 
     public static func open(url: URL) async throws -> DocumentStore {
-        let uiStateURL = url
-            .appendingPathComponent(".maugham")
-            .appendingPathComponent("ui-state.json")
-        let uiState = UIState.loadOrEmpty(from: uiStateURL)
+        let uiState = UIState.loadOrEmpty(from: UIState.fileURL(inProject: url))
 
         let store = DocumentStore(projectURL: url, uiState: uiState)
         store.uiStateScheduler = DebounceScheduler<UIState>(
@@ -938,6 +956,36 @@ public final class DocumentStore {
         researchNoteDoor.schedule(itemId, text: text, in: self)
     }
 
+    /// **Brief's line, saved 500 ms after the last edit** (shell p3 final
+    /// wave, I1) — the old Inspector's debounce, kept by the field that
+    /// replaced it. One pending line per piece: scheduling piece B never drops
+    /// piece A's. `flushPendingSave` writes whatever is pending, so ⌘S, a
+    /// window's close and ⌘Q (`ProjectSession.closeForQuit` → `close`) land a
+    /// line the writer typed and never left — the field's own commit (blur,
+    /// Return, disappear) flushes the same slot.
+    func scheduleBriefLine(docId: String, line: String) {
+        pendingBriefLines[docId] = line
+        briefLineScheduler.schedule(0)
+    }
+
+    /// Write every pending Brief line now.
+    func flushBriefLines() async {
+        await _briefLineScheduler?.flush()
+    }
+
+    private func writePendingBriefLines() async {
+        let lines = pendingBriefLines
+        pendingBriefLines = [:]
+        guard let store = projectStore else { return }
+        for (docId, line) in lines.sorted(by: { $0.key < $1.key }) {
+            do {
+                try await store.updateInspector(id: docId, synopsis: line)
+            } catch {
+                MaughamEvent.postNotice(error.localizedDescription, projectURL: projectURL)
+            }
+        }
+    }
+
     /// Flush any pending `scheduleFileSave`/`scheduleNoteSave` immediately, and
     /// wait for every note save in flight — and every open
     /// Research table's pending save (`researchTables`). `commitOpenEdits`
@@ -956,6 +1004,9 @@ public final class DocumentStore {
         // `saveResearchNote`) landed before the flush returns: ⌘S, the typed
         // mover and the close all wait for them.
         await researchNoteDoor.settle(in: self)
+        // And Brief's line (final wave, I1): a manifest write, so it lands
+        // before the close removes the presenter.
+        await flushBriefLines()
     }
 
     /// **Research item `itemId`'s table, for a grid** — the one this store
@@ -1820,6 +1871,115 @@ public final class DocumentStore {
         }
     }
 
+    // MARK: - A piece withdrawn for its promotion (shell p4 Task 11)
+
+    /// **The promotion closes only what it moves** (shell p4 Task 11, call 6).
+    /// It used to `close()` this whole store — every open `Document` drained,
+    /// every figure closed, the presenter removed — and neither a success nor
+    /// a failure reopened it, so the Collection window went on over a dead
+    /// store: typing in another piece reached no op log, and a peer's sync
+    /// was never seen. Now the piece's own `Document` is flushed, closed and
+    /// unregistered here (the typed mover's close, `closeFlushAndUnregister`),
+    /// its path is held until `returnFromPromotion`, and nothing else is
+    /// touched: the presenter stays installed throughout (its staging-move
+    /// callbacks find no open `Document` at the moved path and nothing to do).
+    @discardableResult
+    func withdrawForPromotion(path: String) async -> PromotionHold {
+        let hold = PromotionHold(path: path)
+        // A hold already standing on this path is another promotion's: never
+        // replaced, so that promotion's return stays its own (fix round 1,
+        // M1). The entry point refuses a second promotion before it gets here.
+        if withdrawnForPromotion[path] == nil {
+            withdrawnForPromotion[path] = PromotionHoldState(token: hold.token)
+        }
+        await closeFlushAndUnregister(affectedPaths: [path])
+        return hold
+    }
+
+    /// The promotion is over, success or failure: the path is given back,
+    /// every load that waited on it goes on, and `promotionReturns` moves so
+    /// an editor left on the closed `Document` loads again — the piece the
+    /// rollback put back, or nothing, if the piece is now a reference. **Only
+    /// by the hold that took it**: a return carrying another promotion's
+    /// token gives back nothing (fix round 1, M1).
+    func returnFromPromotion(_ hold: PromotionHold) {
+        guard let state = withdrawnForPromotion[hold.path], state.token == hold.token else { return }
+        withdrawnForPromotion[hold.path] = nil
+        promotionReturns &+= 1
+        for load in state.waiting { load.resume() }
+    }
+
+    /// Whether a promotion holds `path` now.
+    func isWithdrawnForPromotion(path: String) -> Bool {
+        withdrawnForPromotion[path] != nil
+    }
+
+    /// How many loads wait on `path`'s hold now — what a test reads to know
+    /// a waiter has reached the wait, without a clock.
+    func loadsWaitingForPromotion(path: String) -> Int {
+        withdrawnForPromotion[path]?.waiting.count ?? 0
+    }
+
+    /// **A load of `path` waits while a promotion holds it** — the statement
+    /// gate's shape (`ProjectStore.lockStatementOpen`) for a manuscript: a
+    /// `Document` loaded mid-promotion would register at a path whose file is
+    /// staged away, and re-create it there. Returns at once when nothing holds
+    /// it. Never a timer: the promotion's `defer` resumes it.
+    func waitWhileWithdrawnForPromotion(path: String) async {
+        guard withdrawnForPromotion[path] != nil else { return }
+        await withCheckedContinuation { (load: CheckedContinuation<Void, Never>) in
+            withdrawnForPromotion[path]?.waiting.append(load)
+        }
+    }
+
+    /// Whether `path` still names a manuscript this store's book holds — a
+    /// loose document, never a reference's link file (a promotion that
+    /// succeeded turned the piece into one).
+    func pathNamesAManuscript(_ path: String) -> Bool {
+        guard let projectStore else { return true }
+        return TreeWalk.first(in: projectStore.manifest.structure, where: {
+            $0.path == path && $0.type == .document && $0.pieceKind != .reference
+        }) != nil
+    }
+
+    /// **The door every manuscript load by path passes** (shell p4 Task 11
+    /// fix round 1, I1). The hold above protected `EditorHost` alone; Replace
+    /// and Replace All, a figure's relabel, the wiki-link rename sweep, a
+    /// piece's first render and every MCP read transient-loaded the held path
+    /// — appending to an op log the promotion leaves behind and rendering a
+    /// stray `.md` beside the link file, or blocking the rollback's move-back.
+    /// Here a held path is refused (`ManuscriptBeingPromoted`: a writer says
+    /// it, a reader skips it), and a load that was already reading when the
+    /// promotion took the path — or that outlived a promotion which turned the
+    /// path into a reference's — is closed and refused rather than handed
+    /// out. `TripwireGrepTests.test_everyManuscriptLoadPassesThePromotionDoor`
+    /// counts every other `Document.load(` in production.
+    static func loadManuscript(
+        path: String, title: String? = nil, url: URL, actor: DeviceActor, session: String,
+        presenter: NSFilePresenter?, recovery: DocumentRecoveryMode? = nil,
+        through store: DocumentStore?
+    ) async throws -> Document {
+        if let store, store.isWithdrawnForPromotion(path: path) {
+            throw ManuscriptBeingPromoted(title: title, path: path, manifest: store.projectStore?.manifest)
+        }
+        let returnsBefore = store?.promotionReturns
+        let doc: Document
+        if let recovery {
+            doc = try await Document.load(url: url, actor: actor, session: session,
+                                          presenter: presenter, recovery: recovery)
+        } else {
+            doc = try await Document.load(url: url, actor: actor, session: session,
+                                          presenter: presenter)
+        }
+        guard let store else { return doc }
+        if store.isWithdrawnForPromotion(path: path)
+            || (store.promotionReturns != returnsBefore && !store.pathNamesAManuscript(path)) {
+            await doc.close()
+            throw ManuscriptBeingPromoted(title: title, path: path, manifest: store.projectStore?.manifest)
+        }
+        return doc
+    }
+
     /// Coordinated atomic write of `text` to `fileURL`. Used by the research
     /// asset-rename path to rewrite a just-moved note's internal `_assets/`
     /// refs through NSFileCoordinator (not a raw `String.write`). Call only
@@ -1883,16 +2043,17 @@ public final class DocumentStore {
         }
         if let coordError { throw coordError }
         if let moveError { throw moveError }
+        await Self.afterCoordinatedMoveForTesting?(sourceURL, destinationURL)
     }
 
+    /// Test seam: runs once a `coordinatedMove` has landed, before the
+    /// bespoke move's next step (#145: a save held between a piece
+    /// reorder's two phases). Nil in production.
+    static var afterCoordinatedMoveForTesting: (@MainActor (URL, URL) async -> Void)?
+
     private func persistUIState(_ state: UIState) async {
-        let dotDir = projectURL.appendingPathComponent(".maugham")
-        let url = dotDir.appendingPathComponent("ui-state.json")
         do {
-            try FileManager.default.createDirectory(
-                at: dotDir, withIntermediateDirectories: true)
-            let data = try JSONEncoder().encode(state)
-            try data.write(to: url, options: [.atomic])
+            try state.write(toProject: projectURL)
         } catch {
             // UI state is best-effort; log but don't surface to user.
         }
@@ -2050,7 +2211,7 @@ public final class DocumentStore {
         }
         registrySettlesForTesting += 1
         invalidateTrust()
-        for document in openDocuments.values {
+        for document in everyOpenDocument() {
             do { try await reReadAfterExternalChange(document) }
             catch {
                 documentStoreLog.error(
@@ -2297,7 +2458,7 @@ public final class DocumentStore {
         }.value
 
         invalidateTrust()
-        for document in openDocuments.values {
+        for document in everyOpenDocument() {
             do { try await reReadAfterExternalChange(document) }
             catch {
                 documentStoreLog.error(
@@ -2322,7 +2483,7 @@ public final class DocumentStore {
         // Every posture this window holds was answered off the table being
         // forgotten here (P3c Task 2).
         postureTrustChanged()
-        for document in openDocuments.values { document.opStore.invalidateTrust() }
+        for document in everyOpenDocument() { document.opStore.invalidateTrust() }
         // **And the closed pieces' words** (F7 final round, I1). The derived
         // cache keys on op-log file mtimes, and a trust change moves no file:
         // after *Theirs*, an admission or a revocation the same log derives to
@@ -2337,6 +2498,8 @@ public final class DocumentStore {
         figureTrustChanged()
         if let store = projectStore {
             store.derivedCache.invalidateAll()
+            // A statement's log derives to different words too.
+            store.noteStatementTextChanged()
             store.recountFromOpLogs(ProjectStore.collectDocuments(in: store.manifest.structure))
         }
         // **And the closed pieces' held lines** (carry C4): the same log
@@ -2363,6 +2526,53 @@ public final class DocumentStore {
     public func allOpenDocuments() -> [Document] {
         Array(openDocuments.values)
     }
+
+    /// **Every open `Document` a trust change must reach** — the manuscript
+    /// registry and the statements a pane holds open (shell p3 final wave,
+    /// I4). A statement is deliberately in no registry here
+    /// (`StatementEditorHost`), so a loop over `allOpenDocuments()` alone
+    /// left an open intent judging by the old table and showing the old
+    /// words until reopened. The one spelling: forgetting a table, re-reading
+    /// after a trust change and re-stamping a posture all iterate this
+    /// (`TrustReReadsStatementsTests`' census).
+    func everyOpenDocument() -> [Document] {
+        allOpenDocuments() + (projectStore?.liveStatementDocuments ?? [])
+    }
+}
+
+/// One promotion's hold on its piece's path (`withdrawForPromotion`): only
+/// the hold that took a path gives it back (`returnFromPromotion`).
+struct PromotionHold: Equatable {
+    let path: String
+    let token = UUID()
+}
+
+/// A held path's hold and the loads waiting for it.
+struct PromotionHoldState {
+    let token: UUID
+    var waiting: [CheckedContinuation<Void, Never>] = []
+}
+
+/// **A manuscript a promotion is moving** (`DocumentStore.loadManuscript`):
+/// a writer refuses and says this; a reader skips the piece.
+public struct ManuscriptBeingPromoted: LocalizedError, Equatable {
+    public let title: String?
+    /// The piece's own noun (shell closing A9): a script in a Collection
+    /// says "script"; `.piece` with no project or no such piece.
+    let noun: PieceNoun
+    init(title: String?, path: String? = nil, manifest: ProjectManifest? = nil) {
+        self.title = title
+        self.noun = manifest.map { manifest in
+            PieceNoun.of(path.flatMap { path in TreeWalk.first(in: manifest.structure, where: { $0.path == path }) },
+                         in: manifest)
+        } ?? .piece
+    }
+    public var errorDescription: String? {
+        if let title {
+            return "\u{201C}\(title)\u{201D} is being promoted to its own project \u{2014} try again in a moment."
+        }
+        return "This \(noun.singular) is being promoted to its own project \u{2014} try again in a moment."
+    }
 }
 
 extension DocumentStore: ProjectFolderPresenterDelegate {
@@ -2374,6 +2584,36 @@ extension DocumentStore: ProjectFolderPresenterDelegate {
             handleManifestChanged()
 
         case .opLog(let docId):
+            // **A statement's log moved** — a peer's sync, a merge, or our own
+            // append (no `Document` here holds one, so nothing else notices a
+            // closed statement change). One bump; readers re-derive by token.
+            //
+            // **While a pane holds it open, the open `Document` re-reads**,
+            // through the manuscript's own re-read (`reReadAfterExternalChange`
+            // → `Document.handleExternalLogChange`: un-bursted typing flushed
+            // first, the merged log re-derived, the display recomputed — which
+            // reaches the pane's editor through its one binding and
+            // `EditorSurface`'s one `applyExternalText`). Without it the pane
+            // kept the stale paragraphs, and the writer's next keystroke in a
+            // paragraph a peer had changed wrote over the peer's words, or a
+            // sequence op from the stale order dropped their paragraph (shell
+            // plan 3 Task 4 fix 2, item 5). A statement is in no registry here,
+            // so the re-read's word count is skipped (no path), as it should be.
+            // Our own flush is the re-read's echo (nothing new): no bump, so
+            // the corkboard's index does not restart per burst; a foreign
+            // arrival bumps once it is applied.
+            if let store = projectStore,
+               store.manifest.statements.contains(where: { $0.id == docId }) {
+                if let live = store.openStatementDocument(id: docId) {
+                    Task { @MainActor in
+                        let applied = live.externalChangesApplied
+                        try? await self.reReadAfterExternalChange(live)
+                        if live.externalChangesApplied != applied { store.noteStatementTextChanged() }
+                    }
+                } else {
+                    store.noteStatementTextChanged()
+                }
+            }
             // **A figure's stream** (report plan 6a Task 7): the cache forgets
             // it, an open figure re-reads, and it and every table whose
             // formulas name it re-render — debounced, since a device arrives

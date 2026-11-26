@@ -15,7 +15,7 @@ import MaughamCore
 /// project row a one-way door on every screenplay with no sluglines yet: see
 /// `scriptRow`.
 ///
-/// **It carries the project row** (persona shell spec §3.3).
+/// **It carries the project row** (the 2026-08-01 shell spec, §3.3).
 /// `TreePane(for: .screenplay)` is
 /// `.sceneNavigator`, so `BinderView` — the row's other non-collection home —
 /// is never mounted for a screenplay at all: without a row here `BinderSubject.project` is
@@ -26,7 +26,7 @@ import MaughamCore
 /// into `.project` scope, gated on schema version and never on project type.
 struct SceneNavigatorPane: View {
     /// The project, for the Research and Palette sections at the foot of the
-    /// tree (stage-2a Task 4). Every persona gets one left column, so those
+    /// tree (stage-2a Task 4). The window has one left column, so those
     /// sections are furniture in all three trees — and this pane is the one that
     /// had no store of its own, because sluglines are parsed from a script it is
     /// handed. Required rather than optional on purpose: an optional would let a
@@ -37,9 +37,9 @@ struct SceneNavigatorPane: View {
     /// Shown on the head row.
     let projectTitle: String
     /// The window's subject. This pane writes it in exactly two places — the
-    /// List's selection (the project row and the script row), and the restore in
+    /// List's selection (a click, through the click rule), and the restore in
     /// `sceneRow` — and both go through the static rules below.
-    @Binding var selectedSubject: BinderSubject?
+    @Binding var subject: WindowSubject
     /// The single document the sluglines live in — the subject of the script
     /// row, and what a scene click restores the subject to when the project row
     /// is holding it. `nil` only if the screenplay has no document at all, in
@@ -51,11 +51,6 @@ struct SceneNavigatorPane: View {
     let treeState: BinderTreeSectionsState
     /// Called with the line range location when the user clicks a scene.
     let onSelect: (Int) -> Void
-    /// Threaded to `BinderTreeSections`' Palette header — see its own doc
-    /// comment (stage 3b Task 4). Defaulted for the mounted-tree fixtures that
-    /// do not care about the wall's door.
-    var paletteWallTravels: Bool = false
-    var onOpenPaletteWall: () -> Void = {}
 
     var body: some View {
         // Compute every scene's page number + length in ONE O(document) pass,
@@ -78,14 +73,22 @@ struct SceneNavigatorPane: View {
         // shape `BinderView.body` carries; see its comment for the reasoning.
         ScrollViewReader { proxy in
             List(selection: listSelection) {
+                // `TreeRowSlot`'s order, `BinderView`'s twin: the Book, Inbox
+                // and Canvas, the script and its sluglines, then the sections.
                 projectRow
+                TreeTopRows(hasInbox: TreeTopRows.hasInbox(
+                    state: treeState, store: store, subject: subject),
+                            hasNewCaptures: TreeTopRows.hasNewCaptures(store: store),
+                            canvasDrop: .init(store: store, state: treeState,
+                                              open: subject.open))
                 scriptRow
-                ForEach(Array(summaries.enumerated()), id: \.offset) { _, summary in
+                ForEach(Array(summaries.enumerated()), id: \.offset) { index, summary in
                     // Inset under the two header rows above: a slugline is a
                     // place INSIDE the script, and the indent is what says so
                     // without a disclosure triangle the writer cannot collapse
                     // anyway.
-                    sceneRow(for: summary)
+                    sceneRow(for: summary,
+                             mark: ResolvePresence.rowMark(.scene(index), in: treeState.presence))
                         .padding(.leading, ProjectRowLabel.childIndent)
                 }
                 // Below the sluglines — furniture at the foot of the column
@@ -94,16 +97,21 @@ struct SceneNavigatorPane: View {
                 // this the Scenes segment was the only tree with no way to
                 // either.
                 BinderTreeSections(store: store, state: treeState,
-                                   selectedSubject: $selectedSubject,
-                                   paletteWallTravels: paletteWallTravels,
-                                   onOpenPaletteWall: onOpenPaletteWall)
+                                   subject: $subject)
             }
             .listStyle(.sidebar)
-            .overlay {
+            .treeRowStates(state: treeState, subject: subject)
+            // ⌘↓ opens the selected row in the centre (`TreeRowKeys`).
+            .treeRowKeys(store: store, state: treeState, subject: $subject)
+            // At the column's foot, `BinderView`'s reason (shell p1 Task 3).
+            .overlay(alignment: .bottom) {
                 if summaries.isEmpty { emptyState }
             }
             .binderTreeSections(store: store, state: treeState,
-                                selectedSubject: $selectedSubject)
+                                subject: $subject)
+            // A picture row's thumbnail is resolved under this project, as
+            // in the other two tree hosts (review M7).
+            .environment(\.rowThumbnailRoot, store.url)
             .consumingTreeScrollRequests(proxy, state: treeState)
             // Dev-only diagnostic, inert everywhere else — `TreeScrollProbe.swift`.
             .treeScrollProbe()
@@ -124,7 +132,7 @@ struct SceneNavigatorPane: View {
             // Neither this row nor `scriptRow` below carries `.draggable`, so
             // there is no drag-interior claim to make here.
             .treeTravelOnDoubleClick(.project)
-            .tag(BinderSubject.project)
+            .tag(TreeRowTag.subject(.project))
     }
 
     /// The row naming the script itself — the screenplay's one document, sitting
@@ -173,9 +181,26 @@ struct SceneNavigatorPane: View {
                     // either, so there is no drag-interior claim to make.
                     .treeTravelOnDoubleClick(.item(documentID))
                 Spacer()
+                // The one script in read-through carries the lock.
+                ReadThroughMark(isOn: treeState.readThrough.contains(documentID))
+                // Anything in the script, before its first slugline too.
+                ResolvePresenceMark(ResolvePresence.rowMark(.item(documentID), in: treeState.presence))
             }
             .contentShape(Rectangle())
-            .tag(BinderSubject.item(documentID))
+            // **The script's Tags…, Target… and Publishing…** — the old
+            // Inspector's fields for the one script (shell p3 Task 8's
+            // review: a screenplay mounts neither other tree, so without this
+            // they had no home). No Add Link…: there is no other document.
+            .contextMenu {
+                if let script = TreeWalk.find(id: documentID, in: store.manifest.structure) {
+                    PieceRowMenuButtons(
+                        item: script, verbs: TreeStructureVerbs.decide(for: script, in: store),
+                        state: treeState,
+                        offersTarget: PieceRowMenus.target(for: script, store: store) != nil,
+                        offersLinks: false)
+                }
+            }
+            .tag(TreeRowTag.subject(.item(documentID)))
             // The find manuscript-match scroll target (stage-3b Task 8) — the
             // screenplay's script row is this pane's only structure row, so
             // it is this tree's whole answer to `BinderView.outline`'s `.id`.
@@ -190,52 +215,38 @@ struct SceneNavigatorPane: View {
     /// selected: it is selected and the List writes `nil` through the binding
     /// (measured on `BinderView`'s empty-state row, macOS 26.5, where a
     /// `.selectionDisabled()` message row was selected anyway). Handing
-    /// `$selectedSubject` to this List directly would therefore make every scene
+    /// the subject to this List directly would therefore make every scene
     /// click ALSO deselect the window's subject, racing the row's own Button —
     /// and `nil` blanks the centre column, so the writer would click a slugline
     /// and lose the editor.
     ///
-    /// So the binding is a projection rather than the state itself, and it now
-    /// distinguishes **three** writes rather than two: `.project` and the
-    /// script's own `.item(documentID)` are this pane's rows and move the
-    /// subject; everything else — `nil` from an untagged scene row, or an item
-    /// this pane does not draw — leaves it exactly where it was. The scene rows'
-    /// own Button is still the authoritative signal for what a scene click
-    /// means, through `subject(_:whenNavigatingTo:)`. Ordering between the two
-    /// does not matter, which is the point — there is no flag and no guard here
-    /// (tripwire 2), just a value that ignores writes it has no meaning for.
-    ///
-    /// **It selects a SET as of stage-2b Task 3**, like the other two trees, and
-    /// the pane's own rules do the same job one element at a time. Each is used
-    /// as a MAP rather than a test: `listSelection(for:)` sends a subject to the
-    /// row this pane shows for it, and `subject(_:whenListWrites:documentID:)`
-    /// — asked from no subject at all — sends a written row to the signal it
-    /// carries. A foreign document is the one input either drops, which is
-    /// exactly the refusal that made this pane's list a projection in the first
-    /// place. There is no second predicate beside them to fall out of step.
-    private var listSelection: Binding<Set<BinderSubject>> {
+    /// So the binding is a projection rather than the state itself: the
+    /// shared rule (`BinderTreeSelection`) with one refusal of this pane's own
+    /// — a document it draws no row for (`listSelection(for:)` answers nil).
+    /// An untagged scene row's empty write moves nothing; the scene rows' own
+    /// Button is the authoritative signal for what a scene click means,
+    /// through `subject(_:whenNavigatingTo:structure:projectType:)`. Ordering
+    /// between the two does not matter, which is the point — there is no flag
+    /// and no guard here (tripwire 2), just a value that ignores writes it has
+    /// no meaning for.
+    /// What this list draws selected: the shared rule, through this pane's
+    /// own map (a foreign document draws nothing).
+    private var drawn: Set<BinderSubject> {
+        Set(BinderTreeSelection
+            .shown(treeState.selection, subject: subject,
+                   clickedAt: treeState.subjectAtLastClick)
+            .compactMap { Self.listSelection(for: $0, documentID: documentID) })
+    }
+
+    private var listSelection: Binding<Set<TreeRowTag>> {
         Binding(
-            get: {
-                Set(BinderTreeSelection
-                    .shown(treeState.selection, subject: selectedSubject)
-                    .compactMap { Self.listSelection(for: $0, documentID: documentID) })
-            },
+            get: { Set(drawn.map(TreeRowTag.subject)) },
             set: { written in
-                let mine = Set(written.compactMap {
-                    Self.subject(nil, whenListWrites: $0, documentID: documentID)
-                })
-                let next = BinderTreeSelection.resolved(
-                    written: mine, stored: treeState.selection,
-                    subject: selectedSubject,
-                    structure: store.manifest.structure,
-                    research: store.manifest.research,
-                    figures: BinderTreeSelection.drawnFigureOrder(treeState),
-                    // One row written is still this pane's own rule, unchanged
-                    // — including the `nil` an untagged slugline writes.
-                    single: { Self.subject($0, whenListWrites: $1,
-                                           documentID: documentID) })
-                treeState.selection = next.selection
-                selectedSubject = next.subject
+                // The shared setter (`BinderTreeSelection.write`), with this
+                // pane's own refusal: a document it draws no row for.
+                BinderTreeSelection.write(
+                    written, state: treeState, subject: $subject, store: store,
+                    accepts: { Self.listSelection(for: $0, documentID: documentID) != nil })
             })
     }
 
@@ -261,27 +272,12 @@ struct SceneNavigatorPane: View {
         // A figure passes through for the research case's reason: the
         // sections at this list's foot are where a figure row would be.
         case .figure(let id): return .figure(id)
+        // The Inbox, Canvas, Palette and Editions rows are this list's too.
+        case .inbox: return .inbox
+        case .canvas: return .canvas
+        case .palette: return .palette
+        case .edition(let language): return .edition(language: language)
         case .none: return nil
-        }
-    }
-
-    /// What the subject becomes when the List writes through the projection.
-    /// This pane's own rows move it; a `nil` — from an untagged scene row or an
-    /// untagged section placeholder — and an item this pane draws no row for
-    /// leave the window's subject alone.
-    ///
-    /// **The `nil` rule is not spelled here**: it is `BinderTreeSelection`'s,
-    /// shared with the other two trees, which grew untagged rows of their own in
-    /// stage-2a Task 4. Only the foreign-document refusal is this pane's, and it
-    /// is the one thing about this list the others do not have.
-    static func subject(_ current: BinderSubject?,
-                        whenListWrites written: BinderSubject?,
-                        documentID: String?) -> BinderSubject? {
-        switch written {
-        case .item(let id):
-            return id == documentID ? .item(id) : current
-        case .project, .research, .figure, .none:
-            return BinderTreeSelection.subject(current, whenListWrites: written)
         }
     }
 
@@ -298,32 +294,37 @@ struct SceneNavigatorPane: View {
     /// not know better than the window which document is open, and re-writing the
     /// same value on every scene click would churn the editor's reload triggers.
     ///
-    /// **Known edge, stated rather than hidden:** on the click that restores the
-    /// document, the editor is mounting for the first time, so the
-    /// `maughamNavigateToScene` post that follows reaches no coordinator and the
-    /// scroll is lost — the writer lands in the script, at wherever it was, not
-    /// at that slugline. A second click gets it. It is not fixed here with a
-    /// delayed re-post: that would jump a writer BACK to scene A if they clicked
-    /// A then B quickly, which is worse than a first click that under-delivers.
-    /// Fixing it properly means the coordinator holding a pending navigation
-    /// across its own mount, which is an editor change, not a binder one.
+    /// **The first click lands on the slugline too** (shell p1 Task 4b): on the
+    /// click that restores the document the editor is mounting for the first
+    /// time, so the `maughamNavigateToScene` post that follows reaches no
+    /// coordinator; the window's receiver holds the line instead
+    /// (`EditorControl.pendingPlace`) and the editor lands it when the script
+    /// loads. Never a delayed re-post: that would jump a writer BACK to scene A
+    /// if they clicked A then B quickly — the held place is last-act-wins.
     ///
     /// **A research subject is reclaimed, exactly like the project** (stage-2a
     /// Task 4's ruling; Task 1 deferred it to the task that gave this pane
     /// research rows, which is this one). The two are the same case in the only
-    /// way that matters here: neither has an editor in the centre column, so the
-    /// `maughamNavigateToScene` post that follows this call reaches no
-    /// coordinator and the writer's click on a slugline does nothing they can
-    /// see. `.item` is left alone for the opposite reason — an editor IS
+    /// way that matters here: neither has an editor in the centre column, so
+    /// without the script restored the writer's click on a slugline would do
+    /// nothing they can see. `.item` is left alone for the opposite reason — an editor IS
     /// mounted, and re-writing the same value would churn its reload triggers.
-    static func subject(_ current: BinderSubject?,
-                        whenNavigatingTo documentID: String?) -> BinderSubject? {
-        switch current {
+    ///
+    /// **Over what is open** (shell p1 Task 3): a script already open is left
+    /// alone; anything else is a click on the script row, through the click
+    /// rule — so with the canvas open it moves the faces, as any piece click
+    /// does.
+    static func subject(_ current: WindowSubject,
+                        whenNavigatingTo documentID: String?,
+                        structure: [StructureItem],
+                        projectType: ProjectType) -> WindowSubject {
+        switch current.open {
         case .item: return current
-        // A figure subject is reclaimed with the research one: no editor is
-        // mounted under it either, so the scene post would reach nothing.
-        case .project, .research, .figure, .none:
-            return documentID.map(BinderSubject.item) ?? current
+        case .project, .research, .figure, .inbox, .canvas, .palette, .edition:
+            guard let documentID else { return current }
+            return ClickRule.resolve(.item(documentID), gesture: .click,
+                                     current: current, structure: structure,
+                                     projectType: projectType)
         }
     }
 
@@ -347,16 +348,21 @@ struct SceneNavigatorPane: View {
                 .multilineTextAlignment(.center)
                 .padding(.top, 4)
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .padding(24)
+        .frame(maxWidth: .infinity)
     }
 
     @ViewBuilder
-    private func sceneRow(for summary: FountainScript.SceneSummary) -> some View {
+    private func sceneRow(for summary: FountainScript.SceneSummary,
+                          mark: ResolvePresence.RowMark) -> some View {
         Button {
             // Order: the subject first, then the scroll. The editor has to be
             // the thing on screen before there is anything to scroll.
-            selectedSubject = Self.subject(
-                selectedSubject, whenNavigatingTo: documentID)
+            let next = Self.subject(
+                subject, whenNavigatingTo: documentID,
+                structure: store.manifest.structure,
+                projectType: store.manifest.type)
+            if next != subject { subject = next }
             onSelect(summary.line.range.location)
         } label: {
             HStack(spacing: 8) {
@@ -370,6 +376,8 @@ struct SceneNavigatorPane: View {
                     .foregroundStyle(.tertiary)
                     .monospacedDigit()
                     .lineLimit(1)
+                // An item's paragraph falls in this scene (`ResolvePresence`).
+                ResolvePresenceMark(mark)
             }
             .contentShape(Rectangle())
         }

@@ -65,11 +65,16 @@ func withAnnotationDocument<T>(
     // annotation ops `body` appends land in the assistant's own file, chained
     // and sealed under the assistant's key rather than unsigned under a
     // sentinel no key answers to.
-    let doc = try await Document.load(
+    // Through the promotion door: a piece being promoted to its own project
+    // is refused (`ManuscriptBeingPromoted`, answered `being_promoted`), never
+    // appended to an op log the promotion leaves behind (fix round 1, I1).
+    let doc = try await DocumentStore.loadManuscript(
+        path: path, title: item.title,
         url: docURL,
         actor: .assistant,
         session: "mcp-\(UUID().uuidString.prefix(8))",
-        presenter: nil)
+        presenter: nil,
+        through: store.documentStore)
     let result = try await body(doc)
     // close() flushes the pending typing-burst + autosave (both no-ops here
     // since this Document never received user edits). Fire-and-forget after
@@ -105,8 +110,8 @@ func openAnnotationDocument(
 /// chip on the board — so it exists only where a window has one. Case 1 (the
 /// document is open) can read it; case 2 transient-loads a document nobody is
 /// looking at, and there is no pass to attribute the note to. That nil is an
-/// answer rather than a gap: an unstamped note appears in EVERY pass's queue,
-/// so nothing is hidden, and M5-AN-048's pinned behaviour — a craft note
+/// answer rather than a gap: an unstamped note is still listed — To resolve
+/// files it under Mine or Others — so nothing is hidden, and M5-AN-048's pinned behaviour — a craft note
 /// appended to a CLOSED document — keeps working exactly as it did, its note
 /// simply belonging to no pass. The alternative (stamping whatever pass the
 /// piece was last opened under, weeks ago) would be the memory inventing a

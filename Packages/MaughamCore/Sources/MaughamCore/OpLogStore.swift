@@ -395,11 +395,18 @@ public final class OpLogStore {
     /// caller that means to judge annotation amendments as of their own line
     /// hands one over and reads it afterwards; everybody else passes nothing
     /// and nothing is recorded. See `AmendmentPermits`.
+    ///
+    /// `lineSigners` is the same shape for shell p5 Task 1: what the seal over
+    /// each annotation creation the load applied says — sealed by which
+    /// writer, uncovered, or not ours (`SealReading`, `LineSigners`).
     public func loadDiagnosed(
-        docId: String, amendmentPermits: AmendmentPermits? = nil
+        docId: String, amendmentPermits: AmendmentPermits? = nil,
+        lineSigners: LineSigners? = nil
     ) async throws -> (ops: [Op], diagnostics: ParseDiagnostics, provenance: OpLogProvenance)
     {
-        let loaded = try await loadDiagnosed(docId: docId, amendmentPermits: amendmentPermits, streams: false)
+        let loaded = try await loadDiagnosed(
+            docId: docId, amendmentPermits: amendmentPermits,
+            lineSigners: lineSigners, streams: false)
         return (loaded.ops, loaded.diagnostics, loaded.provenance)
     }
 
@@ -414,12 +421,14 @@ public final class OpLogStore {
     ) async throws -> (ops: [Op], diagnostics: ParseDiagnostics, provenance: OpLogProvenance,
                        streams: [String: [String]])
     {
-        try await loadDiagnosed(docId: docId, amendmentPermits: amendmentPermits, streams: true)
+        try await loadDiagnosed(
+            docId: docId, amendmentPermits: amendmentPermits, lineSigners: nil, streams: true)
     }
 
     /// The one read behind both: `streams` built only when asked for.
     private func loadDiagnosed(
-        docId: String, amendmentPermits: AmendmentPermits?, streams wantStreams: Bool
+        docId: String, amendmentPermits: AmendmentPermits?, lineSigners: LineSigners?,
+        streams wantStreams: Bool
     ) async throws -> (ops: [Op], diagnostics: ParseDiagnostics, provenance: OpLogProvenance,
                        streams: [String: [String]])
     {
@@ -432,7 +441,7 @@ public final class OpLogStore {
         // not at all in a book with no permit events.
         let permit = Self.permitContext(
             forDocId: docId, in: projectURL, trust: table,
-            amendments: amendmentPermits)
+            amendments: amendmentPermits, signers: lineSigners)
         var merged: [Op] = []
         var skipped: [ParseDiagnostics.SkippedLine] = []
         var files: [FileProvenance] = []

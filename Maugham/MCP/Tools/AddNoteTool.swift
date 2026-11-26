@@ -18,7 +18,10 @@ public enum AddNoteTool: MCPTool {
     public static let method = "add_note"
     public static let description =
         "Create a research note (.md) under the project's research folder. " +
-        "Optionally placed in an existing group, but never the Palette: cards are the writer's."
+        "Optionally placed in an existing group, but never the Palette: cards are the writer's. " +
+        "Where a note is, is whose it is: with no group it is the whole book's, in the binder's " +
+        "Research section; in a group a piece holds, it is that piece's. To give a novel's note " +
+        "to one of its pieces, link it with link_research."
     public static let inputSchemaJSON =
         #"{"type":"object","properties":{"project_id":{"type":"string"},"title":{"type":"string"},"body":{"type":"string"},"parent_group_id":{"type":"string"}},"required":["project_id","title","body"]}"#
 
@@ -72,7 +75,9 @@ public enum AddNoteTool: MCPTool {
         if let documentStore = store.documentStore {
             guard case .saved = await documentStore.saveResearchNote(
                 itemId: created.id, text: params.body, by: .assistant, mustLand: true, from: store) else {
-                throw ProjectStoreError.researchTextNotSaved(title: created.title)
+                // The empty note it made is taken back first (#148 D1).
+                throw await store.takeBackUnsavedNewNote(
+                    created, refusal: ProjectStoreError.researchTextNotSaved(title: created.title))
             }
         } else {
             // Never given a store: the raw write. Lost it (teardown): refused,

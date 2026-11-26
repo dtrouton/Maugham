@@ -22,7 +22,7 @@ import MaughamCore
 ///
 /// **How a chip is observed.** SwiftUI on this SDK backs a `Button` with no
 /// `NSButton` (measured and recorded in `ProjectAltitudePaneTests` and
-/// `InspectorIntentAffordanceTests`) — but each button does mount its own
+/// `IntentStripTests`) — but each button does mount its own
 /// focus-ring container as a real `NSView`, one per `ForEach` element, at the
 /// frame the layout gave it. Counting those containers is the reliable
 /// structural reading of "how many chips are on this board", and it holds
@@ -48,6 +48,12 @@ import MaughamCore
 /// uncounted cases add no control is not incidental — it is
 /// `test_aPieceWithNothingOpenAddsNoControl` and
 /// `test_anUnreadablePieceOffersNoClick`.
+///
+/// **Shell p4 Task 4 gave every piece row a third control, and re-derived it
+/// once more.** The stage and title are one `Button` that opens the piece,
+/// so a row draws `perPiece` controls (the button and a chip per pass) before
+/// any count; a to-do count is a further button exactly as a notes count is.
+/// The counts below are exact in those units, never loosened.
 ///
 /// The accessibility tree carries the state each chip is showing, and the test
 /// that reads it skips by name when no assistive client can attach.
@@ -80,6 +86,11 @@ final class ReviewBoardPaneTests: XCTestCase {
     // MARK: - Fixtures
 
     private static let passes = ReviewPass.presets  // four: structural, line, copyedit, proof
+
+    /// **A piece row's controls with nothing counted**: its stage-and-title
+    /// button (shell p4 Task 4 — a click opens the piece) and one chip per
+    /// pass. Every mounted count below is in these units.
+    private static var perPiece: Int { passes.count + 1 }
 
     private func doc(_ id: String, _ title: String, states: [String: PassState]? = nil,
                      kind: PieceKind? = nil) -> StructureItem {
@@ -259,7 +270,7 @@ final class ReviewBoardPaneTests: XCTestCase {
     /// the reviewer read the grid, clicked a chip, landed in the piece, found
     /// the cockpit and pressed Run. The menu's first item is that whole path.
     ///
-    /// It is named for the EDITOR, not the pass — "Run Gould's round", the same
+    /// It is named for the EDITOR, not the pass — "Run Gould's Round", the same
     /// spelling the empty queue teaches (`RoundNarrative.runRoundTitle`) — so
     /// the grid and the queue name one act one way.
     func test_theMenuLeadsWithTheRoundNamedForThePassesEditor() {
@@ -269,7 +280,7 @@ final class ReviewBoardPaneTests: XCTestCase {
         let stored = ReviewPass(id: "copyedit", name: "Copyedit")
         let menu = verbs.chipMenu(for: "ch1", pass: stored, current: nil, posture: .author)
 
-        XCTAssertEqual(menu.run?.title, "Run Gould\u{2019}s round",
+        XCTAssertEqual(menu.run?.title, "Run Gould\u{2019}s Round",
                        "the round is offered by the name of the editor who "
                        + "reads it \u{2014} `effectiveEditorName`, never the "
                        + "raw stored field")
@@ -281,12 +292,12 @@ final class ReviewBoardPaneTests: XCTestCase {
 
     /// A pass a writer named themselves and never gave an editor falls back to
     /// its own name (`ReviewPass.effectiveEditorName`) — so the verb reads
-    /// "Run Beta Read's round" rather than naming a person who does not exist.
+    /// "Run Beta Read's Round" rather than naming a person who does not exist.
     func test_theRoundVerbNamesAWriterOwnPassByItsOwnName() {
         let menu = verbs.chipMenu(
             for: "ch1", pass: ReviewPass(id: "beta", name: "Beta Read"), current: nil,
             posture: .author)
-        XCTAssertEqual(menu.run?.title, "Run Beta Read\u{2019}s round")
+        XCTAssertEqual(menu.run?.title, "Run Beta Read\u{2019}s Round")
     }
 
     /// **The round verb carries its own cell's two ids**, exactly as the four
@@ -314,7 +325,7 @@ final class ReviewBoardPaneTests: XCTestCase {
             let menu = verbs.chipMenu(
                 for: "ch1", pass: ReviewPass(id: "line", name: "Line"), current: current,
                 posture: .author)
-            XCTAssertEqual(menu.run?.title, "Run Lish\u{2019}s round",
+            XCTAssertEqual(menu.run?.title, "Run Lish\u{2019}s Round",
                            "\(String(describing: current)) must still offer its "
                            + "round")
         }
@@ -352,12 +363,14 @@ final class ReviewBoardPaneTests: XCTestCase {
         ]
         let window = mount(structure: structure)
         let chips = try await orderedChipsSettling(in: window,
-                                                   expecting: 2 * Self.passes.count)
+                                                   expecting: 2 * Self.perPiece)
 
         // Row 2 (`ch2`), column 3 (`copyedit`) — read off the layout the board
         // actually got, so a display that laid the grid out differently fails
         // loudly here rather than clicking whatever is at a hardcoded index.
-        let cell = chips[Self.passes.count + 2]
+        // Row 2 starts after row 1's controls; its first is the piece's own
+        // stage-and-title button, then the chips.
+        let cell = chips[Self.perPiece + 1 + 2]
         await click(cell, in: window, until: { !self.calls.navigations.isEmpty })
 
         XCTAssertEqual(calls.navigations,
@@ -425,29 +438,29 @@ final class ReviewBoardPaneTests: XCTestCase {
         ]
         let window = mount(structure: structure)
 
-        let chips = try await chipsSettling(in: window, expecting: 3 * Self.passes.count)
-        XCTAssertEqual(chips.count, 12,
-                       "three pieces × four passes. A chip is drawn for an "
-                       + "UNTOUCHED pass too — an absent key is a state the "
-                       + "reviewer can act on, not a missing cell")
+        let chips = try await chipsSettling(in: window, expecting: 3 * Self.perPiece)
+        XCTAssertEqual(chips.count, 15,
+                       "three pieces × (a title button + four passes). A chip "
+                       + "is drawn for an UNTOUCHED pass too — an absent key is "
+                       + "a state the reviewer can act on, not a missing cell")
     }
 
-    /// **Group headers are rows, not chips.** Adding two groups around the same
-    /// pieces changes nothing about the chip count — the headers carry no
-    /// controls of their own (Task 8's navigation is not this task's).
+    /// **Group headers are rows, not chips — and each opens its Part** (shell
+    /// p4 Task 4 fix round). Adding three groups around the same pieces adds
+    /// exactly three controls, one heading each, and no chip.
     func test_groupHeadersAddRowsAndNoChips() async throws {
         let flat = mount(structure: [doc("ch1", "One"), doc("ch2", "Two")])
-        let flatChips = try await chipsSettling(in: flat, expecting: 2 * Self.passes.count)
+        let flatChips = try await chipsSettling(in: flat, expecting: 2 * Self.perPiece)
 
         let nested = mount(structure: [
             group("p1", "Part One", [doc("ch1", "One")]),
             group("p2", "Part Two", [group("p2a", "Act I", [doc("ch2", "Two")])]),
         ])
-        let nestedChips = try await chipsSettling(in: nested, expecting: 2 * Self.passes.count)
+        let nestedChips = try await chipsSettling(in: nested, expecting: 2 * Self.perPiece + 3)
 
-        XCTAssertEqual(nestedChips.count, flatChips.count,
-                       "the same two pieces under three group headers must "
-                       + "still be eight chips")
+        XCTAssertEqual(nestedChips.count, flatChips.count + 3,
+                       "the same two pieces under three group headers: the same "
+                       + "chips, plus one opening control per heading")
     }
 
     /// **A reference piece is chip-less** — its passes belong to the project it
@@ -460,8 +473,8 @@ final class ReviewBoardPaneTests: XCTestCase {
             doc("ref", "Another Novel", kind: .reference),
         ])
         let referenceChips = try await chipsSettling(
-            in: withReference, expecting: Self.passes.count)
-        XCTAssertEqual(referenceChips.count, Self.passes.count,
+            in: withReference, expecting: Self.perPiece)
+        XCTAssertEqual(referenceChips.count, Self.perPiece,
                        "only the loose piece's row carries chips")
 
         let withLoose = mount(structure: [
@@ -469,8 +482,8 @@ final class ReviewBoardPaneTests: XCTestCase {
             doc("ref", "Another Novel", kind: .loose),
         ])
         let looseChips = try await chipsSettling(
-            in: withLoose, expecting: 2 * Self.passes.count)
-        XCTAssertEqual(looseChips.count, 2 * Self.passes.count,
+            in: withLoose, expecting: 2 * Self.perPiece)
+        XCTAssertEqual(looseChips.count, 2 * Self.perPiece,
                        "control: the same row as a LOOSE piece does carry them, "
                        + "so the absence above is about `pieceKind` and not "
                        + "about a row that failed to mount at all")
@@ -498,7 +511,7 @@ final class ReviewBoardPaneTests: XCTestCase {
     /// that the RIGHT cell got the right state rather than only counting them.
     ///
     /// Skips by name when no assistive client can attach: a tree that was never
-    /// built is not evidence about this view (`InspectorIntentAffordanceTests`'
+    /// built is not evidence about this view (`IntentStripTests`'
     /// rule).
     func test_eachChipPublishesItsOwnCellsState() async throws {
         let structure = [
@@ -506,7 +519,7 @@ final class ReviewBoardPaneTests: XCTestCase {
             doc("ch2", "Chapter Two", states: ["proof": .skipped]),
         ]
         let window = mount(structure: structure)
-        _ = try await chipsSettling(in: window, expecting: 2 * Self.passes.count)
+        _ = try await chipsSettling(in: window, expecting: 2 * Self.perPiece)
 
         let labels = try axButtonLabels(in: window)
         XCTAssertFalse(labels.isEmpty,
@@ -682,7 +695,7 @@ final class ReviewBoardPaneTests: XCTestCase {
             unreadable: [])
         // Three rows of chips plus the two counted cells.
         _ = try await chipsSettling(in: window,
-                                    expecting: 3 * Self.passes.count + 2)
+                                    expecting: 3 * Self.perPiece + 2)
 
         let labels = try axButtonLabels(in: window)
         XCTAssertTrue(labels.contains("Chapter One — 3 open notes: 2 Line, 1 unstamped"),
@@ -700,9 +713,9 @@ final class ReviewBoardPaneTests: XCTestCase {
         let window = mount(structure: structure,
                            openNotes: ["ch1": OpenNotesSummary(total: 2, byPass: [:])])
         let found = try await chipsSettling(
-            in: window, expecting: 2 * Self.passes.count + 1)
+            in: window, expecting: 2 * Self.perPiece + 1)
 
-        XCTAssertEqual(found.count, 2 * Self.passes.count + 1,
+        XCTAssertEqual(found.count, 2 * Self.perPiece + 1,
                        "one count cell for the counted piece and none for the "
                        + "other — an empty cell is not a button")
     }
@@ -714,7 +727,7 @@ final class ReviewBoardPaneTests: XCTestCase {
         let window = mount(structure: structure,
                            openNotes: ["ch2": OpenNotesSummary(total: 4, byPass: [:])])
         let all = try await orderedChipsSettling(
-            in: window, expecting: 2 * Self.passes.count + 1)
+            in: window, expecting: 2 * Self.perPiece + 1)
 
         // The counted row is the second, and its count is the last cell across
         // it — read off the layout the board actually got.
@@ -739,9 +752,9 @@ final class ReviewBoardPaneTests: XCTestCase {
     func test_anUnreadablePieceOffersNoClick() async throws {
         let window = mount(structure: [doc("ch1", "Chapter One")],
                            unreadable: ["ch1"])
-        let found = try await chipsSettling(in: window, expecting: Self.passes.count)
+        let found = try await chipsSettling(in: window, expecting: Self.perPiece)
 
-        XCTAssertEqual(found.count, Self.passes.count,
+        XCTAssertEqual(found.count, Self.perPiece,
                        "the dash must not be a button")
     }
 
@@ -759,6 +772,281 @@ final class ReviewBoardPaneTests: XCTestCase {
                       + "nor a count")
     }
 
+    // MARK: - Shell p4 Task 4: stage, to-dos, and the row that opens
+
+    /// **A Status row reads stage, passes, notes and to-dos** — the stage in
+    /// the tree's own words (`StatusSwatch` over `ReviewStatus.derived`), and
+    /// the to-dos cell's three cases. Mounted, each piece draws its
+    /// stage-and-title control and its chips, and a counted to-dos cell is
+    /// one more control, as a notes count is.
+    func test_theStatusRowsCarryTheStageThePassesNotesAndToDos() async throws {
+        // The to-dos cell's truth table, no window.
+        XCTAssertEqual(ReviewBoardOpenToDos.cell(piece: "One", count: nil, isUnreadable: false).kind, .none)
+        XCTAssertEqual(ReviewBoardOpenToDos.cell(piece: "One", count: 0, isUnreadable: false).kind, .none)
+        let two = ReviewBoardOpenToDos.cell(piece: "One", count: 2, isUnreadable: false)
+        XCTAssertEqual(two.kind, .count)
+        XCTAssertEqual(two.text, "2")
+        XCTAssertEqual(two.label, "One — 2 open to-dos")
+        XCTAssertEqual(ReviewBoardOpenToDos.cell(piece: "One", count: 1, isUnreadable: false).label,
+                       "One — 1 open to-do")
+        let unknown = ReviewBoardOpenToDos.cell(piece: "One", count: 5, isUnreadable: true)
+        XCTAssertEqual(unknown.kind, .unreadable, "RULING-54: unknown, never a number")
+        XCTAssertFalse(unknown.text.contains("5"))
+
+        // Mounted: two pieces, one with notes and to-dos, one with to-dos.
+        let structure = [
+            doc("ch1", "Chapter One", states: ["structural": .inProgress]),
+            doc("ch2", "Chapter Two"),
+        ]
+        let window = mount(
+            structure: structure,
+            openNotes: ["ch1": OpenNotesSummary(total: 3, byPass: [:])],
+            openToDos: ["ch1": 2, "ch2": 1])
+        let found = try await chipsSettling(in: window, expecting: 2 * Self.perPiece + 3)
+        XCTAssertEqual(found.count, 2 * Self.perPiece + 3,
+                       "per row: the stage-and-title button and four chips; then "
+                       + "one notes count and two to-dos counts")
+
+        // The labels say which cell is which, when an assistive client attaches.
+        let labels = try axButtonLabels(in: window)
+        for expected in [
+            "Chapter One — \(StatusSwatch.label(for: .revising))",
+            "Chapter Two — \(StatusSwatch.label(for: .draft))",
+            "Chapter One — Structural: \(PassLadder.inProgressTitle)",
+            "Chapter One — 3 open notes",
+            "Chapter One — 2 open to-dos",
+            "Chapter Two — 1 open to-do",
+        ] {
+            XCTAssertTrue(labels.contains(expected),
+                          "no control said \u{201C}\(expected)\u{201D}. Published: \(labels.sorted())")
+        }
+    }
+
+    /// **Where each to-do counts.** A chapter's on the chapter; the Book's own
+    /// (no anchor, or the project stream) on `ProjectStore.projectTasksDocId`,
+    /// which is the footer's count and no row's (fix round 1); a done to-do
+    /// on nothing. The figure rows guard the day a to-do can be anchored on a
+    /// figure — today `listTasksAcrossProject` produces none (review, minor 7)
+    /// — so that it then counts on its owner, as a figure's notes do.
+    func test_aFiguresToDoCountsOnItsOwner() {
+        func todo(_ id: String, on docId: String?, status: TaskStatus = .open) -> ResolveItem {
+            .todo(WriterTask(id: id, kind: .paneCreated,
+                             anchor: docId.map { TaskAnchor(docId: $0, paragraphId: nil) },
+                             body: id, status: status, priority: 0, parentTaskId: nil,
+                             createdAt: Date(), createdBySession: nil))
+        }
+        let owned = "fig-owned", unowned = "fig-loose"
+        let counts = ResolvePresence.openToDos([
+            todo("t1", on: "ch1"),
+            todo("t2", on: owned),
+            todo("t3", on: unowned),
+            todo("t4", on: nil),
+            todo("t5", on: ProjectStore.projectTasksDocId),
+            todo("t6", on: "ch2", status: .done),
+        ], figureOwners: [owned: "ch1", unowned: nil])
+        XCTAssertEqual(counts, ["ch1": 2, ProjectStore.projectTasksDocId: 2],
+                       "ch1's own to-do and its figure's; the Book's two for its "
+                       + "footer; nothing for the unowned figure or a done to-do")
+    }
+
+    /// **A row's stage and title open the piece, and a to-do count opens it on
+    /// Mine** — each control carries its own row's id (the board), and the
+    /// production mount travels through the click rule (the window). Read off
+    /// the sources: a press-then-wait would be tripwire 33's shape.
+    func test_theRowAndItsToDoCountOpenThePiece() throws {
+        let source = try Self.source(of: "Views/Review/ReviewBoardPane.swift")
+        let button = try XCTUnwrap(Self.declaration(named: "private func pieceButton(", in: source))
+        XCTAssertTrue(button.contains("onOpen(item.id)"), button)
+        let toDos = try XCTUnwrap(Self.declaration(named: "private func openToDosCell(", in: source))
+        XCTAssertTrue(toDos.contains("onOpenToDos(item.id)"), toDos)
+
+        let piece = try XCTUnwrap(SourceTree.windowText(after: "onOpen: { id in", length: 200))
+        XCTAssertTrue(piece.contains("navigate(to: .item(id), store: store)"), piece)
+        let mine = try XCTUnwrap(SourceTree.windowText(after: "onOpenToDos: { pieceId in", length: 300))
+        XCTAssertTrue(mine.contains("navigate(to: .item(pieceId), store: store)")
+                      && mine.contains("position = .resolve")
+                      && mine.contains("resolveRequest = .filter(.mine)"), mine)
+    }
+
+    /// **The presets' four passes need no horizontal scroll at the window's
+    /// minimum width** (an earlier hand check: nothing may be laid out wider
+    /// than its column). Pure, then measured on a board mounted at the
+    /// centre's floor.
+    func test_fourPassesFitTheCentreColumnsFloor() async throws {
+        let floor = ProjectWindow.centreColumnFloor
+        XCTAssertLessThanOrEqual(ReviewBoardPane.intrinsicWidth(passCount: Self.passes.count), floor)
+        let window = mount(structure: [doc("ch1", "A Rather Long Chapter Title Indeed")],
+                           width: floor)
+        _ = try await chipsSettling(in: window, expecting: Self.perPiece)
+        let host = try XCTUnwrap(window.contentView)
+        try XCTSkipUnless(abs(host.bounds.width - floor) < 1,
+                          "this display mounted a \(host.bounds.size) column, not the floor")
+        let widest = scrollViews(in: window).compactMap { $0.documentView?.frame.width }.max() ?? 0
+        XCTAssertLessThanOrEqual(widest, host.bounds.width + 0.5,
+                                 "the grid is wider than the centre's floor: it scrolls sideways")
+    }
+
+    /// **Slack goes to the title, then the pass names, then the title**: at
+    /// the floor the passes are chip-wide and the title keeps its floor; wide,
+    /// every pass gets its name's width and the title the rest.
+    func test_theColumnsTakeSlackInOrder() {
+        let n = Self.passes.count
+        let narrow = ReviewBoardPane.columns(width: ReviewBoardPane.intrinsicWidth(passCount: n),
+                                             passCount: n)
+        XCTAssertEqual(narrow.title, ReviewBoardPane.minimumTitleColumnWidth)
+        XCTAssertEqual(narrow.pass, ReviewBoardPane.minimumPassColumnWidth)
+        let wide = ReviewBoardPane.columns(width: 1000, passCount: n)
+        XCTAssertEqual(wide.pass, ReviewBoardPane.passColumnWidth)
+        XCTAssertGreaterThan(wide.title, ReviewBoardPane.comfortableTitleColumnWidth)
+        let fixed = ReviewBoardPane.stageColumnWidth + ReviewBoardPane.openNotesColumnWidth
+            + ReviewBoardPane.openToDosColumnWidth
+        XCTAssertEqual(wide.title + CGFloat(n) * wide.pass + fixed, 1000, accuracy: 0.01,
+                       "the columns fill the row exactly — no gutter, no overflow")
+    }
+
+    // MARK: - Fix round 1: keeping your place, the keys, the Book's footer
+
+    /// **Which rows the keys move over**: pieces and Parts, in board order —
+    /// never a reference row, which opens nothing here.
+    func test_theKeysMoveOverPiecesAndPartsInBoardOrder() {
+        let rows = ReviewBoardRows.derive(structure: [
+            group("p1", "Part One", [doc("ch1", "One"), doc("ref", "Elsewhere", kind: .reference)]),
+            doc("ch2", "Two"),
+        ])
+        XCTAssertEqual(ReviewBoardKeys.navigable(rows), ["p1", "ch1", "ch2"])
+    }
+
+    /// **The current row**: the one last opened or moved to, else the faces'
+    /// piece — each only when this board holds it (a Part's board never
+    /// claims a chapter outside it); otherwise none.
+    func test_theCurrentRowIsTheRememberedOneElseTheFaces() {
+        let ids = ["p1", "ch1", "ch2"]
+        XCTAssertEqual(ReviewBoardKeys.current(remembered: "ch2", faces: .item("ch1"), in: ids), "ch2")
+        XCTAssertEqual(ReviewBoardKeys.current(remembered: "gone", faces: .item("ch1"), in: ids), "ch1",
+                       "a remembered row the board no longer holds gives way to the faces")
+        XCTAssertEqual(ReviewBoardKeys.current(remembered: nil, faces: .item("p1"), in: ids), "p1")
+        XCTAssertNil(ReviewBoardKeys.current(remembered: nil, faces: .project, in: ids))
+        XCTAssertNil(ReviewBoardKeys.current(remembered: "elsewhere", faces: .item("ch9"), in: ids))
+    }
+
+    /// **↑/↓** move one row, held at the ends; with no current row ↓ lands
+    /// on the first and ↑ on the last; an empty board has none.
+    func test_theArrowsMoveOneRowAndHoldAtTheEnds() {
+        let ids = ["p1", "ch1", "ch2"]
+        XCTAssertEqual(ReviewBoardKeys.moving("ch1", by: 1, in: ids), "ch2")
+        XCTAssertEqual(ReviewBoardKeys.moving("ch1", by: -1, in: ids), "p1")
+        XCTAssertEqual(ReviewBoardKeys.moving("ch2", by: 1, in: ids), "ch2")
+        XCTAssertEqual(ReviewBoardKeys.moving("p1", by: -1, in: ids), "p1")
+        XCTAssertEqual(ReviewBoardKeys.moving(nil, by: 1, in: ids), "p1")
+        XCTAssertEqual(ReviewBoardKeys.moving(nil, by: -1, in: ids), "ch2")
+        XCTAssertEqual(ReviewBoardKeys.moving("gone", by: 1, in: ids), "p1")
+        XCTAssertNil(ReviewBoardKeys.moving(nil, by: 1, in: []))
+    }
+
+    /// **The board's keys, scroll and fill are wired to the rule**, and the
+    /// mount hands it its memory, the faces and the window's keyboard ask —
+    /// read off the sources (a key press and a wait is tripwire 33's shape).
+    func test_theKeysTheScrollAndTheFillAreWiredToTheRule() throws {
+        // The keys' holder is shared with the edition's Status (shell p4
+        // Task 5), so it lives beside the rule it asks.
+        let source = try Self.source(of: "Views/Review/ReviewBoardPane.swift")
+            + Self.source(of: "Views/Review/ReviewBoardRows.swift")
+        for token in ["ReviewBoardKeys.current(remembered: remembered.wrappedValue,",
+                      ".onKeyPress(.downArrow)", ".onKeyPress(.upArrow)",
+                      "ReviewBoardKeys.moving(current, by: 1, in: ids)",
+                      "ReviewBoardKeys.moving(current, by: -1, in: ids)",
+                      ".onKeyPress(.return)", "onOpen(current)",
+                      "reader.scrollTo(current, anchor: .center)",
+                      ".background(fill(isCurrent: row.id == current))",
+                      ".onChange(of: keyboardRequest) { _, _ in holdsTheKeys.wrappedValue = true }"] {
+            XCTAssertTrue(source.contains(token), "the board lost `\(token)`")
+        }
+        let group = try XCTUnwrap(Self.declaration(named: "private func groupRow(", in: source))
+        XCTAssertTrue(group.contains("onOpen(item.id)"), "a Part's heading opens the Part")
+
+        let mount = try XCTUnwrap(SourceTree.windowText(after: "remembered: $statusRemembered,", length: 120))
+        XCTAssertTrue(mount.contains("faces: subject.faces")
+                      && mount.contains("keyboardRequest: statusKeyboardRequest"), mount)
+        let open = try XCTUnwrap(SourceTree.windowText(after: "onOpen: { id in", length: 120))
+        XCTAssertTrue(open.contains("statusRemembered = id")
+                      && open.contains("navigate(to: .item(id), store: store)"), open)
+        let footer = try XCTUnwrap(SourceTree.windowText(after: "onOpenBookToDos: {", length: 200))
+        XCTAssertTrue(footer.contains("navigate(to: .project, store: store)")
+                      && footer.contains("resolveRequest = .filter(.mine)")
+                      && !footer.contains(".item("), footer)
+        XCTAssertNotNil(try SourceTree.windowText(after: "statusKeyboardRequest &+= 1", length: 1),
+                        "choosing Status asks the board to take the keys")
+    }
+
+    /// **A Part's heading opens the Part** through the click rule: with the
+    /// Book open, a Part clicked becomes what is open (its own Status).
+    func test_aPartHeadingOpensThePartThroughTheClickRule() {
+        let structure = [group("p1", "Part One", [doc("ch1", "One")])]
+        let next = ClickRule.navigate(to: .item("p1"), current: WindowSubject(open: .project, faces: .project),
+                                      structure: structure, projectType: .novel)
+        XCTAssertEqual(next.open, .item("p1"))
+        XCTAssertTrue(CentreColumn.boardIsTheBooks(open: .project, structure: structure))
+        XCTAssertFalse(CentreColumn.boardIsTheBooks(open: .item("p1"), structure: structure),
+                       "a Part's board has no Book footer")
+    }
+
+    /// **The Book's footer**: "The Book — N to-dos", singular at one, absent
+    /// at zero; mounted, it is one more control, and none at zero or on a
+    /// Part's board (`bookToDos: nil`).
+    func test_theBooksOwnToDosAreAFooterThatSaysHowMany() async throws {
+        XCTAssertNil(ReviewBoardBookToDos.label(count: 0))
+        XCTAssertEqual(ReviewBoardBookToDos.label(count: 1), "The Book \u{2014} 1 to-do")
+        XCTAssertEqual(ReviewBoardBookToDos.label(count: 3), "The Book \u{2014} 3 to-dos")
+
+        let window = mount(structure: [doc("ch1", "One")], bookToDos: 3)
+        let found = try await chipsSettling(in: window, expecting: Self.perPiece + 1)
+        XCTAssertEqual(found.count, Self.perPiece + 1, "the footer is one control")
+        let none = mount(structure: [doc("ch1", "One")], bookToDos: 0)
+        let quiet = try await chipsSettling(in: none, expecting: Self.perPiece)
+        XCTAssertEqual(quiet.count, Self.perPiece, "no footer at zero")
+    }
+
+    /// **With the footer, the fill and a Part heading**, four passes still lay
+    /// out no wider than the centre's floor.
+    func test_theFooterAndAPartStillFitTheFloor() async throws {
+        let floor = ProjectWindow.centreColumnFloor
+        let window = mount(structure: [group("p1", "Part One With A Long Name",
+                                             [doc("ch1", "A Rather Long Chapter Title Indeed")])],
+                           bookToDos: 12, remembered: "ch1", width: floor)
+        _ = try await chipsSettling(in: window, expecting: Self.perPiece + 2)
+        let host = try XCTUnwrap(window.contentView)
+        try XCTSkipUnless(abs(host.bounds.width - floor) < 1,
+                          "this display mounted a \(host.bounds.size) column, not the floor")
+        let widest = scrollViews(in: window).compactMap { $0.documentView?.frame.width }.max() ?? 0
+        XCTAssertLessThanOrEqual(widest, host.bounds.width + 0.5)
+    }
+
+    /// **Unreadable means one set** (RULING-54): every piece Status draws an
+    /// em dash for is never quiet in the tree — a ring, or a dot when
+    /// something on it is listed — and every ring is on a piece with a dash.
+    func test_theEmDashAndTheTreesRingMeanTheSamePieces() {
+        let structure = [group("p1", "Part One", [doc("ch1", "One"), doc("ch2", "Two")]),
+                         doc("ch3", "Three"), doc("ch4", "Four")]
+        let owners: [String: String?] = ["fig-aaaa1111": "ch3"]
+        let unreadable = ["ch1", "ch2", "fig-aaaa1111"]
+        let todo = ResolveItem.todo(WriterTask(id: "t", kind: .paneCreated,
+                                               anchor: TaskAnchor(docId: "ch2", paragraphId: nil),
+                                               body: "t", status: .open, priority: 0, parentTaskId: nil,
+                                               createdAt: Date(), createdBySession: nil))
+        let marks = ResolvePresence.marks(
+            ResolveSnapshot(items: [todo], sequences: [:], paragraphText: [:], unreadableDocIds: unreadable),
+            structure: structure, figureOwners: owners, sceneIndex: nil)
+        let dash = ProjectStore.unknownCounts(unreadableDocIds: unreadable, owners: owners)
+        for piece in ["ch1", "ch2", "ch3", "ch4"] {
+            let mark = ResolvePresence.rowMark(.item(piece), in: marks)
+            if dash.contains(piece) { XCTAssertNotEqual(mark, .quiet, "\(piece) has a dash and no mark") }
+            if mark == .unknown { XCTAssertTrue(dash.contains(piece), "\(piece) rings with no dash") }
+        }
+        XCTAssertEqual(ResolvePresence.rowMark(.item("ch2"), in: marks), .something, "a dot wins")
+        XCTAssertEqual(ResolvePresence.rowMark(.item("ch3"), in: marks), .unknown, "its figure would not read")
+        XCTAssertEqual(ResolvePresence.rowMark(.item("ch4"), in: marks), .quiet)
+    }
+
     // MARK: - Mounted: the two scrolling axes are the pane's
 
     /// **A wide pass set scrolls INSIDE the pane, and the pane still fits its
@@ -771,7 +1059,7 @@ final class ReviewBoardPaneTests: XCTestCase {
         let width: CGFloat = 520
         let window = mount(structure: [doc("ch1", "Chapter One")],
                            passes: many, width: width)
-        _ = try await chipsSettling(in: window, expecting: many.count)
+        _ = try await chipsSettling(in: window, expecting: many.count + 1)
 
         let host = try XCTUnwrap(window.contentView)
         try XCTSkipUnless(host.bounds.width >= 400,
@@ -806,13 +1094,16 @@ final class ReviewBoardPaneTests: XCTestCase {
                           "premise: four passes want less than a 900pt column")
         XCTAssertEqual(
             ReviewBoardPane.intrinsicWidth(passCount: 12),
-            ReviewBoardPane.minimumTitleColumnWidth
-                + 12 * ReviewBoardPane.passColumnWidth
-                + ReviewBoardPane.openNotesColumnWidth,
-            "the intrinsic width is the piece column's floor plus every pass "
-            + "column plus the open-notes column (M3 P2 Task 9) — the number "
-            + "the pane compares its own width against, and a trailing column "
-            + "left out of it is a column drawn off the end of the grid")
+            ReviewBoardPane.stageColumnWidth
+                + ReviewBoardPane.minimumTitleColumnWidth
+                + 12 * ReviewBoardPane.minimumPassColumnWidth
+                + ReviewBoardPane.openNotesColumnWidth
+                + ReviewBoardPane.openToDosColumnWidth,
+            "the intrinsic width is the stage column, the piece column's floor, "
+            + "every pass column at its floor, and the open-notes and open-to-dos "
+            + "columns (shell p4 Task 4) — the number the pane compares its own "
+            + "width against, and a column left out of it is a column drawn off "
+            + "the end of the grid")
     }
 
     // MARK: - Censuses
@@ -940,7 +1231,7 @@ final class ReviewBoardPaneTests: XCTestCase {
             try CentreRouteSource.windowArgument("runRoundWhenPieceOpens")?
                 .contains("runRoundWhenPieceOpens(pieceId:") == true,
             "\u{2026}and its one bounded deferral, the helper read below")
-        XCTAssertTrue(after.contains("selectedSubject = .item(pieceId)"),
+        XCTAssertTrue(after.contains("navigate(to: .item(pieceId), store: store)"),
                       "\u{2026}and the writer travels to the piece being checked")
         XCTAssertTrue(after.contains("runRoundWhenPieceOpens("),
                       "\u{2026}and the run goes through the bounded deferral")
@@ -960,12 +1251,18 @@ final class ReviewBoardPaneTests: XCTestCase {
                        passes: [ReviewPass] = ReviewBoardPaneTests.passes,
                        openNotes: [String: OpenNotesSummary] = [:],
                        unreadable: Set<String> = [],
+                       openToDos: [String: Int] = [:],
+                       bookToDos: Int? = nil,
+                       remembered: String? = nil,
                        width: CGFloat = 700) -> NSWindow {
         let calls = self.calls
         let window = TestWindow.mount(AnyView(
-            ReviewBoardPane(title: "The Project", structure: structure, passes: passes,
+            ReviewBoardPane(structure: structure, passes: passes, noun: .chapter,
                             openNotes: openNotes,
                             unreadableDocIds: unreadable,
+                            openToDos: openToDos,
+                            onOpen: { calls.openedPieces.append($0) },
+                            onOpenToDos: { calls.openedToDos.append($0) },
                             onOpenNotes: { calls.opened.append($0) },
                             onNavigate: { piece, pass in
                                 calls.navigations.append(BoardClick(piece: piece, pass: pass))
@@ -977,7 +1274,9 @@ final class ReviewBoardPaneTests: XCTestCase {
                             onRunRound: { piece, pass in
                                 calls.runs.append(BoardClick(piece: piece, pass: pass))
                             },
-                            posture: { _ in .author })
+                            posture: { _ in .author },
+                            bookToDos: bookToDos,
+                            remembered: .constant(remembered))
                 .frame(maxWidth: .infinity, maxHeight: .infinity)),
             size: CGSize(width: width, height: 600))
         windows.append(window)
@@ -1140,4 +1439,8 @@ final class BoardCalls: @unchecked Sendable {
     /// checks, so a recorder that merged the two could not tell the chip's
     /// click from its round.
     var runs: [BoardClick] = []
+    /// Pieces whose stage-and-title was clicked (shell p4 Task 4).
+    var openedPieces: [String] = []
+    /// Pieces whose to-do count was clicked (shell p4 Task 4).
+    var openedToDos: [String] = []
 }

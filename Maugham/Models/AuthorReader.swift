@@ -1,8 +1,9 @@
 import Foundation
 import MaughamCore
 
-/// **Who reads a CHECK** — Author's ⌘R, and every persona's but Review's
-/// (two loops P1, spec §2 "The check and the round part ways").
+/// **Who reads a CHECK** — Check Writing (⌘R) and Reread, and the Diagnostics
+/// pane's Run (two loops P1, spec §2 "The check and the round part ways";
+/// the command names its kind since shell p1 Task 5, `RunCommand`).
 ///
 /// The coach, the writer's own first reader, or nobody — and which of the
 /// three is the writer's choice, resolved in exactly one place below. The
@@ -33,7 +34,7 @@ enum AuthorReader: Equatable {
     /// The coach, holding her seat. Every piece is hers while it is held:
     /// the check loop does not ask which lane a piece is parked in.
     case coach(ReviewPass)
-    /// The writer's own first reader — a person they named, not a persona the
+    /// The writer's own first reader — a person they named, not a seat the
     /// app supplies. She is a `FirstReader` rather than a `ReviewPass`
     /// because she has no doctrine and no lane: she has a name and, if the
     /// writer has written one, a description of who she is.

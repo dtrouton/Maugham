@@ -233,7 +233,7 @@ extension ProjectStore {
             guard let item = researchItem() else {
                 throw ProjectStoreError.trashEntryNotRewirable(
                     title: entry.displayTitle,
-                    reason: "its record of where it sat in the research tree can’t be read.")
+                    reason: "its record of where it sat in the binder’s Research can’t be read.")
             }
             return .research(item)
         case .captureAsset:

@@ -65,13 +65,21 @@ struct TranslationRoundReportView: View {
     var onRoundChanged: (TranslationRound) -> Void = { _ in }
     /// Show a paragraph in the manuscript. Task 5 wires the click-through.
     var onReveal: (String) -> Void = { _ in }
+    /// A filed line's link to the Brief it names; nil draws the line as text.
+    var onOpenBrief: ((BinderSubject) -> Void)? = nil
 
     /// **What the last verb said** — a refusal in its own words, or the
     /// confirmation that it worked. The surface's ONE transient channel
-    /// (`DesignGateView.notice`'s shape, `DepartmentPane`'s rule): a click that
+    /// (`DesignGateView.notice`'s shape): a click that
     /// produces nothing visible is the silent no-op Global Constraint 2 exists
     /// against.
     @State private var notice: String?
+
+    /// **Where Make it a rule filed** (shell plan 3 Task 6), drawn under the
+    /// section the row was pressed in (`filedSection`, its heading) rather
+    /// than in the header, for `FiledUnder.lingers`.
+    @State private var filedNotice: FiledNotice.Filing?
+    @State private var filedSection: String?
 
     /// **How many verbs are out.** Every verb writes somewhere durable — the
     /// round's own record, a ruling, an annotation — so a second press mid-write
@@ -144,6 +152,7 @@ struct TranslationRoundReportView: View {
         // the one thing telling the writer what happened.
         .onChange(of: roundIdentity) { _, _ in
             notice = nil
+            filedNotice = nil
             expanded = []
             settled = []
         }
@@ -458,21 +467,23 @@ struct TranslationRoundReportView: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 } else {
-                    if verbs.rule {
+                    if TranslationRoundReport.glossaryOffers(verbs).adopt {
                         Button(TranslationRoundReport.adoptTitle) {
-                            run { await actions.adopt(round, row.id) }
+                            run { await actions.adopt(round, row.identity) }
                         }
                         .controlSize(.small)
                         .accessibilityLabel(TranslationRoundReport.adoptLabel(index: row.id))
                         .help("Fix this rendering for the rest of the book. Every "
                               + "later round is briefed on it.")
                     }
-                    Button(TranslationRoundReport.skipTitle) {
-                        run { await actions.skip(round, row.id) }
+                    if TranslationRoundReport.glossaryOffers(verbs).skip {
+                        Button(TranslationRoundReport.skipTitle) {
+                            run { await actions.skip(round, row.identity) }
+                        }
+                        .controlSize(.small)
+                        .accessibilityLabel(TranslationRoundReport.skipLabel(index: row.id))
+                        .help("Leave this term alone. It is not proposed again.")
                     }
-                    .controlSize(.small)
-                    .accessibilityLabel(TranslationRoundReport.skipLabel(index: row.id))
-                    .help("Leave this term alone. It is not proposed again.")
                 }
             }
         }
@@ -503,14 +514,16 @@ struct TranslationRoundReportView: View {
             }
             HStack {
                 Spacer(minLength: 0)
-                // The round's own notes settle in the same queue every other
-                // note does — this is the door, not a second queue.
+                // The round's own notes settle in To resolve with every other
+                // note — this is the door, not a second queue. A translator's
+                // questions are To resolve's Questions (shell plan 2 Task 7),
+                // on the round's piece (review I3).
                 Button(TranslationRoundReport.openQueueTitle) {
-                    MaughamEvent.postDetailSegment(.annotations)
+                    TranslationRoundReport.openQueue(docId: round.docId, language: round.language)
                 }
                 .controlSize(.small)
-                .help("Open the notes queue, where this round\u{2019}s questions "
-                      + "and every other open note are disposed of.")
+                .help("Open To resolve on its Questions, where this round\u{2019}s "
+                      + "questions are answered beside every other open note.")
             }
         }
     }
@@ -554,7 +567,8 @@ struct TranslationRoundReportView: View {
                 onCommit: { instruction, home in
                     self.sheet = nil
                     run(settling: rowId) {
-                        await actions.keepMine(round, paragraphId, instruction, home)
+                        // The departure it answers is settled with the filing.
+                        await actions.keepMine(round, paragraphId, instruction, home, rowId)
                     }
                 },
                 onCancel: { self.sheet = nil },
@@ -566,7 +580,12 @@ struct TranslationRoundReportView: View {
                 seed: seed, language: round.language,
                 onCommit: { text in
                     self.sheet = nil
-                    run(settling: id) { await actions.makeRule(round, text) }
+                    run(settling: id, filedIn: ruleSection(of: id)) {
+                        // A departure row's rule settles it; a disagreement's
+                        // settles no departure.
+                        await actions.makeRule(round, text,
+                                               departureRows.contains { $0.id == id } ? id : nil)
+                    }
                 },
                 onCancel: { self.sheet = nil })
         case .answer(let annotation):
@@ -599,7 +618,7 @@ struct TranslationRoundReportView: View {
     /// Translator's right) and so needs no `settled` guard. On `.done` that
     /// row joins `settled`, which is what stops a second press from filing the
     /// same ruling twice.
-    private func run(settling rowId: String? = nil,
+    private func run(settling rowId: String? = nil, filedIn section: String? = nil,
                      _ action: @escaping () async -> TranslationRoundActions.Outcome) {
         notice = nil
         // **Counted before the `Task` exists, not inside it.** The container
@@ -618,6 +637,21 @@ struct TranslationRoundReportView: View {
                 // window's own value is what this surface reads.
                 if let updated { onRoundChanged(updated) }
                 notice = sentence
+                if let rowId { settled.insert(rowId) }
+            case .filed(let updated, let destination, let sentence):
+                if let updated { onRoundChanged(updated) }
+                if let section {
+                    // A filing says where it went under its own section, and
+                    // links to the Brief the WRITE named (shell p4 Task 6:
+                    // never a literal).
+                    filedSection = section
+                    filedNotice = FiledNotice.after(
+                        .filed(FiledNotice.Filing(sentence: sentence,
+                                                  brief: FiledUnder.brief(of: destination))),
+                        current: filedNotice)
+                } else {
+                    notice = sentence
+                }
                 if let rowId { settled.insert(rowId) }
             case .refused(let sentence):
                 notice = sentence
@@ -661,7 +695,53 @@ struct TranslationRoundReportView: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
             content()
+            if filedNotice != nil, filedSection == heading {
+                FiledNotice(filing: $filedNotice, onOpenBrief: onOpenBrief)
+            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    /// The section a Make it a rule row sits in: a departure's, else a
+    /// disagreement's.
+    private func ruleSection(of rowId: String) -> String {
+        departureRows.contains { $0.id == rowId }
+            ? TranslationRoundReport.changedHeading
+            : TranslationRoundReport.disagreementsHeading
+    }
+}
+
+/// Reply sheet for a translator query — the round report's Questions
+/// section's (the writer's answer flows into `acceptAnnotation` as the
+/// `userResponse`). Moved here when the translation review pane, its other
+/// home, was deleted (shell p4 Task 9).
+@MainActor
+struct TranslationQueryReplySheet: View {
+    let annotation: Annotation
+    let onReply: (String) -> Void
+    let onCancel: () -> Void
+    @State private var reply: String = ""
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Reply")
+                .font(.headline)
+            Text(annotation.body)
+                .font(.callout).foregroundStyle(.secondary)
+            TextEditor(text: $reply)
+                .frame(minHeight: 80)
+                .border(Color.gray.opacity(0.3))
+            HStack {
+                Spacer()
+                Button("Cancel", action: onCancel)
+                Button("Reply") {
+                    onReply(reply.trimmingCharacters(
+                        in: .whitespacesAndNewlines))
+                }
+                .keyboardShortcut(.defaultAction)
+                .buttonStyle(.borderedProminent)
+            }
+        }
+        .padding(20).frame(width: 380)
     }
 }

@@ -10,7 +10,8 @@ import MaughamCore
 //
 // `listTasksAcrossProject(filter:)` is the read API the right-pane Tasks
 // segment will use in project scope. It aggregates open documents'
-// `Document.tasks(filter:)` projections with the project op log, and caches
+// `Document.tasks(filter:)` projections, closed documents' op-log-derived
+// tasks and the project op log, and caches
 // the merged result behind a version-token key per spec §9.5.
 //
 // State for this seam (stored properties + the public observable
@@ -34,7 +35,7 @@ extension ProjectStore {
     ///
     /// Plan 1 gave every DOCUMENT's task ops a door (`Document+Tasks`) and left
     /// the project stream's verbs surface-only — `createProjectPaneTask` and
-    /// `TasksPane.archiveProjectTask` wrote whatever reached them. Both are
+    /// the Tasks pane's `archiveProjectTask` wrote whatever reached them. Both are
     /// synchronous, so they ask the DRAWING posture (`posture(forDocId:)`) of
     /// `__project__`: the answer every surface that offered the verb drew from.
     /// `.settling` — the window's table still on its way — refuses and says to
@@ -73,7 +74,7 @@ extension ProjectStore {
 
     /// Said where the posture refuses a project task outright.
     static let projectTaskNotPermittedRefusal =
-        "Your part in this book doesn\u{2019}t reach the project\u{2019}s own tasks, "
+        "Your part in this book doesn\u{2019}t reach the project\u{2019}s own to-dos, "
         + "so nothing was changed."
 
     // MARK: - Mutation
@@ -127,7 +128,7 @@ extension ProjectStore {
             docId: Self.projectTasksDocId, device: projectOpDevice,
             session: projectOpSession, sessionId: projectOpSession) {
             OpUndoRegistrar.register(
-                undoManager, actionName: "New Task", target: self,
+                undoManager, actionName: "New To-Do", target: self,
                 workTaskSink: { [weak self] in self?._lastUndoWorkTask = $0 },
                 undo: { store in
                     // Fire-time guard: only archive if still present and not
@@ -165,7 +166,7 @@ extension ProjectStore {
     public func appendProjectTaskOp(_ op: Op) -> Bool {
         if let refusal = projectTaskRefusal() {
             projectStoreLog.error(
-                "project task op \(op.kind.rawValue, privacy: .public) refused at the project stream's door")
+                "project to-do op \(op.kind.rawValue, privacy: .public) refused at the project stream's door")
             MaughamEvent.postNotice(refusal, projectURL: url)
             return false
         }
@@ -185,7 +186,7 @@ extension ProjectStore {
             do { try await store.append(op) }
             catch {
                 projectStoreLog.error(
-                    "project task op append failed: \(error.localizedDescription, privacy: .public)")
+                    "project to-do op append failed: \(error.localizedDescription, privacy: .public)")
             }
         }
         return true
@@ -209,16 +210,16 @@ extension ProjectStore {
 
     // MARK: - Aggregation read API
 
-    /// Aggregate task list across every open document plus the project-scope
-    /// op log. Behind a version-token cache (spec §9.5): repeated calls
-    /// without intervening mutation reuse the same derivation.
+    /// Aggregate task list across every document in the manifest, open or
+    /// closed, plus the project-scope op log. Behind a version-token cache
+    /// (spec §9.5): repeated calls without intervening mutation reuse the
+    /// same derivation.
     ///
-    /// Closed documents are intentionally NOT included in this aggregation
-    /// in this milestone — their inline `- [ ]` tasks only surface once the
-    /// user opens the document. Pane-created project-wide tasks are
-    /// independently visible via the project op log. A future milestone
-    /// can extend this to read closed-doc op logs from disk; the cache key
-    /// is shaped to accept a closed-doc mtime hash sum when that lands.
+    /// Closed documents ARE included: their tasks are derived from their op
+    /// logs on disk, and the cache key (`currentAggregationKey`) folds every
+    /// closed document's op-log file mtimes, so a closed piece's to-dos
+    /// re-derive when any device's file for it changes. Pane-created
+    /// project-wide tasks come from the project op log.
     public func listTasksAcrossProject(
         filter: TaskFilter
     ) -> [WriterTask] {
@@ -341,30 +342,43 @@ extension ProjectStore {
                 facts: DocumentClass.Facts(manifest))
             else { continue }
             let paragraphs = Deriver.deriveWithSequenceFallback(ops: ops).paragraphs
-            // `maughamDeviceId: nil` — this projection reads and never writes,
-            // so the rebalance ops it would build are discarded on the next
-            // line. Nil builds none of them and applies the priorities anyway
-            // (M2); the id it used to default to is disk I/O on the main actor
-            // for a value bound to `_`.
-            let (closedTasks, _, _) = TaskDeriver.derive(
-                ops: ops, paragraphs: paragraphs, docId: item.id,
-                maughamDeviceId: nil)
-            all.append(contentsOf: closedTasks)
+            all.append(contentsOf: Self.closedDocumentTasks(ops: ops, paragraphs: paragraphs, docId: item.id))
         }
 
-        // 2. Project-scope pane-created tasks. Derive from the synthetic
-        //    op log directly. No paragraphs (this log never references any).
-        let (projectTasks, _, _) = TaskDeriver.derive(
-            ops: _projectOpLogMirror,
-            paragraphs: [:],
-            docId: Self.projectTasksDocId,
-            maughamDeviceId: nil)   // read-only projection (M2)
-        all.append(contentsOf: projectTasks)
+        // 2. Project-scope pane-created tasks.
+        all.append(contentsOf: projectLevelTasks())
 
         _projectTasksCache = all
         _projectTasksCacheKey = key
         projectTasksVersion &+= 1
         return all
+    }
+
+    /// **One closed document's to-dos** (every status), from its merged ops
+    /// and derived paragraphs — the task walk's rule, nonisolated so the
+    /// tree's presence read (`ResolveChunkedWalk`) derives them off the main
+    /// actor from the same read it takes the notes from.
+    ///
+    /// `maughamDeviceId: nil` — this projection reads and never writes, so
+    /// the rebalance ops it would build are discarded. Nil builds none of
+    /// them and applies the priorities anyway (M2); the id it used to default
+    /// to is disk I/O for a value bound to `_`.
+    nonisolated static func closedDocumentTasks(
+        ops: [Op], paragraphs: [String: String], docId: String
+    ) -> [WriterTask] {
+        TaskDeriver.derive(ops: ops, paragraphs: paragraphs, docId: docId, maughamDeviceId: nil).0
+    }
+
+    /// **The Book's own to-dos** (every status): derived from the synthetic
+    /// project op log directly. No paragraphs (this log never references
+    /// any). A small in-memory derive.
+    func projectLevelTasks() -> [WriterTask] {
+        ensureProjectOpLogLoaded()
+        return TaskDeriver.derive(
+            ops: _projectOpLogMirror,
+            paragraphs: [:],
+            docId: Self.projectTasksDocId,
+            maughamDeviceId: nil).0   // read-only projection (M2)
     }
 
     private func matches(_ filter: TaskFilter) -> (WriterTask) -> Bool {

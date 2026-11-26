@@ -140,7 +140,7 @@ final class ManuscriptWriterPostureTests: XCTestCase {
             await doc.awaitPendingUndoWork()
         }
         XCTAssertEqual(said, [
-            "Couldn't undo the restore — this Mac can no longer change this piece's text."])
+            "Couldn't undo the restore — this Mac can no longer change this text."])
         XCTAssertEqual(doc._opLogMirror.count, before, "the undo appended nothing")
         XCTAssertEqual(doc.displayText, "First words.", "the restored text stays")
         await doc.close()
@@ -225,7 +225,7 @@ final class ManuscriptWriterPostureTests: XCTestCase {
             await doc.awaitPendingUndoWork()
         }
         XCTAssertEqual(saidOnPress, [
-            "Couldn't change that task — this Mac can no longer file tasks in this piece."])
+            "Couldn't change that to-do — this Mac can no longer file to-dos here."])
         XCTAssertEqual(doc.paragraph(id: pid), prior)
         XCTAssertFalse(um.canUndo)
 
@@ -240,7 +240,7 @@ final class ManuscriptWriterPostureTests: XCTestCase {
             await doc.awaitPendingUndoWork()
         }
         XCTAssertEqual(saidOnUndo, [
-            "Couldn't change that task — this Mac can no longer file tasks in this piece."])
+            "Couldn't change that to-do — this Mac can no longer file to-dos here."])
         XCTAssertEqual(doc.paragraph(id: pid), flipped, "the flip stays")
         await doc.close()
     }
@@ -248,7 +248,7 @@ final class ManuscriptWriterPostureTests: XCTestCase {
     // MARK: - The yield (#74): the stamp allows, the posture does not
 
     private static let taskRefusal =
-        "Couldn't change that task — this Mac can no longer file tasks in this piece."
+        "Couldn't change that to-do — this Mac can no longer file to-dos here."
 
     /// **Append asks the posture as well as the stamp** (#74): a book author's
     /// Mac yielding to a piece's starter has a stamp that allows and a posture
@@ -461,7 +461,7 @@ final class ManuscriptWriterPostureTests: XCTestCase {
         let results = SearchResults(query: "Bob", options: SearchOptions(),
                                     matches: [inA, inB, note])
         let split = ProjectSearchView.replaceability(
-            results, mayReplace: { $0.documentPath != "manuscript/b.md" })
+            results, mayReplace: { $0.documentPath != "manuscript/b.md" }, inReadThrough: { _ in false })
         XCTAssertEqual(split.replaceable, 2)
         XCTAssertEqual(split.leftAlone, ["B"])
         XCTAssertTrue(ProjectSearchView.offersReplaceAll(split))
@@ -470,7 +470,7 @@ final class ManuscriptWriterPostureTests: XCTestCase {
 
         let none = ProjectSearchView.replaceability(
             SearchResults(query: "Bob", options: SearchOptions(), matches: [inA, inB]),
-            mayReplace: { _ in false })
+            mayReplace: { _ in false }, inReadThrough: { _ in false })
         XCTAssertFalse(ProjectSearchView.offersReplaceAll(none),
                        "a reviewer whose results are all manuscript sees no Replace All")
     }
@@ -491,17 +491,18 @@ final class ManuscriptWriterPostureTests: XCTestCase {
             query: "Bob", options: SearchOptions(), matches: inA + inB + [note])
 
         var asked: [String] = []
-        let gate = ProjectSearchView.ReplaceGate(results) { path in
+        let gate = ProjectSearchView.ReplaceGate(results, posture: { path in
             asked.append(path)
             return path == "manuscript/a.md" ? self.bookAuthor : self.reviewer
-        }
+        }, inReadThrough: { _, _ in false })
         XCTAssertEqual(asked.sorted(), ["manuscript/a.md", "manuscript/b.md"],
                        "ten manuscript matches, two documents, two questions; the note none")
         XCTAssertTrue(inA.allSatisfy(gate.mayReplace), "hers: every row")
         XCTAssertFalse(inB.contains(where: gate.mayReplace), "not hers: no row")
         XCTAssertTrue(gate.mayReplace(note), "a research note is outside the permit")
 
-        let noDoor = ProjectSearchView.ReplaceGate(results) { _ in nil }
+        let noDoor = ProjectSearchView.ReplaceGate(results, posture: { _ in nil },
+                                                   inReadThrough: { _, _ in false })
         XCTAssertFalse(noDoor.mayReplace(inA[0]), "no door behind the host fails closed")
         XCTAssertEqual(asked.count, 2, "control: the second gate asked its own closure")
     }

@@ -3,7 +3,7 @@ import MaughamCore
 @testable import Maugham
 
 /// Where a freshly opened window lands, for every shape a `ui-state.json` can
-/// hold — `ProjectWindow.validSubject`, plus the codec that feeds it.
+/// hold — `ProjectWindow.validatedSubject`, plus the codec that feeds it.
 ///
 /// **The failure this pins is silent.** Before the project row, the restore
 /// validated the saved subject with a bare `TreeWalk.contains` over its item id.
@@ -52,7 +52,7 @@ final class SubjectRestoreTests: XCTestCase {
     /// Shape 1 — the project flag. The whole point of task 3.
     func test_theProjectSubjectRestoresToTheProject() {
         XCTAssertEqual(
-            ProjectWindow.validSubject(.project, in: structure(), research: [], figures: [], parked: []),
+            ProjectWindow.repairedOpen(.project, in: structure(), research: [], figures: [], parked: []),
             .project,
             "the project is in no structure and is valid because of that; "
             + "validating it against the structure lands the window on chapter 1")
@@ -62,7 +62,7 @@ final class SubjectRestoreTests: XCTestCase {
     /// shipped build has, and the one this change must not move.
     func test_anIdStillInTheStructureRestoresUnchanged() {
         XCTAssertEqual(
-            ProjectWindow.validSubject(.item("doc-2"), in: structure(), research: [], figures: [], parked: []),
+            ProjectWindow.repairedOpen(.item("doc-2"), in: structure(), research: [], figures: [], parked: []),
             .item("doc-2"))
     }
 
@@ -71,7 +71,7 @@ final class SubjectRestoreTests: XCTestCase {
     /// would be a regression the type makes easy to write by accident.
     func test_aGroupIdRestoresUnchanged() {
         XCTAssertEqual(
-            ProjectWindow.validSubject(.item("grp"), in: structure(), research: [], figures: [], parked: []),
+            ProjectWindow.repairedOpen(.item("grp"), in: structure(), research: [], figures: [], parked: []),
             .item("grp"))
     }
 
@@ -87,7 +87,7 @@ final class SubjectRestoreTests: XCTestCase {
     /// so there is nothing to click to get back out.
     func test_anIdNoLongerInTheStructureRestoresTheProject() {
         XCTAssertEqual(
-            ProjectWindow.validSubject(.item("gone"), in: structure(), research: [], figures: [], parked: []),
+            ProjectWindow.repairedOpen(.item("gone"), in: structure(), research: [], figures: [], parked: []),
             .project,
             "an id naming a deleted item is not a choice the writer made; the "
             + "dim is entered by a click and never by opening a window")
@@ -97,7 +97,7 @@ final class SubjectRestoreTests: XCTestCase {
     /// has clicked in this window yet.
     func test_noSavedSelectionRestoresTheProject() {
         XCTAssertEqual(
-            ProjectWindow.validSubject(nil, in: structure(), research: [], figures: [], parked: []),
+            ProjectWindow.repairedOpen(nil, in: structure(), research: [], figures: [], parked: []),
             .project,
             "a window nobody has clicked in has entered no selection, and "
             + "picking one for them names a chapter on the canvas they did not "
@@ -110,7 +110,7 @@ final class SubjectRestoreTests: XCTestCase {
     /// answered.
     func test_aLiveResearchSubjectRestoresUnchanged() {
         XCTAssertEqual(
-            ProjectWindow.validSubject(
+            ProjectWindow.repairedOpen(
                 .research("r-1"), in: structure(), research: researchTree(), figures: [], parked: []),
             .research("r-1"))
     }
@@ -119,7 +119,7 @@ final class SubjectRestoreTests: XCTestCase {
     /// `research/palette/` — no second validation path for it.
     func test_aLivePaletteCardSubjectRestoresUnchanged() {
         XCTAssertEqual(
-            ProjectWindow.validSubject(
+            ProjectWindow.repairedOpen(
                 .research("pal-1"), in: structure(), research: researchTree(), figures: [], parked: []),
             .research("pal-1"))
     }
@@ -129,7 +129,7 @@ final class SubjectRestoreTests: XCTestCase {
     /// and not a silently wrong restore.
     func test_aDeadResearchSubjectRestoresTheProject() {
         XCTAssertEqual(
-            ProjectWindow.validSubject(
+            ProjectWindow.repairedOpen(
                 .research("gone"), in: structure(), research: researchTree(), figures: [], parked: []),
             .project)
     }
@@ -138,15 +138,15 @@ final class SubjectRestoreTests: XCTestCase {
 
     /// A structure with no document in it, which used to be the one shape with
     /// no answer at all. `.project` is in no structure, so it is now always
-    /// available — and `validSubject` returns a subject rather than an
+    /// available — and `validatedSubject` returns a subject rather than an
     /// optional one, which is why `load()` no longer has an `if let`.
     func test_aStructureWithNoDocumentStillHasAnAnswer() {
         let groupsOnly = [StructureItem(id: "grp", title: "Part One",
                                         type: .group, children: [])]
-        XCTAssertEqual(ProjectWindow.validSubject(nil, in: groupsOnly, research: [], figures: [], parked: []),
+        XCTAssertEqual(ProjectWindow.repairedOpen(nil, in: groupsOnly, research: [], figures: [], parked: []),
                        .project)
         XCTAssertEqual(
-            ProjectWindow.validSubject(.item("gone"), in: groupsOnly, research: [], figures: [], parked: []),
+            ProjectWindow.repairedOpen(.item("gone"), in: groupsOnly, research: [], figures: [], parked: []),
             .project)
     }
 
@@ -155,20 +155,20 @@ final class SubjectRestoreTests: XCTestCase {
     /// row a way out of an empty binder rather than another dead end — and now
     /// also what makes it a landing every project can offer.
     func test_theProjectRestoresEvenWithAnEmptyStructure() {
-        XCTAssertEqual(ProjectWindow.validSubject(.project, in: [], research: [], figures: [], parked: []),
+        XCTAssertEqual(ProjectWindow.repairedOpen(.project, in: [], research: [], figures: [], parked: []),
                        .project)
     }
 
     /// **The joint test, and the one that would have caught the original.**
     ///
-    /// Neither half is wrong on its own: `validSubject` returning a document
+    /// Neither half is wrong on its own: `validatedSubject` returning a document
     /// is a defensible answer for an editor, and `CanvasSubject.resolve` turning
     /// a document into a filtered board is exactly §4. The defect only exists
     /// where they meet, which is `ProjectWindow`'s body handing one to the
     /// other — so it is asserted across the seam rather than inside either side.
     func test_aFreshWindowLandsOnAnUNDIMMEDBoard() {
         for saved in [BinderSubject?.none, .item("gone"), .research("gone")] {
-            let restored = ProjectWindow.validSubject(saved, in: structure(),
+            let restored = ProjectWindow.repairedOpen(saved, in: structure(),
                                                       research: researchTree(), figures: [], parked: [])
             XCTAssertFalse(
                 CanvasSubject.resolve(restored, in: structure(),
@@ -186,11 +186,11 @@ final class SubjectRestoreTests: XCTestCase {
     /// relaunch undoes the writer's last selection.
     ///
     /// The pair is what makes it a rule rather than a coincidence: what
-    /// `validSubject` REPAIRS lands undimmed (above), and what it PRESERVES
+    /// `validatedSubject` REPAIRS lands undimmed (above), and what it PRESERVES
     /// dims.
     func test_aRestoredResearchSubjectDimsTheBoardTheWayARestoredChapterDoes() {
         for saved in [BinderSubject.research("r-1"), .research("pal-1"), .item("doc-1")] {
-            let restored = ProjectWindow.validSubject(saved, in: structure(),
+            let restored = ProjectWindow.repairedOpen(saved, in: structure(),
                                                       research: researchTree(), figures: [], parked: [])
             XCTAssertEqual(restored, saved, "fixture: this subject is a live one")
             XCTAssertTrue(
@@ -199,7 +199,7 @@ final class SubjectRestoreTests: XCTestCase {
                 "the writer's own selection came back undimmed: \(restored)")
         }
         XCTAssertFalse(
-            CanvasSubject.resolve(ProjectWindow.validSubject(.project, in: structure(),
+            CanvasSubject.resolve(ProjectWindow.repairedOpen(.project, in: structure(),
                                                              research: researchTree(), figures: [], parked: []),
                                   in: structure(), research: researchTree()).dimsTheBoard,
             "control: the project row is still the way out of the dim")
@@ -216,12 +216,12 @@ final class SubjectRestoreTests: XCTestCase {
         let url = temp.url.appendingPathComponent("ui-state.json")
 
         var state = UIState.empty
-        state.selectedSubject = .project
+        state.windowSubject = .book
         try JSONEncoder().encode(state).write(to: url)
 
         let loaded = UIState.loadOrEmpty(from: url)
         XCTAssertEqual(
-            ProjectWindow.validSubject(loaded.selectedSubject,
+            ProjectWindow.repairedOpen(loaded.windowSubject.open,
                                           in: structure(), research: [], figures: [], parked: []),
             .project,
             "select the project, quit, reopen — this is that trip")
@@ -242,7 +242,7 @@ final class SubjectRestoreTests: XCTestCase {
 
         let loaded = UIState.loadOrEmpty(from: url)
         XCTAssertEqual(
-            ProjectWindow.validSubject(loaded.selectedSubject,
+            ProjectWindow.repairedOpen(loaded.windowSubject.open,
                                           in: structure(), research: [], figures: [], parked: []),
             .item("doc-2"))
     }
@@ -255,7 +255,7 @@ final class SubjectRestoreTests: XCTestCase {
     /// is the project, and the downgrade is therefore visible rather than silent.
     func test_anOlderBuildReadingTheProjectFileFindsNoIdToRestore() throws {
         var state = UIState.empty
-        state.selectedSubject = .project
+        state.windowSubject = .book
         let object = try JSONSerialization.jsonObject(
             with: try JSONEncoder().encode(state)) as? [String: Any]
         XCTAssertNil(object?["selectedItemId"] as? String,
@@ -263,7 +263,7 @@ final class SubjectRestoreTests: XCTestCase {
 
         // What THIS build does with the same absence, which is the rule under
         // test: the project, not a chapter nobody chose.
-        XCTAssertEqual(ProjectWindow.validSubject(nil, in: structure(), research: [], figures: [], parked: []),
+        XCTAssertEqual(ProjectWindow.repairedOpen(nil, in: structure(), research: [], figures: [], parked: []),
                        .project)
     }
 }

@@ -197,7 +197,7 @@ public enum CheckpointCapture {
     /// breadcrumb belongs on a stream whose pointer we took.
     ///
     /// **NOT redirected to `__project__`.** That stream carries project-scope
-    /// *task* ops and is walked by `TaskDeriver`, `TasksPane.ownerDoc` and
+    /// *task* ops and is walked by `TaskDeriver`, the Tasks pane's `ownerDoc` and
     /// `ProjectStore.projectTasksOpLog()`; a breadcrumb in it would be a second
     /// op kind in a log those three read. The op is dropped, not re-homed.
     ///

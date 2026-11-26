@@ -903,23 +903,42 @@ final class TranslatorEnvironmentTests: XCTestCase {
         XCTAssertTrue(session.contains("onRunAcknowledged: { [weak self] in self?.flash($0) }"),
                       "the compiler's flash must forward through the session's current sink")
         // Mounted through the environment since foundations plan 3 Task 5:
-        // the window injects the roster into the right column, and the
-        // toggle reads the roster and hands each member to its pane. Read
+        // the window injects the roster into the right column, and the desk
+        // and the translation review each read their members off it. Read
         // from masked code, so a comment naming a token does not count.
         let window = try SourceTree.windowSource()
         let windowCode = String(decoding: SourceTree.mask(window), as: UTF8.self)
         XCTAssertTrue(windowCode.contains(".environment(roster)"),
                       "ProjectWindow no longer injects the roster — without it every "
                       + "roster member is unmounted from the right column")
-        let toggle = try SourceTree.sourceOfType("DetailPaneToggle", under: ["Maugham"])
-        let toggleCode = String(decoding: SourceTree.mask(toggle), as: UTF8.self)
-        for token in ["@Environment(AgentRoster.self)",
-                      "{ roster?.translator }", "{ roster?.coldCall }", "{ roster?.pipeline }",
-                      "translator: translator", "coldCall: coldCall", "pipeline: pipeline"] {
-            XCTAssertTrue(toggleCode.contains(token),
-                          "DetailPaneToggle is missing \(token) — without it a roster member "
+        // Shell p4 Task 6: the desk is unmounted; an edition's head reaches
+        // the translator and the pipeline (and the designer) the same way.
+        let desk = try SourceTree.sourceOfType("EditionHeadView", under: ["Maugham"])
+        let deskCode = String(decoding: SourceTree.mask(desk), as: UTF8.self)
+        for token in ["@Environment(AgentRoster.self)", "roster?.translator.runState",
+                      "roster?.pipeline.status", "roster?.designer"] {
+            XCTAssertTrue(deskCode.contains(token),
+                          "EditionHeadView is missing \(token) — without it a roster member "
                           + "is unmounted")
         }
+        let column = try SourceTree.sourceOfType("RightColumn", under: ["Maugham"])
+        let columnCode = String(decoding: SourceTree.mask(column), as: UTF8.self)
+        for token in [".environment(roster)", "ResolvePane("] {
+            XCTAssertTrue(columnCode.contains(token),
+                          "RightColumn is missing \(token) — without it a roster member "
+                          + "is unmounted")
+        }
+        // The spot-checks reach the window's one cold-call runner from the
+        // environment the column injects (shell p4 Task 9; the translation
+        // review pane that took it as an argument is gone).
+        let caret = try SourceTree.sourceOfType("PieceInLanguageCaretSection", under: ["Maugham"])
+        let caretCode = String(decoding: SourceTree.mask(caret), as: UTF8.self)
+        for token in ["@Environment(AgentRoster.self)", "roster?.coldCall"] {
+            XCTAssertTrue(caretCode.contains(token),
+                          "PieceInLanguageCaretSection is missing \(token) — the spot-checks "
+                          + "would have no runner")
+        }
+        let toggle = desk + column
         XCTAssertFalse(window.contains("translator.notARealVerb(")
                        || session.contains("translator.notARealVerb(")
                        || toggle.contains("translator.notARealVerb("),

@@ -2,37 +2,40 @@ import XCTest
 @testable import Maugham
 import MaughamCore
 
-/// **Which loop asked for a run** (two loops P1 Task 1).
+/// **Which loop asked for a run** (two loops P1 Task 1; shell p1 Task 5).
 ///
-/// The mint is a total function over `Persona` and nothing else, so it is
-/// assertable without a window, a run or a store — which is the point: the one
-/// production site that calls it (`CompilerRunModifier`) is a `ViewModifier`
-/// no test can mount, and a census is all that guards the call. What the
-/// census cannot check is the ANSWER, and that is what this file is.
+/// The kind is the COMMAND's (`RunCommand`), a total function over four
+/// cases and nothing else, so it is assertable without a window, a run or a
+/// store. Which piece a command reads, and the receiver's arms, are
+/// `CompilerRunCommandTests`' and `WiringCensusTests`' to pin.
 final class RunKindTests: XCTestCase {
 
-    /// **Every persona, named individually.** Written over `Persona.allCases`
-    /// so a fifth persona fails to compile here rather than quietly defaulting
-    /// to `.check` — the `switch` in `RunKind.of(persona:)` is exhaustive, and
-    /// this is the assertion that says a new case must be decided rather than
-    /// inherited.
-    func test_reviewMintsARound_andEveryOtherPersonaMintsACheck() {
-        XCTAssertEqual(RunKind.of(persona: .review), .round,
-                       "Review's Run round is the round verb")
-        XCTAssertEqual(RunKind.of(persona: .author), .check,
-                       "Author's \u{2318}R is the check verb")
-        XCTAssertEqual(RunKind.of(persona: .plan), .check,
-                       "Plan has no run key of its own; a run reaching the "
-                       + "orchestrator from it is a check")
-        XCTAssertEqual(RunKind.of(persona: .publish), .check,
-                       "…and so is one from Publish")
+    /// **Every command, named individually**: two checks, two rounds, and the
+    /// cold read of each. Written out rather than derived, so a change to one
+    /// arm of `RunCommand`'s switches is a red line here.
+    func test_eachCommandNamesItsKindAndOnlyTheColdReadsAreFresh() {
+        XCTAssertEqual(RunCommand.checkWriting.kind, .check)
+        XCTAssertFalse(RunCommand.checkWriting.isFreshEyes)
+        XCTAssertEqual(RunCommand.reread.kind, .check)
+        XCTAssertTrue(RunCommand.reread.isFreshEyes)
+        XCTAssertEqual(RunCommand.runRound.kind, .round)
+        XCTAssertFalse(RunCommand.runRound.isFreshEyes)
+        XCTAssertEqual(RunCommand.freshEyes.kind, .round)
+        XCTAssertTrue(RunCommand.freshEyes.isFreshEyes)
+        XCTAssertEqual(RunCommand.allCases, [.checkWriting, .reread, .runRound, .freshEyes],
+                       "a fifth command must be decided above rather than inherited")
+    }
 
-        // The census over the enum: every case is named above. A fifth persona
-        // makes this fail rather than letting the four assertions above pass
-        // over a case nobody decided.
-        XCTAssertEqual(Persona.allCases, [.plan, .author, .review, .publish],
-                       "a new persona must be given a RunKind above rather than "
-                       + "inheriting .check by omission")
+    /// The File menu's fixed titles, and one event per command — four
+    /// promises, four events, none shared.
+    func test_theTitlesAreFixedAndEachCommandPostsItsOwnEvent() {
+        XCTAssertEqual(RunCommand.allCases.map(\.title),
+                       ["Check Writing", "Reread", "Run Round", "Fresh Eyes"])
+        XCTAssertEqual(Set(RunCommand.allCases.map(\.event)).count, RunCommand.allCases.count)
+        XCTAssertEqual(RunCommand.checkWriting.event, .maughamRunCompiler)
+        XCTAssertEqual(RunCommand.reread.event, .maughamFreshEyesCompiler)
+        XCTAssertEqual(RunCommand.runRound.event, .maughamRunRound)
+        XCTAssertEqual(RunCommand.freshEyes.event, .maughamFreshEyesRound)
     }
 
     /// The raw values are a disk format — `CompilerRun.kind` is written into

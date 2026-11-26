@@ -262,6 +262,7 @@ extension ProjectStore {
     }
 
     func saveManifest() async throws {
+        manifestSaveCount += 1
         // A save is a structural verb of its own: a manifest arriving across
         // its `await` is held and settled after the write, never adopted over
         // the copy being written (F7 fix round, I1).
@@ -416,26 +417,85 @@ extension ProjectStore {
         // form, and the resolver's case-insensitive title match handles
         // those naturally on the next render.
         if oldTitle != newTitle, item.type == .document {
-            let left = await propagateWikiLinkRename(
+            return await propagateWikiLinkRename(
                 excludeId: id, oldTitle: oldTitle, newTitle: newTitle)
-            return RenameOutcome(linksLeftIn: left)
         }
         return RenameOutcome(linksLeftIn: [])
     }
 
-    /// What a rename could not do (controller ruling AH).
+    /// What a rename — or a Research move — could not do (controller ruling
+    /// AH; RULING-52: the verb stands, and says what it left).
     public struct RenameOutcome: Equatable {
+        /// Which verb the sentence names.
+        public enum Act: Equatable { case renamed, moved }
+
         /// Titles of the pieces (and statements) whose `[[old title]]` links
         /// were left, because this Mac may not write their text.
         public let linksLeftIn: [String]
+        /// Titles of the pieces a promotion was moving to their own project
+        /// just then, whose links were left (shell p4 Task 11 fix round 1, I1).
+        public var linksLeftWhilePromoting: [String] = []
+        /// Titles of the Research notes whose `./<old>_assets/` picture links
+        /// could not be rewritten after the note was renamed or moved
+        /// (`rewriteMovedNoteAssetRefs`, #148 D2): they point at a folder
+        /// that is gone.
+        public let assetRefsLeftIn: [String]
+        public let act: Act
 
-        /// The sentence the tree says, or nil when every link was rewritten.
+        public init(linksLeftIn: [String] = [], linksLeftWhilePromoting: [String] = [],
+                    assetRefsLeftIn: [String] = [], act: Act = .renamed) {
+            self.linksLeftIn = linksLeftIn
+            self.linksLeftWhilePromoting = linksLeftWhilePromoting
+            self.assetRefsLeftIn = assetRefsLeftIn
+            self.act = act
+        }
+
+        /// The sentence the tree says, or nil when everything was rewritten.
         public var sentence: String? {
+            let said = [linksSentence, promotingSentence, assetRefsSentence].compactMap { $0 }
+            return said.isEmpty ? nil : said.joined(separator: " ")
+        }
+
+        private var linksSentence: String? {
             guard !linksLeftIn.isEmpty else { return nil }
             return "Links to the old title were left in "
                 + linksLeftIn.joined(separator: ", ")
                 + " — this Mac may not change their text, so those links no "
                 + "longer point anywhere until someone who may fixes them."
+        }
+
+        private var promotingSentence: String? {
+            guard !linksLeftWhilePromoting.isEmpty else { return nil }
+            return "Links to the old title were left in "
+                + linksLeftWhilePromoting.joined(separator: ", ")
+                + " — it was being promoted to its own project just then."
+        }
+
+        private var assetRefsSentence: String? {
+            guard !assetRefsLeftIn.isEmpty else { return nil }
+            let verb = act == .renamed ? "Renamed" : "Moved"
+            return "\(verb) \(Self.prose(assetRefsLeftIn)), but the picture links in "
+                + (assetRefsLeftIn.count == 1 ? Self.prose(assetRefsLeftIn) : "\(assetRefsLeftIn.count) notes")
+                + " could not be updated."
+        }
+
+        /// The stale picture links said on their own, for when the manifest
+        /// save after the rewrite throws and its error replaces this outcome
+        /// (RULING-52: what failed AND what it left). No "Renamed …, but":
+        /// the verb did not land cleanly. Nil when nothing was left.
+        var assetRefsAfterAFailedSave: String? {
+            guard !assetRefsLeftIn.isEmpty else { return nil }
+            let which = assetRefsLeftIn.count == 1
+                ? Self.prose(assetRefsLeftIn)
+                : "\(assetRefsLeftIn.count) notes, \(Self.prose(assetRefsLeftIn)),"
+            return "The picture links in \(which) could not be updated."
+        }
+
+        /// Titles as prose: “A”; “A” and “B”; “A”, “B” and “C”.
+        private static func prose(_ titles: [String]) -> String {
+            let quoted = titles.map { "“\($0)”" }
+            guard let last = quoted.last, quoted.count > 1 else { return quoted.first ?? "" }
+            return quoted.dropLast().joined(separator: ", ") + " and " + last
         }
     }
 
@@ -477,8 +537,9 @@ extension ProjectStore {
     @discardableResult
     func propagateWikiLinkRename(
         excludeId: String, oldTitle: String, newTitle: String
-    ) async -> [String] {
+    ) async -> RenameOutcome {
         var linksLeftIn: [String] = []
+        var linksLeftWhilePromoting: [String] = []
         // One rename moves more than one title. The document's own is the
         // obvious one; the other is the COMPOSED title of every statement
         // scoped to it — `ArtifactIndex.statementTitle` names a statement after
@@ -583,11 +644,18 @@ extension ProjectStore {
                     // Propagating a rename through the writer's own links is
                     // an automation of their hand, not an act of its own —
                     // `.author`, like search-and-replace (constraint 6).
-                    resolved = try await Document.load(
+                    resolved = try await DocumentStore.loadManuscript(
+                        path: path, title: doc.title,
                         url: docURL,
                         actor: .author,
                         session: "wiki-rename-\(UUID().uuidString.prefix(8))",
-                        presenter: documentStore?.presenter)
+                        presenter: documentStore?.presenter,
+                        through: documentStore)
+                } catch is ManuscriptBeingPromoted {
+                    // Moving to its own project now: its links are left, and
+                    // the rename says why (shell p4 Task 11 fix round 1, I1).
+                    linksLeftWhilePromoting.append(doc.title)
+                    continue
                 } catch DocumentLoadError.waitingForPiece {
                     // A piece this Mac may not open yet (its ops have not
                     // arrived — since Option A, the root's own Mac waits for a
@@ -789,7 +857,8 @@ extension ProjectStore {
                     "Wiki-rename: research note \(path, privacy: .public) skipped: \(error.localizedDescription, privacy: .public)")
             }
         }
-        return linksLeftIn
+        return RenameOutcome(linksLeftIn: linksLeftIn,
+                             linksLeftWhilePromoting: linksLeftWhilePromoting)
     }
 
     /// Whether a statement's file holds any bytes at all — a `stat`, never a
@@ -932,11 +1001,13 @@ extension ProjectStore {
         for document in documents {
             guard let path = document.path else { continue }
             do {
-                let loaded = try await Document.load(
+                let loaded = try await DocumentStore.loadManuscript(
+                    path: path, title: document.title,
                     url: try resolvedProjectPath(path),
                     actor: .author,
                     session: "created-\(UUID().uuidString.prefix(8))",
-                    presenter: documentStore?.presenter)
+                    presenter: documentStore?.presenter,
+                    through: documentStore)
                 // The bootstrap writes an anchored `.md` for the op log to
                 // join on; the render the book keeps on disk is the clean one
                 // (ADR 0019), written here exactly as a restore writes its
@@ -1098,6 +1169,40 @@ extension ProjectStore {
             manifest.modified = Date()
             try await saveManifest()
         }
+    }
+
+    /// **Several research items' links, edited in one manifest save** (shell
+    /// p5 Task 4a fix round 1, M7): each of `ids` is unlinked from every
+    /// piece in `from`, then linked to `to` — a move between chapters is one
+    /// write, never an unlink that saved and a link that did not. Idempotent.
+    public func relinkResearch(ids: [String], from: [String], to: String?) async throws {
+        var structure = manifest.structure
+        var changed = false
+        for documentId in from {
+            Self.applyLinkMutation(documentId: documentId, in: &structure) { item in
+                guard var links = item.linkedResearchIds else { return }
+                let before = links.count
+                links.removeAll { ids.contains($0) }
+                if links.count != before {
+                    item.linkedResearchIds = links.isEmpty ? nil : links
+                    changed = true
+                }
+            }
+        }
+        if let to {
+            Self.applyLinkMutation(documentId: to, in: &structure) { item in
+                var links = item.linkedResearchIds ?? []
+                for id in ids where !links.contains(id) {
+                    links.append(id)
+                    changed = true
+                }
+                item.linkedResearchIds = links.isEmpty ? nil : links
+            }
+        }
+        guard changed else { return }
+        manifest.structure = structure
+        manifest.modified = Date()
+        try await saveManifest()
     }
 
     /// Remove a research link. Idempotent.

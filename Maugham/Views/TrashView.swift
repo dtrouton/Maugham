@@ -139,7 +139,7 @@ struct TrashView: View {
 /// **The tree's foot** (shell-finish stage 2b Task 2). The segment strip's own
 /// Trash entry died with the strip — nothing selects `.trash` any more — and
 /// this is where a writer browses and restores what they deleted instead:
-/// mounted below the tree, in every persona, collapsed by default, present
+/// mounted below the tree, whatever is open, collapsed by default, present
 /// only while there is something in it.
 ///
 /// Wraps `TrashView` UNCHANGED for its rows rather than forking a second

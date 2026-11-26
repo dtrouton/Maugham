@@ -2,16 +2,14 @@ import XCTest
 import MaughamCore
 @testable import Maugham
 
-/// **The centre column has ONE exhaustive route** (foundations plan 4, Task 3).
+/// **The centre column has ONE exhaustive route, asked of the window's
+/// subject** (shell p1 Task 2; foundations plan 4, Task 3 before it).
 ///
-/// Before `CentreRoute`, what the centre showed was decided twice — an if/else
-/// chain in `editorPane` and independent `if` layers in `manuscriptEditor`'s
-/// `ZStack`, where the surface the writer saw was whichever layer came LAST.
-/// This suite pins the route those two mechanisms produced, over every persona,
-/// every subject shape, the palette wall open and shut, and every publish
-/// state — derived from the old code's order and from the implication tests
-/// that already held it in place (`ReviewBoardRoutingTests`,
-/// `PublishPreviewCentreTests`, `ProjectAltitudeCentreTests`, `DesignGateTests`).
+/// What the centre shows is `WindowSubject.open`'s answer, and nothing else's:
+/// every kind of subject `open` can be (`SubjectSamples.everyOpen`, kept whole
+/// by its own census), every Book view, and every publish state. The faces
+/// moving to a piece while the canvas or an edition holds the centre changes
+/// nothing here.
 ///
 /// The expected table below is written out by hand on purpose. Built from the
 /// same statics `centreRoute` composes, it could only ever agree with them.
@@ -20,31 +18,7 @@ final class CentreRouteTests: XCTestCase {
 
     // MARK: - Fixtures
 
-    /// One document, one group (from `ProjectAltitudeCentreTests`), and the
-    /// subject shapes this suite walks.
-    static let structure = ProjectAltitudeCentreTests.structure
-
-    enum Shape: CaseIterable, CustomStringConvertible {
-        case none, project, group, document, research
-        var subject: BinderSubject? {
-            switch self {
-            case .none: return nil
-            case .project: return .project
-            case .group: return .item("part-one")
-            case .document: return .item("chapter-1")
-            case .research: return .research("res-1")
-            }
-        }
-        var description: String {
-            switch self {
-            case .none: return "no subject"
-            case .project: return "the project"
-            case .group: return "a group"
-            case .document: return "a document"
-            case .research: return "a research item"
-            }
-        }
-    }
+    static let structure = SubjectSamples.structure
 
     static let book = PublishPreviewCentreTests.aBook
     static let proposal = PublishCentreModelTests.proposal()
@@ -72,131 +46,205 @@ final class CentreRouteTests: XCTestCase {
     }
 
     @MainActor
-    static func route(_ persona: Persona, _ shape: Shape, wall: Bool,
-                      _ publish: PublishState,
+    static func route(_ subject: WindowSubject, _ bookView: BookView = .outline,
+                      _ publish: PublishState = .compiled,
                       projectType: ProjectType = .novel,
                       structure: [StructureItem]? = nil) -> CentreRoute {
         ProjectWindow.centreRoute(
-            persona: persona, subject: shape.subject, projectType: projectType,
-            structure: structure ?? CentreRouteTests.structure, showsPaletteWall: wall,
+            subject: subject, bookView: bookView, projectType: projectType,
+            structure: structure ?? CentreRouteTests.structure,
             preview: publish.preview, proposal: publish.proposal, round: publish.round)
     }
 
     // MARK: - The table
 
-    /// **What the old chain and the old stack's TOP layer produced, for every
-    /// combination.** Written per persona from the old code:
+    /// **Where each kind of `open` sends the centre**, written per kind:
     ///
-    /// - The wall first, everywhere but Plan.
-    /// - Plan: the canvas, whatever the subject (a research subject previews
-    ///   BESIDE it).
-    /// - Author: a research item takes the centre; a document is the bare
-    ///   editor; anything else is altitude.
-    /// - Review: as Author, with the board where altitude would be (the board
-    ///   was the layer over altitude).
-    /// - Publish: a research subject falls through (`.nothingMoves`); a round
-    ///   draws over anything, the chapter included; at project level the gate,
-    ///   then the book, then a notice saying which nothing it is; over a
-    ///   chapter, nothing.
-    /// - Altitude stays a layer beneath every cover wherever the subject names
-    ///   no document, exactly as the old stack mounted it.
-    static func expected(_ persona: Persona, _ shape: Shape, wall: Bool,
+    /// - the palette is the wall; a research item and a figure take the centre;
+    ///   the Inbox is the captures; the canvas is the canvas;
+    /// - a piece is the bare editor;
+    /// - the Book and a Part are the editor with the Book's view over it, as
+    ///   chosen — Status included, which is a view and never a cover;
+    /// - an edition is the editor with its book's cover over the Book's Cards or
+    ///   Outline (never Status): a round, then a proposal, then the book, then
+    ///   a notice saying which nothing it is.
+    static func expected(_ open: BinderSubject, _ bookView: BookView,
                          _ publish: PublishState) -> CentreRoute {
-        if wall && persona != .plan { return .paletteWall }
-        // Altitude is the layer that was mounted for every manuscript persona
-        // whenever the subject named no document — a research subject in
-        // Publish included, since Publish hands it to neither column.
-        let altitude = shape != .document
-        switch persona {
-        case .plan:
-            return .canvas
-        case .author:
-            if shape == .research { return .research(id: "res-1") }
-            return .editor(altitude: altitude, cover: nil)
-        case .review:
-            if shape == .research { return .research(id: "res-1") }
-            return .editor(altitude: altitude, cover: altitude ? .reviewBoard : nil)
-        case .publish:
+        switch SubjectSamples.kind(of: open) {
+        case "palette": return .paletteWall
+        case "research": return .research(id: SubjectSamples.researchID)
+        case "figure": return .figure(id: SubjectSamples.figureID)
+        case "inbox": return .inbox
+        case "canvas": return .canvas
+        case "piece": return .editor(altitude: nil, cover: nil)
+        case "project", "part": return .editor(altitude: bookView, cover: nil)
+        case "edition":
+            let altitude: BookView = bookView == .status ? .cards : bookView
             if publish.round != nil {
                 return .editor(altitude: altitude, cover: .translationRound(round))
             }
-            if shape == .document { return .editor(altitude: false, cover: nil) }
             if let proposal = publish.proposal {
-                return .editor(altitude: true, cover: .designGate(proposal))
+                return .editor(altitude: altitude, cover: .designGate(proposal))
             }
             switch publish {
             case .nothingCompiled:
-                return .editor(altitude: true, cover: .notice(.neverCompiled))
+                return .editor(altitude: altitude, cover: .notice(.neverCompiled))
             case .unreadable:
-                return .editor(altitude: true, cover: .notice(.unreadableCatalog(
+                return .editor(altitude: altitude, cover: .notice(.unreadableCatalog(
                     reason: PublishPreviewCentreTests.unreadableReason)))
             default:
-                return .editor(altitude: true, cover: .books([book]))
+                return .editor(altitude: altitude, cover: .books([book]))
             }
+        default:
+            XCTFail("no row for \(open)")
+            return .canvas
         }
     }
 
-    func test_everyCombinationRoutesWhereTheOldChainAndStackSentIt() {
-        XCTAssertEqual(Persona.allCases.count, 4,
-                       "a fifth persona must be given a row in `expected` — the "
-                       + "table is written out by hand, so it cannot grow one itself")
-        for persona in Persona.allCases {
-            for shape in Shape.allCases {
-                for wall in [false, true] {
-                    for publish in PublishState.allCases {
-                        XCTAssertEqual(
-                            Self.route(persona, shape, wall: wall, publish),
-                            Self.expected(persona, shape, wall: wall, publish),
-                            "\(persona), \(shape), wall \(wall ? "open" : "shut"), \(publish)")
-                    }
+    func test_everyCombinationRoutesWhereTheTableSays() {
+        for open in SubjectSamples.everyOpen {
+            for bookView in BookView.allCases {
+                for publish in PublishState.allCases {
+                    XCTAssertEqual(
+                        Self.route(SubjectSamples.opened(open), bookView, publish),
+                        Self.expected(open, bookView, publish),
+                        "\(open), \(bookView), \(publish)")
                 }
             }
         }
     }
 
-    // MARK: - What the old stack decided by z-order, now a fact
+    /// **The samples' census**: every kind of subject has a sample, so no
+    /// routing loop over `SubjectSamples.everyOpen` quietly skips one.
+    func test_theSamplesCoverEveryKindOfSubject() {
+        XCTAssertEqual(Set(SubjectSamples.everyOpen.map(SubjectSamples.kind(of:))),
+                       SubjectSamples.everyKind)
+    }
 
-    /// **Two covers are never both offered.** The old stack's comment said
-    /// so ("the two are never both offered") and nothing checked it: the board
-    /// and Publish's surface were layered one over the other, and only the
-    /// persona predicates kept them apart. Over the whole product: the board's
-    /// rule and the publish rule never both answer.
+    // MARK: - The five shell-p1 behaviours
+
+    func test_theInboxSubjectRoutesToTheInbox() {
+        for publish in PublishState.allCases {
+            XCTAssertEqual(Self.route(SubjectSamples.opened(.inbox), .status, publish), .inbox)
+        }
+        // With the faces on a piece too — the Inbox is what is open.
+        XCTAssertEqual(Self.route(WindowSubject(open: .inbox,
+                                                faces: .item(SubjectSamples.pieceID))),
+                       .inbox)
+    }
+
+    /// **A Part is a small Book over its own chapters**: the same pane, in the
+    /// chosen view, over the Part's pieces and under the Part's title.
+    func test_aPartShowsTheAltitudeOverItsOwnChapters() {
+        let part = SubjectSamples.opened(.item(SubjectSamples.partID))
+        for view in BookView.allCases {
+            XCTAssertEqual(Self.route(part, view), .editor(altitude: view, cover: nil))
+        }
+        let scope = ProjectWindow.altitudeScope(
+            open: part.open, structure: Self.structure, bookTitle: "The Book")
+        XCTAssertEqual(scope.title, "Part One")
+        XCTAssertEqual(scope.structure.map(\.id), [SubjectSamples.pieceID],
+                       "only the Part's own chapters")
+        let book = ProjectWindow.altitudeScope(
+            open: .project, structure: Self.structure, bookTitle: "The Book")
+        XCTAssertEqual(book.title, "The Book")
+        XCTAssertEqual(book.structure, Self.structure, "the Book lays out every piece")
+    }
+
+    /// **Status is a view and never a cover**, wherever the board shows.
+    func test_statusIsAViewAndNeverACover() {
+        for open in [BinderSubject.project, .item(SubjectSamples.partID)] {
+            for publish in PublishState.allCases {
+                XCTAssertEqual(Self.route(SubjectSamples.opened(open), .status, publish),
+                               .editor(altitude: .status, cover: nil),
+                               "\(open), \(publish)")
+            }
+            XCTAssertTrue(ProjectWindow.reviewCentreShowsBoard(
+                subject: SubjectSamples.opened(open), bookView: .status,
+                structure: Self.structure))
+        }
+        // And nowhere else: not a piece, not an edition, not under any other view.
+        for open in SubjectSamples.everyOpen {
+            for view in BookView.allCases {
+                let shows = ProjectWindow.reviewCentreShowsBoard(
+                    subject: SubjectSamples.opened(open), bookView: view,
+                    structure: Self.structure)
+                let kind = SubjectSamples.kind(of: open)
+                XCTAssertEqual(shows, view == .status && (kind == "project" || kind == "part"),
+                               "\(open), \(view)")
+            }
+        }
+    }
+
+    /// **An edition shows its book whatever the faces are on** — a click on a
+    /// piece moves the faces and never `open`.
+    func test_anEditionShowsItsBookWhateverTheFacesAreOn() {
+        let edition = BinderSubject.edition(language: "es")
+        let clicked = ClickRule.resolve(.item(SubjectSamples.pieceID), gesture: .click,
+                                        current: SubjectSamples.opened(edition),
+                                        structure: Self.structure, projectType: .novel)
+        XCTAssertEqual(clicked.open, edition, "premise: the click moved only the faces")
+        for faces in SubjectSamples.everyOpen {
+            let subject = WindowSubject(open: edition, faces: faces)
+            XCTAssertEqual(Self.route(subject, .outline, .compiled),
+                           .editor(altitude: .outline, cover: .books([Self.book])),
+                           "faces on \(faces)")
+        }
+        // Every language shows the same book: the preview carries none yet.
+        XCTAssertEqual(Self.route(SubjectSamples.opened(.edition(language: "sr"))),
+                       Self.route(SubjectSamples.opened(edition)))
+    }
+
+    func test_theCanvasStaysTheCentreWhenTheFacesMoveToAPiece() {
+        let clicked = ClickRule.resolve(.item(SubjectSamples.pieceID), gesture: .click,
+                                        current: SubjectSamples.opened(.canvas),
+                                        structure: Self.structure, projectType: .novel)
+        XCTAssertEqual(clicked, WindowSubject(open: .canvas,
+                                              faces: .item(SubjectSamples.pieceID)))
+        for type in ProjectType.allCases {
+            for publish in PublishState.allCases {
+                XCTAssertEqual(Self.route(clicked, .outline, publish, projectType: type),
+                               .canvas, "\(type), \(publish)")
+            }
+        }
+        // Reference material beside leaves it too.
+        var beside = clicked
+        beside.beside = .research(SubjectSamples.researchID)
+        XCTAssertEqual(Self.route(beside), .canvas)
+    }
+
+    // MARK: - What used to be decided by z-order, now a fact
+
+    /// **The board and an edition's surface are never both offered**, over
+    /// every subject, view and publish state.
     func test_theBoardAndThePublishSurfaceAreNeverBothOffered() {
-        for persona in Persona.allCases {
-            for shape in Shape.allCases {
+        for subject in SubjectSamples.everySubject {
+            for view in BookView.allCases {
                 for publish in PublishState.allCases {
                     let board = ProjectWindow.reviewCentreShowsBoard(
-                        persona: persona, subject: shape.subject, structure: Self.structure)
+                        subject: subject, bookView: view, structure: Self.structure)
                     let book = ProjectWindow.publishCentre(
-                        persona: persona, subject: shape.subject, structure: Self.structure,
-                        preview: publish.preview, proposal: publish.proposal,
-                        round: publish.round)
+                        subject: subject, preview: publish.preview,
+                        proposal: publish.proposal, round: publish.round)
                     XCTAssertFalse(board && book != nil,
-                                   "\(persona), \(shape), \(publish): both the board "
-                                   + "and \(String(describing: book)) would have shown")
+                                   "\(subject.open), \(view), \(publish)")
                 }
             }
         }
     }
 
-    /// **Every project-level cover stands on altitude.** The notice, the
-    /// board, the book and the gate only ever appear where the altitude layer
-    /// is mounted beneath them — so the notice explains a corkboard that is
-    /// really there, and a cover coming or going never decides whether altitude
-    /// is mounted. The round alone may cover a chapter.
-    func test_everyProjectLevelCoverStandsOnAltitude() {
-        for persona in Persona.allCases {
-            for shape in Shape.allCases {
-                for wall in [false, true] {
-                    for publish in PublishState.allCases {
-                        guard case .editor(let altitude, let cover?) =
-                                Self.route(persona, shape, wall: wall, publish)
-                        else { continue }
-                        if case .translationRound = cover { continue }
-                        XCTAssertTrue(altitude,
-                                      "\(persona), \(shape), \(publish): \(cover) with "
-                                      + "no corkboard under it")
-                    }
+    /// **Every cover stands on the Book's view**: every cover is an edition's,
+    /// and an edition always has the Book beneath it — so the notice explains a
+    /// Book that is really there, and a cover coming or going never decides
+    /// whether that layer is mounted.
+    func test_everyCoverStandsOnTheBooksView() {
+        for subject in SubjectSamples.everySubject {
+            for view in BookView.allCases {
+                for publish in PublishState.allCases {
+                    guard case .editor(let altitude, let cover?) =
+                            Self.route(subject, view, publish) else { continue }
+                    XCTAssertNotNil(altitude, "\(subject.open), \(publish): \(cover) "
+                                    + "with no Book under it")
                 }
             }
         }
@@ -205,51 +253,88 @@ final class CentreRouteTests: XCTestCase {
     /// **The altitude layer is the rule's answer whatever covers it** — the
     /// fact the layer's identity rests on.
     func test_theAltitudeLayerIsTheRulesAnswerWhateverCoversIt() {
-        for persona in Persona.allCases {
-            for shape in Shape.allCases {
+        for subject in SubjectSamples.everySubject {
+            for view in BookView.allCases {
                 for publish in PublishState.allCases {
-                    guard case .editor(let altitude, _) =
-                            Self.route(persona, shape, wall: false, publish)
+                    guard case .editor(let altitude, _) = Self.route(subject, view, publish)
                     else { continue }
-                    XCTAssertEqual(altitude, ProjectWindow.subjectShowsAltitude(
-                        persona: persona, subject: shape.subject, structure: Self.structure),
-                        "\(persona), \(shape), \(publish)")
+                    XCTAssertEqual(altitude, ProjectWindow.altitudeView(
+                        subject: subject, bookView: view, editionView: .book,
+                        structure: Self.structure),
+                        "\(subject.open), \(view), \(publish)")
                 }
             }
         }
     }
 
-    /// **Where the old stack drew one surface over another, the route names
-    /// the one on top** — with the premise that the one beneath really was
-    /// offered, so these are about precedence rather than about absence.
+    /// **Where two surfaces were both offered, the route names the one on top**
+    /// — with the premise that the one beneath really was offered.
     func test_theSurfaceThatWasOnTopIsTheOneTheRouteNames() {
-        let altitude = { (persona: Persona) in
-            ProjectWindow.subjectShowsAltitude(persona: persona, subject: .project,
-                                               structure: Self.structure)
-        }
-        XCTAssertTrue(altitude(.review), "premise: Review's project row answers altitude too")
-        XCTAssertEqual(Self.route(.review, .project, wall: false, .nothingCompiled),
-                       .editor(altitude: true, cover: .reviewBoard),
-                       "the board was the layer OVER the corkboard")
-        XCTAssertTrue(altitude(.publish), "premise: so does Publish's")
-        XCTAssertEqual(Self.route(.publish, .project, wall: false, .compiled),
-                       .editor(altitude: true, cover: .books([Self.book])),
-                       "the book was the LAST layer")
-        XCTAssertEqual(Self.route(.publish, .project, wall: false, .proposal),
-                       .editor(altitude: true, cover: .designGate(Self.proposal)),
+        let edition = SubjectSamples.opened(.edition(language: "es"))
+        XCTAssertEqual(Self.route(edition, .cards, .compiled),
+                       .editor(altitude: .cards, cover: .books([Self.book])),
+                       "the book over the Book's view")
+        XCTAssertEqual(Self.route(edition, .cards, .proposal),
+                       .editor(altitude: .cards, cover: .designGate(Self.proposal)),
                        "the gate outranks the book")
-        XCTAssertEqual(Self.route(.publish, .project, wall: false, .proposalAndRound),
-                       .editor(altitude: true, cover: .translationRound(Self.round)),
+        XCTAssertEqual(Self.route(edition, .cards, .proposalAndRound),
+                       .editor(altitude: .cards, cover: .translationRound(Self.round)),
                        "the round outranks the gate")
-        XCTAssertNotNil(ProjectWindow.researchSubjectPlacement(
-            persona: .review, subject: .research("res-1")).centreItemID,
-                        "premise: Review hands a research subject the centre")
-        XCTAssertEqual(Self.route(.review, .research, wall: false, .nothingCompiled),
-                       .research(id: "res-1"),
-                       "…above the editor arm, so the board never covers the note "
-                       + "(though `reviewCentreShowsBoard` alone answers TRUE)")
-        XCTAssertEqual(Self.route(.author, .research, wall: true, .nothingCompiled),
-                       .paletteWall, "the wall is above even a research subject")
+        let problems = [TectonicLogParser.Diagnostic(
+            level: .error, file: nil, line: nil, message: "Undefined control sequence",
+            contextLines: [], pieceID: nil, paragraphID: nil)]
+        XCTAssertEqual(ProjectWindow.centreRoute(
+            subject: edition, bookView: .cards, projectType: .novel,
+            structure: Self.structure, preview: .nothingCompiled,
+            proposal: Self.proposal, round: Self.round, problems: problems),
+                       .editor(altitude: .cards, cover: .publishProblems(problems)),
+                       "the problems outrank the round")
+        // An edition's surfaces are an edition's: the same desk state over the
+        // Book shows the Book.
+        XCTAssertEqual(Self.route(SubjectSamples.opened(.project), .cards, .proposalAndRound),
+                       .editor(altitude: .cards, cover: nil))
+        // Research in `open` is above the editor arm; beside, it moves nothing.
+        var withBeside = SubjectSamples.opened(.item(SubjectSamples.pieceID))
+        withBeside.beside = .research(SubjectSamples.researchID)
+        XCTAssertEqual(Self.route(withBeside), .editor(altitude: nil, cover: nil),
+                       "research beside leaves the piece in the centre")
+    }
+
+    /// **A centre item is the last cover** (shell plan 3 Task 5): the
+    /// publish problems, a round, the design gate, the book and a notice
+    /// each outrank it, and it stands only where no publish cover does —
+    /// never over the canvas, the wall, research, a figure, the Inbox or a
+    /// reference piece, which are branches of their own. In use the two never
+    /// meet (a publish cover needs an edition open, and any change of `open`
+    /// clears the item), so the order only decides that an item can never hide
+    /// a problem the writer asked to see.
+    func test_aCentreItemIsTheLastCover() {
+        let item = CentreItem.statement(kind: .intent, scope: .project)
+        let problems = [TectonicLogParser.Diagnostic(
+            level: .error, file: nil, line: nil, message: "Undefined control sequence",
+            contextLines: [], pieceID: nil, paragraphID: nil)]
+        for subject in SubjectSamples.everySubject {
+            for publish in PublishState.allCases {
+                for shown in [nil, problems] {
+                    func route(_ centreItem: CentreItem?) -> CentreRoute {
+                        ProjectWindow.centreRoute(
+                            subject: subject, bookView: .outline, projectType: .novel,
+                            structure: Self.structure, preview: publish.preview,
+                            proposal: publish.proposal, round: publish.round, problems: shown,
+                            centreItem: centreItem)
+                    }
+                    let without = route(nil)
+                    if case .editor(let altitude, nil) = without {
+                        XCTAssertEqual(route(item), .editor(altitude: altitude, cover: .centreItem(item)),
+                                       "\(subject.open), \(publish): the item covers the bare editor")
+                    } else {
+                        XCTAssertEqual(route(item), without,
+                                       "\(subject.open), \(publish), problems \(shown != nil): "
+                                       + "what stood without the item stands with it")
+                    }
+                }
+            }
+        }
     }
 
     // MARK: - The Collection reference arm
@@ -264,24 +349,18 @@ final class CentreRouteTests: XCTestCase {
         let unresolved = StructureItem(id: "piece-lost", title: "Elsewhere",
                                        type: .document, path: nil, pieceKind: .reference)
         for piece in [resolved, unresolved] {
-            for persona in Persona.allCases where !persona.centresTheCanvas {
-                XCTAssertEqual(
-                    ProjectWindow.centreRoute(
-                        persona: persona, subject: .item(piece.id), projectType: .collection,
-                        structure: [piece], showsPaletteWall: false,
-                        preview: .ready(newestFirst: [Self.book])),
-                    .reference(piece: piece), "\(persona), \(piece.title)")
-            }
             XCTAssertEqual(
-                ProjectWindow.centreRoute(
-                    persona: .plan, subject: .item(piece.id), projectType: .collection,
-                    structure: [piece], showsPaletteWall: false, preview: .nothingCompiled),
-                .canvas, "Plan's canvas outranks the reference arm")
+                Self.route(SubjectSamples.opened(.item(piece.id)), projectType: .collection,
+                           structure: [piece]),
+                .reference(piece: piece), piece.title)
             XCTAssertEqual(
-                ProjectWindow.centreRoute(
-                    persona: .author, subject: .item(piece.id), projectType: .novel,
-                    structure: [piece], showsPaletteWall: false, preview: .nothingCompiled),
-                .editor(altitude: piece.path == nil, cover: nil),
+                Self.route(WindowSubject(open: .canvas, faces: .item(piece.id)),
+                           projectType: .collection, structure: [piece]),
+                .canvas, "the canvas outranks the reference arm the faces are on")
+            XCTAssertEqual(
+                Self.route(SubjectSamples.opened(.item(piece.id)), .cards,
+                           projectType: .novel, structure: [piece]),
+                .editor(altitude: piece.path == nil ? .cards : nil, cover: nil),
                 "only a COLLECTION's reference piece takes the arm")
         }
     }
@@ -289,17 +368,13 @@ final class CentreRouteTests: XCTestCase {
     // MARK: - The shape, in production
 
     /// **`centreRoute` composes the window's decisions and restates none.**
-    /// Each named rule is asked, and none of the primitives underneath them is
-    /// spelled — a second spelling is a second answer free to disagree.
     func test_theRouteComposesTheExistingDecisions() throws {
         XCTAssertEqual(CentreRouteSource.compositionFaults(in: try CentreRouteSource.rule()), [])
     }
 
     /// **`editorPane` is one switch over the route, and `manuscriptEditor`'s
-    /// stack is the host FIRST, altitude SECOND, and one switch over the
-    /// cover** — every cover in its own arm and none layered beside the
-    /// switch, so which one shows is the route's answer and never a z-order.
-    /// Neither builder asks a routing rule of its own.
+    /// stack is the host FIRST, the Book's view SECOND, and one switch over the
+    /// cover** — every cover in its own arm and none layered beside the switch.
     func test_theCentreIsRenderedByOneSwitchPerLevel() throws {
         XCTAssertEqual(CentreRouteSource.paneFaults(in: try CentreRouteSource.pane()), [])
         XCTAssertEqual(CentreRouteSource.stackFaults(in: try CentreRouteSource.editorArm()), [])
@@ -310,35 +385,46 @@ final class CentreRouteTests: XCTestCase {
         // A route that re-derives the document question instead of asking it.
         let restating = """
         static func centreRoute() -> CentreRoute {
-            showsPaletteWallCentre(); researchSubjectPlacement(); editorRoute()
-            publishCentre(); reviewCentreShowsBoard()
-            return .editor(altitude: !selectionIsDocument(subject, in: structure), cover: nil)
+            showsPaletteWallCentre(); researchSubjectPlacement(); figureSubjectPlacement()
+            editorRoute(); publishCentre()
+            return .editor(altitude: selectionIsDocument(subject, in: structure) ? nil : bookView, cover: nil)
         }
         """
         XCTAssertEqual(CentreRouteSource.compositionFaults(in: restating),
-                       ["does not ask subjectShowsAltitude(",
+                       ["does not ask altitudeView(",
                         "restates selectionIsDocument("])
+        // A route that still asks the persona.
+        let persona = """
+        static func centreRoute() -> CentreRoute {
+            showsPaletteWallCentre(); researchSubjectPlacement(); figureSubjectPlacement()
+            editorRoute(); publishCentre(); altitudeView()
+            if persona.centresTheCanvas { return .canvas }
+        }
+        """
+        XCTAssertEqual(CentreRouteSource.compositionFaults(in: persona),
+                       ["restates centresTheCanvas", "restates persona"])
 
         // A switch whose subject runs over several lines, as production's does,
         // is still read arm by arm.
         let multiLine = """
         private func editorPane() -> some View {
-            switch ProjectWindow.centreRoute(persona: persona,
-                                             subject: subject) {
+            switch ProjectWindow.centreRoute(subject: subject,
+                                             bookView: bookView) {
             case .canvas: canvasCentre(store: store)
             case .editor(let altitude, let cover): manuscriptEditor(altitude: altitude, cover: cover)
+            case .inbox: InboxPane()
             }
         }
         """
         XCTAssertEqual(CentreRouteSource.paneFaults(in: multiLine), [])
         XCTAssertEqual(CentreRouteSource.switchArms(
             in: multiLine, over: "switch ProjectWindow.centreRoute(")?.arms.keys.sorted(),
-                       ["canvas", "editor"])
+                       ["canvas", "editor", "inbox"])
 
         // The old chain: gates asked inside the pane.
         let chain = """
         private func editorPane() -> some View {
-            if Self.showsPaletteWallCentre(showsPaletteWall: w, persona: p) { PaletteWallCentre() }
+            if Self.showsPaletteWallCentre(subject: s) { PaletteWallCentre() }
             else { manuscriptEditor() }
         }
         """
@@ -347,15 +433,15 @@ final class CentreRouteTests: XCTestCase {
                         "has no switch over the route",
                         "asks Self.showsPaletteWallCentre( itself"])
 
-        // The same chain from `CentreColumn`, where a rule is spelled through
-        // the window's type rather than `Self.` — still a gate asked in the pane.
+        // The same chain from `CentreColumn`, spelled through the window's type.
         let chainFromTheColumn = """
         private func editorPane() -> some View {
-            switch ProjectWindow.centreRoute(persona: p) {
+            switch ProjectWindow.centreRoute(subject: s) {
             case .canvas: canvasCentre(store: store)
             case .editor(let altitude, let cover):
-                if ProjectWindow.reviewCentreShowsBoard(persona: p) { ReviewBoardPane() }
+                if ProjectWindow.reviewCentreShowsBoard(subject: s) { ReviewBoardPane() }
                 manuscriptEditor(altitude: altitude, cover: cover)
+            case .inbox: InboxPane()
             }
         }
         """
@@ -367,16 +453,17 @@ final class CentreRouteTests: XCTestCase {
         private func manuscriptEditor() -> some View {
             ZStack {
                 EditorHost()
-                if altitude {
-                    ProjectAltitudePane()
+                if let altitude {
+                    ProjectAltitudePane(view: altitude) { statusBoard() }
                     .background(Color.white)
                 }
                 switch cover {
-                case .notice(let notice): PublishCentreNoticeBanner()
-                case .reviewBoard: ReviewBoardPane()
+                case .notice(let notice): EditionNoticeCover()
                 case .books(let publications): PublishPreviewCentre()
                 case .designGate(let proposal): DesignGateView()
                 case .translationRound(let round): TranslationRoundReportHost()
+                case .publishProblems(let problems): PublishProblemsView()
+                case .centreItem(let item): CentreItemCover()
                 case .none: EmptyView()
                 }
             }
@@ -384,25 +471,27 @@ final class CentreRouteTests: XCTestCase {
         """
         XCTAssertEqual(CentreRouteSource.stackFaults(in: compliant), [])
 
-        // The old stack: a cover layered beside the switch, decided by z-order,
-        // and the notice moved into another arm.
+        // The old stack: the board as a cover, a cover layered beside the
+        // switch, and the notice moved into another arm.
         let layered = """
         private func manuscriptEditor() -> some View {
             ZStack {
                 EditorHost()
-                if altitude {
-                    ProjectAltitudePane()
+                if let altitude {
+                    ProjectAltitudePane(view: altitude) { statusBoard() }
                     .background(Color.white)
                 }
-                if Self.reviewCentreShowsBoard(persona: p) { ReviewBoardPane() }
+                if Self.reviewCentreShowsBoard(subject: s) { EmptyView() }
                 switch cover {
                 case .notice(let notice): EmptyView()
-                case .reviewBoard: EmptyView()
+                case .reviewBoard: ReviewBoardPane()
                 case .books(let publications):
                     PublishPreviewCentre()
-                    PublishCentreNoticeBanner()
+                    EditionNoticeCover()
                 case .designGate(let proposal): DesignGateView()
                 case .translationRound(let round): TranslationRoundReportHost()
+                case .publishProblems(let problems): PublishProblemsView()
+                case .centreItem(let item): CentreItemCover()
                 case .none: EmptyView()
                 }
             }
@@ -410,14 +499,12 @@ final class CentreRouteTests: XCTestCase {
         """
         XCTAssertEqual(CentreRouteSource.stackFaults(in: layered),
                        ["asks Self.reviewCentreShowsBoard( itself",
-                        "PublishCentreNoticeBanner( is not mounted in the `.notice` arm",
-                        "PublishCentreNoticeBanner( is mounted outside the `.notice` arm",
-                        "ReviewBoardPane( is not mounted in the `.reviewBoard` arm",
-                        "ReviewBoardPane( is mounted outside the `.reviewBoard` arm"])
+                        "the board is a cover: ReviewBoardPane( is mounted in the stack",
+                        "EditionNoticeCover( is not mounted in the `.notice` arm",
+                        "EditionNoticeCover( is mounted outside the `.notice` arm"])
 
         // Altitude moved into the cover switch: its identity would follow the
-        // cover, which is the remount this layer exists to avoid — and a
-        // second altitude mount beside it is caught too.
+        // cover, which is the remount this layer exists to avoid.
         let altitudeInside = """
         private func manuscriptEditor() -> some View {
             ZStack {
@@ -425,18 +512,19 @@ final class CentreRouteTests: XCTestCase {
                 switch cover {
                 case .notice(let notice):
                     ProjectAltitudePane().background(Color.white)
-                    PublishCentreNoticeBanner()
-                case .reviewBoard: ReviewBoardPane()
+                    EditionNoticeCover()
                 case .books(let publications): PublishPreviewCentre()
                 case .designGate(let proposal): DesignGateView()
                 case .translationRound(let round): TranslationRoundReportHost()
+                case .publishProblems(let problems): PublishProblemsView()
+                case .centreItem(let item): CentreItemCover()
                 case .none: ProjectAltitudePane()
                 }
             }
         }
         """
         XCTAssertEqual(CentreRouteSource.stackFaults(in: altitudeInside),
-                       ["the altitude layer is not gated on `if altitude` between "
+                       ["the altitude layer is not gated on `if let altitude` between "
                         + "EditorHost( and the cover switch",
                         "ProjectAltitudePane( is mounted outside the altitude layer"])
 
@@ -548,19 +636,23 @@ enum CentreRouteSource {
 
     /// Each cover case, and the surface its arm must mount.
     static let covers: [(cover: String, view: String)] = [
-        ("notice", "PublishCentreNoticeBanner("),
-        ("reviewBoard", "ReviewBoardPane("),
+        // The notice arm mounts the edition's bar over the banner (shell p4
+        // Task 5); the banner itself is mounted inside it.
+        ("notice", "EditionNoticeCover("),
         ("books", "PublishPreviewCentre("),
         ("designGate", "DesignGateView("),
         ("translationRound", "TranslationRoundReportHost("),
+        ("publishProblems", "PublishProblemsView("),
+        ("centreItem", "CentreItemCover("),
     ]
 
     /// The routing rules a builder must not ask for itself — each in both
     /// spellings, since the builders live in `CentreColumn` (foundations plan
     /// 4 Task 4), where the rules are `ProjectWindow.`'s rather than `Self.`'s.
     static let gates: [String] = [
-        "showsPaletteWallCentre(", "researchSubjectPlacement(", "editorRoute(",
-        "publishCentre(", "reviewCentreShowsBoard(", "subjectShowsAltitude(",
+        "showsPaletteWallCentre(", "researchSubjectPlacement(", "figureSubjectPlacement(",
+        "editorRoute(", "publishCentre(", "reviewCentreShowsBoard(", "subjectShowsAltitude(",
+        "altitudeView(",
     ].flatMap { ["Self.\($0)", "ProjectWindow.\($0)"] }
 
     /// How the pane asks the route: from `CentreColumn`, the window's static.
@@ -608,14 +700,15 @@ enum CentreRouteSource {
     static func compositionFaults(in rule: String) -> [String] {
         let code = SourceScan.codeLines(of: rule).joined(separator: "\n")
         var faults: [String] = []
-        for asked in ["showsPaletteWallCentre(", "researchSubjectPlacement(", "editorRoute(",
-                      "publishCentre(", "reviewCentreShowsBoard(", "subjectShowsAltitude("]
+        for asked in ["showsPaletteWallCentre(", "researchSubjectPlacement(",
+                      "figureSubjectPlacement(", "editorRoute(", "publishCentre(",
+                      "altitudeView("]
         where !code.contains(asked) {
             faults.append("does not ask \(asked)")
         }
         for primitive in ["selectionIsDocument(", "centresTheCanvas", "previewsThePublishedBook",
-                          "showsTheReviewBoard", "showsManuscriptDocuments", "persona ==",
-                          "persona !=", "TreeWalk."]
+                          "showsTheReviewBoard", "showsManuscriptDocuments", "persona",
+                          "TreeWalk."]
         where code.contains(primitive) {
             faults.append("restates \(primitive)")
         }
@@ -645,8 +738,10 @@ enum CentreRouteSource {
 
     /// What is wrong with `manuscriptEditor`: `EditorHost` first and outside
     /// the one switch over the cover; then the altitude layer, gated on
-    /// `if altitude`, opaque, and mounted nowhere else; then each cover in its
-    /// own arm and nowhere else; and no routing rule asked here.
+    /// `if let altitude`, opaque, and mounted nowhere else; then each cover in
+    /// its own arm and nowhere else; the board nowhere in the stack (it is the
+    /// Book's Status view, placed by `ProjectAltitudePane`); and no routing rule
+    /// asked here.
     static func stackFaults(in arm: String) -> [String] {
         var faults: [String] = []
         let code = SourceScan.codeLines(of: arm)
@@ -664,14 +759,17 @@ enum CentreRouteSource {
             || cover.arms.values.joined().contains(where: { $0.contains("EditorHost(") }) {
             faults.append("EditorHost( is not mounted before the cover switch")
         }
-        // The altitude layer: from `if altitude {` (after the host) up to the
+        if joined.contains("ReviewBoardPane(") {
+            faults.append("the board is a cover: ReviewBoardPane( is mounted in the stack")
+        }
+        // The altitude layer: from `if let altitude {` (after the host) up to the
         // switch, holding the one altitude mount and its opaque background.
         let start = (host ?? 0)
         let gate = code.indices.first { $0 > start && $0 < cover.line
-            && code[$0].contains("if altitude {") }
+            && code[$0].contains("if let altitude {") }
         let layer = gate.map { Array(code[$0..<cover.line]) } ?? []
         if count("ProjectAltitudePane(", in: layer) != 1 {
-            faults.append("the altitude layer is not gated on `if altitude` between "
+            faults.append("the altitude layer is not gated on `if let altitude` between "
                           + "EditorHost( and the cover switch")
         } else if !layer.contains(where: { $0.contains(".background(") }) {
             faults.append("the altitude layer is not opaque")
@@ -687,5 +785,239 @@ enum CentreRouteSource {
             }
         }
         return faults
+    }
+}
+
+// MARK: - The edition's centre (shell p4 Task 5)
+
+@MainActor
+final class EditionCentreTests: XCTestCase {
+
+    private static let day = Date(timeIntervalSince1970: 1_800_000_000)
+
+    private static func book(_ version: String, _ language: String?, newer by: Double) -> Publication {
+        PublishPreviewCentreTests.publication(
+            version: version, outputPath: "exports/\(version).pdf",
+            compiledAt: day.addingTimeInterval(by), language: language)
+    }
+
+    /// Newest first, as the resolver hands them: a Spanish book, a bilingual
+    /// one, the plain source book, a Serbian one.
+    static let spanish = book("1.3", "es", newer: 4)
+    static let bilingual = book("1.2", "en+sr", newer: 3)
+    static let source = book("1.1", nil, newer: 2)
+    static let serbian = book("1.0", "SR", newer: 1)
+    static let catalog = PublishPreviewResolution.ready(newestFirst: [spanish, bilingual, source, serbian])
+
+    private func shown(_ language: String) -> [Publication] {
+        PublishPreviewResolver.edition(Self.catalog, language: language, sourceLanguage: "en")
+            .publications
+    }
+
+    func test_eachEditionShowsOnlyItsOwnBooks() {
+        XCTAssertEqual(shown("es"), [Self.spanish])
+        // A bilingual book is in each of its languages' editions; a tag is
+        // matched without case.
+        XCTAssertEqual(shown("sr"), [Self.bilingual, Self.serbian])
+        // An edition with no book of its own has never been compiled — the
+        // notice is true per edition.
+        XCTAssertEqual(PublishPreviewResolver.edition(Self.catalog, language: "fr", sourceLanguage: "en"),
+                       .nothingCompiled)
+        // The unreadable catalog stays unreadable, whatever the edition.
+        XCTAssertEqual(PublishPreviewResolver.edition(PublishPreviewCentreTests.unreadable,
+                                                      language: "es", sourceLanguage: "en"),
+                       PublishPreviewCentreTests.unreadable)
+    }
+
+    func test_theSourceEditionShowsTheUntranslatedBooks() {
+        XCTAssertEqual(shown("en"), [Self.bilingual, Self.source])
+        XCTAssertEqual(shown("EN"), [Self.bilingual, Self.source], "the Source matched without case")
+    }
+
+    /// The tag a book's body carries — the `<tag>` of its anchors.
+    func test_theBodyTagIsTheCompilesOwnSpelling() {
+        XCTAssertEqual(PublishPreviewResolver.bodyTag(of: Self.serbian, edition: "sr", sourceLanguage: "en"), "SR")
+        XCTAssertEqual(PublishPreviewResolver.bodyTag(of: Self.bilingual, edition: "en", sourceLanguage: "en"), "en")
+        XCTAssertEqual(PublishPreviewResolver.bodyTag(of: Self.source, edition: "en", sourceLanguage: "en"), "en")
+        XCTAssertNil(PublishPreviewResolver.bodyTag(of: Self.source, edition: "es", sourceLanguage: "en"))
+    }
+
+    /// **The window's centre asks for the edition's own books** — the model
+    /// filters, so the route the window draws is per edition.
+    func test_theCentreDrawsTheOpenEditionsBooks() {
+        let model = PublishCentreModel()
+        model.publishSelection(after: Self.catalog)
+        model.sourceLanguage = "en"
+        func cover(_ language: String) -> CentreCover? {
+            let subject = SubjectSamples.opened(.edition(language: language))
+            guard case .editor(_, let cover) = ProjectWindow.centreRoute(
+                subject: subject, bookView: .cards, editionView: .book, projectType: .novel,
+                structure: CentreRouteTests.structure, preview: model.preview(for: subject.open))
+            else { return nil }
+            return cover
+        }
+        XCTAssertEqual(cover("es"), .books([Self.spanish]))
+        XCTAssertEqual(cover("en"), .books([Self.bilingual, Self.source]))
+        XCTAssertEqual(cover("fr"), .notice(.neverCompiled))
+        XCTAssertTrue(model.isSourceEdition(.edition(language: "EN")))
+        XCTAssertFalse(model.isSourceEdition(.edition(language: "es")))
+        XCTAssertEqual(model.preview(for: .project), Self.catalog, "nothing but an edition is filtered")
+    }
+
+    /// **Status is a view, never covered by the Book or its notice** — the
+    /// problems, the round and the gate still cover it, in their order.
+    func test_statusIsNeverCoveredByTheBookOrItsNotice() {
+        let subject = SubjectSamples.opened(.edition(language: "es"))
+        for state in CentreRouteTests.PublishState.allCases {
+            let route = ProjectWindow.centreRoute(
+                subject: subject, bookView: .cards, editionView: .status, projectType: .novel,
+                structure: CentreRouteTests.structure, preview: state.preview,
+                proposal: state.proposal, round: state.round)
+            guard case .editor(let altitude, let cover) = route else {
+                return XCTFail("an edition's Status is the editor's altitude layer: \(route)")
+            }
+            XCTAssertEqual(altitude, .status, "\(state)")
+            switch cover {
+            case .books, .notice:
+                XCTFail("\(state): the book or its notice covered the edition's Status")
+            case .some(.translationRound):
+                XCTAssertTrue(state == .round || state == .proposalAndRound, "\(state)")
+            case .some(.designGate):
+                XCTAssertEqual(state, .proposal)
+            case .none:
+                XCTAssertTrue([.nothingCompiled, .unreadable, .compiled].contains(state), "\(state)")
+            default:
+                XCTFail("\(state): \(String(describing: cover))")
+            }
+        }
+        // The problems list still covers it.
+        let problems = [TectonicLogParser.Diagnostic(level: .error, file: nil, line: nil, message: "x", contextLines: [])]
+        if case .editor(_, let cover) = ProjectWindow.centreRoute(
+            subject: subject, bookView: .cards, editionView: .status, projectType: .novel,
+            structure: CentreRouteTests.structure, preview: .nothingCompiled, problems: problems) {
+            XCTAssertEqual(cover, .publishProblems(problems))
+        }
+        // …and the edition's Book view is still covered by its book.
+        if case .editor(let altitude, let cover) = ProjectWindow.centreRoute(
+            subject: subject, bookView: .outline, editionView: .book, projectType: .novel,
+            structure: CentreRouteTests.structure, preview: .ready(newestFirst: [Self.spanish])) {
+            XCTAssertEqual(altitude, .outline)
+            XCTAssertEqual(cover, .books([Self.spanish]))
+        }
+        // An edition's Status is never the passes board.
+        XCTAssertFalse(ProjectWindow.reviewCentreShowsBoard(
+            subject: subject, bookView: .status, structure: CentreRouteTests.structure))
+    }
+
+    /// **The compile runs on the window**, so it survives the column.
+    func test_theCompileRunnerLivesOnTheWindow() throws {
+        let model = try SourceTree.read("Maugham/Views/Publish/PublishCentreModel.swift")
+        XCTAssertTrue(model.contains("let compileRunner = CompileRunner()"))
+        // The one constructor in the app's sources.
+        let constructions = try SourceTree.sources(under: "Maugham")
+            .filter { $0.text.contains("CompileRunner()") }.map(\.path)
+        XCTAssertEqual(constructions.map { ($0 as NSString).lastPathComponent }, ["PublishCentreModel.swift"])
+    }
+
+    /// **A compile that settles over the manuscript's problems covers the
+    /// centre with them**; one that landed with warnings does not.
+    func test_aRefusalOverProblemsCoversTheCentre() {
+        let problem = TectonicLogParser.Diagnostic(level: .error, file: nil, line: nil, message: "broken",
+                                                  contextLines: [], pieceID: "c1")
+        let running = CompileRunState(phase: .running(format: .pdf, languages: [], imprint: nil),
+                                             isRunning: true)
+        let refused = CompileRunState(phase: .refused("no"), isRunning: false,
+                                             problems: [problem], judgedTheManuscript: true)
+        let model = PublishCentreModel()
+        model.compileSettled(from: running, to: refused)
+        XCTAssertEqual(model.selectedProblems, [problem])
+
+        let landed = CompileRunState(phase: .completed(EditionCentreTests.spanish),
+                                            isRunning: false, problems: [problem])
+        let other = PublishCentreModel()
+        other.compileSettled(from: running, to: landed)
+        XCTAssertNil(other.selectedProblems, "a book with warnings offers Show Problems; it does not cover")
+    }
+
+    /// **Compile… from an edition** asks with that edition checked.
+    func test_compileFromAnEditionChecksThatEdition() {
+        let spanish = EditionCompileAsk.make(editions: ["en", "es", "sr"], edition: "es")
+        XCTAssertEqual(spanish.languages, ["es", "sr"])
+        XCTAssertEqual(spanish.bookLanguage, "en")
+        XCTAssertFalse(spanish.includesBook)
+        XCTAssertEqual(spanish.selected, ["es"])
+        let source = EditionCompileAsk.make(editions: ["en", "es"], edition: nil)
+        XCTAssertTrue(source.includesBook)
+        XCTAssertEqual(source.selected, [])
+    }
+
+    /// **Nothing in the edition's Status is wider than the centre's floor.**
+    func test_theEditionsStatusFitsTheCentresFloor() {
+        XCTAssertLessThanOrEqual(EditionStatusView.intrinsicWidth(isSource: false),
+                                 ProjectWindow.centreColumnFloor)
+        XCTAssertLessThanOrEqual(EditionStatusView.intrinsicWidth(isSource: true),
+                                 ProjectWindow.centreColumnFloor)
+    }
+
+    /// **Every ask goes to its page** (fix round 1, I2): a new ask for the
+    /// same page goes there again — the same chapter after scrolling away,
+    /// or chapter → Part → the same chapter — and an unrelated update
+    /// re-applies nothing.
+    func test_everyAskGoesToItsPage() {
+        let url = URL(fileURLWithPath: "/tmp/book.pdf")
+        let first = PDFPreview.Target(page: 3, ask: 1)
+        XCTAssertFalse(PDFPreview.shouldGo(to: nil, in: url, applied: nil))
+        XCTAssertTrue(PDFPreview.shouldGo(to: first, in: url, applied: nil))
+        XCTAssertFalse(PDFPreview.shouldGo(to: first, in: url, applied: (url, first)),
+                       "a redraw with the same ask goes nowhere")
+        XCTAssertTrue(PDFPreview.shouldGo(to: .init(page: 3, ask: 2), in: url, applied: (url, first)),
+                      "the same page asked again goes there again")
+        XCTAssertTrue(PDFPreview.shouldGo(to: first, in: URL(fileURLWithPath: "/tmp/other.pdf"),
+                                          applied: (url, first)))
+        // Each resolve is a new ask: the place carries its serial.
+        XCTAssertNotEqual(PiecePlace(.page(3), title: "One", ask: 1).target,
+                          PiecePlace(.page(3), title: "One", ask: 2).target)
+        XCTAssertNil(PiecePlace(.notInBook, title: "One", ask: 1).target)
+    }
+
+    /// **The compiling pill stands aside only for this window's compile**
+    /// (fix round 1, I3): an MCP or another window's compile keeps it.
+    func test_thePillStandsAsideOnlyForThisWindowsCompile() {
+        let edition = SubjectSamples.opened(.edition(language: "es"))
+        XCTAssertTrue(ProjectWindow.editionBookShowsCompile(
+            subject: edition, editionView: .book, runnerIsRunning: true))
+        XCTAssertFalse(ProjectWindow.editionBookShowsCompile(
+            subject: edition, editionView: .book, runnerIsRunning: false),
+            "a compile the bar does not know of keeps its pill")
+        XCTAssertFalse(ProjectWindow.editionBookShowsCompile(
+            subject: edition, editionView: .status, runnerIsRunning: true))
+        XCTAssertFalse(ProjectWindow.editionBookShowsCompile(
+            subject: SubjectSamples.opened(.project), editionView: .book, runnerIsRunning: true))
+    }
+
+    /// **A one-body book is read by the tag its anchors carry** (minor 1): an
+    /// imprint's own language, or the ordinal an unsafe tag became.
+    func test_aOneBodyBookIsReadByTheTagItsAnchorsCarry() {
+        let edition = EditionBook(language: "en", sourceLanguage: "en")
+        XCTAssertEqual(PiecePlace.bodyTag(of: Self.source, edition: edition,
+                                          pages: ["p-en-GB-aaaa": 0]), "en-GB")
+        XCTAssertEqual(PiecePlace.bodyTag(of: Self.source, edition: edition,
+                                          pages: ["p-en-aaaa": 0]), "en")
+        XCTAssertEqual(PiecePlace.bodyTag(of: Self.bilingual, edition: edition,
+                                          pages: ["p-1-aaaa": 0, "p-2-aaaa": 3]), "en",
+                       "a bilingual book's tags are its own; no guessing")
+        XCTAssertNil(PiecePlace.bodyTag(of: Self.serbian, edition: edition, pages: ["p-SR-aaaa": 0]))
+    }
+
+    /// The faces on a document is the piece the book goes to; anything else
+    /// leaves the page.
+    func test_onlyADocumentOnTheFacesMovesTheBook() {
+        let doc = StructureItem(id: "c1", title: "One", type: .document, path: "one.md")
+        let part = StructureItem(id: "p1", title: "Part", type: .group, children: [doc])
+        XCTAssertEqual(CentreColumn.pieceInBook(faces: .item("c1"), structure: [part]),
+                       PieceInBook(id: "c1", title: "One"))
+        XCTAssertNil(CentreColumn.pieceInBook(faces: .item("p1"), structure: [part]))
+        XCTAssertNil(CentreColumn.pieceInBook(faces: .project, structure: [part]))
+        XCTAssertEqual(PiecePlace.notInBookLine("One"), "One is not in this book")
     }
 }

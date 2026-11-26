@@ -47,6 +47,12 @@ struct EditorSurfaceConfiguration {
         /// Recovery spec §4: fired when the reader tries to type into a
         /// `readOnlyRecovery` surface — the host's cue to offer the next rung.
         var onTypingRefused: (() -> Void)? = nil
+        /// Also answer a typed key refused by the membrane while the view
+        /// stays editable (`EditorControl.lockEditing`) — a research note of
+        /// a piece in read-through, whose line pulses as the text's does.
+        /// True only for THAT reason: a share or posture lock gives no
+        /// "Resume writing" line to point at. Re-wired on every update.
+        var answersLockedTyping: Bool = false
     }
 
     /// Resolvers that map paragraphs / locations / links for click routing,
@@ -63,6 +69,12 @@ struct EditorSurfaceConfiguration {
         /// to their own window (Channel A). Passed by manuscript hosts
         /// (EditorHost); nil for research notes, which never post scripts.
         var scriptOriginProjectId: String? = nil
+        /// The id of the document this surface shows — `EditorHost` alone
+        /// passes it (a surface is keyed `.id(path)`, so it is fixed for the
+        /// mount). The coordinator lands a pending place only on this
+        /// document (`EditorControl.pendingPlace`); nil (a research note, a
+        /// statement) lands none.
+        var documentId: String? = nil
         /// When set, the text view's paste(_:) routes pasteboard images to this
         /// handler instead of pasting them as text. Used for research notes to
         /// save images to a sibling _assets/ folder and insert a Markdown ref.
@@ -164,6 +176,9 @@ struct EditorSurfaceConfiguration {
         var reviewParagraphTextProvider: ((String) -> String?)? = nil
         /// Resolves a paragraphId → its UTF-16 NSRange in the full display string.
         var reviewParagraphRangeProvider: ((String) -> NSRange?)? = nil
+        /// Every paragraph's display range in one pass — View ▸ Margin's
+        /// places (`Document.displayRanges`).
+        var marginParagraphRangesProvider: (() -> [String: NSRange])? = nil
         /// Pulls the CURRENT open-annotation set on demand — used by the coordinator
         /// to resolve marks synchronously on review entry (first-toggle marks fix).
         var reviewAnnotationsProvider: (() -> [Annotation])? = nil
@@ -186,6 +201,12 @@ struct EditorSurfaceConfiguration {
     }
 
     var presentation: Presentation
+    /// **The `text` this surface is handed is a translated surface** (shell p4
+    /// Task 8 fix I1), not the manuscript — the host's own answer, from the
+    /// same state its binding's `get` reads, so the membrane follows what the
+    /// buffer holds rather than the control. False for every surface but a
+    /// manuscript read in a language.
+    var servesTranslatedSurface: Bool = false
     /// Control-plane model (ADR 0017). The coordinator observes this directly;
     /// it is the channel for posture/appearance/annotation changes, replacing
     /// the per-prop pushes in updateNSView. Threaded ONE-WAY from the owning
@@ -231,6 +252,11 @@ struct EditorSurfaceConfiguration {
     /// Fixed for the lifetime of a mount, so it is applied in
     /// `makeCoordinator`/`makeNSView` and nowhere else.
     var isSecondEditorInItsWindow: Bool = false
+    /// A second editor's own manager, handed in by its host rather than made
+    /// by the text view, so the host's other writers can register beside the
+    /// typing (a statement's Adopt, Revoke, Edit ruling; shell plan 3 Task 5
+    /// fix 3). Nil makes one. Ignored for a primary editor.
+    var privateUndoManager: UndoManager? = nil
     /// Whether this surface answers the Insert menu (Table, Footnote, Figure…;
     /// plan 3a Task 4). **`EditorHost` is the one file that may set it**, and
     /// it says true only for a Markdown manuscript; a research note, a
@@ -288,8 +314,10 @@ struct EditorSurface: NSViewRepresentable {
         coordinator.createAnnotationHandler = rp.createAnnotationHandler
         coordinator.reviewParagraphTextProvider = rp.reviewParagraphTextProvider
         coordinator.reviewParagraphRangeProvider = rp.reviewParagraphRangeProvider
+        coordinator.marginParagraphRangesProvider = rp.marginParagraphRangesProvider
         coordinator.reviewAnnotationsProvider = rp.reviewAnnotationsProvider
         coordinator.scriptOriginProjectId = pp.scriptOriginProjectId
+        coordinator.documentId = pp.documentId
         coordinator.respondsToWindowCommands = !configuration.isSecondEditorInItsWindow
         coordinator.answersInsertCommands = configuration.answersInsertCommands
         if configuration.answersInsertCommands { coordinator.registerReferencePickers() }
@@ -323,6 +351,10 @@ struct EditorSurface: NSViewRepresentable {
         // than sharing — and clearing — the manuscript's. See
         // `EditorSurfaceConfiguration.isSecondEditorInItsWindow`.
         textView.usesPrivateUndoManager = configuration.isSecondEditorInItsWindow
+        if configuration.isSecondEditorInItsWindow, let manager = configuration.privateUndoManager {
+            textView.privateUndoManager = manager
+            (manager as? EditorTypingUndoManager)?.textView = textView
+        }
         // Pin the editor to TextKit 1. On recent macOS a fresh NSTextView is
         // TextKit 2, whose caret is a private `NSTextInsertionIndicator` we can't
         // resize — so the empty-line caret renders at the full line-fragment
@@ -339,6 +371,7 @@ struct EditorSurface: NSViewRepresentable {
         textView.isHorizontallyResizable = false
         textView.isEditable = !configuration.readOnlyRecovery
         textView.onTypingRefusedWhileReadOnly = configuration.callbacks.onTypingRefused
+        textView.answersLockedTyping = configuration.callbacks.answersLockedTyping
         textView.isRichText = false
         textView.allowsUndo = true
         textView.usesFindBar = true
@@ -406,11 +439,24 @@ struct EditorSurface: NSViewRepresentable {
         scrollView.addSubview(completionList)
         context.coordinator.completionList = completionList
 
-        context.coordinator.attach(to: textView)
+        // A document mounted already read in a language (the language carried
+        // to it): its buffer holds the translation from the first frame, so
+        // the refusal holds from the first frame too (fix I1) — and the fact
+        // is set BEFORE `attach`, whose first parse must already know it
+        // (fix 2, N2: no translated script, translation-only counts).
+        context.coordinator.readOnlyRecovery = configuration.readOnlyRecovery
+        Self.mount(context.coordinator, on: textView,
+                   servesTranslation: configuration.servesTranslatedSurface,
+                   control: configuration.control)
         // Hand the control-plane model to the coordinator. It observes the model
         // from here on; the per-prop pushes below remain during the parallel
         // migration (ADR 0017) and are removed in later tasks.
         context.coordinator.observeControl(configuration.control)
+        // A document has just loaded into this editor (the surface is keyed
+        // `.id(path)`, so this is its first text): the window learns which,
+        // and a place it was asked to go to before the editor had it lands
+        // now, or is dropped (`EditorControl.pendingPlace`, shell p1 Task 4b).
+        context.coordinator.documentDidMount(control: configuration.control)
         textView.coordinator = context.coordinator
         if mode is ScreenplayMode && configuration.presentation.showElementGutter {
             textView.installGutter(coordinator: context.coordinator)
@@ -437,6 +483,24 @@ struct EditorSurface: NSViewRepresentable {
         return scrollView
     }
 
+    /// **The mount's order** (fix 2, N2): the buffer's facts first — a
+    /// translation, and read-through of the document the coordinator holds
+    /// (asked of its own `documentId`), so a piece in read-through refuses
+    /// from its first frame — then `attach`, whose first parse, metrics and
+    /// caret restore read them.
+    @MainActor
+    static func mount(_ coordinator: EditorCoordinator, on textView: NSTextView,
+                      servesTranslation: Bool, control: EditorControl) {
+        if servesTranslation {
+            coordinator.setBufferHoldsTranslation(true, in: textView, control: control)
+        }
+        coordinator.setReadThrough(
+            ReadThrough.isOn(coordinator.documentId, in: control.readThroughDocIds), in: textView)
+        // A view made again on this coordinator takes the facts it already holds.
+        coordinator.refreshEditability(in: textView)
+        coordinator.attach(to: textView)
+    }
+
     /// Teardown hook — SwiftUI calls this when the representable leaves the view
     /// tree (piece flip via `.id(path)`, and window close when SwiftUI releases
     /// the scene). Break the coordinator↔text-view graph and cancel its async
@@ -457,13 +521,13 @@ struct EditorSurface: NSViewRepresentable {
     ///
     /// Extracted from `updateNSView` so the ORDERING is unit-testable without a
     /// synthesizable `NSViewRepresentable.Context` (the closest real-wiring test
-    /// the entry/exit race admits — `TranslationReviewPostureTests` hand-pumps
+    /// the entry/exit race admits — `ReadingTranslationPostureTests` hand-pumps
     /// this against the real coordinator).
     ///
     /// Why the membrane flip lives HERE, strictly before the buffer swap: entering
-    /// translation review changes `control.translationLanguage`, which drives TWO
+    /// reading a translation changes `control.translationLanguage`, which drives TWO
     /// independent reactions with no ordering guarantee — (1) the coordinator's
-    /// `withObservationTracking` re-arm (`applyControl → setTranslationReview`),
+    /// `withObservationTracking` re-arm (`applyControl → setReadingTranslation`),
     /// which applies on a LATER main-actor turn, and (2) SwiftUI's
     /// `.onChange → translatedSurfaceText → render → updateNSView`, which swaps the
     /// translated text into the buffer via `applyExternalText`. If (2) wins,
@@ -472,7 +536,7 @@ struct EditorSurface: NSViewRepresentable {
     /// here, in the same pass as the swap, closes that window; the async re-arm
     /// stays for genuinely out-of-band control changes (ADR 0017's purpose).
     ///
-    /// `setTranslationReview` is a cheap no-op-guarded stored-property flip, so it
+    /// `setReadingTranslation` is a cheap no-op-guarded stored-property flip, so it
     /// is safe on every pass — this does NOT re-introduce the per-keystroke control
     /// bookkeeping ADR 0017 removed (that was the full appearance/posture/focus
     /// compare set; only the translation membrane flag is touched here).
@@ -482,12 +546,27 @@ struct EditorSurface: NSViewRepresentable {
         coordinator: EditorCoordinator,
         translationLanguage: String?,
         text: String,
-        undoCoherentApply: Bool
+        undoCoherentApply: Bool,
+        textIsTranslation: Bool? = nil
     ) {
         // Membrane BEFORE swap — see the doc-comment above.
         let translationMembraneChanged =
-            coordinator.setTranslationReview(translationLanguage != nil)
-        guard textView.string != text else { return }
+            coordinator.setReadingTranslation(translationLanguage != nil)
+        // **What the buffer holds decides, not the control** (fix I1): a
+        // translated surface is refused before it goes in, and the refusal
+        // lifts only once the source has landed (`sourceLanded`) — never on
+        // the pass where the language has cleared but the binding still
+        // serves the translation.
+        let servesTranslation = textIsTranslation ?? (translationLanguage != nil)
+        // The reader's place, read off the text the view holds NOW — before
+        // the flag below changes what describes it (fix round (c)).
+        let involvesTranslation = servesTranslation || coordinator.bufferHoldsTranslation
+        let place = involvesTranslation && textView.string != text ? coordinator.readingPlace() : nil
+        if servesTranslation { coordinator.setBufferHoldsTranslation(true) }
+        guard textView.string != text else {
+            if !servesTranslation { coordinator.sourceLanded(text) }
+            return
+        }
         // The undo stack may be preserved ONLY for an ordinary in-place
         // accept/revert replace on the SOURCE manuscript. Any translation-review
         // buffer replace must drop it: the translated buffer is a different text,
@@ -495,14 +574,19 @@ struct EditorSurface: NSViewRepresentable {
         // the ⌘Z EXC_BAD_ACCESS class (EditorUndoStackClearTests). That covers
         // two cases the membrane-changed check alone misses — not just the
         // entry/exit TRANSITION (`translationMembraneChanged`), but also an
-        // IN-MODE translated-content refresh (already in translation review, the
+        // IN-MODE translated-content refresh (already reading a translation, the
         // membrane doesn't flip this pass) where an unrelated accept/revert
         // one-shot flag set in the same pass would otherwise retain a stale undo
         // action across the replace. Gating on `translationLanguage == nil` (the
         // editor is showing the source manuscript) forces the clear in both.
-        let preserveUndoStack =
-            undoCoherentApply && translationLanguage == nil && !translationMembraneChanged
+        let preserveUndoStack = undoCoherentApply && translationLanguage == nil
+            && !translationMembraneChanged && !coordinator.bufferHoldsTranslation
         coordinator.applyExternalText(text, preserveUndoStack: preserveUndoStack)
+        if !servesTranslation { coordinator.sourceLanded(text) }
+        // The same paragraph, the same distance in, at the same height —
+        // across a change of language, the source-under setting, or a
+        // refresh of the surface (fix round (c), I4).
+        if let place { coordinator.restore(place) }
     }
 
     func updateNSView(_ scrollView: NSScrollView, context: Context) {
@@ -512,6 +596,9 @@ struct EditorSurface: NSViewRepresentable {
         // window would. Force-track the content width here so MaughamTextView's
         // setFrameSize override fires and recenters the column gutters on
         // every layout pass.
+        // Wiring: whether a membrane-refused key is answered follows the
+        // host's current reason (a research note's read-through, not its share).
+        textView.answersLockedTyping = configuration.callbacks.answersLockedTyping
         let targetWidth = scrollView.contentSize.width
         if targetWidth > 0, abs(textView.frame.width - targetWidth) > 0.5 {
             textView.frame.size.width = targetWidth
@@ -529,7 +616,8 @@ struct EditorSurface: NSViewRepresentable {
             coordinator: context.coordinator,
             translationLanguage: configuration.control.translationLanguage,
             text: text,
-            undoCoherentApply: undoCoherentApply)
+            undoCoherentApply: undoCoherentApply,
+            textIsTranslation: configuration.servesTranslatedSurface)
         let p = configuration.presentation
         let pp = configuration.paragraphProviders
         let rp = configuration.reviewProviders
@@ -574,6 +662,7 @@ struct EditorSurface: NSViewRepresentable {
         // pushes from here; it flows through the control model (ADR 0017).
         context.coordinator.reviewParagraphTextProvider = rp.reviewParagraphTextProvider
         context.coordinator.reviewParagraphRangeProvider = rp.reviewParagraphRangeProvider
+        context.coordinator.marginParagraphRangesProvider = rp.marginParagraphRangesProvider
         // Pull-on-entry provider: the coordinator invokes it on review entry to
         // resolve the real annotation set synchronously (first-toggle marks fix).
         context.coordinator.reviewAnnotationsProvider = rp.reviewAnnotationsProvider
@@ -598,6 +687,20 @@ final class MaughamTextView: NSTextView {
 
     var gutterView: ElementGutterView?
 
+    /// **What VoiceOver reaches inside the editor** (shell p5 Task 5 fix
+    /// round 1): a text view lists no subview as a child, so its own
+    /// children, then each SHOWN overlay that publishes elements — the
+    /// translation's badges while a translation is read, the margin's marks
+    /// while the margin shows. One rule for both, read off the view tree, so
+    /// neither overlay can replace the other's.
+    override func accessibilityChildren() -> [Any]? {
+        let overlays = subviews.filter {
+            !$0.isHidden && ($0 is TranslationBadgeOverlayView || $0 is MarginOverlayView)
+        }
+        guard !overlays.isEmpty else { return super.accessibilityChildren() }
+        return (super.accessibilityChildren() ?? []) + NSAccessibility.unignoredChildren(from: overlays)
+    }
+
     /// Take this view's undo actions off the window's shared `UndoManager` and
     /// onto one of its own. Set once, in `EditorSurface.makeNSView`, before any
     /// edit can register — see
@@ -605,14 +708,59 @@ final class MaughamTextView: NSTextView {
     /// editor in one window must not share.
     var usesPrivateUndoManager = false
 
-    private lazy var privateUndoManager = UndoManager()
+    /// The second editor's own manager. Its host may hand one in
+    /// (`EditorSurfaceConfiguration.privateUndoManager`) so the verbs about
+    /// the same text register where this view's ⌘Z runs (a statement's).
+    lazy var privateUndoManager = UndoManager()
 
-    /// `NSTextView` registers its typing undo with `self.undoManager`, and the
-    /// responder chain reads the first responder's — so overriding here covers
-    /// both registration and ⌘Z, and leaves the primary editor on exactly the
-    /// manager it has always used.
+    /// `NSTextView` registers its typing undo with `self.undoManager`, so
+    /// overriding here moves REGISTRATION onto the private manager and leaves
+    /// the primary editor on exactly the manager it has always used. ⌘Z is
+    /// not covered by this: see `undo(_:)` below.
     override var undoManager: UndoManager? {
         usesPrivateUndoManager ? privateUndoManager : super.undoManager
+    }
+
+    // MARK: - ⌘Z on a second editor's own manager
+
+    /// **A second editor's ⌘Z runs its own manager** (shell plan 3 Task 5
+    /// fix 2, measured). `undoManager` above covers REGISTRATION only: AppKit
+    /// resolves Edit ▸ Undo by walking the responder chain for the first
+    /// object that implements `undo:`, and with none on this view the walk
+    /// reached the window's handler, which runs the window's SHARED manager —
+    /// so ⌘Z in a statement pane (or the centre's statement cover) undid the
+    /// manuscript's typing. `ScrapEditorHost` and `CanvasEventView` answer the
+    /// same walk the same way. The primary editor does not respond, so its
+    /// ⌘Z goes exactly where it always went.
+    override func responds(to aSelector: Selector!) -> Bool {
+        if !usesPrivateUndoManager, let aSelector, Self.undoSelectors.contains(aSelector) { return false }
+        return super.responds(to: aSelector)
+    }
+
+    static let undoSelectors: Set<Selector> = [#selector(undo(_:)), #selector(redo(_:))]
+
+    @objc func undo(_ sender: Any?) {
+        guard usesPrivateUndoManager, privateUndoManager.canUndo else { return }
+        privateUndoManager.undo()
+    }
+
+    @objc func redo(_ sender: Any?) {
+        guard usesPrivateUndoManager, privateUndoManager.canRedo else { return }
+        privateUndoManager.redo()
+    }
+
+    override func validateUserInterfaceItem(_ item: NSValidatedUserInterfaceItem) -> Bool {
+        guard usesPrivateUndoManager else { return super.validateUserInterfaceItem(item) }
+        switch item.action {
+        case #selector(undo(_:)):
+            (item as? NSMenuItem)?.title = privateUndoManager.undoMenuItemTitle
+            return privateUndoManager.canUndo
+        case #selector(redo(_:)):
+            (item as? NSMenuItem)?.title = privateUndoManager.redoMenuItemTitle
+            return privateUndoManager.canRedo
+        default:
+            return super.validateUserInterfaceItem(item)
+        }
     }
 
     /// An input method's commit (marked text replaced by its final text) is
@@ -650,9 +798,13 @@ final class MaughamTextView: NSTextView {
     /// text (`isTextInsertionEvent`); nil (the default) restores plain AppKit
     /// refusal.
     var onTypingRefusedWhileReadOnly: (() -> Void)?
+    /// Answer a refused key while editable too, when the membrane locks it
+    /// (`coordinator.lockEditing`): a research note in read-through.
+    var answersLockedTyping = false
 
     override func keyDown(with event: NSEvent) {
-        if !isEditable, let onTypingRefusedWhileReadOnly,
+        if !isEditable || (answersLockedTyping && coordinator?.lockEditing == true),
+           let onTypingRefusedWhileReadOnly,
            Self.isTextInsertionEvent(event) {
             onTypingRefusedWhileReadOnly()
             return
@@ -712,12 +864,63 @@ final class MaughamTextView: NSTextView {
     override func drawInsertionPoint(
         in rect: NSRect, color: NSColor, turnedOn flag: Bool
     ) {
+        // **A translation, or a piece in read-through, is read, not typed
+        // into** (shell p4 Task 8, fix round (b)): the view is not editable
+        // there, and its reading position is drawn in the quieter secondary
+        // ink — the arrows move it, so keyboard reading is not blind, and it
+        // does not look like a caret that types.
+        let ink = Self.caretColor(typingIsOff: coordinator?.typingIsOff ?? false, editing: color)
         let font = (typingAttributes[.font] as? NSFont)
             ?? self.font
             ?? NSFont.systemFont(ofSize: NSFont.systemFontSize)
         super.drawInsertionPoint(
             in: Self.clampedCaretRect(rect, toLineHeight: Self.caretLineHeight(for: font)),
-            color: color, turnedOn: flag)
+            color: ink, turnedOn: flag)
+    }
+
+    /// **Copy from a translation copies the translation** (fix round (a)):
+    /// pasteboard only — the text, its storage and the binding are untouched.
+    override func writeSelection(to pboard: NSPasteboard,
+                                 types: [NSPasteboard.PasteboardType]) -> Bool {
+        guard let coordinator, coordinator.bufferHoldsTranslation else {
+            return super.writeSelection(to: pboard, types: types)
+        }
+        let copied = selectedRanges.map(\.rangeValue).filter { $0.length > 0 }.map {
+            TranslationBadgeLayout.copyable(string, selection: $0,
+                                            ranges: coordinator.bufferBadges)
+        }
+        guard !copied.isEmpty else { return false }
+        pboard.declareTypes([.string], owner: nil)
+        return pboard.setString(copied.joined(separator: "\n"), forType: .string)
+    }
+
+    /// The singular writer takes the same road (fix 2, N7): no pasteboard
+    /// route takes the grey source lines.
+    override func writeSelection(to pboard: NSPasteboard, type: NSPasteboard.PasteboardType) -> Bool {
+        guard coordinator?.bufferHoldsTranslation == true else {
+            return super.writeSelection(to: pboard, type: type)
+        }
+        return writeSelection(to: pboard, types: [type])
+    }
+
+    /// The caret's ink: the editing colour, or the secondary ink of a reading
+    /// position where typing is off (a translation, read-through).
+    static func caretColor(typingIsOff: Bool, editing: NSColor) -> NSColor {
+        typingIsOff ? .secondaryLabelColor : editing
+    }
+
+    /// A non-editable view draws no insertion point; where typing is off it
+    /// draws the reading position (fix round (b)), which the arrows move.
+    override var shouldDrawInsertionPoint: Bool {
+        super.shouldDrawInsertionPoint || Self.drawsReadingPosition(
+            typingIsOff: coordinator?.typingIsOff ?? false,
+            isFirstResponder: window?.firstResponder === self,
+            selectionIsEmpty: selectedRange().length == 0)
+    }
+
+    static func drawsReadingPosition(typingIsOff: Bool, isFirstResponder: Bool,
+                                     selectionIsEmpty: Bool) -> Bool {
+        typingIsOff && isFirstResponder && selectionIsEmpty
     }
 
     /// Losing the focus closes the completion list (plan 3b Task 2): its keys
@@ -778,18 +981,17 @@ final class MaughamTextView: NSTextView {
     }
 
     /// The right-click menu: AppKit's, with Convert to Table Figure first when
-    /// the click is in a pipe table (report plan 7b Task 5). The coordinator
-    /// decides (`convertTableMenuItem(atCharacterIndex:)`, over the pure
-    /// `convertOffer`); no test may synthesise the right-click (tripwire 33),
-    /// so the tests ask those two directly.
+    /// the click is in a pipe table (report plan 7b Task 5), then Comment… (and
+    /// Suggest…) on a selection where the posture offers them (shell p5 Task
+    /// 7). The coordinator decides (`convertTableMenuItem(atCharacterIndex:)`,
+    /// `annotationMenuItems()`) and `AnnotationOffer.compose` builds; no test
+    /// may synthesise the right-click (tripwire 33), so the tests ask those.
     override func menu(for event: NSEvent) -> NSMenu? {
-        let menu = super.menu(for: event)
         let index = characterIndexForInsertion(at: convert(event.locationInWindow, from: nil))
-        guard let item = coordinator?.convertTableMenuItem(atCharacterIndex: index) else { return menu }
-        let offered = menu ?? NSMenu()
-        offered.insertItem(item, at: 0)
-        if offered.items.count > 1 { offered.insertItem(.separator(), at: 1) }
-        return offered
+        return AnnotationOffer.compose(
+            base: super.menu(for: event),
+            convert: coordinator?.convertTableMenuItem(atCharacterIndex: index),
+            annotate: coordinator?.annotationMenuItems() ?? [])
     }
 
     override var readablePasteboardTypes: [NSPasteboard.PasteboardType] {
@@ -836,25 +1038,40 @@ final class MaughamTextView: NSTextView {
     /// the pasteboard is handled there — ingested, refused or reported — and
     /// never reaches `super`.
     override func paste(_ sender: Any?) {
-        // A paste is never typing: a pasted `@` opens no completion list.
-        guard let coordinator else { return pasteAsTyped(sender) }
-        coordinator.asNotTyping { pasteAsTyped(sender) }
+        paste(from: .general, sender: sender)
     }
 
-    private func pasteAsTyped(_ sender: Any?) {
+    /// **The paste, from `pasteboard`** (shell p4 Task 11). ⌘V's `paste(_:)`
+    /// is this with `.general`; a test passes a uniquely named pasteboard,
+    /// because `.general` is shared by every process on the machine — the
+    /// writer's own ⌘C or a Universal Clipboard arrival during a gate replaced
+    /// a test's picture mid-paste (`StatementImageIngestTests`, once, 15.6 s).
+    /// Text from any other pasteboard is read as `super` reads the general
+    /// one (`readSelection(from:)`).
+    func paste(from pasteboard: NSPasteboard, sender: Any? = nil) {
+        // A paste is never typing: a pasted `@` opens no completion list.
+        guard let coordinator else { return pasteAsTyped(from: pasteboard, sender) }
+        coordinator.asNotTyping { pasteAsTyped(from: pasteboard, sender) }
+    }
+
+    private func pasteAsTyped(from pasteboard: NSPasteboard, _ sender: Any?) {
         if let coordinator, coordinator.answersFigures,
-           coordinator.pasteFigure(from: .general) {
+           coordinator.pasteFigure(from: pasteboard) {
             return
         }
         if let handler = coordinator?.imagePasteHandler,
-           NSPasteboard.general.canReadObject(forClasses: [NSImage.self], options: nil),
-           let image = NSImage(pasteboard: .general) {
+           pasteboard.canReadObject(forClasses: [NSImage.self], options: nil),
+           let image = NSImage(pasteboard: pasteboard) {
             if let ref = handler(image) {
                 insertText(ref, replacementRange: selectedRange())
             }
             return
         }
-        super.paste(sender)
+        if pasteboard === NSPasteboard.general {
+            super.paste(sender)
+        } else {
+            _ = readSelection(from: pasteboard)
+        }
     }
 
     // MARK: - Dropping a picture (plan 3a Task 6)
@@ -942,6 +1159,11 @@ final class MaughamTextView: NSTextView {
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
+        // A view mounted already holding a translation reaches its window
+        // here: Edit ▸ Undo is barred over it from every responder (fix 2, N3).
+        if let coordinator, coordinator.bufferHoldsTranslation {
+            ReadingUndoGuard.install(over: window, for: coordinator)
+        }
         // SwiftUI may set the scroll-view geometry only after the text view
         // has already been mounted, so the initial setFrameSize sees a
         // pre-layout width. Recompute once we're attached to a window.
@@ -1031,6 +1253,9 @@ final class MaughamTextView: NSTextView {
         // left inset) on resize too (Task 12).
         coordinator?.layoutTranslationBadgeOverlay(in: self)
         coordinator?.translationBadgeOverlay?.needsDisplay = true
+        // And the margin's marks (covers the view; marks in the right inset).
+        coordinator?.layoutMarginOverlay(in: self)
+        coordinator?.marginOverlay?.needsDisplay = true
 
         // Re-frame the figure-thumbnail overlay (covers the view) too.
         coordinator?.layoutFigureThumbnailOverlay(in: self)
@@ -1054,5 +1279,28 @@ final class MaughamTextView: NSTextView {
     func removeGutter() {
         gutterView?.removeFromSuperview()
         gutterView = nil
+    }
+}
+
+/// **A second editor's own undo manager that can drop its TYPING alone**
+/// (shell plan 3 Task 5 fix 5). ADR 0023's D1 drops undo entries whose text
+/// RANGES a buffer replace makes stale. Those are the text view's native
+/// typing actions, and `NSTextView` registers them with its TEXT STORAGE as
+/// the target (measured on TextKit 1 and 2: `removeAllActions(withTarget:)`
+/// with the storage removes the typing and nothing else; with the view, the
+/// layout manager or the container it removes nothing). Everything else on a
+/// statement editor's stack is range-free and re-resolves when it fires — a
+/// statement verb's inverse (target: the store), a checkbox flip (the
+/// `Document`, guarded by the paragraph's value), a table visit — so it may
+/// stay across the replace.
+final class EditorTypingUndoManager: UndoManager {
+    /// The editor this manager is private to (`EditorSurface.makeNSView`).
+    weak var textView: NSTextView?
+
+    /// Drop the typing, on both stacks. With no text view to name the
+    /// target, drop everything: the safe side of D1.
+    func removeTypingActions() {
+        guard let storage = textView?.textStorage else { return removeAllActions() }
+        removeAllActions(withTarget: storage)
     }
 }

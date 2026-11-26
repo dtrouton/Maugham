@@ -10,6 +10,11 @@ struct CorkboardGrid: View {
         GridItem(.adaptive(minimum: 180), spacing: 12)
     ]
 
+    /// Each card's line (`BriefLine`: the synopsis, else the intent's
+    /// opening), built in `.task` once per `BriefLine.RefreshKey` change (the manifest, or an intent's text) — it reads a
+    /// statement per piece, so never in a card (tripwire 4).
+    @State private var lines: [String: String] = [:]
+
     var body: some View {
         ScrollView {
             LazyVGrid(columns: columns, spacing: 12) {
@@ -19,6 +24,7 @@ struct CorkboardGrid: View {
             }
             .padding(12)
         }
+        .task(id: BriefLine.refreshKey(store: store)) { lines = BriefLine.index(store: store) }
     }
 
     private func card(for item: StructureItem) -> some View {
@@ -38,14 +44,14 @@ struct CorkboardGrid: View {
                             legacyStatus: item.status)))
                         .frame(width: 8, height: 8)
                 }
-                if let synopsis = item.synopsis, !synopsis.isEmpty {
-                    Text(synopsis)
+                if let line = lines[item.id] ?? BriefLine.stored(item.synopsis) {
+                    Text(line)
                         .font(.callout)
                         .foregroundStyle(.secondary)
                         .lineLimit(6)
                         .frame(maxWidth: .infinity, alignment: .leading)
                 } else {
-                    Text("No synopsis")
+                    Text("No line")
                         .font(.callout)
                         .foregroundStyle(.tertiary)
                         .frame(maxWidth: .infinity, alignment: .leading)

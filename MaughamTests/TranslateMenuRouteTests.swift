@@ -1,0 +1,193 @@
+import XCTest
+import MaughamCore
+@testable import Maugham
+
+/// **File ▸ Translate… runs what its title names, or says why it does not**
+/// (shell p5 Task 7 fix round 1, review C1). The title comes from the scope
+/// To resolve will show (`ResolveScope.of(faces, readIn:)`, the pane's own),
+/// never the centre; the ask carries its target; a head runs only an ask for
+/// itself and says why otherwise; a pending ask dies with its scope. Each of
+/// the review's three failure states failed on the pre-fix code (report).
+@MainActor
+final class TranslateMenuRouteTests: XCTestCase {
+    private let structure = [
+        StructureItem(id: "c1", title: "One", type: .document, path: "one.md"),
+        StructureItem(id: "part-1", title: "Part", type: .group, children: [
+            StructureItem(id: "c2", title: "Two", type: .document, path: "two.md"),
+        ]),
+    ]
+    private let novel = PieceNoun.Book(type: .novel)
+
+    /// (faces, the faces read in) → the scope the pane shows → the offer.
+    private func offer(faces: BinderSubject, readIn: String?, open: String = "c1",
+                       may: Bool = true, any: Bool = true) -> TranslateMenuOffer? {
+        let scope = ResolveScope.of(faces, readIn: readIn, sourceLanguage: "en",
+                                    structure: structure, projectType: .novel)
+        return TranslateMenuOffer.of(scope: scope, isOpen: { $0 == open }, structure: structure, book: novel,
+                                     mayTranslate: { _ in may }, mayTranslateBook: { _ in any })
+    }
+
+    func test_theOfferIsTheScopesNeverTheCentres() {
+        XCTAssertEqual(offer(faces: .item("c1"), readIn: "sr"),
+                       .piece(docId: "c1", noun: .chapter, language: "sr"))
+        XCTAssertEqual(offer(faces: .item("c1"), readIn: "sr")?.title,
+                       "Translate This Chapter into \(LanguageName.title("sr"))")
+        // (a) The Serbian edition faced (the centre may read a chapter in
+        // Serbian — it is not asked): the book, titled as the book.
+        XCTAssertEqual(offer(faces: .edition(language: "sr"), readIn: "sr"), .book(language: "sr"))
+        XCTAssertEqual(offer(faces: .edition(language: "sr"), readIn: nil)?.title,
+                       "Translate Whole Book into \(LanguageName.title("sr"))")
+        // (b) A Part or the Book faced: no head would take an ask, so none.
+        XCTAssertNil(offer(faces: .item("part-1"), readIn: "sr"))
+        XCTAssertNil(offer(faces: .project, readIn: "sr"))
+        XCTAssertNil(offer(faces: .edition(language: "en"), readIn: nil), "the Source edition translates nothing")
+        XCTAssertNil(offer(faces: .item("c1"), readIn: nil), "a chapter read in Source")
+        XCTAssertNil(offer(faces: .item("c2"), readIn: "sr"), "the head's Run needs the piece open")
+        XCTAssertNil(offer(faces: .item("c1"), readIn: "sr", may: false), "the translator may not")
+        XCTAssertNil(offer(faces: .edition(language: "sr"), readIn: nil, any: false))
+    }
+
+    /// (a, the head) A chapter's ask reaching the edition's head is refused
+    /// in words — never `runBook()`; a book's ask reaching a chapter's head
+    /// likewise; each head runs its own.
+    func test_aHeadRunsOnlyAnAskForItself() {
+        let chapter = TranslateMenuOffer.piece(docId: "c1", noun: .chapter, language: "sr")
+        let book = TranslateMenuOffer.book(language: "sr")
+        XCTAssertEqual(TranslateMenuOffer.answer(chapter, editionHead: "sr"), .refuse(chapter.notHereLine))
+        XCTAssertEqual(TranslateMenuOffer.answer(book, pieceHead: "c1", language: "sr"), .refuse(book.notHereLine))
+        XCTAssertEqual(TranslateMenuOffer.answer(chapter, pieceHead: "c2", language: "sr"), .refuse(chapter.notHereLine),
+                       "another chapter's head")
+        XCTAssertEqual(TranslateMenuOffer.answer(chapter, pieceHead: "c1", language: "es"), .refuse(chapter.notHereLine),
+                       "another language")
+        XCTAssertEqual(TranslateMenuOffer.answer(chapter, pieceHead: "c1", language: "sr"), .run)
+        XCTAssertEqual(TranslateMenuOffer.answer(book, editionHead: "sr"), .run)
+        XCTAssertTrue(chapter.notHereLine.contains(chapter.title), "the notice names what was asked")
+    }
+
+    /// (b, the pane) An ask that does not land in the pane's scope is said
+    /// there, not left set; (c) a pending ask does not outlive its scope.
+    func test_anAskOutsideItsScopeIsSaidAndAPendingAskDiesWithItsScope() throws {
+        let chapter = TranslateMenuOffer.piece(docId: "c1", noun: .chapter, language: "sr")
+        XCTAssertTrue(chapter.lands(in: .pieceInLanguage(docId: "c1", language: "sr")))
+        XCTAssertFalse(chapter.lands(in: .pieces(docIds: ["c2"], includesBookLevel: false)))
+        XCTAssertFalse(TranslateMenuOffer.book(language: "sr")
+            .lands(in: .edition(language: "sr", isSource: true, docIds: [])))
+        XCTAssertNil(ResolvePane.pendingSurvivingScopeChange(.translate(chapter)))
+        XCTAssertEqual(ResolvePane.pendingSurvivingScopeChange(.filter(.mine)), .filter(.mine),
+                       "control: other requests wait for the read as before")
+        func flat(_ path: String) throws -> String {
+            SourceScan.codeLines(of: try SourceTree.read(path))
+                .map { $0.trimmingCharacters(in: .whitespaces) }.joined(separator: " ")
+        }
+        let pane = try flat("Maugham/Views/Resolve/ResolvePane.swift")
+        XCTAssertTrue(pane.contains("if case .translate(let ask) = pending { if ask.lands(in: scope) { translateAsk = ask } else { filedNotice = FiledNotice.after( .filed(FiledNotice.Filing(sentence: ask.notHereLine, brief: nil)), current: filedNotice) } return }"))
+        XCTAssertTrue(pane.contains("translateAsk = nil pendingRequest = Self.pendingSurvivingScopeChange(pendingRequest)"))
+        // The heads ask the one answer, and say every refusal.
+        let piece = try flat("Maugham/Views/Resolve/ResolvePieceInLanguage.swift")
+        XCTAssertTrue(piece.contains("if case .refuse(let line) = TranslateMenuOffer.answer(asked, pieceHead: docId, language: language) { notice = line return }"))
+        XCTAssertTrue(piece.contains("notice = TranslateMenuOffer.notOfferedLine"))
+        let edition = try flat("Maugham/Views/Resolve/ResolveEditionItems.swift")
+        XCTAssertTrue(edition.contains("if case .refuse(let line) = TranslateMenuOffer.answer(asked, editionHead: language) { notice = line return }"))
+        XCTAssertTrue(edition.contains("notice = TranslateMenuOffer.notOfferedLine"))
+        // The receiver asks with the offer the item is titled by.
+        let window = SourceScan.codeLines(of: try SourceTree.sourceOfType("ProjectWindow", under: ["Maugham"]))
+            .map { $0.trimmingCharacters(in: .whitespaces) }.joined(separator: " ")
+        XCTAssertTrue(window.contains("guard let offer = translateOffer else { return } ProjectWindow.selectPosition(.resolve, showInspector: $showInspector, position: $position) resolveRequest = .translate(offer)"))
+        XCTAssertTrue(window.contains("translate: translateMenuOffer,"), "the item’s title reads the same cached offer")
+        XCTAssertTrue(window.contains("translateOffer: translateMenuOffer,"))
+    }
+
+    // MARK: - Shell closing A6
+
+    /// **A round already running greys the item and says so** — never the
+    /// head's false "nothing here it may translate". Both arms, and the
+    /// tooltip names the running round.
+    func test_aRunningRoundGreysTheOfferAndTheTooltipSaysWhichRound() {
+        let running = TranslationPipeline.Status.running(
+            docId: "c2", language: "es", leg: .translate,
+            book: TranslationPipeline.BookProgress(position: 2, count: 5))
+        for scope in [ResolveScope.pieceInLanguage(docId: "c1", language: "sr"),
+                      .edition(language: "sr", isSource: false, docIds: ["c1", "c2"])] {
+            XCTAssertNotNil(TranslateMenuOffer.of(scope: scope, isOpen: { _ in true }, structure: structure,
+                                                  book: novel, mayTranslate: { _ in true },
+                                                  mayTranslateBook: { _ in true }), "premise: idle offers \(scope)")
+            XCTAssertNil(TranslateMenuOffer.of(scope: scope, isOpen: { _ in true }, structure: structure,
+                                               book: novel, mayTranslate: { _ in true },
+                                               mayTranslateBook: { _ in true }, running: running),
+                         "a round running: grey at \(scope)")
+        }
+        let help = TranslateMenuOffer.greyHelp(running: running, noun: .chapter,
+                                               titleOf: { $0 == "c2" ? "Two" : nil })
+        XCTAssertEqual(help, "A round is running (\u{201C}Two\u{201D} into \(LanguageName.title("es")), 2 of 5); "
+                       + "Translate is offered again when it ends")
+        XCTAssertFalse(help.contains("nothing here"))
+        XCTAssertEqual(TranslateMenuOffer.greyHelp(running: .idle, noun: .chapter, titleOf: { _ in nil }),
+                       TranslateMenuOffer.elsewhereHelp, "control: idle keeps the elsewhere tooltip")
+    }
+
+    /// **The edition arm asks about the scope's own pieces**, the ones the
+    /// head runs — not the whole structure — and the window scopes them by
+    /// the head's imprint rule.
+    func test_theEditionArmAsksAboutTheScopesPieces() throws {
+        var asked: [String]?
+        _ = TranslateMenuOffer.of(scope: .edition(language: "sr", isSource: false, docIds: ["c2"]),
+                                  isOpen: { _ in false }, structure: structure, book: novel,
+                                  mayTranslate: { _ in true }, mayTranslateBook: { asked = $0; return false })
+        XCTAssertEqual(asked, ["c2"])
+        let window = SourceScan.codeLines(of: try SourceTree.sourceOfType("ProjectWindow", under: ["Maugham"]))
+            .map { $0.trimmingCharacters(in: .whitespaces) }.joined(separator: " ")
+        XCTAssertTrue(window.contains("EditionHeadView.offersRun( docIds: ResolveEditionItems.runScope( docIds: docIds, persisted: key.imprint,"),
+                      "the window asks the edition head’s own rule over the imprint’s pieces")
+        XCTAssertTrue(window.contains("running: key.pipeline)"), "the window greys on the pipeline")
+    }
+
+    // MARK: - Fix round 2
+
+    /// **N1: the cached offer re-reads when the open piece finishes
+    /// loading.** The `Document` registers after an async load, after the
+    /// key's other terms moved: the key must change with it, and the offer
+    /// differs on it.
+    func test_theOffersKeyChangesWhenTheOpenPieceRegisters() throws {
+        let scope = ResolveScope.pieceInLanguage(docId: "c1", language: "sr")
+        let loading = ProjectWindow.TranslateOfferKey(scope: scope, openDocId: "c1", openIsRegistered: false,
+                                                      modified: nil, postureEpoch: 0)
+        let loaded = ProjectWindow.TranslateOfferKey(scope: scope, openDocId: "c1", openIsRegistered: true,
+                                                     modified: nil, postureEpoch: 0)
+        XCTAssertNotEqual(loading, loaded, "the load landing is a change of key")
+        func offer(registered: Bool) -> TranslateMenuOffer? {
+            TranslateMenuOffer.of(scope: scope, isOpen: { $0 == "c1" && registered }, structure: structure,
+                                  book: novel, mayTranslate: { _ in true }, mayTranslateBook: { _ in true })
+        }
+        XCTAssertNil(offer(registered: false))
+        XCTAssertNotNil(offer(registered: true), "so the re-read offers it")
+        let window = SourceScan.codeLines(of: try SourceTree.sourceOfType("ProjectWindow", under: ["Maugham"]))
+            .map { $0.trimmingCharacters(in: .whitespaces) }.joined(separator: " ")
+        XCTAssertTrue(window.contains("openIsRegistered: documentStore?.document(forDocId: open) != nil,"))
+        XCTAssertTrue(window.contains("isOpen: { $0 == open && documentStore.document(forDocId: $0) != nil }"),
+                      "the key's term is the offer's own test")
+    }
+
+    /// **N3: the menu's scope is the pane's**, by one function and one
+    /// reading language, so C1 cannot quietly come back.
+    func test_theMenusScopeAndThePanesAreOneFunction() throws {
+        func flat(_ text: String) -> String {
+            SourceScan.codeLines(of: text).map { $0.trimmingCharacters(in: .whitespaces) }.joined(separator: " ")
+        }
+        let window = flat(try SourceTree.sourceOfType("ProjectWindow", under: ["Maugham"]))
+        let pane = flat(try SourceTree.read("Maugham/Views/Resolve/ResolvePane.swift"))
+        let column = flat(try SourceTree.read("Maugham/Views/RightColumn.swift"))
+        XCTAssertTrue(window.contains("scope: ResolveScope.shown(faces: subject.faces, readIn: facesReadingLanguage,"))
+        XCTAssertTrue(pane.contains("ResolveScope.shown(faces: subject.faces, readIn: readIn,"))
+        XCTAssertFalse(pane.contains("ResolveScope.of("), "the pane builds its scope only through `shown`")
+        XCTAssertTrue(column.contains("readIn: readingLanguage,"), "the pane's readIn is the column's reading language")
+        let reading = "ReadingLanguage.of(subject: subject, switched: editorControl.translationLanguage, sourceLanguage: publishCentre.sourceLanguage)"
+        XCTAssertTrue(window.contains(reading), "the window's reading language")
+        XCTAssertTrue(column.contains(reading), "the column's, by the same call")
+        XCTAssertEqual(ResolveScope.shown(faces: .edition(language: "sr"), readIn: nil, sourceLanguage: nil,
+                                          manifest: nil),
+                       ResolveScope.of(.edition(language: "sr"), readIn: nil,
+                                       sourceLanguage: PublishConfig.Metadata().language,
+                                       structure: [], projectType: .novel),
+                       "no source tag: the book's default, as the pane always fell back")
+    }
+}

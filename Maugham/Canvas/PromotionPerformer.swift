@@ -184,7 +184,7 @@ enum PromotionFailure: LocalizedError, Equatable {
                 // to prevent.
                 fix = "That piece comes from the region this lives in — change it there."
             case (false, _):
-                fix = "Pick another piece in the inspector, or clear the association."
+                fix = "Pick another piece for it, or clear the association."
             }
             // **"it" rather than "the note", since 1C-d.** This sentence is
             // reached by a research ASSET as well now (`Promotion.scopedTargets`),

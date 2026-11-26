@@ -15,6 +15,48 @@ public enum ResearchMoveTarget: Equatable, Sendable {
     case piece(String)
 }
 
+/// **The link edits a research move makes in its own save** (closing round
+/// A3): each row's links to `unlink`'s pieces removed, then every row linked
+/// to `linkTo`.
+public struct ResearchLinkEdit: Equatable, Sendable {
+    public var unlink: [String: [String]]
+    public var linkTo: (ids: [String], piece: String)?
+
+    public static let none = ResearchLinkEdit(unlink: [:], linkTo: nil)
+
+    public init(unlink: [String: [String]], linkTo: (ids: [String], piece: String)?) {
+        self.unlink = unlink
+        self.linkTo = linkTo
+    }
+
+    public static func == (lhs: ResearchLinkEdit, rhs: ResearchLinkEdit) -> Bool {
+        lhs.unlink == rhs.unlink && lhs.linkTo?.ids == rhs.linkTo?.ids
+            && lhs.linkTo?.piece == rhs.linkTo?.piece
+    }
+
+    func apply(to structure: inout [StructureItem]) {
+        for (id, pieces) in unlink {
+            for piece in pieces {
+                structure = TreeWalk.mutate(id: piece, in: structure) { node in
+                    var node = node
+                    let links = (node.linkedResearchIds ?? []).filter { $0 != id }
+                    node.linkedResearchIds = links.isEmpty ? nil : links
+                    return node
+                }
+            }
+        }
+        if let linkTo {
+            structure = TreeWalk.mutate(id: linkTo.piece, in: structure) { node in
+                var node = node
+                var links = node.linkedResearchIds ?? []
+                for id in linkTo.ids where !links.contains(id) { links.append(id) }
+                node.linkedResearchIds = links.isEmpty ? nil : links
+                return node
+            }
+        }
+    }
+}
+
 extension ProjectStore {
 
     /// Path of the ROOT ancestor of `id` within `research` (the item's own
@@ -54,14 +96,27 @@ extension ProjectStore {
     nonisolated static func researchScopePieceId(
         ofPath path: String?, structure: [StructureItem]
     ) -> String? {
-        guard let path, path.hasPrefix("pieces/") else { return nil }
-        for piece in structure where piece.pieceKind == .loose {
-            if let prefix = pieceResearchPrefix(for: piece),
-               path.hasPrefix(prefix) {
-                return piece.id
-            }
+        researchScopePieceId(ofPath: path, in: researchFolders(in: structure))
+    }
+
+    /// Each loose piece's research folder prefix and its id, worked out once
+    /// so a caller asking of many paths (`ResearchHomes`, `ReadThroughGate`)
+    /// walks the structure once.
+    nonisolated static func researchFolders(
+        in structure: [StructureItem]
+    ) -> [(prefix: String, pieceId: String)] {
+        structure.compactMap { piece in
+            guard piece.pieceKind == .loose else { return nil }
+            return pieceResearchPrefix(for: piece).map { ($0, piece.id) }
         }
-        return nil
+    }
+
+    /// `researchScopePieceId(ofPath:structure:)` over folders already worked out.
+    nonisolated static func researchScopePieceId(
+        ofPath path: String?, in folders: [(prefix: String, pieceId: String)]
+    ) -> String? {
+        guard let path, path.hasPrefix("pieces/") else { return nil }
+        return folders.first { path.hasPrefix($0.prefix) }?.pieceId
     }
 
     /// Drop ids that are descendants of another selected group — the group's
@@ -113,10 +168,14 @@ extension ProjectStore {
     /// invalid id moves nothing. One RenamePlan through the typed mover, one
     /// manifest save. `destIndex` is the insertion index within the
     /// destination sibling list (group children, or the top-level
-    /// `manifest.research` array); nil appends.
+    /// `manifest.research` array); nil appends. Returns what the move left:
+    /// the notes whose picture links could not be rewritten
+    /// (`RenameOutcome.assetRefsLeftIn`, #148 D2).
+    @discardableResult
     public func moveResearchItems(
-        ids: [String], to target: ResearchMoveTarget, atIndex destIndex: Int? = nil
-    ) async throws {
+        ids: [String], to target: ResearchMoveTarget, atIndex destIndex: Int? = nil,
+        relinking: ResearchLinkEdit = .none
+    ) async throws -> RenameOutcome {
         beginStructuralVerb(); defer { endStructuralVerb() }
         let dest = try resolveResearchMoveTarget(target)
         // A destination folder outside every research root (a synced
@@ -150,7 +209,7 @@ extension ProjectStore {
             if item.role != nil,
                researchScopePieceId(ofPath: item.path) != dest.destPieceId {
                 throw ProjectStoreError.fileSystemError(
-                    "“\(item.title)” has a fixed home and can't move between shared and piece research")
+                    "“\(item.title)” has a fixed home, so it stays in the research it belongs to")
             }
             // C1: the palette group's lookup (`PaletteLookup.paletteGroup`)
             // scans only the TOP level of `research`. A same-scope group move
@@ -313,13 +372,45 @@ extension ProjectStore {
         // this runs BEFORE the save so a save that throws cannot leave the
         // refs naming a folder that is gone (#142 T3). Outside the in-flight
         // span, so the rewrite's own save is an ordinary one.
+        // A rewrite that fails is named in the outcome (#148 D2): the move
+        // stands, and the writer is told which notes' picture links it left.
+        var assetRefsLeftIn: [String] = []
         for (item, pending) in zip(items, pendings) {
             guard let (oldStem, newStem) = pending.refRewrite else { continue }
-            await rewriteMovedNoteAssetRefs(itemId: item.id, oldStem: oldStem, newStem: newStem)
+            if let left = await rewriteMovedNoteAssetRefs(itemId: item.id, oldStem: oldStem, newStem: newStem) {
+                assetRefsLeftIn.append(left)
+            }
         }
 
+        // **The move's link edits, in the same save** (shell p5a closing
+        // round A3): a move to the book drops the rows' links, a drop on a
+        // chapter links them — one write, never a moved row whose links lag.
+        relinking.apply(to: &manifest.structure)
+
         manifest.modified = Date()
-        try await saveManifest()
+        return try await saveManifest(saying: RenameOutcome(assetRefsLeftIn: assetRefsLeftIn, act: .moved))
+    }
+
+    /// **The manifest save that ends a Research rename or move**, returning
+    /// `outcome`. A save that throws after picture links were left
+    /// (`assetRefsLeftIn`) throws `manifestUnwritable` naming both — the save
+    /// failure's own detail, then the links (#148 D2, RULING-52) — the shape
+    /// `settleDeletedInPart` gives its save failure; one with nothing left
+    /// throws the save's own error unchanged.
+    func saveManifest(saying outcome: RenameOutcome) async throws -> RenameOutcome {
+        do {
+            try await saveManifest()
+        } catch {
+            guard let refs = outcome.assetRefsAfterAFailedSave else { throw error }
+            let saveFailure: String
+            if case .manifestUnwritable(let detail)? = error as? ProjectStoreError {
+                saveFailure = detail
+            } else {
+                saveFailure = error.localizedDescription
+            }
+            throw ProjectStoreError.manifestUnwritable(Self.saveFailure(saveFailure, thenSaying: refs))
+        }
+        return outcome
     }
 
     /// **A moved or renamed note's `./<old>_assets/` refs, rewritten** once
@@ -329,19 +420,28 @@ extension ProjectStore {
     /// raw write. Anything else (`ResearchTextRole` nil) is not written. It
     /// lands even when the earlier version cannot be kept (`mustLand`); a
     /// write that fails is logged and the move stands.
-    func rewriteMovedNoteAssetRefs(itemId: String, oldStem: String, newStem: String) async {
+    ///
+    /// **Returns the note's title when its refs were left stale** (the file
+    /// would not resolve, read or write), so the verb's outcome names it
+    /// (`RenameOutcome.assetRefsLeftIn`, #148 D2, RULING-52); nil when they
+    /// were rewritten, needed nothing, or the item is not a note.
+    @discardableResult
+    func rewriteMovedNoteAssetRefs(itemId: String, oldStem: String, newStem: String) async -> String? {
         guard let item = findResearchItem(id: itemId, in: manifest.research),
-              let path = item.path else { return }
+              let path = item.path else { return nil }
         // Only a note or a palette card inside a research root is rewritten:
         // a synced manifest's `.document` naming any other file is left alone.
         guard ResearchTextRole.of(item, structure: manifest.structure, research: manifest.research) != nil else {
             projectStoreLog.error(
                 "Asset refs: \(path, privacy: .public) is not inside a research root, not rewritten")
-            return
+            return nil
         }
-        guard let noteURL = try? resolvedProjectPathToChange(path) else { return }
+        guard let noteURL = try? resolvedProjectPathToChange(path) else {
+            projectStoreLog.error("Asset refs: \(path, privacy: .public) is refused by the project, not rewritten")
+            return item.title
+        }
         await documentStore?.settleResearchNoteEdits(itemId: itemId)
-        await Self.rewriteAssetRefsBestEffort(
+        let leftStale = await Self.rewriteAssetRefsBestEffort(
             oldStem: oldStem, newStem: newStem, noteURL: noteURL,
             write: { [self] text, url in
                 if let ds = documentStore {
@@ -361,6 +461,7 @@ extension ProjectStore {
                     try text.write(to: url, atomically: true, encoding: .utf8)  // raw-research-text: no-door fallback
                 }
             })
+        return leftStale ? item.title : nil
     }
 
     /// Dedup a note leaf JOINTLY with its sibling `<stem>_assets` folder: the
@@ -392,23 +493,32 @@ extension ProjectStore {
         return UUID().uuidString
     }
 
-    /// Cosmetic post-move fix — MUST NOT abort the move. `relocate` has
-    /// already committed the FS state when this runs, so a failure here is
-    /// logged and swallowed to keep the manifest rewrite (Phase 4) alive
-    /// (2026-07-19 sweep W1). The non-throwing signature is deliberate.
+    /// Post-move fix — MUST NOT abort the move. `relocate` has already
+    /// committed the FS state when this runs, so a failure here is logged and
+    /// never thrown, to keep the manifest rewrite (Phase 4) alive (2026-07-19
+    /// sweep W1). The non-throwing signature is deliberate; the failure is
+    /// RETURNED (true: the refs were left stale) so the verb can say it
+    /// (#148 D2).
+    @discardableResult
     static func rewriteAssetRefsBestEffort(
         oldStem: String, newStem: String, noteURL: URL,
         write: (String, URL) async throws -> Void
-    ) async {
-        guard let content = try? String(contentsOf: noteURL, encoding: .utf8) else { return }  // adr-0018-ok: research-note read, not manuscript
+    ) async -> Bool {
+        guard let content = try? String(contentsOf: noteURL, encoding: .utf8) else {  // adr-0018-ok: research-note read, not manuscript
+            NSLog("moveResearchItems: asset-ref rewrite could not read %@ — refs stale, move intact",
+                  noteURL.lastPathComponent)
+            return true
+        }
         let rewritten = content.replacingOccurrences(
             of: "./\(oldStem)_assets/", with: "./\(newStem)_assets/")
-        guard rewritten != content else { return }
+        guard rewritten != content else { return false }
         do {
             try await write(rewritten, noteURL)
+            return false
         } catch {
             NSLog("moveResearchItems: asset-ref rewrite failed for %@ — refs stale, move intact: %@",
                   noteURL.lastPathComponent, "\(error)")
+            return true
         }
     }
 }

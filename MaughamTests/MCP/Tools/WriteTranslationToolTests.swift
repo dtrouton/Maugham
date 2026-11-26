@@ -16,6 +16,7 @@ final class WriteTranslationToolTests: XCTestCase {
         let documentStore: DocumentStore
         let registry: ProjectRegistry
         let doc: Document
+        let store: ProjectStore
     }
 
     private func makeHarness(
@@ -61,7 +62,8 @@ final class WriteTranslationToolTests: XCTestCase {
             projectId: ProjectIdentifier.id(for: tmp),
             documentStore: ds,
             registry: reg,
-            doc: doc)
+            doc: doc,
+            store: pStore)
     }
 
     private func call(_ h: Harness, _ obj: [String: Any]) async throws -> Data {
@@ -103,6 +105,37 @@ final class WriteTranslationToolTests: XCTestCase {
         XCTAssertEqual(byId[ids[0]]?.sourceHash, TranslationHash.hash(src0))
         XCTAssertEqual(byId[ids[1]]?.sourceHash, TranslationHash.hash(src1))
 
+        await h.documentStore.close()
+    }
+
+    // MARK: - A removed edition (shell p5 Task 5)
+
+    /// **Claude writing into an edition the writer removed is refused in
+    /// words**, and nothing is written where the writer cannot see it; added
+    /// back, the same call writes.
+    func test_writeTranslationIntoARemovedEditionIsRefusedAndWritesNothing() async throws {
+        let h = try await makeHarness()
+        let ids = h.doc.sequence
+        let params: [String: Any] = [
+            "project_id": h.projectId, "document_id": h.doc.docId, "language": "es",
+            "entries": [["paragraph_id": ids[0], "text": "Primer p\u{00E1}rrafo."]],
+        ]
+        try await h.store.setEdition("es", removed: true)
+        do {
+            _ = try await call(h, params)
+            XCTFail("wrote into a removed edition")
+        } catch {
+            XCTAssertEqual(error as? MCPError, .invalidArgument(
+                "The writer removed the Spanish edition; it comes back when they add Spanish again."))
+        }
+        XCTAssertTrue(TranslationStore.fileURLs(forDocId: h.doc.docId, language: "es", in: h.projectURL).isEmpty,
+                      "nothing written where the writer cannot see it")
+
+        try await h.store.setEdition("es", removed: false)
+        _ = try await call(h, params)
+        XCTAssertEqual(try TranslationStore.loadMerged(forDocId: h.doc.docId, language: "es",
+                                                       in: h.projectURL).count, 1,
+                       "control: added back, the same call writes")
         await h.documentStore.close()
     }
 

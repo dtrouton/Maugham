@@ -32,7 +32,7 @@ public enum ReadEditionBriefTool: MCPTool {
         + "language, and let it decide register/idiom rather than choosing on your own; "
         + "an answer to a translation question may already be a ruling recorded here. "
         + "Project scope only — an edition's register applies to the whole book, not one "
-        + "chapter. Returns exists:false with empty markdown when the writer has not "
+        + "piece. Returns exists:false with empty markdown when the writer has not "
         + "declared a brief for that language yet; that is a valid, deliberate state, not "
         + "an error — a brief can be created in Maugham, not invented on the writer's behalf."
     public static let inputSchemaJSON =

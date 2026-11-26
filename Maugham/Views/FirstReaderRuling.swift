@@ -137,7 +137,7 @@ enum FirstReaderRuling {
     /// What the instruction's line says about where it came from, and what it
     /// settles.
     ///
-    /// The excerpt goes through `DiagnosticsPane.truncatedDriftQuote` — a CALL
+    /// The excerpt goes through `CheckNarrative.truncatedDriftQuote` — a CALL
     /// rather than a second spelling of the budget — and every em-dash is
     /// collapsed to a hyphen first, because `RulingsSection.parseItem` splits
     /// an item on its RIGHT-MOST em-dash and one surviving inside the quote
@@ -151,7 +151,7 @@ enum FirstReaderRuling {
         guard !words.isEmpty else { return "answering \(name)\u{2019}s note" }
         let sanitized = words.replacingOccurrences(of: "\u{2014}", with: "-")
         return "answering \(name)\u{2019}s note on "
-            + "\u{00AB}\(DiagnosticsPane.truncatedDriftQuote(sanitized))\u{00BB}"
+            + "\u{00AB}\(CheckNarrative.truncatedDriftQuote(sanitized))\u{00BB}"
     }
 
     // MARK: - The act
@@ -176,7 +176,8 @@ enum FirstReaderRuling {
     ///   the two, because they are separate acts against separate logs.
     static func commit(
         _ text: String, answering annotation: Annotation,
-        in document: Document, store: ProjectStore, undoManager: UndoManager?
+        in document: Document, store: ProjectStore, undoManager: UndoManager?,
+        filedUnder: (FiledDestination) -> Void = { _ in }
     ) async -> String? {
         // Unreachable from the queue — no row draws the affordance for a
         // project that has named nobody — and it refuses rather than asserting,
@@ -185,8 +186,9 @@ enum FirstReaderRuling {
         guard let name = readerName(in: store.manifest) else { return unnamedRefusal }
         let words = text.trimmingCharacters(in: .whitespacesAndNewlines)
 
+        let destination: FiledDestination
         do {
-            try await RulingPerformer.rule(
+            destination = try await RulingPerformer.rule(
                 words, provenance: provenance(for: annotation, name: name),
                 kind: .firstReader, forScope: .project,
                 store: store, world: nil)
@@ -203,6 +205,7 @@ enum FirstReaderRuling {
                 + error.localizedDescription
                 + " The note is still open — reply to it without ruling again."
         }
+        filedUnder(destination)
         return nil
     }
 

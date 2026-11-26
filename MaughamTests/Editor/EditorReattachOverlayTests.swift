@@ -71,7 +71,7 @@ final class EditorReattachOverlayTests: XCTestCase {
         let harness = harness()
         let c = harness.coordinator
         c.setReviewMode(true)
-        XCTAssertTrue(c.setTranslationReview(true))
+        XCTAssertTrue(c.setReadingTranslation(true))
         c.syncTranslationBadgeOverlay()
         XCTAssertTrue(c.markRenderer?.superview === harness.textView, "premise")
         XCTAssertTrue(c.marginRail?.superview === harness.textView, "premise")

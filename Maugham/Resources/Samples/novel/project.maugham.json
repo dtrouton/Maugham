@@ -9,6 +9,13 @@
       "path" : "research\/about-this-sample.md",
       "title" : "About This Sample",
       "type" : "asset"
+    },
+    {
+      "id" : "res-002",
+      "kind" : "document",
+      "path" : "research\/the-rain-and-the-room.md",
+      "title" : "The Rain and the Room",
+      "type" : "asset"
     }
   ],
   "schemaVersion" : 1,
@@ -16,11 +23,18 @@
     {
       "id" : "doc-001",
       "path" : "manuscript\/01-welcome.md",
+      "synopsis" : "Where your words live, and the three columns of the window.",
       "title" : "Welcome",
       "type" : "document"
     },
     {
       "id" : "doc-002",
+      "linkedResearchIds" : [
+        "res-002"
+      ],
+      "links" : [
+        "doc-003"
+      ],
       "path" : "manuscript\/02-try-it.md",
       "title" : "Try It",
       "type" : "document"
@@ -28,6 +42,7 @@
     {
       "id" : "doc-003",
       "path" : "manuscript\/03-going-further.md",
+      "synopsis" : "The whole book at once, the canvas, Claude, and the finished book.",
       "title" : "Going Further",
       "type" : "document"
     }

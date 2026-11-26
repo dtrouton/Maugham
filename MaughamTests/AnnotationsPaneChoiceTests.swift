@@ -337,7 +337,7 @@ final class AnnotationsPaneChoiceTests: XCTestCase {
     /// letter \u{00b7} Line \u{00b7} Lish \u{00b7} round 3 \u{00b7} drafting*.
     func test_aRowFiledFromTheQueueNamesNoStageAndALetterFiledRowDoes() async throws {
         let fx = try await makeHarness(named: "ChoiceNoStage")
-        let queue = QueueLedgerVerbs.provenance(for: note(), store: fx.store)
+        let queue = QueueLedgerVerbs.provenance(for: note(), docId: nil, store: fx.store)
         for word in [DraftStage.drafting.rawValue, DraftStage.revising.rawValue] {
             XCTAssertFalse(
                 queue.contains(word),
@@ -347,7 +347,7 @@ final class AnnotationsPaneChoiceTests: XCTestCase {
         let fromLetter = LessonLedgerVerbs.provenance(
             voice: "Le Guin",
             lane: LetterKeep.laneLine(
-                passId: "line", round: 3, stage: .drafting, store: fx.store))
+                passId: "line", round: 3, stage: .drafting, docId: nil, store: fx.store))
         XCTAssertEqual(
             fromLetter,
             "from Le Guin's letter \u{00b7} Line \u{00b7} Lish \u{00b7} round 3 "
@@ -361,7 +361,7 @@ final class AnnotationsPaneChoiceTests: XCTestCase {
     func test_theFiledRowNamesTheEditorAndTheLane() async throws {
         let fx = try await makeHarness(named: "ChoiceProvenance")
         let annotation = note()
-        let provenance = QueueLedgerVerbs.provenance(for: annotation, store: fx.store)
+        let provenance = QueueLedgerVerbs.provenance(for: annotation, docId: nil, store: fx.store)
         XCTAssertEqual(
             provenance, "from Le Guin's letter \u{00b7} Line \u{00b7} Lish \u{00b7} round 3",
             "the voice is the note's author and the lane is "
@@ -387,7 +387,7 @@ final class AnnotationsPaneChoiceTests: XCTestCase {
             resolvedAt: nil, isStale: false,
             author: nil, compilerRunId: "run-1", lessonHeading: "Fragments")
         XCTAssertEqual(
-            QueueLedgerVerbs.provenance(for: annotation, store: fx.store),
+            QueueLedgerVerbs.provenance(for: annotation, docId: nil, store: fx.store),
             "from Claude's letter",
             "a nil author reads as Claude (`AnnotationAuthorPresentation`), "
             + "and a note stamped with no pass has no lane to name")
@@ -652,7 +652,7 @@ final class AnnotationsPaneChoiceTests: XCTestCase {
             contentsOf: URL(fileURLWithPath: #filePath)
                 .deletingLastPathComponent()
                 .deletingLastPathComponent()
-                .appendingPathComponent("Maugham/Views/AnnotationsPaneDialogs.swift"),
+                .appendingPathComponent("Maugham/Views/Resolve/ResolveDialogs.swift"),
             encoding: .utf8)
         let lines = source.split(separator: "\n").map(String.init)
 
@@ -770,7 +770,7 @@ final class AnnotationsPaneChoiceTests: XCTestCase {
         let annotation = note(kind: .craftNote, status: .accepted, heading: nil)
 
         let refusal = await QueueLedgerVerbs.keepAsLesson(
-            "Cut the filter verbs.", from: annotation,
+            "Cut the filter verbs.", from: annotation, docId: nil,
             store: fx.store, world: nil)
 
         XCTAssertNil(refusal, "nothing here should have refused: \(refusal ?? "")")
@@ -788,7 +788,7 @@ final class AnnotationsPaneChoiceTests: XCTestCase {
     func test_aBlankHeadingIsRefusedAndFilesNothing() async throws {
         let fx = try await makeHarness(named: "KeepBlank")
         let refusal = await QueueLedgerVerbs.keepAsLesson(
-            "   \n ", from: note(kind: .craftNote, status: .accepted),
+            "   \n ", from: note(kind: .craftNote, status: .accepted), docId: nil,
             store: fx.store, world: nil)
         XCTAssertNotNil(refusal)
         XCTAssertNil(ledger(fx), "and no ledger was minted for an empty entry")

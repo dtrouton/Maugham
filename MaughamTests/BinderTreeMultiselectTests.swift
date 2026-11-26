@@ -41,50 +41,109 @@ final class BinderTreeMultiselectTests: XCTestCase {
     private var research: [ResearchItem] { [note("a"), group("g", [note("b")]), note("c")] }
     private var figures: [String] { ["fig-00000002", "fig-00000001"] }
 
+    /// A write over `subject`, the tree drawing `stored` as the rows its last
+    /// click left (the subject unchanged since).
     private func resolve(
         written: Set<BinderSubject>,
         stored: Set<BinderSubject> = [],
-        subject: BinderSubject?
-    ) -> (selection: Set<BinderSubject>, subject: BinderSubject?) {
+        subject: WindowSubject
+    ) -> (selection: Set<BinderSubject>, subject: WindowSubject) {
         BinderTreeSelection.resolved(
-            written: written, stored: stored, subject: subject,
-            structure: structure, research: research, figures: figures)
+            written: written, stored: stored,
+            shown: BinderTreeSelection.shown(stored, subject: subject, clickedAt: subject),
+            subject: subject,
+            structure: structure, research: research, figures: figures,
+            projectType: .novel)
     }
 
-    // MARK: - A single row is stage 2a's rule, unchanged
+    /// The Book open, `beside` opened next to it.
+    private func beside(_ id: String) -> WindowSubject {
+        WindowSubject(open: .project, faces: .project, beside: .research(id))
+    }
 
-    /// **The regression net's other half.** Every mounted selection test written
-    /// for 2a is still green, and this says why structurally: a write of one row
-    /// does not go near the anchor rule — it goes through the very function 2a
-    /// shipped, and the set becomes exactly that row.
-    func test_aSingleRowIsTheRuleStageTwoAShipped() {
-        for subject: BinderSubject? in [nil, .project, .item("c1"), .research("a")] {
-            for written: BinderSubject in [.project, .item("c2"), .research("c")] {
+    // MARK: - A single row is a click (shell p1 Task 3)
+
+    /// **A write of one row is the click rule and nothing else**, from every
+    /// subject, and the tree holds that row alone.
+    func test_aSingleRowIsAClickThroughTheClickRule() {
+        let subjects: [WindowSubject] = [
+            .book, SubjectSamples.opened(.item("c1")), beside("a"),
+            WindowSubject(open: .canvas, faces: .item("c1")),
+        ]
+        for subject in subjects {
+            for written: BinderSubject in [.project, .item("c2"), .research("c"),
+                                           .research("a"), .canvas] {
                 let out = resolve(written: [written], stored: [.research("a")],
                                   subject: subject)
                 XCTAssertEqual(
                     out.subject,
-                    BinderTreeSelection.subject(subject, whenListWrites: written),
-                    "a one-row write must produce exactly what 2a's single-value "
-                    + "rule produces (subject: \(String(describing: subject)))")
-                XCTAssertEqual(
-                    out.selection, [written],
-                    "…and the tree holds that row and nothing else — a click "
-                    + "replaces the selection, it does not add to it")
+                    ClickRule.resolve(written, gesture: .click, current: subject,
+                                      structure: structure, projectType: .novel),
+                    "a one-row write is `ClickRule.resolve(_, .click, …)` "
+                    + "(subject: \(subject), row: \(written))")
+                // The row put away from beside is left unselected (I1).
+                let dismissed = subject.beside?.treeSubject == written
+                XCTAssertEqual(out.selection, dismissed ? [] : [written])
             }
         }
     }
 
-    /// **The 2a nil-refusal, generalized.** An untagged row — an empty section's
+    /// A click on a research row opens it beside and leaves the centre alone.
+    func test_aResearchRowClickedAloneGoesBeside() {
+        let out = resolve(written: [.research("c")], subject: .book)
+        XCTAssertEqual(out.subject, beside("c"))
+    }
+
+    /// A click on the row beside, when the tree was drawing another row
+    /// selected, puts it away (controller ruling 2).
+    ///
+    /// **And the row it put away is not left selected** (fix round, I1): the
+    /// tree draws nothing selected, so the table lets go of the note and the
+    /// next click on it is a write the `List` delivers — which reopens it.
+    func test_aClickOnTheRowBesidePutsItAway() {
+        let out = resolve(written: [.research("a")], stored: [.project],
+                          subject: beside("a"))
+        XCTAssertEqual(out.subject, .book)
+        XCTAssertEqual(out.selection, [])
+        let shown = BinderTreeSelection.shown(out.selection, subject: out.subject,
+                                              clickedAt: out.subject)
+        XCTAssertFalse(shown.contains(.research("a")),
+                       "the dismissed note is drawn selected, so the next click "
+                       + "on it writes nothing and is swallowed")
+        let again = BinderTreeSelection.resolved(
+            written: [.research("a")], stored: out.selection, shown: shown,
+            subject: out.subject, structure: structure, research: research,
+            figures: figures, projectType: .novel)
+        XCTAssertEqual(again.subject, beside("a"), "the next click reopens it beside")
+        XCTAssertEqual(again.selection, [.research("a")])
+    }
+
+    /// **A plain click on the anchor of a live set** is the `List`'s write
+    /// alone (the table collapses the set, so it writes): it puts the note
+    /// away, and the watcher — which only answers a click on the table's ONE
+    /// selected row — adds nothing, whatever order the two arrive in.
+    func test_aPlainClickOnTheAnchorOfASetPutsItAwayOnOnePath() {
+        let stored: Set<BinderSubject> = [.research("a"), .research("c")]
+        let out = resolve(written: [.research("a")], stored: stored, subject: beside("a"))
+        XCTAssertEqual(out.subject, .book)
+        XCTAssertEqual(out.selection, [])
+        for current in [beside("a"), out.subject] {
+            XCTAssertEqual(
+                TreeTravel.clickOnTheSelectedRow(.research("a"), rowWasSelected: false,
+                                                 current: current, structure: structure,
+                                                 projectType: .novel),
+                current, "inside a set of several rows the watcher answers nothing")
+        }
+    }
+
+    /// **The untagged-row refusal.** An untagged row — an empty section's
     /// placeholder, a slugline — is selected anyway and writes *nothing* through
-    /// a `Set` binding, exactly as it wrote `nil` through the old one (measured
-    /// on macOS 26.5, `BinderTreeSectionsTests`). A `nil` subject blanks the
-    /// centre column, so the write is refused; a set that emptied would take the
-    /// writer's whole multi-selection with it as well.
+    /// a `Set` binding (measured on macOS 26.5, `BinderTreeSectionsTests`). The
+    /// write moves nothing: not the subject, not the multi-selection.
     func test_anEmptyWriteChangesNeitherTheSelectionNorTheSubject() {
         let stored: Set<BinderSubject> = [.research("a"), .research("c")]
-        let out = resolve(written: [], stored: stored, subject: .research("a"))
-        XCTAssertEqual(out.subject, .research("a"),
+        let out = resolve(written: [], stored: stored, subject: beside("a"))
+        XCTAssertEqual(out.subject, beside("a"),
                        "a placeholder row is not a subject and must not clear one")
         XCTAssertEqual(out.selection, stored,
                        "and it must not empty the selection either — clicking "
@@ -92,46 +151,47 @@ final class BinderTreeMultiselectTests: XCTestCase {
                        + "had picked")
     }
 
-    func test_anEmptyWriteOverNoSubjectStaysEmptyHanded() {
-        let out = resolve(written: [], stored: [], subject: nil)
-        XCTAssertNil(out.subject)
-        XCTAssertEqual(out.selection, [])
+    /// **A set handed back unchanged** is not a click.
+    func test_aSetHandedBackUnchangedChangesNothing() {
+        let stored: Set<BinderSubject> = [.research("a"), .research("c")]
+        let out = resolve(written: stored, stored: stored, subject: beside("a"))
+        XCTAssertEqual(out.subject, beside("a"))
+        XCTAssertEqual(out.selection, stored)
     }
 
     // MARK: - The anchor
 
-    /// The whole point of deriving rather than replacing: the window is still
-    /// about what it was about. ⌘-clicking a second note must not move the
-    /// editor off the first.
-    func test_theAnchorSurvivesAGrownSet() {
+    /// **A modifier click extends from the row beside**, which stays the
+    /// anchor.
+    func test_aModifierClickExtendsFromTheRowBeside() {
         let out = resolve(written: [.research("a"), .research("c")],
-                          stored: [.research("a")], subject: .research("a"))
-        XCTAssertEqual(out.subject, .research("a"),
-                       "the subject was in the set that grew — it stays put")
+                          stored: [.research("a")], subject: beside("a"))
         XCTAssertEqual(out.selection, [.research("a"), .research("c")])
+        XCTAssertEqual(out.subject, beside("a"),
+                       "the note beside was in the set that grew — it stays put")
     }
 
-    /// And when the writer ⌘-clicks the anchor itself away, the subject follows
-    /// the tree's own order rather than a set's arbitrary one.
-    func test_whenTheAnchorLeavesTheSetTheSubjectIsTheFirstRowTheTreeDraws() {
+    /// And when the writer ⌘-clicks the anchor itself away, what is beside
+    /// follows the tree's own order rather than a set's arbitrary one.
+    func test_whenTheAnchorLeavesTheSetTheFirstRowTheTreeDrawsGoesBeside() {
         let out = resolve(written: [.research("c"), .research("b")],
                           stored: [.research("a"), .research("b"), .research("c")],
-                          subject: .research("a"))
-        XCTAssertEqual(out.subject, .research("b"),
-                       "b is drawn above c (it is inside group g, which comes "
-                       + "before c) — the subject is the first of what is left, "
-                       + "in TREE order, not whichever element the Set yields first")
+                          subject: beside("a"))
+        XCTAssertEqual(out.subject, beside("b"),
+                       "b is drawn above c — inside g, which sits between a and c")
+        XCTAssertEqual(out.selection, [.research("b"), .research("c")])
     }
 
-    /// Determinism, said out loud: a `Set` has no first element, so the rule
-    /// above must give the same answer however the set was built.
-    func test_theAnchorFallbackIsTheSameWhicheverWayTheSetWasAssembled() {
-        let members: [BinderSubject] = [.research("c"), .research("b"), .research("a")]
-        for _ in 0..<50 {
-            let out = resolve(written: Set(members.shuffled()), subject: .project)
-            XCTAssertEqual(out.subject, .research("a"),
-                           "the fallback must be the tree's order, every time")
-        }
+    /// Structure has no plural verbs: a modifier click on a chapter is a click
+    /// on that chapter.
+    func test_aModifierClickOnAChapterIsAClickOnIt() {
+        let out = resolve(written: [.research("a"), .item("c2")],
+                          stored: [.research("a")], subject: beside("a"))
+        XCTAssertEqual(out.subject,
+                       WindowSubject(open: .item("c2"), faces: .item("c2"),
+                                     beside: .research("a"), besideIsLatest: false),
+                       "the chapter was clicked after the note: it is the part clicked last")
+        XCTAssertEqual(out.selection, [.item("c2")])
     }
 
     // MARK: - Tree order
@@ -161,10 +221,12 @@ final class BinderTreeMultiselectTests: XCTestCase {
                        "a figure the section does not draw is dropped like any dead id")
     }
 
-    /// A figure row written alone is a subject, like every tagged row.
-    func test_aSingleFigureRowBecomesTheSubject() {
-        let next = resolve(written: [.figure("fig-00000001")], subject: .item("c1"))
-        XCTAssertEqual(next.subject, .figure("fig-00000001"))
+    /// A figure row written alone takes the centre, like every tagged row
+    /// that is not reference material.
+    func test_aSingleFigureRowTakesTheCentre() {
+        let next = resolve(written: [.figure("fig-00000001")],
+                           subject: SubjectSamples.opened(.item("c1")))
+        XCTAssertEqual(next.subject, SubjectSamples.opened(.figure("fig-00000001")))
         XCTAssertEqual(next.selection, [.figure("fig-00000001")])
     }
 
@@ -181,27 +243,38 @@ final class BinderTreeMultiselectTests: XCTestCase {
 
     // MARK: - What the tree shows
 
-    /// A programmatic subject write — a creation, a restore, a navigation from
-    /// another column — collapses the tree to that one row. There is no flag and
-    /// no `.onChange` doing it (tripwire 2): the shown set is a projection of
-    /// the stored one through the subject, so the two cannot get out of step.
-    func test_aSubjectTheSelectionDoesNotHoldCollapsesTheTreeOntoIt() {
-        XCTAssertEqual(
-            BinderTreeSelection.shown([.research("a"), .research("c")],
-                                      subject: .research("made-just-now")),
-            [.research("made-just-now")])
+    /// **The `List` draws the rows last clicked**, while the subject is the
+    /// one that click made; any other change of subject shows the window's own
+    /// last-clicked row — the measured reason is `BinderTreeSelection`'s doc.
+    func test_theListDrawsTheClickedRowsUntilTheSubjectMovesElsewhere() {
+        let afterClick = WindowSubject(open: .project, faces: .project,
+                                       beside: .research("a"))
+        XCTAssertEqual(BinderTreeSelection.shown([.project], subject: afterClick,
+                                                 clickedAt: afterClick),
+                       [.project], "the Book row the writer clicked stays selected")
+        XCTAssertEqual(BinderTreeSelection.shown([.project], subject: beside("made-just-now"),
+                                                 clickedAt: afterClick),
+                       [.research("made-just-now")],
+                       "a subject moved from elsewhere collapses the tree onto it")
+        XCTAssertEqual(BinderTreeSelection.shown([], subject: .book, clickedAt: nil),
+                       [.project], "nothing clicked yet: the window's own row")
     }
 
-    func test_aSubjectTheSelectionDoesHoldLeavesTheRestSelected() {
-        XCTAssertEqual(
-            BinderTreeSelection.shown([.research("a"), .research("c")],
-                                      subject: .research("c")),
-            [.research("a"), .research("c")])
-    }
-
-    func test_noSubjectShowsNothing() {
-        XCTAssertEqual(
-            BinderTreeSelection.shown([.research("a")], subject: nil), [])
+    /// **The marks**: the open row when the `List` is not drawing it, and the
+    /// faces and what is beside when neither drawn nor open.
+    func test_theOpenRowAndTheBesideRowAreMarkedWhenTheListDrawsAnother() {
+        let canvas = WindowSubject(open: .canvas, faces: .item("c1"))
+        let shown: Set<BinderSubject> = [.item("c1")]
+        XCTAssertEqual(BinderTreeSelection.openMark(shown: shown, subject: canvas), .canvas)
+        XCTAssertEqual(BinderTreeSelection.outlined(shown: shown, subject: canvas), [])
+        let withNote = WindowSubject(open: .project, faces: .project, beside: .research("a"))
+        XCTAssertNil(BinderTreeSelection.openMark(shown: [.project], subject: withNote))
+        XCTAssertEqual(BinderTreeSelection.outlined(shown: [.project], subject: withNote),
+                       [.research("a")])
+        XCTAssertEqual(BinderTreeSelection.openMark(shown: [.research("a")], subject: withNote),
+                       .project)
+        XCTAssertEqual(BinderTreeSelection.outlined(shown: [.research("a")], subject: withNote),
+                       [])
     }
 
     // MARK: - The acting set
@@ -210,6 +283,18 @@ final class BinderTreeMultiselectTests: XCTestCase {
     /// for the whole selection, in visual order — `ResearchSelectionSync`'s
     /// `expandedDragIds`, called rather than restated.
     func test_aRowInsideTheSelectionActsForTheWholeSelectionInTreeOrder() {
+        XCTAssertEqual(
+            BinderTreeSelection.batch([.research("c"), .research("a")], subject: beside("a"),
+                                      clickedAt: beside("a")),
+            [.research("c"), .research("a")], "a live set is the batch")
+        XCTAssertEqual(
+            BinderTreeSelection.batch([.research("a")], subject: beside("a"),
+                                      clickedAt: beside("a")), [],
+            "one note is no batch")
+        XCTAssertEqual(
+            BinderTreeSelection.batch([.research("c"), .research("a")], subject: beside("a"),
+                                      clickedAt: .book), [],
+            "a set the subject has moved away from acts for nothing")
         XCTAssertEqual(
             BinderTreeSelection.actingResearchIds(
                 forRow: "c", selection: [.research("c"), .research("a")],

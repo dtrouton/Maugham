@@ -9,7 +9,8 @@ import MaughamCore
 /// FIGURE's drawing posture asked of the window's one door
 /// (`DocumentStore.posture(forDocId:)`, `.allows(.editFigure)`), never a rung
 /// (tripwires 47, 51); `parked` and `hostClosed` are the visit's host; the
-/// modes are the editor's own flags. Asked at expand, when the visit mounts,
+/// modes are the editor's own flags; `isInReadThrough` is the figure's
+/// pieces' read-through (`ReadThroughGate`). Asked at expand, when the visit mounts,
 /// whenever the figure's drawn posture changes (the controller observes the
 /// door: a trust change, *Edit Anyway*), at every `figureCardVersion` edge,
 /// when a mode flag flips, and after a write the host refused.
@@ -26,7 +27,7 @@ enum FigureGridGate {
         /// The grid opens to be read — selected and scrolled, its bars
         /// disabled, typing answered with the reason's sentence.
         case readOnly(Reason)
-        /// The card stays a card (translation review shows a derived
+        /// The card stays a card (reading a translation shows a derived
         /// surface; there is no figure line of the writer's to open).
         case noExpand
 
@@ -48,9 +49,18 @@ enum FigureGridGate {
         case notYours
         /// A read-only iCloud share: the folder takes no writes.
         case viewOnlyShare
-        /// The window's explicit review mode (⌘⌥⇧R) — never the review
-        /// forced where the text is not hers (R7c-6).
-        case reviewMode
+        /// One of the figure's (or the item's) pieces is in read-through:
+        /// typing off, decisions on — the notes strip keeps Accept, Got it and
+        /// Reject. It names the piece (`ReadThroughGate.refusal`), so a writer
+        /// refused because of a piece they cannot see is told which; nil where
+        /// no gate could name it.
+        case readThrough(ReadThroughRefusal?)
+
+        /// Whether this is read-through's, whatever piece it names.
+        var isReadThrough: Bool {
+            if case .readThrough = self { return true }
+            return false
+        }
 
         /// The line the read-only grid answers typing with.
         var sentence: String { sentence(noun: "table") }
@@ -62,19 +72,21 @@ enum FigureGridGate {
             case .closed: return "This table was closed, so it can’t be changed here."
             case .notYours: return "This table isn’t yours to change — you can read it."
             case .viewOnlyShare: return "This share is view-only, so the \(noun) can’t be changed."
-            case .reviewMode: return "You’re reviewing — the \(noun) can be read, not changed."
+            case .readThrough(let refusal?): return refusal.because("this \(noun)")
+            case .readThrough(nil): return "In read-through — the \(noun) can be read, not typed into."
             }
         }
     }
 
     static func mode(figureMayEdit: Bool, parked: Bool, hostClosed: Bool, shareIsReadOnly: Bool,
-                     isReviewMode: Bool, isTranslationReview: Bool) -> Mode {
-        if isTranslationReview { return .noExpand }
+                     isInReadThrough: Bool, naming refusal: ReadThroughRefusal?,
+                     isReadingTranslation: Bool) -> Mode {
+        if isReadingTranslation { return .noExpand }
         if parked { return .readOnly(.parked) }
         if hostClosed { return .readOnly(.closed) }
         if !figureMayEdit { return .readOnly(.notYours) }
         if shareIsReadOnly { return .readOnly(.viewOnlyShare) }
-        if isReviewMode { return .readOnly(.reviewMode) }
+        if isInReadThrough { return .readOnly(.readThrough(refusal)) }
         return .editable
     }
 }

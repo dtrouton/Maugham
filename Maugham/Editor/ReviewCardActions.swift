@@ -2,12 +2,12 @@ import Foundation
 import MaughamCore
 
 /// One disposition / authoring action a reviewer can take on an annotation from
-/// the interactive margin card. Mirrors the affordances `AnnotationsPane`
+/// the interactive margin card. Mirrors the affordances the Annotations pane
 /// offers per kind so the editor card and the pane stay in lock-step.
 enum ReviewCardAction: Equatable {
     /// Accept a suggestion (applies the replacement) or acknowledge a
     /// comment/craft note. Labelled "Got it" for comments, "Accept" otherwise —
-    /// matching `AnnotationsPane.actionRow`.
+    /// matching the Annotations pane's `actionRow`.
     case accept
     /// Reject a suggestion / craft note (opens the reasoning sheet in the pane;
     /// here it records a reject with no reason — the card has no text field).
@@ -57,7 +57,7 @@ enum ReviewCardAction: Equatable {
 
 /// Pure policy: which actions a margin card shows for a given annotation kind
 /// and ownership. This is the single source mirrored against
-/// `AnnotationsPane.actionRow` (disposition) + `ownAffordances` (edit/delete),
+/// the Annotations pane's `actionRow` (disposition) + `ownAffordances` (edit/delete),
 /// extracted so it's directly unit-testable without an NSView context.
 ///
 /// Disposition (always, per kind):

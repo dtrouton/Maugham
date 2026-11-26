@@ -22,8 +22,48 @@ extension ProjectStore {
     /// that writes into a statement asks `openStatementDocument(id:)` FIRST and
     /// only loads its own when the answer is nil — see that property's storage
     /// on `ProjectStore` for what two live `Document`s on one path cost.
-    func noteStatementDocumentOpened(_ document: Document, id: String) {
-        openStatementDocuments[id] = OpenStatementDocument(document)
+    func noteStatementDocumentOpened(_ document: Document, id: String,
+                                     undoManager: UndoManager? = nil) {
+        openStatementDocuments[id] = OpenStatementDocument(document, undoManager: undoManager)
+    }
+
+    // MARK: - A statement's undo (shell plan 3 Task 5 fix 4)
+
+    /// **The manager ⌘Z runs for statement `id` from its editor**: the
+    /// private manager of the host that holds it open (registered with the
+    /// `Document`), or nil when no editor holds it.
+    func statementUndoManager(forId id: String) -> UndoManager? {
+        guard openStatementDocument(id: id) != nil else { return nil }
+        return openStatementDocuments[id]?.undoManager
+    }
+
+    /// The live arm's write. `undo` is THIS write's own and is read nowhere
+    /// else: when the verb registered on the holding editor's own manager —
+    /// the editor whose buffer this write replaces — the write goes in the
+    /// accept order (ADR 0023 D1/D2): the forward verb drops that editor's
+    /// TYPING (the range-based entries; earlier verbs' inverses are
+    /// range-free and stay, so ⌘Z ⌘Z undoes two verbs), and the apply is
+    /// flagged undo-coherent so the editor keeps the stack across its buffer
+    /// replace. Every other write is plain — the verb is on the window's
+    /// manager, or on another editor's — and the holding editor drops its
+    /// whole stack on the replace (D1); a flag an earlier write left
+    /// unconsumed is withdrawn, since the buffer it vouched for is not the
+    /// one the editor will now be given.
+    private func mutateLive(_ live: Document, id: String, undo: StatementWriteUndo,
+                            _ mutate: (Document) throws -> Void) throws {
+        let before = live.displayText
+        try mutate(live)
+        guard live.displayText != before else { return }
+        guard let manager = undo.registeredOn, manager === statementUndoManager(forId: id) else {
+            live._undoCoherentApplyPending = false
+            return
+        }
+        if undo.clearsTyping, !manager.isUndoing, !manager.isRedoing {
+            // By target where the manager can name its typing; else everything.
+            if let typing = manager as? EditorTypingUndoManager { typing.removeTypingActions() }
+            else { manager.removeAllActions() }
+        }
+        live._undoCoherentApplyPending = true
     }
 
     /// Drop a pane's registration. Hygiene rather than correctness — the entry
@@ -31,6 +71,108 @@ extension ProjectStore {
     /// that is only ever added to is one nobody can reason about.
     func forgetStatementDocument(id: String) {
         openStatementDocuments[id] = nil
+        // The live key loses this pane's text, so readers fall to the derived
+        // cache; a pane's own close bumps again once its burst is on disk.
+        noteStatementTextChanged()
+        wakeStatementReleaseWaiters(id)
+    }
+
+    // MARK: - Letting go of one, under the gate
+
+    /// **The one way a host lets go of its statement `Document`** (shell
+    /// plan 3 Task 4 fix, I1): take the open gate, withdraw the registration,
+    /// close (which flushes the typing burst), and only then release the gate
+    /// — whose release says the text changed.
+    ///
+    /// **Why the gate, and why the registration stays until it is held.** A
+    /// close is a suspension (the burst's write), and it used to run detached
+    /// and outside the gate with the registration already withdrawn, so a
+    /// second host's load found nothing in its way and opened a second
+    /// `Document` on the path while the first was still flushing: a pending
+    /// mirror folded twice, a stale paragraph written over the flushed one, a
+    /// forked chain. Now every opener (`StatementEditorHost.load`, the
+    /// transient writers) queues on the gate until this close has returned,
+    /// and until the gate is taken the registry still names the live
+    /// `Document`, so a load arriving first waits for its release
+    /// (`waitForStatementRelease`) rather than loading beside it.
+    ///
+    /// `document == nil` only withdraws. A registration that is no longer
+    /// this `Document` is not this caller's to withdraw.
+    ///
+    /// **The gate is always released**: `Document.close()` does not throw, so
+    /// every return reaches the unlock. A close that never returned would hold
+    /// the gate, and every opener of this statement would queue behind it —
+    /// deliberately: a close that has not finished flushing is exactly when a
+    /// second `Document` must not open. No timer guesses at "too long"; a
+    /// hung close is a defect in the close, not something to route around.
+    func closeStatementDocument(_ document: Document?, id: String) async {
+        await lockStatementOpen(id)
+        if document == nil || openStatementDocuments[id]?.document === document {
+            forgetStatementDocument(id: id)
+        }
+        onStatementGateEvent?(.closing(id))
+        if let document { await document.close() }
+        onStatementGateEvent?(.closed(id))
+        unlockStatementOpen(id)
+    }
+
+    /// `closeStatementDocument` from a view's teardown (`.onDisappear`,
+    /// `willTerminate`), which cannot await: one detached `Task`, every step
+    /// inside it under the gate.
+    ///
+    /// At quit this close queues behind any load holding the gate, so it may
+    /// not run before the process exits. Nothing is lost by that: the
+    /// `Document`'s pending mirror holds the un-flushed burst on disk, and the
+    /// next load folds it (`Maugham/OpLog/AREA.md`, the pending mirror).
+    func releaseStatementDocument(_ document: Document?, id: String?) {
+        guard let id else {
+            if let document { Task { await document.close() } }
+            return
+        }
+        Task { @MainActor in await closeStatementDocument(document, id: id) }
+    }
+
+    /// Whether a live `Document` other than `own` is registered for `id` —
+    /// another host holds the statement (open, or still closing: the
+    /// registration is withdrawn only under the gate, before its close).
+    func statementIsHeld(_ id: String, byAnotherThan own: Document?) -> Bool {
+        guard let live = openStatementDocument(id: id) else { return false }
+        return live !== own
+    }
+
+    /// Wait until another host lets go of `id` (its forget, or a release of
+    /// the gate with nothing registered), or until this task is cancelled. Returns at once when
+    /// nothing else holds it. The caller re-asks `statementIsHeld` after.
+    func waitForStatementRelease(_ id: String, notHeldBy own: Document?) async {
+        guard statementIsHeld(id, byAnotherThan: own) else { return }
+        await withTaskCancellationHandler {
+            await withCheckedContinuation { continuation in
+                if Task.isCancelled { continuation.resume(); return }
+                statementReleaseWaiters[id, default: []].append(continuation)
+            }
+        } onCancel: {
+            Task { @MainActor in self.wakeStatementReleaseWaiters(id) }
+        }
+    }
+
+    func wakeStatementReleaseWaiters(_ id: String) {
+        let waiters = statementReleaseWaiters.removeValue(forKey: id) ?? []
+        for waiter in waiters { waiter.resume() }
+    }
+
+    /// Say that a statement's text may have changed where no observer could see
+    /// it. Bumps `statementTextRevision`. Call it AFTER the text is on disk: a
+    /// reader keyed on the bump reads the derived cache at once. **Its callers
+    /// are a census** (`BriefLineTests.statementTextBumpSites`), one per way a
+    /// statement's text changes out of sight: the open gate's release (every
+    /// opener — writes, adoption, rollback, promotion, a pane binding), the
+    /// live-document write arm, a pane forgetting or closing its `Document`, an
+    /// op log arriving or appended on disk (sync, merge), and a trust change
+    /// (the same log derives to different words). Typing, undo and redo in an
+    /// open pane are seen through its `displayText` (`BriefLine.RefreshKey`);
+    /// a statement added or removed changes the manifest.
+    func noteStatementTextChanged() {
+        statementTextRevision &+= 1
     }
 
     /// The live `Document` for a statement, or nil.
@@ -158,10 +300,20 @@ extension ProjectStore {
 
     /// Release the open lock and wake everyone queued behind it. Each waiter
     /// re-checks, so waking them all is correct rather than merely convenient.
+    ///
+    /// **Every member that opens a statement `Document` releases here**
+    /// (`TripwireGrepTests.statementOpenGateTakers`), after its write and its
+    /// close — so the release is the one place every such writer says its
+    /// text may have changed (`noteStatementTextChanged`).
     func unlockStatementOpen(_ id: String) {
+        noteStatementTextChanged()
         statementOpensInFlight.remove(id)
         let waiters = statementOpenWaiters.removeValue(forKey: id) ?? []
         for waiter in waiters { waiter.resume() }
+        // A `Document` closed without a forget reads as released too. Only
+        // when nothing holds it: two loads waiting on one holder must not wake
+        // each other in turn through their own unlocks.
+        if openStatementDocument(id: id) == nil { wakeStatementReleaseWaiters(id) }
     }
 
     /// The statement for a scope, or nil. **Absence is valid**: this mints
@@ -497,8 +649,8 @@ extension ProjectStore {
     /// **The live `Document` FIRST, and never a second one on the same path.**
     /// A statement's `Document` is deliberately in no `DocumentStore` registry
     /// (spec §8, `StatementEditorHost`), so `document(forDocId:)` cannot find an
-    /// open statement — and `.intent` is a pane of the Plan persona, the persona
-    /// the canvas lives in, so the writer really can have this statement open in
+    /// open statement — and the Intent pane is offered with the canvas open in
+    /// the centre, so the writer really can have this statement open in
     /// the right column while promoting a card in the centre, or rename a
     /// chapter in the binder beside it. Two `Document`s on one path each hold
     /// their own paragraph state and their own `PendingBuffer`; whichever writes
@@ -581,9 +733,10 @@ extension ProjectStore {
     /// arrive in.
     func mutateStatementText(
         of statement: Statement, session: String,
+        undo: StatementWriteUndo = .plain,
         transform: (String) throws -> String
     ) async throws {
-        try await withStatementDocument(statement, session: session) { document in
+        try await withStatementDocument(statement, session: session, undo: undo) { document in
             // **The door every statement writer passes** (P3c whole-branch fix
             // wave, C1): rulings, proposals, promotion's appends and the
             // picture ingest all reach `setFullText` through here, and a burst's
@@ -618,9 +771,13 @@ extension ProjectStore {
     /// too — left open it would outlive the gate the `defer` releases, and the
     /// next opener would load a second one against it.
     func withStatementDocument(_ statement: Statement, session: String,
+                               undo: StatementWriteUndo = .plain,
                                _ mutate: (Document) throws -> Void) async throws {
+        // Every exit, the refusing one included (a bump that changes nothing
+        // costs one re-read): after the flush or the awaited close below.
+        defer { noteStatementTextChanged() }
         if let live = openStatementDocument(id: statement.id) {
-            try mutate(live)
+            try mutateLive(live, id: statement.id, undo: undo, mutate)
             // Durable now rather than on the pane's own debounce: a write
             // through here is an act the writer has committed to — a promotion
             // they confirmed, a picture they dropped, a rename they typed — and
@@ -639,7 +796,7 @@ extension ProjectStore {
         // Asked AGAIN inside the gate: a pane can have bound while we queued,
         // and its `Document` is the one that will still be live in a moment.
         if let live = openStatementDocument(id: statement.id) {
-            try mutate(live)
+            try mutateLive(live, id: statement.id, undo: undo, mutate)
             try? await live.flushBurstNow()
             return
         }
@@ -730,5 +887,46 @@ extension ProjectStore {
 @MainActor
 final class OpenStatementDocument {
     weak var document: Document?
-    init(_ document: Document) { self.document = document }
+    /// The holding editor's own undo manager (`MaughamTextView`'s private
+    /// one), for the statement's verbs to register on.
+    weak var undoManager: UndoManager?
+    init(_ document: Document, undoManager: UndoManager? = nil) {
+        self.document = document
+        self.undoManager = undoManager
+    }
+}
+
+/// **How ONE statement write treats the holding editor's undo stack.** A
+/// value passed into that write (`ProjectStore.mutateStatementText(…undo:)`)
+/// and never stored: no write can see another's.
+///
+/// It names the manager the verb registered on. The write is undo-coherent
+/// only when that is the manager of the editor holding the statement at the
+/// moment of the write; with any other (the window's, a dead one, none) it is
+/// the plain write, after which the editor drops its stack.
+struct StatementWriteUndo {
+    weak var registeredOn: UndoManager?
+    /// The forward verb drops the editor's typing (stale ranges); the verb's
+    /// own undo and redo do not (the stack is the verb's history).
+    let clearsTyping: Bool
+
+    static var plain: StatementWriteUndo { StatementWriteUndo(registeredOn: nil, clearsTyping: false) }
+    /// The forward verb's writes.
+    static func verb(on manager: UndoManager?) -> StatementWriteUndo {
+        StatementWriteUndo(registeredOn: manager, clearsTyping: true)
+    }
+    /// The writes of that verb's undo and redo.
+    static func replay(on manager: UndoManager?) -> StatementWriteUndo {
+        StatementWriteUndo(registeredOn: manager, clearsTyping: false)
+    }
+}
+
+/// The open gate's order, for a test to read (`ProjectStore.onStatementGateEvent`).
+enum StatementGateEvent: Equatable {
+    /// A host's `Document` is about to close, the gate held.
+    case closing(String)
+    /// It has closed; the gate is released next.
+    case closed(String)
+    /// A host is about to `Document.load` the statement, the gate held.
+    case loading(String)
 }

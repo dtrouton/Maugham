@@ -4,7 +4,7 @@ import UniformTypeIdentifiers
 
 /// **What a thing dropped on the canvas means, and how it lands** (spec §8A.1).
 ///
-/// The binder sits beside the canvas in the Plan persona and its research tree is
+/// The tree sits beside the canvas in the left column and its research section is
 /// the natural source, so dropping a research item on the canvas makes an item
 /// node at the drop point: the file is untouched, the canvas holds a position
 /// (§3.1). Until 1C-d nothing in production made an item node except
@@ -25,7 +25,7 @@ import UniformTypeIdentifiers
 /// **The payload is a bare research item id, and the id space is about to have a
 /// neighbour.** `ResearchRow.swift:64` sends `item.id` through `.draggable`, which
 /// is the app's established pattern — but the binder sends manuscript pieces and
-/// tasks with the *same* raw-id payload (`PieceRow.swift`, `TasksPane.swift`), so
+/// tasks with the *same* raw-id payload (`PieceRow.swift`, the Tasks pane), so
 /// a string arriving here is not necessarily a research item at all. Everything
 /// this router refuses, it refuses by not finding the id in `CanvasItemIndex`;
 /// see `decide`. **A second id space must therefore arrive PREFIXED** — an inbox

@@ -208,7 +208,7 @@ extension AXReading {
 /// On macOS 27 a SwiftUI `Picker(.menu)` mounts **no AppKit control at
 /// all** — the whole view-hierarchy trace is a `KeyViewProxy` and a
 /// `_FocusRingView` — so every `NSPopUpButton` census over an inspector
-/// answers `[]`, which is what took six `InspectorPassLadderTests` down
+/// answers `[]`, which is what took six `PassLadderTests` down
 /// with it. It is in the accessibility tree, as a SwiftUI
 /// `AccessibilityNode` with role `AXPopUpButton` whose `accessibilityValue`
 /// is the selected item's title. A `Menu(.borderlessButton)` IS still a
@@ -228,7 +228,7 @@ extension AXReading {
 ///
 /// **Nothing here presses.** The ladder's node publishes an EMPTY
 /// `accessibilityActionNames`, no children and no `NSMenu`, so the mounted
-/// delivery path `InspectorPassLadderTests` used to drive does not exist on
+/// delivery path `PassLadderTests` used to drive does not exist on
 /// 27 in any form — a write is pinned at the host that performs it, never
 /// through the control. Measured 2026-09-19; the whole spike is
 /// `docs/superpowers/notes/2026-09-19-split-view-tie-break-spike.md`'s

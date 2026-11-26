@@ -1,30 +1,60 @@
 # Publishing to PDF, EPUB & Word
 
-Maugham can publish your project to PDF, EPUB and Word (.docx) directly from Claude Desktop. The PDF pipeline uses a bundled copy of tectonic (an XeTeX-based LaTeX engine) so there's nothing to install — just ask Claude to set up publishing for your project.
+Maugham publishes your project to PDF, EPUB and Word (.docx), from its own **Compile…** or by asking Claude in Claude Desktop. Everything it needs to make a PDF comes with Maugham, so there's nothing to install.
 
 ### A deeply personal PDF
 
-The real power of the PDF output is the template. Claude co-authors a bespoke LaTeX template tuned to your typographic taste: your preferred font (from a `.otf` or `.ttf` you provide, or a system font via fontspec), your chapter-head styling, your drop caps, your ornaments. Ask Claude what you want — *"I'd like a classic serif feel with small-caps chapter titles and a fleuron between scenes"* — and it iterates on `preamble.tex` and `template.tex` until the rendered page looks right. PDF output is closed-loop: Claude edits the template, compiles, and reads the resulting page image directly, so it can see what changed.
+The real power of the PDF output is the template. Claude co-authors a bespoke LaTeX template tuned to your typographic taste: your preferred font (from a `.otf` or `.ttf` you provide, or one already on your Mac), your chapter-head styling, your drop caps, your ornaments. Ask Claude what you want — *"I'd like a classic serif feel with small-caps chapter titles and a fleuron between scenes"* — and it iterates on `preamble.tex` and `template.tex` until the rendered page looks right. PDF output is closed-loop: Claude edits the template, compiles, and reads the resulting page image directly, so it can see what changed.
 
 ### Clean EPUB
 
-The EPUB output produces a structurally clean file with one `<section>` per piece, embedded fonts, and a `styles.css` you can tune. Because EPUB rendering varies by reading application (Books, Kindle, Calibre), EPUB iteration is open-loop: Claude proposes a CSS change, compiles, and then you load the new `.epub` in your reader and describe what you see. Claude iterates from your description.
+The EPUB output produces a structurally clean file with each piece in its own section, embedded fonts, and a `styles.css` you can tune. Because EPUB rendering varies by reading application (Books, Kindle, Calibre), EPUB iteration is open-loop: Claude proposes a CSS change, compiles, and then you load the new `.epub` in your reader and describe what you see. Claude iterates from your description.
 
 ### Where outputs land
 
-Compiled PDFs, EPUBs and Word files appear in the project's `Exports/` folder, which is shown as a footer beneath the binder tree in Author, Review, and Publish (Plan's centre column is the planning canvas, so it doesn't carry this footer). You can open the file from there or find it in Finder alongside your manuscript folder.
+Compiled PDFs, EPUBs and Word files go in the project's `Exports/` folder, listed in a footer beneath the binder. Open one from there, or find it in Finder beside your manuscript folder.
 
-### The Publish persona's centre column
+### Editions and their pages
 
-Switch to Publish (⌘4) and the centre column shows your compiled book — full-width, scrollable, the real PDF. It shows at *project* level: the project row, a group, or nothing selected. Select a chapter and the editor opens on it exactly as it does in Author, because a proof you're reading is a proof you're about to fix — a line to re-break, a heading to shorten. Click back up to the project row and the book is there again, on the same open document underneath.
+Each language of the book is an edition, a row under **Editions** in the binder: the book's own language (**Source**) first, then each translation. Click one and the centre shows that edition's **Book** — the compiled PDF in its language, full width — with **Status** beside it in the toolbar. Click a chapter in the binder and the book scrolls to the page it starts on. A book that doesn't record where its chapters start says *Compile again to jump from the binder to the page*, beside **Compile…**. Nothing compiled yet? The centre says *No compiled book yet*, with Compile… above it. If the list of publications can't be read, the centre says so and names the file: a book that can't be read is never reported as one you never made.
 
-Where there's more than one compiled PDF, the header carries a picker: version, language and compile time, newest first, and choosing one puts that file on screen. It's for comparing a proof against the last one, or a translated edition against its source. EPUBs aren't listed — they're not pages this column can draw, and they're in the Exports footer. The choice lasts as long as the window: a new compile snaps the preview back to the book you just made, and so does reopening the project.
+Where there's more than one compiled PDF of the edition, the header carries a picker: version and compile time, newest first, for comparing a proof against the last one. A new compile snaps back to the book you just made. EPUBs aren't listed — they're not pages the centre can draw — and they're in the Exports footer.
 
-Nothing compiled yet? Publish shows the project at altitude — the same corkboard/table Author shows for the project row (see [Structure & the Binder → The project row](structure-and-binder.md#the-project-row)) — with a standing note saying there's no compiled book yet. If the publications catalog is there but can't be read, you get the corkboard and a different notice, one that names the file and says what went wrong: a book that can't be read from disk is never reported as a book you never made. Selecting a research note or palette card in Publish leaves the centre column on the book (or on the corkboard and its notice) — Publish has no rendering of its own for research material.
+**The edition's Status** has a column for each chapter's publishing settings — whether it's in the table of contents, which page it starts on, its title override. Set them per chapter with **Publishing…** in the chapter's row menu.
+
+### Compiling an edition
+
+**Compile…**, in the header of an edition's Book, makes the book. It is the same compile Claude runs, asked for by you. The sheet asks:
+
+- **Format** — PDF, EPUB or Word (.docx).
+- **Editions** — this edition is checked to begin with, and every other edition gets a checkbox. Check more than one and you get a single volume with each body in it, in the order the sheet lists them ([Bilingual editions](#bilingual-editions)).
+- **Allow stale translations** — off by default, which is what stops a paragraph whose source changed shipping unnoticed.
+
+The **imprint picker** beside Compile… chooses which book: **Book**, or one of the imprints the project declares ([Imprints](#imprints)). It's remembered per project.
+
+One compile runs at a time. While it does, the header says so with **Cancel Compile**; a cancelled compile publishes nothing. When one lands, the line says the version, the imprint and the edition, and where the file is. Nothing already published is touched: every compile makes its own version.
+
+**The problems list.** When a compile finds publish problems, its line says so — *"Couldn't publish: 3 problems in the manuscript"* for a Report it refused, or *"Compiled v1.0 · 20 Oct 2026 at 15:04 — in Exports, with 2 warnings"* — and a compile that was stopped shows the list over the centre at once; one that only warned offers **Show Problems**. Each row says Error or Warning, names its chapter and says what's wrong; **Show in Manuscript** opens that chapter at the paragraph, in a translated edition too. **Back** returns to the book. A compile that stopped is also listed in every edition's To resolve until the next one succeeds.
+
+### The designer
+
+Every project has a designer from the moment it exists, **Tschichold**, named on the Source edition's Brief (with **Change…**). The designer reads the book and proposes its typesetting, and nothing reaches your live templates until you approve it.
+
+**Run Design** sits at the head of the Source edition's To resolve, with a field for **direction** — a sentence or two about what this round should attend to. It's optional: a bare run briefs the designer on your [Visual Language](right-column.md#visual-language-v) alone. The designer proposes a spec and a complete set of templates, and compiles a few sample pages showing every kind of element your manuscript actually uses — a verse passage, a block quote, a footnote, whatever is really there.
+
+**The gate.** A design waiting for your answer is listed in every edition's To resolve; **Show** opens it over the centre: the spec on one side, the sample pages on the other. A round is always for the whole book.
+
+- **Approve** puts the round's templates onto your live publish templates. Your current ones are backed up first.
+- **Request Changes** sends your words back to the session that made the proposal, and starts its next round.
+- **Revert** takes an approved round back, restoring the templates it replaced.
+- **Finalize** keeps an approved round for good and lets the backup go. It is the one step that can't be undone, and it asks first.
+- **Discard** turns the proposal down.
+
+Only the verbs that make sense for where a round stands are offered, and a reviewer is offered none. When a verb can't go through — another proposal holds the backup, a compile is running — it says why.
 
 ### The publish configuration
 
-The template, preamble, per-piece style files, and a small `config.json` live under `.maugham/publish/` inside your project folder. `EMISSION.md` in that folder is the authoritative contract describing what the body emitter produces for each source pattern — Claude reads it to understand what LaTeX the emitter will generate before writing template hooks. If you want to inspect or hand-edit the book's own template, it's plain text at `.maugham/publish/template.tex` — a project may also declare additional named [imprints](#imprints), each with a template of its own.
+Your book's design lives in plain text files under `.maugham/publish/` in the project folder: its template, its settings, and a template for each [imprint](#imprints). Claude reads and edits them; you can open `template.tex` yourself in any text editor.
 
 ### Getting started with publishing
 
@@ -36,11 +66,11 @@ Ask for the `docx` format and Maugham writes a native Word file: headings, lists
 
 **A Word export is a draft, not a version.** It never takes the next version number, so it doesn't use up a version of your PDF or EPUB. Each export is "Draft 1", "Draft 2" and so on, counted across the book (an imprint keeps its own draft count), and the file is named `<title>-draft1.docx`. A label inside the file reads "Draft N, sent <date>" (the date is your local day, in the book's language). A Word export isn't republished: export again for the next draft. A language edition of the PDF or EPUB renders your latest version, never a Word draft.
 
-**The sent copy.** Every Word export also leaves a copy of what you sent, under `.maugham/exports/` in the project: the exported file, plus a record of each piece's paragraphs as they were. The file names its sent copy inside it, and sent copies are included in backups. It isn't shown anywhere yet; it's kept so a later feature can compare a returned document to what went out. Bringing a returned .docx back into Maugham isn't built yet.
+**The sent copy.** Every Word export also leaves a copy of what you sent, under `.maugham/exports/` in the project: the exported file, plus a record of each piece's paragraphs as they were. The file names its sent copy inside it, and sent copies are included in backups.
 
 **Styles.** The file uses Word's own styles (Heading 1 to 3, Caption, Table Grid, and so on). To change how they look, put a `reference.docx` in `.maugham/publish/`: the styles in it are used in place of the built-in ones, matched by id or by Word's style name, so a localised Word works too. Nothing else in that file is used. If it can't be read, the export still happens with the built-in styles and says so.
 
-**Figures.** Word takes PNG, JPEG and GIF as they are. A PDF or SVG figure is converted to a picture (a PNG at 200 dpi, a PDF's first page) before it goes in. Because that happens after the publish checks, `dry_run` can't tell you a PDF or SVG won't convert; the real export will.
+**Figures.** Word takes PNG, JPEG and GIF as they are. A PDF or SVG figure is converted to a picture (a PNG at 200 dpi, a PDF's first page) before it goes in. That happens only during the real export, so a check that the book would compile can't warn you that a PDF or SVG won't convert.
 
 **Lists of figures and tables.** The Word file numbers its figures and tables with Word captions but doesn't build a list of them or a table of contents. Insert your own in Word (Insert ▸ Table of Figures, References ▸ Table of Contents).
 
@@ -63,7 +93,7 @@ Every table is numbered — "Table 1", "Table 2" — across the whole book, capt
 
 **A table figure** (a table made with Insert ▸ Table, or converted from a pipe table, whose line reads `![Caption](../figures/cash.csv){#tbl:cash}`) is numbered "Table n" like a pipe table, and publishes its computed cells: every formula is worked out, and numbers and dates are formatted in the edition's language (a Spanish or Serbian edition prints its own decimal comma). Money keeps the book's currency in every edition: a report in pounds prints pounds in its Spanish edition too, with Spanish separators. The PDF repeats the header row on each page and rules the total row above; the EPUB and Word draw the same table, Word with a repeating header row. A table with no header row simply has none. A table figure that nothing in the book names isn't published, and pipe tables are unchanged. Column widths aren't published.
 
-**Table figure problems.** In a Report these stop a `compile` or `republish`; the book is not made until you fix them:
+**Table figure problems.** In a Report these stop a compile or a republish; the book is not made until you fix them:
 
 - *A formula error in a table* ("Table “cash” has an error in B4"): fix the cell in the table, then publish.
 - *A table reads a Research source that is gone*: bring the source back into Research, or change the cells that read it.
@@ -83,7 +113,18 @@ These only warn, and the book is made: a table line into a Research folder (writ
 
 The image must be in the project's `figures/` folder or a research folder of the project — the project's `research/` folder, or a Collection piece's own `research/`, where figure lines written before `figures/` existed point — and the path is written from the piece's own file, as a Markdown previewer would read it (a chapter in `manuscript/` reaches `figures/` with `../figures/`). A path that leaves the project or points outside those folders is refused, and so is a file the output can't show: the PDF takes PNG, JPEG and PDF images; the EPUB takes PNG, JPEG, GIF and SVG; Word takes PNG, JPEG, GIF, PDF and SVG. Figures are numbered "Figure 1", "Figure 2" across the book.
 
-You don't have to write the line yourself: **Insert ▸ Figure…** (⌘⇧I), dragging an image or PDF file onto the page, or pasting a picture makes it an image figure: the file is copied into the project's `figures/` folder, the figure belongs to the piece you're writing in, and the figure line is written as a paragraph of its own, with "Caption" selected for you to type over. PNG, JPEG, GIF, PDF and SVG files are copied as they are; any other picture (HEIC, TIFF, WebP, BMP…) is saved as a PNG under its own name, so every output can show it. The figure's name, its file's name and its label come from the file's name (`Site Map.png` → `figures/site-map.png` and `{#fig:site-map}`, accents dropped), with `_2`, `_3` added when the book or the `figures/` folder already uses it. Pasting text copied from Word, Pages or Excel pastes the text, never a picture of it. If the copy fails nothing is written and a notice says so; if you type while a large image copies, the figure goes above the paragraph you dropped it in, and your cursor stays where you are typing. A figure that lands after you've moved on never takes the cursor or the focus; only if you're still where you dropped it is "Caption" selected. While you're composing with an input method (Japanese, Chinese, accents held down) the figure waits for you to finish. ⌘Z takes the figure line back in one step, but the figure and its file stay in `figures/` — and so do they if you switch to another document before the figure lands, in which case nothing is written.
+You don't have to write the line yourself. **Insert ▸ Figure…** (⌘⇧I), dragging an image or PDF file onto the page, or pasting a picture makes an image figure:
+
+- The file is copied into the project's `figures/` folder, and the figure belongs to the piece you're writing in.
+- The figure line is written as a paragraph of its own, with "Caption" selected for you to type over.
+- PNG, JPEG, GIF, PDF and SVG files are copied as they are. Any other picture (HEIC, TIFF, WebP, BMP…) is saved as a PNG under its own name, so every output can show it.
+- The figure's name, its file's name and its label come from the file's name, accents dropped: `Site Map.png` → `figures/site-map.png` and `{#fig:site-map}`. `_2`, `_3` are added when the book or the `figures/` folder already uses it.
+
+Pasting text copied from Word, Pages or Excel pastes the text, never a picture of it.
+
+**While a large image copies, keep typing.** The figure goes above the paragraph you dropped it in, and your cursor stays where you are typing. A figure that lands after you've moved on never takes the cursor or the focus; "Caption" is selected only if you're still where you dropped it. While you're composing with an input method (Japanese, Chinese, accents held down), the figure waits for you to finish. If the copy fails, nothing is written and a notice says so.
+
+**⌘Z** takes the figure line back in one step, but the figure and its file stay in `figures/`. They stay there too if you switch to another document before the figure lands, in which case nothing is written.
 
 **A footnote** is a marker in the text and a definition anywhere in the same piece:
 
@@ -95,7 +136,7 @@ A claim.[^1]
 
 Notes are numbered continuously through the whole book, whatever you call them — `[^1]` in two chapters is two different notes. In the EPUB a note is a pop-up footnote.
 
-**A citation** names a research source by its citation key: `[@smith2026]`, with a page or other locator after a comma, `[@smith2026, p. 12]`, or several sources at once, `[@smith2026; @jones2025]`. It prints author–date — *(Smith 2026, p. 12)* — from the citation details the research source carries (its key, authors, title and year — set in the research inspector's **Citation** section), and the book ends with a **References** list of the sources it actually cites, sorted by author.
+**A citation** names a research source by its citation key: `[@smith2026]`, with a page or other locator after a comma, `[@smith2026, p. 12]`, or several sources at once, `[@smith2026; @jones2025]`. It prints author–date — *(Smith 2026, p. 12)* — from the citation details the research source carries (its key, authors, title and year — set in its **Citation** details), and the book ends with a **References** list of the sources it actually cites, sorted by author.
 
 **A cross-reference** points at a label. Give a figure, a table or a heading a label in braces — `{#fig:map}`, `{#tbl:sales}`, `## Method {#sec:method}` — and write `@fig:map`, `@tbl:sales` or `@sec:method` anywhere in the book. It prints "Figure 1", "Table 2" or "Section 1.2", and in both the PDF and the EPUB it's a link. These words — and "References" and the lists' titles — follow the edition's language (a Serbian edition prints "Slika 1"), and you can change any of them under `element_words` in the publish config's `metadata`, or a translated edition's `language_overrides`. A label's name is letters, digits, `-` and `_`, starting with a letter or digit, and each label is used once in the book.
 
@@ -103,85 +144,24 @@ Notes are numbered continuously through the whole book, whatever you call them �
 
 **In a Report**, headings are numbered too — 1, 1.1, 1.1.1, counted from the shallowest heading level the book uses, so a report whose sections are `##` headings reads 1, 2, 3 — and a reference to a heading reads "Section 1.2". A Report's PDF also opens with a list of figures and a list of tables, when it has any; its EPUB carries the same lists in its navigation. Piece titles are never numbered. In other books headings aren't numbered, and a reference to a heading prints the heading's own words.
 
-**When something doesn't resolve** — a key no research source carries, a reference to a label that doesn't exist, a footnote with no definition, an image that can't be used — it prints as you typed it, never as "??", and it's reported as a publish problem (see **Publish problems** under [Language editions and version families](#language-editions-and-version-families)). A Report refuses to compile until its errors are fixed; every other book compiles and lists them as warnings.
+**When something doesn't resolve** — a key no research source carries, a reference to a label that doesn't exist, a footnote with no definition, an image that can't be used — it prints as you typed it, never as "??", and it's reported as a publish problem (see [The problems list](#compiling-an-edition)). A Report refuses to compile until its errors are fixed; every other book compiles and lists them as warnings.
 
-**The problems list.** When a compile from the desk (⌘⌥K, see [The Publish Department](publish-department.md)) finds publish problems, its status line says so — *"Couldn't publish: 3 problems in the manuscript"* for a Report it refused, or *"Compiled v1.0 · 20 Oct 2026 at 15:04 — in Exports, with 2 warnings"* for a book that compiled — and **Show Problems** beside it opens the list in the centre column. Each row says Error or Warning, names its piece and says what's wrong; **Show in Manuscript** opens that piece and scrolls to the very paragraph, including a paragraph in a translated edition. **Back** returns to the book.
+### Language editions
 
-### Language editions and version families
+Each translation of the book is an **edition** of a version you have already compiled in your own language. So compile the book in its own language first; a translated edition then takes that version's number (a Spanish 1.0 beside the English 1.0) and never uses up a new one. Its text is your book as it stands now, translated.
 
-A publication is identified by three dimensions here — **version, language, and format** — so `1.0/en/pdf`, `1.0/es/pdf`, and `1.0/es/epub` coexist as one family. (A fourth dimension, imprint, is covered in [Imprints](#imprints) below; the book's own publications are the ones no imprint compiled.)
+An edition with paragraphs that aren't translated yet, or whose source changed since they were, is refused, and the refusal names them. To compile it anyway, turn on **Allow stale translations** ([Compiling an edition](#compiling-an-edition)). Its file is named with its language, `My Novel-v1.0-es.pdf`.
 
-**The source edition is the authority:** Compile your manuscript in the source language first (no `language` parameter). This is when `next_version` bumps — each source compile gets the next available version number. Once a source publication exists at `1.0`, you can compile translated editions of it.
-
-**Language editions are renderings of existing source versions:** `compile language:es` (without a `version` parameter) renders the latest source publication's version as a Spanish edition — it borrows that source's version number (e.g., `1.0`) as its identity. If you want to pair a translation with a *specific* earlier source version, pass `version: 1.0` alongside `language: es`. Importantly, language compiles never bump `next_version` — translations don't mint new versions, they render existing ones.
-
-The manuscript text in a language edition is the *current* text, not the frozen text from when the source version was compiled. The same holds for the edition's *piece set*: a pinned edition renders the pieces currently included (sections you exclude or include after the source compile change the edition accordingly), and republishing reproduces that historical included subset from the snapshot. If you need to reproduce a translation exactly as it was, use `republish` on that edition to recreate its output from the same snapshot. Note that republished `-r…` rows sit outside the version families — they carry a distinct republish-marked version and aren't themselves pinnable as an edition's source version. A republish always writes its own file: the `-r` version is minted before the compile runs, so it goes into the filename and into the version stamped inside the artifact, the edition you republished from keeps its own file in `Exports/` untouched, and republishing the same edition twice leaves you with two distinct files rather than one overwritten one.
-
-**Failing-loudly:** If you try to compile a language edition but no source publication exists yet, it refuses with a clear message: *"compile the source edition first or pass version."* And if a compile of the same version, language and format is already running, a second one refuses straight away — *"Publication v1.0 (source, pdf) on the book is already compiling; wait for it to finish."* (under an imprint it says *"under imprint 'special'"* instead — the book and an imprint each count their own versions, so a refusal has to say whose v1.0 it means) — instead of racing it into a half-written file. Poll the one in flight with `compile_status`, or compile a different *language* in the meantime — language editions of the same book still compile side by side. Two formats of the same source at once is the one pairing worth waiting out: which version each ends up carrying depends on which finishes first. A `dry_run` is never refused by any of this — it asks a question and changes nothing, so it answers even while the real compile runs. And if something is already sitting at the filename a republish is about to write, it stops and tells you the path rather than deleting the file: move it aside yourself and republish again.
-
-**Coverage gate:** Language editions are behind a translation-coverage gate: paragraphs that aren't yet translated (or are stale because the source changed) block the compile by default. The text cells of tables used in the edition's pieces are gated the same way (parked tables are not), and a language's status counts a chapter or table with no translation of its own as missing once that language has any translation in the edition. `dry_run: true` answers "would this edition compile right now?" without producing output. If you want to publish a partial edition anyway (for a preview), pass `allow_stale: true` to override the gate.
-
-**Publish problems:** A cross-reference that points nowhere, a citation key no research source carries, a label used twice, a footnote with no definition, or a figure image that can't be used is a publish problem, and each one names the piece and the paragraph it came from. In a Report, those problems stop a `compile` or `republish` before any version is minted; the smaller ones (an unused footnote, a malformed label) are only warnings. In every other kind of project nothing stops — a novel that happens to say `[@sarah]` still compiles, with a warning. A preview never stops on them either, and `dry_run` lists them without compiling.
-
-**Filenames and language tags:** Output filenames auto-suffix with the language (e.g. `-es`) unless your `filename_template` includes a `{language}` placeholder. If it does, that placeholder expands to the language tag for translations, and to nothing for the source edition. The template engine is smart about separators: if a placeholder expands to empty (the source case) and is immediately preceded by a separator like `-`, `_`, or `.`, that separator is dropped, so a single template `{title}-v{version}-{language}.{ext}` yields clean names like `Playlist-v1.0.pdf` and `Playlist-v1.0-es.pdf`.
-
-**Template variants by language:** Compiling with a `language` set resolves `template.<lang>.tex` and per-piece `<piece>.<lang>.tex` automatically when they exist, falling back to the base file otherwise. This resolution only covers the template and per-piece style files themselves — it doesn't follow `\input` lines inside them. If your template inputs partials (preamble, frontmatter, backmatter), the edition needs its own `template.<lang>.tex` whose `\input` lines point at the `<lang>` partial variants; the resolver picks the template variant, and everything else follows from it.
+To compile again with the design an earlier edition had — its template and settings as they were then — ask Claude to **republish** it. The text is your book as it stands now, not as it was. A republish writes a new file beside the old one and never overwrites it. A Word draft isn't republished: export again. If you want the book with its old words, the file you compiled then is still in Exports.
 
 ### Imprints
 
-An **imprint** is a named publishing configuration living inside one project — its own template, its own rendered set of pieces, its own metadata, cover and filename, and its own version counter — chosen at compile time. It's how a collection ships both its book and, say, a single-piece special edition with a completely different look, without forking the project or the manuscript: both draw on the same pieces and the same translation layer.
-
-Declare one under `imprints` in `.maugham/publish/config.json` (via `set_publish_config`'s merge patch):
-
-```json
-"imprints": {
-  "special-glb": {
-    "template": "templates/special-glb.tex",
-    "sections": { "doc-2c6051f2": {} },
-    "metadata": { "title": "Good Luck Babe", "subtitle": null },
-    "cover": { "path": "covers/glb-cover.jpg" },
-    "outputs": { "filename_template": "{title}-{imprint}-v{version}{language}{label_suffix}.{ext}" },
-    "next_version": "0.1"
-  }
-}
-```
-
-**`sections` is an allowlist**, the inverse of the top-level rule: at the top level, absent means *included*; inside an imprint, absent means *excluded*. The imprint's map *is* its rendered set — naming a piece is what includes it, so a one-entry map ships exactly that one piece rather than the whole book. Each entry is a full section (`title_override`, `style_file`, `start_on`, `include_in_toc` all work per imprint). Everything else an imprint doesn't name (`metadata`, `outputs`, `cover`) merges over the project's own — `null` deletes a key, and an absent `sections` key inherits the project's map.
-
-**Resolution happens once, at compile time**, before anything else runs: pass `imprint: "special-glb"` to `compile` or `preview_compile` and everything downstream — the emitter, the coverage gate, the snapshot — sees an ordinary, already-resolved config and never learns an imprint was involved. Omit `imprint` (or pass nothing) and you get the book, as always.
-
-**Validation** happens both when you save the config and when you compile: an imprint name must match `[a-z0-9-]+`; its `template` must be a relative path that exists under `.maugham/publish/`; its `sections` allowlist, if given, must be non-empty and name only pieces that exist in the project. A *top-level* `imprint` key is refused at both doors: that field is set by resolution when you compile, never written — a hand-written one would misname the book's own output files while its catalog rows said otherwise. An imprint's own template is a **full** template — a peer of the book's `template.tex`, not a per-piece style-file hook — so it may `\usepackage` and set its own `\geometry` freely (`EMISSION.md` says the same). One more rule is about the *filesystem*, not the config: tectonic's output directory is flat and names each compiled file by the template's own basename, so an imprint's template basename (with any language suffix stripped) must differ from the book's and from every other imprint's, or one compile's output would silently overwrite another's intermediate files. And because tectonic resolves `\input` relative to the *template's own directory*, an imprint template living in a subdirectory (e.g. `templates/special-glb.tex`) reaches a shared `preamble.tex` at the project root with `\input{../preamble}`, not `\input{preamble}`.
-
-**Identity gains a fourth dimension.** A publication is keyed on `(imprint, version, language, format)` — the book's `1.0/en/pdf` and the special edition's `0.1/en/pdf` are independent publications with independent version counters, and compiling one never blocks or races the other. `list_publications`, `read_publication_page`, `compile` and `preview_compile` all take an `imprint` parameter (exact name match); the sentinel `"book"` selects the publications no imprint compiled, mirroring `"source"` for the untagged source language. Output filenames carry a `{imprint}` token with the same strip-one-dangling-separator behavior as `{language}`; if your `filename_template` doesn't mention `{imprint}`, the imprint name is inserted before the extension automatically, so an imprint compile never overwrites the book's file.
-
-**From the app, not just MCP.** The Publish persona's desk (⌘⌥K) carries this same choice in its header: **Book**, then one row per declared imprint. Pick one and it's what the whole desk — the language rows, their counts, **Compile…** — is about, remembered per project so you don't have to re-pick it every session. See [The Publish Department](publish-department.md#which-book-the-desk-is-about).
+An **imprint** is a second book made from the same project — say, a special edition of one story, with its own look, its own contents, its own cover and its own version numbers — without copying the manuscript. Ask Claude to set one up. Once the project has one, the imprint picker beside **Compile…** chooses which book you are making: **Book**, or the imprint. An edition's coverage is counted over the imprint's own chapters, so the same Spanish edition can be unfinished for the novel and complete for a story cut from it.
 
 ### Bilingual editions
 
-A book doesn't have to choose one language per file. Pass `languages` to `compile` or `preview_compile` — an ordered list, e.g. `["en", "sr"]` — and you get one document holding a complete body per language, **sequential and unrotated**: the source runs start to finish, then the translation runs start to finish, never interleaved paragraph by paragraph. Each half is meant to read as a film in its own right — a Serbian reader gets a Serbian book, not a bilingual facing-page curiosity — rather than as a study aid for comparing the two side by side.
+One volume can hold the whole book in two languages, one after the other — the first language from start to finish, then the second — never interleaved paragraph by paragraph: each half reads as a book in its own right. In **Compile…**, check more than one edition. The volume's title page and running heads are the first language's. In a screenplay, a scene heading in one half links to the same scene in the other. Everywhere a compiled book is named — the compile line, the edition's pages, the Exports footer — a bilingual volume says both languages, `EN+SR`. To give each half its own title page, ask Claude.
 
-Say which body is the untranslated one with `"source"` in the list, or just name the book's own `metadata.language` directly — both spellings mean the same body. A `languages` set that includes the source is a source compile: it mints at `next_version` and bumps the counter, same as an ordinary source compile today. A set without the source is an edition of an *existing* source version, exactly like today's single-language `language: es` — it doesn't mint a new version. `languages: ["sr"]` is equivalent to `language: "sr"`; if you pass both, they have to agree, or the compile refuses. The same reading applies to the older single `language` parameter: naming your book's own tongue — `language: "en"` on a book whose `metadata.language` is `en` — names the *source* body, so it is a source compile like any other. It mints at `next_version` and bumps the counter, and no translation-coverage gate runs, because there is nothing to translate; it does not go looking for an existing English edition to render. Duplicate or invalid tags refuse the same way a single bad tag always has.
+### Trying out part of a book
 
-**The identity carries every language, joined.** A bilingual compile of English and Serbian is `(imprint, version, "en+sr", format)` — its own publication, sitting beside the English-only and Serbian-only editions of the same version rather than overwriting either. The filename's `{language}` placeholder expands to `en+sr` the same way it expands to `es` for a single translated edition; `list_publications`'s `language` filter and `read_publication_page` match the joined string exactly, not either half of it. A bilingual publication counts as a source edition for version-pinning purposes when its set includes the source body, same as any other source compile.
-
-**The gate runs once per translated tongue.** Each language in the list gets its own translation-coverage check; a compile refuses only if at least one blocked tongue exists, and when it does, the refusal lists *every* blocked tongue's errors together — not just the first — each prefixed with its own tag (e.g. `[sr] paragraph ¶3f2a is untranslated`) so you can see every gap in one pass rather than compiling once per language to find them all. `allow_stale` applies uniformly: pass it and every tongue with gaps falls back to source text for the missing paragraphs instead of blocking.
-
-**`MaughamBody` is the seam between the halves.** `build/body.tex` is no longer the book itself but a thin wrapper: a guard line that defines a default `MaughamBody` environment if your template hasn't, followed by one `\begin{MaughamBody}{<tag>}...\end{MaughamBody}` block per rendered language, each `\input`-ing that language's own body and metadata. The default behavior is a `\clearpage` between halves and nothing else — a single-language compile still emits exactly one `MaughamBody` block and paginates exactly as it always has. To give each half its own title page, redefine the environment in your template and key the frontmatter on its argument:
-
-```latex
-\renewenvironment{MaughamBody}[1]{\clearpage\input{frontmatter-#1}}{}
-```
-
-`#1` is the language tag, so that line expects a `frontmatter-en.tex` and a `frontmatter-sr.tex` sitting beside the template — the starter `preamble.tex`'s own commented-out `MaughamBody` example shows the same pairing.
-
-The document-level title page, running heads and PDF metadata are always the **first** listed body's — a bilingual PDF is one book, titled in its source language, with the translated half's own title (if any) applying only inside its own `MaughamBody` group.
-
-**Per-body metadata comes from `language_overrides`**, the same config key that already drives a single translated edition's title, subtitle and the rest — nothing new to configure for a second language beyond what an ordinary `language: sr` compile would already need.
-
-**Every paragraph carries its own place.** A compiled document — bilingual or not — anchors every paragraph invisibly, so a template (or a reader's PDF viewer following a link) can address any paragraph directly. In a multi-language compile, that anchor is what lets a **scene heading link across the halves**: tap a slugline in one language's half and you land on the same scene in the other. In the EPUB, the same tap crosses from one language's section file into the other's. Only sluglines cross-link today — it's the case a bilingual screenplay reader reaches for first — everything else anchors but doesn't yet link anywhere.
-
-**From the app, not just MCP.** The Publish persona's desk (⌘⌥K) is where you make one of these documents without asking Claude for it: **Compile…** at the foot of the Languages section opens a sheet with a checkbox per edition — the book's own language plus every language on the desk — and compiling more than one gives you a single volume with every body you checked, in the order the sheet lists them. And every surface that names a compiled book — the desk's own status line, the Publish persona's compiled-book preview, the Exports footer — says the joined identity plainly (`EN+SR`), never a single tag standing in for a document that holds two. See [The Publish Department](publish-department.md#compiling-from-the-desk) for the sheet itself.
-
-### Iterating on a subset of a book
-
-For a multi-piece collection, you don't have to recompile the whole thing to check one piece's typography. Turn off `sections.<id>.include` for the pieces you want to skip, then run `preview_compile` (pass `language` too, for a translated edition) to render just the included subset without touching the project's published version history — `compile`'s `dry_run` option is the companion check when you just want to know whether an edition's translation-coverage gate would pass, without producing output at all. `read_preview_page` closes the loop the same way `read_publication_page` does for a real Publication — Claude reads the rendered page directly rather than working blind. Once the subset looks right, turn the excluded sections back on and compile the full edition.
+You don't have to compile the whole book to see how one chapter looks. Ask Claude to preview just the chapters you want: a preview uses no version number, and Claude can read the rendered page to check its work.

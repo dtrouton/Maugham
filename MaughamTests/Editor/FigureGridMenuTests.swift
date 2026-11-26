@@ -51,22 +51,26 @@ final class FigureGridMenuTests: FigureGridMountedTestCase {
         let a2 = CellKey(row: table.rows[1], column: table.columns[0])
         let selection = FigureGridSelection(anchor: a2, focus: a2)
 
-        let readOnly = FigureTableMenuState.of(table: table, selection: selection, mode: .readOnly(.reviewMode), knowsItsPiece: true)
+        let readOnly = FigureTableMenuState.of(table: table, selection: selection, mode: .readOnly(.readThrough(nil)), knowsItsPiece: true, noun: .chapter)
         for command in FigureTableMenu.commands {
             XCTAssertFalse(readOnly.isEnabled(command), "\(command) is enabled on a read-only grid")
         }
         XCTAssertTrue(readOnly.isOn(.headerRow), "the header row is still ticked")
 
-        let none = FigureTableMenuState.of(table: table, selection: nil, mode: .editable, knowsItsPiece: true)
+        let none = FigureTableMenuState.of(table: table, selection: nil, mode: .editable, knowsItsPiece: true, noun: .chapter)
         let enabledWithNone = FigureTableMenu.commands.filter(none.isEnabled)
         XCTAssertEqual(enabledWithNone, [.headerRow, .totalRow, .insertRowAbove, .insertRowBelow,
                                          .insertColumnLeft, .insertColumnRight, .importCSV,
                                          .sendTo(.piece), .sendTo(.shared)])
-        let pieceless = FigureTableMenuState.of(table: table, selection: nil, mode: .editable, knowsItsPiece: false)
+        let pieceless = FigureTableMenuState.of(table: table, selection: nil, mode: .editable, knowsItsPiece: false, noun: .chapter)
+        // The piece's scope in the project's word; the book's in research's (wording round 2).
+        XCTAssertEqual(FigureTableCommand.sendTo(.piece).title(.chapter), "This Chapter\u{2019}s Research")
+        XCTAssertEqual(FigureTableCommand.sendTo(.piece).title(.section), "This Section\u{2019}s Research")
+        XCTAssertEqual(FigureTableCommand.sendTo(.shared).title(.chapter), "Whole-Book Research")
         XCTAssertFalse(pieceless.isEnabled(.sendTo(.piece)), "no piece: Shared alone (R7d-7)")
         XCTAssertTrue(pieceless.isEnabled(.sendTo(.shared)))
 
-        let editable = FigureTableMenuState.of(table: table, selection: selection, mode: .editable, knowsItsPiece: true)
+        let editable = FigureTableMenuState.of(table: table, selection: selection, mode: .editable, knowsItsPiece: true, noun: .chapter)
         for command: FigureTableCommand in [.format(.percent), .moreDecimals, .align(.right), .sum,
                                              .deleteRows, .deleteColumns, .moveRowsDown, .moveColumnsRight,
                                              .sortAscending, .sortDescending, .fillDown, .fillRight,
@@ -90,7 +94,7 @@ final class FigureGridMenuTests: FigureGridMountedTestCase {
             .of(table: table, selection: FigureGridSelection(
                 anchor: CellKey(row: table.rows[r0], column: table.columns[c0]),
                 focus: CellKey(row: table.rows[r1], column: table.columns[c1])), mode: .editable,
-                knowsItsPiece: true)
+                knowsItsPiece: true, noun: .chapter)
         }
         let header = state(0, 0, 0, 0)
         XCTAssertFalse(header.isEnabled(.moveRowsDown))
@@ -112,7 +116,7 @@ final class FigureGridMenuTests: FigureGridMountedTestCase {
         let everything = FigureTableMenuState.of(table: plain, selection: FigureGridSelection(
             anchor: CellKey(row: plain.rows[0], column: plain.columns[0]),
             focus: CellKey(row: plain.rows[1], column: plain.columns[0])), mode: .editable,
-            knowsItsPiece: true)
+            knowsItsPiece: true, noun: .chapter)
         XCTAssertFalse(everything.isEnabled(.deleteRows), "every row")
         XCTAssertFalse(everything.isEnabled(.deleteColumns), "the only column")
     }
@@ -158,7 +162,7 @@ final class FigureGridMenuTests: FigureGridMountedTestCase {
                 switch entry {
                 case .numberFormats: FigureTableMenu.numberFormatTitle
                 case .sendToResearch: FigureTableMenu.sendToResearchTitle
-                case .command(let command): command.title
+                case .command(let command): command.title(.piece)
                 }
             }
         }.joined(separator: ["—"])
@@ -264,8 +268,7 @@ final class FigureGridMenuTests: FigureGridMountedTestCase {
     func test_aReadOnlyGridTakesNoCommand_andNoGridNone() async throws {
         let m = try await mount(rows: 4)
         MaughamEvent.postFigureTableCommand(.insertRowBelow)   // nothing expanded
-        m.coordinator.setReviewMode(true)
-        m.coordinator.setManualReviewMode(true)
+        m.coordinator.setReadThrough(true)
         let c = try await expand(m)
         let before = c.host.state.table
         for command: FigureTableCommand in [.insertRowBelow, .deleteRows, .moveRowsDown, .headerRow,
@@ -273,7 +276,7 @@ final class FigureGridMenuTests: FigureGridMountedTestCase {
             await post(c, command)
         }
         XCTAssertEqual(c.host.state.table, before, "a read-only grid wrote nothing")
-        XCTAssertEqual(c.bars.reasonMessage, FigureGridGate.Reason.reviewMode.sentence,
+        XCTAssertEqual(c.bars.reasonMessage, FigureGridGate.Reason.readThrough(nil).sentence,
                        "the reason line is said")
     }
 
@@ -305,8 +308,9 @@ final class FigureGridMenuTests: FigureGridMountedTestCase {
         XCTAssertTrue(changed)
         XCTAssertEqual(presence.menu?.canMoveDown, false)
 
-        m.coordinator.setReviewMode(true)
-        m.coordinator.setManualReviewMode(true)
+        // A read-only share: the gate turns the open grid read-only in place
+        // (read-through would fold it first).
+        m.coordinator.setShareIsReadOnly(true)
         XCTAssertEqual(presence.menu?.mayEdit, false, "read-only reaches the menu")
 
         m.coordinator.foldFigureGrid(commit: true)
@@ -346,7 +350,7 @@ final class FigureGridMenuTests: FigureGridMountedTestCase {
         let menu = try XCTUnwrap(c.figureGridView(c.gridView, menuAt: b3))
         XCTAssertEqual(c.model.selection?.anchor, b3, "the right-clicked cell is selected")
         func item(_ command: FigureTableCommand) -> NSMenuItem? {
-            menu.items.first { $0.title == command.title }
+            menu.items.first { $0.title == command.title(c.menuState.noun) }
         }
         XCTAssertEqual(item(.headerRow)?.state, .on)
         XCTAssertEqual(item(.totalRow)?.state, .off)
@@ -355,8 +359,7 @@ final class FigureGridMenuTests: FigureGridMountedTestCase {
         XCTAssertTrue((item(.sum)?.target as? FigureTableMenuTarget)?.onCommand != nil,
                       "the items reach the controller")
 
-        m.coordinator.setReviewMode(true)
-        m.coordinator.setManualReviewMode(true)
+        m.coordinator.setShareIsReadOnly(true)
         let readOnly = c.contextMenu(at: b3)
         XCTAssertTrue(readOnly.items.filter { !$0.isSeparatorItem }.allSatisfy { !$0.isEnabled },
                       "a read-only grid's menu enables nothing")

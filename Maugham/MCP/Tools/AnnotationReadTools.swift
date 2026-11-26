@@ -30,8 +30,8 @@ public enum ListAnnotationsTool: MCPTool {
         /// null for untriaged (M3 P3). Claude never sets it.
         public let triage: String?
         /// The `ReviewPass.id` that was active when the note was written, or
-        /// null. **Null means every pass, not no pass**: an unstamped note
-        /// appears in every pass's queue.
+        /// null. **Null means no pass**: To resolve files an unstamped note
+        /// under Mine or Others, never under a pass's chip.
         public let review_pass_id: String?
         /// The lessons-ledger heading a letter question was raised under
         /// (editorial letter P2), or absent when the note was raised under no
@@ -58,7 +58,7 @@ public enum ListAnnotationsTool: MCPTool {
         }
 
         // Hand-written so the two M3 P3 fields emit JSON `null` rather than
-        // vanishing: "untriaged" and "belongs to every pass" are FACTS a
+        // vanishing: "untriaged" and "written under no pass" are FACTS a
         // reader has to be able to read off the wire, and an absent key says
         // "this tool does not report triage" instead. The pre-existing
         // optionals keep `encodeIfPresent` — their shape is a shipped wire
@@ -96,8 +96,9 @@ public enum ListAnnotationsTool: MCPTool {
         "(open/accepted/rejected/archived/stetted — `stetted` means the writer " +
         "read the note and the words stand), `paragraph_id`. Use this to check " +
         "prior editorial conversation on a paragraph before adding new suggestions. " +
-        "`review_pass_id` is the review pass a note was written under; a null one " +
-        "belongs to EVERY pass, not to none. `lesson_heading` is the ledger " +
+        "`review_pass_id` is the review pass a note was written under, or null " +
+        "for a note written under none (the writer files it as their own or " +
+        "as another's, never under a pass). `lesson_heading` is the ledger " +
         "heading a letter question was raised under, when it was. " +
         "`review_pass_id` `workshop` WAS the coach's lane (Le Guin's) on notes " +
         "written before the check and the round became two verbs; nothing " +
@@ -250,8 +251,9 @@ public enum GetAnnotationTool: MCPTool {
         "`figure_anchor`, `orphaned` and, for a suggestion, `suggested_cell`; " +
         "a document's id also finds a note on a figure its text uses. " +
         "`review_pass_id` is the " +
-        "review pass the note was written under; a null one belongs to EVERY " +
-        "pass, not to none. `triage` (do/decline/discuss) and stetting are the " +
+        "review pass the note was written under, or null for a note written " +
+        "under none (filed as the writer's own or another's, never under a " +
+        "pass). `triage` (do/decline/discuss) and stetting are the " +
         "writer's own marks — Claude never sets either."
     public static let inputSchemaJSON =
         #"{"type":"object","properties":{"project_id":{"type":"string"},"document_id":{"type":"string"},"figure":{"type":"string","description":"A figure name or tbl:name / fig:name label (instead of document_id)."},"annotation_id":{"type":"string"}},"required":["project_id","annotation_id"]}"#

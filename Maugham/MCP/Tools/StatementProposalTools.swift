@@ -20,12 +20,15 @@ enum StatementProposalTools {
     static func adoptWhere(_ kind: ProposableStatement) -> String {
         switch kind {
         case .editionBrief(let language):
-            return "In Maugham: Publish (⌘4) → Department desk (⌘⌥K) → the "
-                + TranslationReviewIndicator.displayLabel(forLanguageTag: language)
-                + " row's Edition Brief. A banner offers Adopt / Discard with a diff."
+            return "In Maugham: select the "
+                + LanguageName.labelled(language)
+                + " edition under Editions in the binder, then its Brief (⌘2), which holds the "
+                + "edition brief. A banner there offers Adopt / Discard with a diff. If the book "
+                + "has no such edition yet, the Source edition's Brief offers to add it."
         case .visualLanguage:
-            return "In Maugham: the Visual Language pane (⌘⌥V). A banner offers "
-                + "Adopt / Discard with a diff against the current statement."
+            return "In Maugham: Visual Language, pulled up beside the text (⌘⌥V, or its "
+                + "link in the Book's Brief). A banner offers Adopt / Discard with a diff "
+                + "against the current statement."
         }
     }
 
@@ -90,6 +93,8 @@ public enum ProposeEditionBriefTool: MCPTool {
             throw MCPError.invalidArgument("invalid language tag: \(params.language)")
         }
         let entry = try resolveProject(params.project_id, in: registry)
+        // A removed edition takes no proposal: it comes back with its language.
+        try BookEditions.refuseIfRemoved([params.language], removed: entry.store.manifest.removedEditions)
         let kind = ProposableStatement.editionBrief(params.language)
         let (proposal, superseded, glossary) = try StatementProposalTools.stage(
             kind: kind, markdown: params.markdown, rationale: params.rationale, in: entry.store)
@@ -106,7 +111,7 @@ public enum ProposeVisualLanguageTool: MCPTool {
         + "should LOOK (trim, typeface feel, scale, rule weights, ornament, the idea behind "
         + "per-piece variation) — as MARKDOWN the writer adopts or discards in Maugham. This "
         + "writes nothing: the draft is staged, and the writer sees it as a diff against their "
-        + "current statement in the Visual Language pane with Adopt / Discard. No `## Rulings` "
+        + "current statement in Visual Language (pulled up, ⌘⌥V) with Adopt / Discard. No `## Rulings` "
         + "section — a visual language has none. A new proposal replaces the pending one. "
         + "Interview first (the `visual-language` skill via get_help topic \"skills\"); read "
         + "read_visual_language and the sensory palette before drafting."

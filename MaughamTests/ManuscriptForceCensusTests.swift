@@ -82,25 +82,17 @@ final class ManuscriptForceCensusTests: XCTestCase {
         return nil
     }
 
-    /// **Deleting the Exports condition outright leaves no wrong spelling
-    /// behind** — the list simply renders under every left column, including
-    /// Plan's. Both toggles are named rather than counted.
-    ///
-    /// **One conjunct since Task 7.** It asserted two: the persona, and an
-    /// interim `segment.interimLeftPaneIsTheTree` that mattered while Author
-    /// could be FORCED onto a research segment (`openResearchItem`, the MCP note
-    /// banner's Show) or restored onto a palette one, neither of which ever
-    /// showed an Exports list. Both of those forces are gone — they write the
-    /// window's subject now — and so is the segment they wrote, so the persona
-    /// is the whole gate.
-    func test_bothTogglesStillGateExportsOnAPersonaThatPublishes() throws {
+    /// **The Exports footer shows whenever publishing is initialised** (shell
+    /// p1 Task 3): no persona decides it, in either toggle — named rather than
+    /// counted.
+    func test_bothTogglesShowExportsWheneverPublishingIsInitialised() throws {
         for path in ["Maugham/Views/BinderPaneToggle.swift",
                      "Maugham/Views/CollectionBinderPaneToggle.swift"] {
             let text = try source(path)
-            XCTAssertTrue(text.contains("if persona.showsExports"),
-                          "\(path): the Exports footer no longer gates on the "
-                          + "persona — a compile-output list under Plan's tree "
-                          + "is not what a writer arranging structure is doing")
+            XCTAssertTrue(text.contains("if PublishStarter.isInitialized(in: store.url) {"),
+                          "\(path): the Exports footer lost its one condition")
+            XCTAssertFalse(text.contains("showsExports"),
+                           "\(path): the Exports footer asks a persona again")
         }
     }
 
@@ -119,20 +111,11 @@ final class ManuscriptForceCensusTests: XCTestCase {
     /// next door said "three receivers" over a list of two, and that undercount
     /// is precisely what stopped anyone asking about the third.
     ///
-    /// **A fourth joined in shell-finish stage 3b, and it is a different
-    /// SHAPE on purpose** — `.maughamTreeTravel`'s receiver lives in its own
-    /// file (`TreeTravel.swift`, not inline in `ProjectWindow.swift`) and calls
-    /// `PersonaModifier.applyPersonaChange(` directly rather than
-    /// `ManuscriptNavigation.go(`. That is not a shortcut: `ManuscriptNavigation`
-    /// answers "does the CURRENT persona already show a manuscript document",
-    /// and the travel rule answers a different question — "is there a persona
-    /// to travel TO at all" (`Persona.centresTheCanvas`, the same discriminator,
-    /// asked directly). Routing the tree's double-click through
-    /// `ManuscriptNavigation` would let that rule decide a premise it was never
-    /// asked about. So the table below carries a (file, call) pair per
-    /// receiver rather than assuming both are constant — the moment a second
-    /// receiver shape exists, "the census reads one file for one call" is
-    /// itself the thing that goes stale silently.
+    /// **A fourth is a different SHAPE on purpose** — `.maughamTreeTravel`'s
+    /// receiver lives in its own file (`TreeTravel.swift`) and, since shell p1
+    /// Task 3, is the click rule's `.openInCentre` (`TreeTravel.openInCentre`)
+    /// with no persona at all. So the table below carries a (file, call) pair
+    /// per receiver rather than assuming both are constant.
     func test_everyNavigationReceiverStillRoutesThroughTheNavigation() throws {
         struct Expectation {
             let receiver: String
@@ -151,7 +134,14 @@ final class ManuscriptForceCensusTests: XCTestCase {
                        call: "ManuscriptNavigation.go("),
             Expectation(receiver: ".maughamTreeTravel",
                        file: "Maugham/Views/TreeTravel.swift",
-                       call: "PersonaModifier.applyPersonaChange("),
+                       call: "TreeTravel.openInCentre("),
+            // A translation round report row, a publish problem, a figure's
+            // Used-in link: a place, whose piece opens even from an edition
+            // (shell p1 final fix, C1 — it went through the click rule, which
+            // left the edition in the centre and dropped the reveal).
+            Expectation(receiver: ".maughamRevealTranslation",
+                       file: "Maugham/Views/ReadingLanguageModifier.swift",
+                       call: "ManuscriptNavigation.go("),
         ]
         for expectation in expectations {
             let fileTexts = try texts(of: expectation.file)
@@ -184,7 +174,8 @@ final class ManuscriptForceCensusTests: XCTestCase {
         for path in ["Maugham/Views/BinderPaneToggle.swift",
                      "Maugham/Views/CollectionBinderPaneToggle.swift",
                      Self.window,
-                     "Maugham/Views/TreeTravel.swift"] {
+                     "Maugham/Views/TreeTravel.swift",
+                     "Maugham/Views/ReadingLanguageModifier.swift"] {
             XCTAssertFalse(try text(of: path).isEmpty, "\(path): read nothing")
         }
     }

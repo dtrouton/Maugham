@@ -203,43 +203,36 @@ final class FigureGridReadOnlyTests: FigureGridMountedTestCase {
 
     // MARK: - Every mode
 
-    /// The window's explicit review mode (⌘⌥⇧R) expands read-only, and
-    /// leaving it gives the grid back.
-    func test_explicitReviewModeIsReadOnly_flippedMidVisit() async throws {
-        let m = try await mount()
-        m.coordinator.setReviewMode(true)
-        m.coordinator.setManualReviewMode(true)
-        let c = try await expand(m)
-        assertReadOnly(c, .reviewMode)
-        XCTAssertFalse(c.bars.captionField.isEditable, "review mode refuses the text too")
-        m.coordinator.setReviewMode(false)
-        m.coordinator.setManualReviewMode(false)
-        assertEditable(c)
-        XCTAssertTrue(c.bars.captionField.isEditable)
-        m.coordinator.setReviewMode(true)
-        m.coordinator.setManualReviewMode(true)
-        assertReadOnly(c, .reviewMode)
-    }
-
-    /// **⌘⌥⇧R flips the grid at once** (T8 review M3): the toggle's
-    /// key-window post sets the coordinator's explicit review mode
-    /// synchronously, and the open grid turns read-only — and back.
-    func test_theReviewToggleFlipsAnOpenGridAtOnce() async throws {
+    /// **The entry folds an open grid; in read-through a grid expands
+    /// read-only, the caption with it; Resume gives it back** (shell
+    /// read-through Task 2): the key's post flips the coordinator
+    /// synchronously, for its own document only.
+    func test_readThroughFoldsTheGridAndExpandsItReadOnly_flippedByTheKey() async throws {
         let m = try await mount()
         XCTAssertTrue(m.window.isKeyWindow, "premise: a .keyWindow post reaches this editor")
+        let docId = try chapterId(m)
+        m.coordinator.documentId = docId
+        let open = try await expand(m)
+        assertEditable(open)
+        ReadThrough.post(.init(docId: "another-piece", on: true))
+        assertEditable(open)
+        XCTAssertNotNil(m.coordinator.figureGrid, "another piece's read-through folds nothing")
+        ReadThrough.post(.init(docId: docId, on: true))
+        XCTAssertTrue(m.coordinator.isInReadThrough)
+        XCTAssertNil(m.coordinator.figureGrid, "the entry folds the open grid")
+        await m.coordinator.figureGridFolding?.value
         let c = try await expand(m)
+        // No window gate here to name the piece: the unnamed sentence.
+        assertReadOnly(c, .readThrough(nil))
+        XCTAssertFalse(c.bars.captionField.isEditable, "the caption is the text's, and its typing is off")
+        ReadThrough.post(.init(docId: docId, on: false))
         assertEditable(c)
-        MaughamEvent.post(.maughamToggleReviewMode, to: .keyWindow)
-        XCTAssertTrue(m.coordinator.isManualReviewMode)
-        assertReadOnly(c, .reviewMode)
-        MaughamEvent.post(.maughamToggleReviewMode, to: .keyWindow)
-        XCTAssertFalse(m.coordinator.isManualReviewMode)
-        assertEditable(c)
+        XCTAssertTrue(c.bars.captionField.isEditable)
     }
 
     /// **The two postures are independent** (R7c-6): a Mac that may change
     /// the figure but not the text around it — the membrane locked, review
-    /// forced on by the text's posture, the window's own review mode off —
+    /// forced on by the text's posture, the piece not in read-through —
     /// gets an EDITABLE grid whose caption field is locked.
     func test_aTextRefusedButFigureAllowedMacGetsAnEditableGridWithALockedCaption() async throws {
         let m = try await mount()
@@ -279,12 +272,12 @@ final class FigureGridReadOnlyTests: FigureGridMountedTestCase {
     /// Translation review never expands; turning it on folds an open grid.
     func test_translationReviewDoesNotExpand_andFoldsAnOpenGrid() async throws {
         let m = try await mount()
-        m.coordinator.setTranslationReview(true)
+        m.coordinator.setReadingTranslation(true)
         XCTAssertFalse(m.coordinator.expandFigureGrid(lineAt: location(m, "![Cash](")))
         XCTAssertNil(m.coordinator.figureGrid)
-        m.coordinator.setTranslationReview(false)
+        m.coordinator.setReadingTranslation(false)
         _ = try await expand(m)
-        m.coordinator.setTranslationReview(true)
+        m.coordinator.setReadingTranslation(true)
         XCTAssertNil(m.coordinator.figureGrid, "the grid folded")
     }
 

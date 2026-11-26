@@ -1,143 +1,147 @@
-# Annotations & Suggestions
+# Notes & Suggestions
 
-Claude can add two kinds of annotations to your manuscript: text notes (comments) and suggested changes (edit proposals). Both appear in the **Annotations pane** (⌘⌥A). You can leave annotations yourself too — that's Review Mode, below.
+A note is something raised about your text: a comment, a question, a craft note, or a suggested change to a span of words. Claude leaves them; so do the editors who run your rounds, a reviewer you let into the book, and you. All of them wait in [To resolve](right-column.md#to-resolve-1) (⌘1), grouped under the paragraph they are about. Nothing Claude writes is drawn on your page. To see where people's notes sit, turn on [the margin](editor-and-focus.md#the-margin).
 
-### Review Mode — reading your own draft cold
+### Leaving a note yourself
 
-**View → Toggle Review Mode (⌘⌥⇧R)** puts the editor into an annotate-only posture. Your manuscript goes **read-only**: you can select, scroll and copy, but you can't type into it. A **REVIEWING · your name** pill appears at the top of the text column, and it stays visible even in focus mode (⌘\\) — with the rest of the chrome gone, the pill *is* the chrome telling you which posture you're in.
+Select some words, then choose **Edit ▸ Comment…** (⌘⇧K), or right-click the selection and choose **Comment…**. A one-line composer opens above the words; type and press Return. Your note is signed with **Your name (for review comments)** from Settings (⌘,) → General, or your macOS account name if that is blank.
 
-The point is to stop you fixing things. Select a span and a small toolbar appears above it with three buttons — **Comment**, **Suggest**, **Query** — each opening a one-line composer right there. Comment and Query start empty. Suggest starts pre-filled with the text you selected, and you edit it into the replacement you'd want; what lands is a suggestion against that exact span, the same shape Claude's `add_suggested_change` produces, and you accept or reject it later the same way. Everything you write this way goes into the Annotations pane alongside Claude's, attributed to **Your name (for review comments)** from Settings (⌘,) → General — your macOS account name if you've left it blank.
+Where you may not change the words — someone else's chapter, or one of yours in read-through — the right-click, and a small toolbar over the selection, also offer **Suggest…** (it starts with the words you selected, for you to edit into the replacement you'd want), **Query…** and **Translator's Note…**. Where you may change the words, you'd change them yourself, so Comment… is the one offer.
 
-Press ⌘⌥⇧R again to leave. Nothing is lost either way — the annotations are ordinary annotations.
+### Read-through
 
-**In somebody else's book, this may not be yours to choose.** If the book's owner admitted you as a *reviewer* — or you're an author of some pieces and this isn't one of them — Review Mode is forced on and the read-only lock is a floor: ⌘⌥⇧R still flips the review chrome, but it can never unlock the text, and a line above it says why. Annotating is the whole of what a reviewer can do to another writer's manuscript, by design (see [People & Devices](people-and-devices.md#what-their-mac-shows-them)). The same holds for the moment before Maugham has read what you may write — it starts locked and opens up once that is known, rather than offering you editing affordances and snatching them back. A folder shared with you **read-only** through iCloud locks the text too, whatever you were admitted as, because the file can't be saved.
+Sometimes you want to read a chapter as a reviewer would: leave notes for yourself, and not touch the text yet. **View ▸ Start Read-through** (⌘⌥⇧R), or the padlock in the toolbar, does that for the chapter open in the centre.
 
-**Not to be confused with the Review persona (⌘3)**, which is a window layout — it leads with the Annotations pane, and it does *not* turn Review Mode on. The two are independent; ⌘⌥⇧R works in any persona.
+- **Typing is off; decisions are on.** You can't type, paste, drag text or Replace in it. You can comment, suggest, answer a note, accept, reject and resolve, including the answers that change the text.
+- **It starts with a checkpoint**, named with the chapter — *Read-through, 22 Nov — Chapter Three* — so the version you are reading is kept. History can compare with it and go back to it.
+- **It is the chapter's, and this Mac remembers it.** Click another chapter and it opens as it was. Quit and reopen, and the chapter is still in read-through. Your phone and your other Macs don't know about it.
+- **Its research is held still too**, against your own accidents: see [Research → Moving research](research.md#moving-research). Claude can still write to it, and renaming another chapter still updates the links to it inside this one.
+- **People's notes show as cards in the margin** beside their words. Claude's stay in To resolve.
+- A line over the text says *In read-through · typing is off*, with **Resume writing**. Press it, the padlock, or ⌘⌥⇧R again (**View ▸ Resume Writing**) to type again.
+
+You can't start a read-through while reading a translation: *Read Source to start a read-through.*
+
+**In somebody else's book, the text may not be yours to type in.** If the book's owner let you in as a *reviewer* — or you write some chapters and this isn't one of them — the text is locked, and a line above it says why. Notes are the whole of what a reviewer adds to another writer's text, by design (see [People & Devices](people-and-devices.md#what-their-mac-shows-them)). A folder shared with you **read-only** through iCloud locks the text too, because the file can't be saved.
 
 ### Suggestions
 
-A suggestion is Claude's proposal to change a span of text or an entire paragraph. When Claude adds a suggestion, it lands in the **Open** status and appears as a margin card in the editor. Click to review the proposed change.
+A suggestion proposes new words for a span or a whole paragraph. It waits in To resolve with its replacement shown.
 
-**Accept** — Applies the suggestion to your manuscript. The status changes to **Accepted** and the card dims.
+**Accept** — Applies the suggestion to your manuscript. The status changes to **Accepted** and the row dims.
 
-**Reject** — Dismisses the suggestion without changing your text. Status changes to **Rejected** and it moves to the resolved filter.
+**Reject…** — Dismisses the suggestion without changing your text, after asking you why. Status changes to **Rejected** and it moves to **Settled**.
 
 **Stet** — The proofreader's mark, and the fourth answer. You read it, you considered it, and the words stand. Nothing is applied and nothing is refused; the note is answered, and the status changes to **Stetted**. Use it where **Reject** would overstate the case — the suggestion wasn't wrong, you just aren't taking it. The row flashes a **STET** badge for a couple of seconds before it leaves the open list.
 
 **Archive** — Moves the suggestion out of the active list without accepting or rejecting it. Status changes to **Archived**.
 
-Stet is offered on comments, queries and craft notes too, wherever Archive is — from the Annotations pane and from the margin card in the editor.
+Stet is offered on comments, queries and craft notes too, wherever Archive is.
 
 **Undo an accepted suggestion** — Press **⌘Z** (or use **Edit → Undo Accept Suggestion**). The suggestion returns to **Open** status and the text reverts. Redo with **⌘⇧Z** to re-apply it (the redo re-arms another ⌘Z, so you can cycle back and forth).
 
-Accepted suggestions can also be reverted from the **Annotations pane** at any time — turn on the show-resolved filter (the tray icon) and click **Revert** on the accepted suggestion. Accepting a *second* suggestion clears ⌘Z's reach back to the first one — that's specific to accept (each accept starts a fresh typing-undo baseline), so the pane's Revert is the way to reach an older accepted suggestion once a newer accept has happened. No other undoable action in Maugham has this one-deep limit — see below.
+Accepted suggestions can also be reverted at any time: open **Settled** at the foot of To resolve and press **Revert** on the suggestion. Accepting a *second* suggestion clears ⌘Z's reach back to the first one — that's specific to accept (each accept starts a fresh typing-undo baseline), so Revert is the way to reach an older accepted suggestion once a newer accept has happened. No other undoable action in Maugham has this one-deep limit — see below.
 
-If Maugham has already applied a suggestion's change and it is still in the text when you press **Accept**, Maugham marks the suggestion **Accepted** and leaves the text alone: a change it has already applied is not applied again. This happens when another device archived or stetted the suggestion just after you accepted it and you then reopened it, and, almost always, when restoring a checkpoint with **Revert here…** or rewinding the document brought the change back. The same goes for a suggestion that replaces a whole paragraph when you had already typed the paragraph the way the suggestion reads. A suggestion for part of a paragraph that you typed in yourself, and never accepted, is different: Accept applies it as written, on top of what you typed. ⌘Z on such an Accept reopens the suggestion and leaves the text as it is; **Revert** still puts back the words from before the accept, and on an accept you made by typing it reopens the suggestion and leaves your text.
+If Maugham has already applied a suggestion's change and it is still in the text when you press **Accept**, Maugham marks the suggestion **Accepted** and leaves the text alone: a change it has already applied is not applied again.
+
+This happens when another device archived or stetted the suggestion just after you accepted it and you then reopened it, and, almost always, when restoring a checkpoint with **Revert here…** or rewinding the document brought the change back. The same goes for a suggestion that replaces a whole paragraph when you had already typed the paragraph the way the suggestion reads.
+
+A suggestion for part of a paragraph that you typed in yourself, and never accepted, is different: Accept applies it as written, on top of what you typed. ⌘Z on such an Accept reopens the suggestion and leaves the text as it is; **Revert** still puts back the words from before the accept, and on an accept you made by typing it reopens the suggestion and leaves your text.
 
 ### Notes on tables and pictures
 
 Claude can leave the same kinds of note on a figure: a comment, a question or a craft note on the whole figure (a picture too), and a comment or question on one cell or a range of cells in a table. It can also suggest a new number or formula for one table cell. The note anchors to the cell's row and column, not to a position, so it follows the cell when rows or columns are inserted. If the cell's row or column is deleted the note is marked orphaned, and it comes back if you undo the delete.
 
-These notes appear in the Annotations queue like any other, and the figure inspector lists each one with its address (*C3*, *C3:E3*). From the queue you can **Reject**, **Stet**, **Archive**, **Reopen**, and reply or **Got it**. A suggested value to a cell shows its proposed value. From the queue, **Accept** opens the table and selects the cell (a table already open selects it there); accept it there in the suggestion strip, which writes the value into the cell as you, with the suggestion's attribution recorded. A table kept in Research shows Accept greyed out with "In Research — bring it back to accept", and a deleted cell greys it with its reason. Clicking a figure note's row, or its line in the figure inspector, opens the table and selects the cell the same way. A cell with an open note shows a small dot in the assistant-note colour, on the card and in the grid; a note on a range puts its dot on the range's top-left cell, and a note whose cell has been deleted stays in the queue with no dot.
+These notes appear in To resolve like any other, and the figure's details list each one with its address (*C3*, *C3:E3*). From To resolve each answers as its kind does: **Got it** on a comment, **Reply…** on a question, **Accept** or **Reject…** on a craft note, **Reject…** on a suggested value; and **Stet** or **Archive** on any of them. A settled one comes back with **Reopen**. A suggested value to a cell shows its proposed value.
 
-Selecting a marked cell in the grid shows a strip above it. A suggestion offers **Accept** and **Reject**; a comment or query offers **Got it** and **Reject**; when several notes cover the cell the strip pages through them (*1 of 2*). If the cell has changed since the suggestion was made, Accept asks first; Reject asks for a reason. If the cell already holds the suggested value, Accept marks the note accepted and writes nothing to the cell, and ⌘Z reopens it and leaves the cell. In review mode the strip offers **Got it** and **Reject**, and Accept is greyed with "Turn off review mode to accept — it writes the cell." The strip's room appears only while the table has an open note on a cell. ⌘Z in the grid undoes a strip answer, and after the grid has been folded away ⌘Z in the window takes an Accept back along with the visit; a Reject or Got it made after folding, or in review mode, is reversed with **Reopen** in the queue. The strip cannot be reached from the keyboard yet. To take the value by hand instead, type it into the table, then **Archive** the note: typing the value leaves the note open. A note on a figure that belongs to a piece counts toward that piece on the review board and sits with that piece's notes in the queue. ⌘Z undoes your answer while the table is open in this window, with the note returning to how it was; otherwise use **Reopen** on the row. On the iPhone a figure note shows its anchor and the suggested cell, and offers Reject and Archive, and a cell with an open note shows its dot on the phone's card (the phone has no strip). Promoting a Collection piece to its own project does not carry its figures' notes.
+There, **Accept** opens the table and selects the cell (a table already open selects it there); accept it there in the suggestion strip, which writes the value into the cell as you, with the suggestion's attribution recorded. A table kept in Research shows Accept greyed out with "In Research — bring it back to accept", and a deleted cell greys it with its reason. Clicking a figure note's row, or its line in the figure's details, opens the table and selects the cell the same way.
 
-### Working the queue — triage and order
+A cell with an open note shows a small dot in the assistant-note colour, on the card and in the grid; a note on a range puts its dot on the range's top-left cell, and a note whose cell has been deleted stays in To resolve with no dot.
 
-A pile of notes is easier to answer once it's sorted, so every row in the Annotations pane carries a small flag menu: **Do**, **Decline**, **Discuss**, and **Clear**. That's a *mark*, not an answer — a triaged note is exactly as open as it was, and marking one settles nothing. What it changes is where the note sits.
+**The strip.** Selecting a marked cell in the grid shows a strip above it, with the cell's note and its answers. The strip's room appears only while the table has an open note on a cell. It answers to the mouse only.
 
-Everything you've marked **Do** leads the list. Behind it comes everything else, in the order the notes appear in your manuscript, so working down the pane is one pass down the text rather than a scatter of jumps. Notes that aren't anchored to a paragraph (craft notes are about the whole document) sit at the end of their own group, as do notes whose paragraph you've since deleted.
+- **A suggestion** offers **Accept** and **Reject**; **a comment or query** offers **Got it** and **Reject**. When several notes cover the cell, the strip pages through them (*1 of 2*).
+- **Accept** asks first if the cell has changed since the suggestion was made. If the cell already holds the suggested value, Accept marks the note accepted and writes nothing to the cell, and ⌘Z reopens it and leaves the cell.
+- **Reject** asks for a reason.
+- **To take the value by hand**, type it into the table, then **Archive** the note: typing the value leaves the note open.
 
-The toolbar's flag menu filters by mark — **All**, **Do**, **Decline**, **Discuss**, or **Untriaged** — so you can take one band at a time, or find what you haven't looked at yet. It stacks with the kind, author and show-resolved filters beside it. The **author** menu lists whoever has actually written in this queue, by the name their notes are signed with — *Claude*, a pass's editor, and, once she has read something, [your own first reader](compiler.md#your-own-first-reader) under the name you gave her.
+**When the table can't be changed:**
 
-Alongside those sits a **review pass** menu, once your project uses [passes](review-passes.md). Two rules govern it: choosing a pass shows every note stamped with it, plus every note carrying no stamp at all — a note only carries a pass if one was active when it was written, so the unstamped pile is everything older than passes, everything Claude wrote against a closed piece, and everything made with nothing chosen; hiding that pile the day the filter ships would bury a writer's whole existing queue. Left alone, the menu follows the piece's own remembered active pass — the one a [board](review-passes.md#the-board) chip click just set — so travelling from the board lands you already narrowed to where you came from.
+- **In read-through** the strip keeps all its answers: an Accept is a decision, and it writes the value into the cell though typing is off.
+- **Parked in Research, a view-only share, or someone else's table:** the strip shows its notes with no buttons and says why. For someone else's table it says *This table isn't yours to change — you can read it.*
+- **Where this Mac may not answer the figure's notes**, the buttons are greyed: *This Mac may not answer notes on this figure.*
 
-Work a piece through a later pass while an earlier one is still open, and a quiet caption says so above the list — *"Structural still open on this piece"* — without disabling anything. The passes are an order to work through, not a gate the queue enforces.
+**Taking an answer back.** While the table is open in this window, ⌘Z in the grid undoes a strip answer, and the note returns to how it was. After the grid has been folded away, ⌘Z in the window takes an Accept back along with the visit. A Reject or Got it made after folding is reversed with **Reopen** in Settled.
 
-**Narrow Kind, Author, Triage, or the pass filter down to nothing and the pane says so plainly** — *"No notes match your filters."* — rather than teaching you to run a round you don't need; widen whichever of those four is doing it and the open notes that were there the whole time come back. **Settling every open note is a different thing, and the pane never confuses the two**: with nothing left open, the queue reads as genuinely empty — the round-teaching state, not the filter one — because none of those four filters is what's hiding a resolved note. Bring one back with the show-resolved filter (the tray icon), not by widening Kind, Author, Triage, or the pass.
+**Elsewhere.** A note on a figure that belongs to a chapter counts toward that chapter in the Book's Status, and sits with its notes in To resolve. On the iPhone, a figure note shows its anchor and the suggested cell and offers Reject and Archive. A cell with an open note shows its dot on the phone's card (the phone has no strip). Promoting a Collection piece to its own project does not carry its figures' notes.
 
-**Below the toolbar, in This Piece scope, a strip shows where the round stands** — the pass, its editor, and the round number (*Copyedit · Gould · round 2*), what changed since the last one once one's run, and two buttons doing exactly what ⌘R and ⌘⇧R do: **Run round** and **Fresh Eyes**. No pass active on this piece yet? The strip reads *Set a pass to run a round* and is itself the picker, with both buttons dead and a tooltip saying why — a round is an editor's. An empty queue teaches the same loop rather than describing an absence — *"Claude proposes; you dispose. Run Gould's round (⌘R), or ask Claude in Claude Desktop."* With no pass set yet it asks for one first: *"Claude proposes; you dispose. Set a pass and run its editor's round (⌘R), or ask Claude in Claude Desktop."* A round's notes carry that pass's editor as their author, so a queue spanning several passes still says who's speaking. Full mechanics: [Review Passes → The queue](review-passes.md#the-queue).
+### Marking a pile — triage
 
-**Answer as ruling…** appears on some notes beside the ordinary reply, and where it files depends on who raised the note. A translator's question about one edition files into that edition's [brief](publish-department.md#the-round-report); a note from [your own first reader](compiler.md#your-own-first-reader) files as a dated standing instruction in her statement, under the strip the pane titles **Instructions**. Either way your answer lands twice — in the statement and as your reply here — and the note leaves the queue, so the next reading works under what you said rather than raising it again.
+A long list is easier to answer once it's sorted. Each note's flag menu marks it **Do**, **Discuss** or **Decline**, or **Clear**s the mark. A mark is a plan, not an answer: a marked note is as open as it was. Notes marked **Do** lead their group. Once any note carries a mark, a control at the top of To resolve filters by it — **All**, **Do**, **Discuss**, **Decline** or **Untriaged** — alongside the source chips.
 
-Triage lives in the pane only. The margin cards in the editor answer one note beside the sentence it's about; there's no pile there to sort.
+**Answer as ruling…** appears on some notes beside the ordinary reply, and where it files depends on who raised the note. A translator's question about one edition files into that edition's brief; a note from [your own first reader](compiler.md#your-own-first-reader) files as a standing instruction in hers, under **Instructions**. Either way your answer lands twice — there and as your reply — and the note leaves the list.
 
 ### Working a batch
 
-Once a pile is sorted, you can answer much of it in one go. Press the checklist button in the pane's toolbar (*"Select several notes and answer them together"*). Each row gets a tick box, and a bar appears with three verbs:
+Press the checklist button at the top of To resolve (*Select notes*). Each note gets a tick box, and a bar appears with three verbs:
 
-- **Triage** — a menu of the same marks as a row's flag menu, **Do**, **Decline** and **Discuss**, plus **Clear** (*"Mark what you plan to do about all of these"*).
+- **Triage** — the same marks as a row's flag menu (*"Mark what you plan to do about all of these"*).
 - **Accept** — answers the notes at once.
 - **Stet** — *"Read, considered — and the words stand. Resolves these without applying or refusing anything."*
 
-Tick the notes you mean. If you tick none, the verbs act on everything the list is showing, so your filters choose the batch. The bar says which: *All 12 shown* or *4 selected*. **Select All** ticks every row, and becomes **Deselect All** once something is ticked. Press the checklist button again to leave; the ticks go with it.
+Tick the notes you mean. If you tick none, the verbs act on everything the list is showing, so your filters choose the batch. **Select All** ticks every row, and becomes **Deselect All** once something is ticked. Press the checklist button again (*Done selecting*) to leave.
 
-**Each button tells you before you press it how many notes it will reach**: *Accept all 6*, *Accept 4 selected*, or *Accept 4 of 6* when some of them are out of its reach. A bulk verb reaches exactly the notes the same button on each row would reach, and no further:
+**Each button says how many notes it will reach** before you press it: *Accept all 6*, *Accept 4 selected*, or *Accept 4 of 6* when some are out of its reach. A bulk verb reaches exactly the notes the same button on each row would reach:
 
-- **Accept** reaches open notes only. It never answers a question, because a question wants your words and that's what **Reply…** is for. And it never applies a suggestion whose passage you've changed since, because the row would ask you first (*Apply anyway*), and a batch can't ask forty times. Those notes simply stay open for you to answer one by one.
+- **Accept** reaches open notes only. It never answers a question, because a question wants your words. It never applies a suggestion whose passage you've changed since, because that row would ask you first. Those notes stay open for you to answer one by one.
 - **Stet** reaches open notes.
-- **Triage** reaches every note that doesn't already carry that mark, answered or not, because a mark isn't an answer.
+- **Triage** reaches every note that doesn't already carry that mark.
 
-If anything in the batch can't be done, you hear about it once, in one notice titled *Not everything in the batch could be done*, rather than one alert per note. It counts what landed (*"3 of 4 accepted."*) and says why the rest didn't. For example: *"One suggestion could no longer be applied — the passage it would replace is no longer in its paragraph."* followed by *"Those notes stay open; ask Claude for fresh suggestions against the current text."*
+If anything in the batch can't be done, one notice says so — *Not everything in the batch could be done* — counting what landed (*"3 of 4 accepted."*) and saying why the rest didn't.
 
-**One ⌘Z reverses the whole batch.** Each note goes back to how it was, so undoing a batch of triage marks gives every note back its own earlier mark rather than clearing them all. Suggestions are the exception, as they are one at a time (see [Suggestions](#suggestions)): ⌘Z reaches only the last suggestion a batch accepted, and **Revert** on a row reaches the others at any time. The Accept button's tooltip says this too. If an undo can't be done — say, a note was changed on another device in the meantime — Maugham says so; see [When an undo can't be done](#when-an-undo-cant-be-done).
+**One ⌘Z reverses the whole batch**, each note back to how it was. Suggestions are the exception (see [Suggestions](#suggestions)): ⌘Z reaches only the last suggestion a batch accepted, and **Revert** reaches the others.
 
-The bar is only in **This Piece** scope (below), and only shows the verbs this Mac may use in this piece. Where it may use none, there's no bar at all. See [People & Devices](people-and-devices.md#what-their-mac-shows-them).
-
-### One piece, or the whole project
-
-The pane's scope menu switches between **This Piece** and **All Pieces**. Widened, it shows every piece's notes at once, grouped by piece and in the order your binder holds them — parts and chapters where you put them, so the queue reads like the book. Every filter above still applies across the whole set, so "every unanswered suggestion in the manuscript" is two clicks.
-
-Notes belonging to a piece that's **open** can be answered where they sit. A closed piece's notes are readable but its buttons are off, with *Open this piece to act* on the tooltip: clicking the note takes you to that piece, and once it's open the buttons come alive. Nothing moves you out of Review while you do it.
-
-Multiselect and the bulk bar stay in **This Piece** — a batch runs against one piece at a time, and a count that quietly skipped every closed chapter would be worse than no count. Widen to find the work; travel to the piece to do it in bulk.
-
-If a piece's history can't be read, the queue says so in a line at the foot naming the piece, rather than showing you a short list as if it were the whole one.
+A batch works on the chapter open in the centre. In a Part's or the Book's list it reaches only that chapter's notes; open another chapter to work its pile. Where this Mac may answer none of the notes, there's no bar at all.
 
 ### Undoing reject, archive, and your own notes
 
 Reject, archive, and the other non-text-mutating annotation actions are undoable the same way as anywhere else in Maugham: **⌘Z** reverses the most recent one, and each ⌘Z you press walks one step further back, exactly like undoing typed edits. **⌘⇧Z** redoes forward again, and redoing re-arms the action so you can keep cycling ⌘Z ⟷ ⌘⇧Z.
 
-- **Edit → Undo Reject Annotation** — reopens a rejected suggestion.
+- **Edit → Undo Reject Note** — reopens a rejected suggestion.
 - **Edit → Undo Accept Note** — reopens a comment, query, or craft note you accepted (the **Got it** button, or **Reply…** with your answer). Nothing was applied to your words, so nothing has to be put back — the note simply returns to **Open**. Accepting a *suggestion* is the different case, with its own **Undo Accept Suggestion**, above.
-- **Edit → Undo Stet Annotation** — reopens a note you let stand — and if you had already accepted, rejected or archived it before, puts that back.
-- **Edit → Undo Triage Annotation** — puts back the mark the note carried *before* the one you just applied, rather than clearing it. Marking a note **Do**, changing your mind to **Discuss** and pressing ⌘Z leaves **Do** standing.
-- **Edit → Undo Archive Annotation** — reopens an archived comment, query, craft note, or suggestion.
-- **Edit → Undo Withdraw Annotation** — if you withdrew your own note or suggestion, ⌘Z brings it back.
-- **Edit → Undo Edit Annotation** — if you edited the body (or, for a suggestion, the proposed replacement) of a note you authored, ⌘Z restores the prior wording.
+- **Edit → Undo Stet Note** — reopens a note you let stand — and if you had already accepted, rejected or archived it before, puts that back.
+- **Edit → Undo Triage Note** — puts back the mark the note carried *before* the one you just applied, rather than clearing it. Marking a note **Do**, changing your mind to **Discuss** and pressing ⌘Z leaves **Do** standing.
+- **Edit → Undo Archive Note** — reopens an archived comment, query, craft note, or suggestion.
+- **Edit → Undo Withdraw Note** — if you withdrew your own note or suggestion, ⌘Z brings it back.
+- **Edit → Undo Edit Note** — if you edited the body (or, for a suggestion, the proposed replacement) of a note you authored, ⌘Z restores the prior wording.
 
-Every one of these appends a **compensating** entry to the document's history rather than erasing the original action — open the **History pane** and you'll see both the original resolution and its undo listed as separate events. Undo never rewrites history; it only adds to it.
+Every one of these appends a **compensating** entry to the document's history rather than erasing the original action — open the chapter's **History** (⌃⌘H) and you'll see both the original resolution and its undo listed as separate events. Undo never rewrites history; it only adds to it.
 
 #### When an undo can't be done
 
 Now and then ⌘Z declines rather than guess. That happens when a note has changed somewhere else since you acted on it — answered or edited on your iPhone or another Mac — or when this Mac may no longer write that kind of thing in this piece. In a batch, whatever can be undone is undone, and the rest is left as it is. A message at the foot of the window says what couldn't be undone and why, in one sentence however many notes it covers, for example:
 
 - *"Couldn't undo stetting 2 notes — they changed on another device."*
-- *"Couldn't change 2 notes — this Mac can no longer answer notes in this piece."*
+- *"Couldn't change 2 notes — this Mac can no longer answer notes here."*
 
-The same goes for tasks, a History restore and an accepted suggestion: if this Mac may no longer change that piece, the undo says so instead of quietly doing nothing. Whatever was declined is still in the queue, and you can answer it from there.
+The same goes for to-dos, a History restore and an accepted suggestion: if this Mac may no longer change that piece, the undo says so instead of quietly doing nothing. Whatever was declined is still in To resolve, and you can answer it from there.
 
 ### Rewinding with suggestions
 
-If you open the **History pane** and rewind to a point *before* you accepted a suggestion, that suggestion reopens in the **Open** status. The manuscript reverts to what it was before the accept.
+If you open **History** and rewind to a point *before* you accepted a suggestion, that suggestion reopens in the **Open** status. The manuscript reverts to what it was before the accept.
 
 If the rewind also removed the paragraph the suggestion was attached to, the suggestion is archived instead — there's nothing left for it to apply to. If it was accepted, **⌘Z** on that rewind brings it back as **Accepted**, not Open.
 
 It works the other way too. Say you accepted a suggestion, later pressed **Revert** on it, and then rewind (or **Revert here…** to a checkpoint) to a point after the accept. The accepted text comes back, and the suggestion is marked **Accepted** again rather than offering you an Accept you've already made. A Stet, reject or archive you gave it after that point stays as you left it.
 
-If you rewind to before a suggestion was added, it disappears from the annotations list entirely.
+If you rewind to before a suggestion was added, it disappears from To resolve entirely.
 
 **Undoing a Rewind restore** — a History Rewind is itself undoable. Press **⌘Z** right after restoring to an earlier point and Maugham reverses the *whole* rewind in one grouped action: the manuscript text returns to where it was before you rewound, and any suggestions the rewind reopened or archived along the way go back to how they were. **⌘⇧Z** re-runs the same rewind from scratch, so redoing a rewind can never disagree with a fresh one.
 
-### Text notes
+### Comments
 
-Text notes are Claude's comments on your work — questions, observations, or context. They don't propose text changes. Click a note to expand the full body.
+Comments are notes that propose no change — questions, observations, context. Click one to read all of it.
 
 Notes can be archived via their context menu (•••) and restored from the Trash if needed, or reopened with ⌘Z right after archiving (see above).
-
-### Undoing tasks and checkboxes
-
-Task-pane mutations — creating, checking off, reprioritizing, re-nesting, editing, and archiving a task — and inline checkbox toggles (clicking the `[ ]`/`[x]` bracket, in the editor *or* the Tasks pane) are all undoable with **⌘Z**, redoable with **⌘⇧Z**, same walk-back-and-forward behavior as text edits. See [Tasks & To-Dos](tasks.md) for the task system itself.
 
 ### Reopening from iPhone
 
@@ -146,15 +150,15 @@ The Maugham Companion iPhone app can't run Claude, but it can review and resolve
 - **Reject or Archive → Reopen** — tap **Reopen** on a resolved note or suggestion in the detail view. It returns to **Open**, exactly as if you had pressed ⌘Z on the Mac.
 - **Accept → Reopen & Revert** — an accepted suggestion has no plain reopen; tapping **Reopen & Revert** restores the pre-accept text *and* reopens it. If the paragraph has changed since the accept (edited on another device, say), the phone asks you to confirm before overwriting the current text.
 
-Either way, the phone's reopen is written to the same op log the Mac reads — open the project on your Mac afterward and the annotation shows **Open** there too, with the reopen visible as its own entry in the History pane.
+Either way, the phone's reopen is written to the same history the Mac reads — open the project on your Mac afterward and the note shows **Open** there too, with the reopen visible as its own entry in History.
 
-**If the phone's notes aren't showing up on the Mac, the Mac hasn't been told who the phone is yet.** Open the project there and it asks you, once; see [People & Devices](people-and-devices.md). The phone's own **Settings → This device** section shows where it stands in each book it has been in — *on Denver's MacBook's chain since 9 Sep*, or *Not yet admitted — the Mac will ask* — plus the four-character code you check against the Mac's panel. Nothing is lost while you're waiting: the phone's work is held, not discarded, and admitting the phone brings all of it in at once.
+**If the phone's notes aren't showing up on the Mac, the Mac hasn't been told who the phone is yet.** Open the project there and it asks you, once; see [People & Devices](people-and-devices.md). The phone's own **Settings → This device** section shows where it stands in each book it has been in — *on Alex's MacBook's chain since 9 Sep*, or *Not yet admitted — the Mac will ask* — plus the four-character code you check against the Mac's panel. Nothing is lost while you're waiting: the phone's work is held, not discarded, and admitting the phone brings all of it in at once.
 
 ### Claude's `add_suggested_change` tool — two grains
 
 When Claude uses the `add_suggested_change` tool, the grain of the suggestion depends on whether you provide a quote:
 
 - **No `quote`** — The `suggested_text` is the complete replacement for the entire paragraph. Use this for wholesale rewrites.
-- **With `quote`** — The `quote` field must contain a span of text from the target paragraph. The `suggested_text` then replaces *only that span*, preserving the rest of the paragraph. The suggestion will show as a highlighted diff in the margin card.
+- **With `quote`** — The `quote` field must contain a span of text from the target paragraph. The `suggested_text` then replaces *only that span*, preserving the rest of the paragraph. The suggestion shows the change against just that span.
 
-Pair the grain to the task: a tiny typo fix uses a quote; a full-paragraph revision omits it.
+Pair the grain to the job: a tiny typo fix uses a quote; a full-paragraph revision omits it.

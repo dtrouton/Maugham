@@ -449,7 +449,7 @@ final class AnnotationsCharacterization: XCTestCase {
         XCTAssertEqual(opCount(h.doc), before, "no compensating edit was appended")
         XCTAssertEqual(one(h.doc, cid)?.body, "moved on", "and nothing was clobbered")
         XCTAssertEqual(said, [
-            "Couldn't undo the annotation edit — it changed on another device."],
+            "Couldn't undo the note edit — it changed on another device."],
                        "and the writer is told, rather than only documentLog")
 
         // The control: an undrifted undo does revert.
@@ -958,14 +958,14 @@ final class AnnotationsCharacterization: XCTestCase {
             "Document+Annotations.swift",   // the definition (+ the undoable wrapper)
             "Document+RewindUndo.swift",    // undo of a rewind's auto-archive
             "Document+Tasks.swift",         // undo of a task-archive's auto-archive
-            "AnnotationsPaneVerbs.swift",   // RULING-29: the writer's Reopen
+            "ResolveNoteVerbs.swift",       // RULING-29: the writer's Reopen
             // report plan 9c-1 Task 5: FigureDocument's own Reopen of a figure
             // note (definition, its ⌘Z re-settling, the settling undos).
             "FigureDocument+Annotations.swift",
         ], "the caller census — update deliberately, never accidentally")
 
         let pane = try String(
-            contentsOf: repoRoot.appendingPathComponent("Maugham/Views/AnnotationsPane.swift"),
+            contentsOf: repoRoot.appendingPathComponent("Maugham/Views/Resolve/ResolvePane.swift"),
             encoding: .utf8)
         XCTAssertTrue(pane.contains("onReopen"),
                       "the pane's Reopen affordance (RULING-29)")

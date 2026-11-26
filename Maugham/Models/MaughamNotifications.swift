@@ -18,7 +18,8 @@ import Foundation
 ///   `maughamSessionLogChanged`, `maughamNavigateToDocument`,
 ///   `maughamTranslationDidUpdate`, `maughamCanvasNodesAdded`,
 ///   `maughamDocumentNotice`, `maughamAnnotationsChanged`,
-///   `maughamDesignProposalsChanged`, `maughamTranslationRoundEnded`): delivered
+///   `maughamDesignProposalsChanged`, `maughamTranslationRoundEnded`,
+///   `maughamTranslationRoundChanged`): delivered
 ///   to live windows on the matching project only.
 /// - **`.allWindows`** (genuinely global fan-out, no liveness guard — see the
 ///   per-name zombie-harm audit note where present): `maughamNewProject`,
@@ -47,15 +48,14 @@ extension Notification.Name {
     /// value) — or opens exactly one window if none is open yet. Harmless
     /// duplication at worst. OK.
     public static let maughamOpenProject = Notification.Name("maugham.openProject")
-    /// Scope: .keyWindow — ⌘R ("Check Writing" in Author, "Run Round" in
-    /// Review; `RunMenuTitles`). The compiler's warm trigger:
-    /// the key window asks its `CompilerOrchestrator` to check the active
-    /// document. A command, not a data event — a background window running
-    /// against its own document would spend a real API call on prose nobody is
-    /// looking at.
+    /// Scope: .keyWindow — ⌘R, Check Writing (`RunCommand.checkWriting`).
+    /// The compiler's warm trigger: the key window asks its
+    /// `CompilerOrchestrator` to check the piece its subject names. A command,
+    /// not a data event — a background window running against its own
+    /// document would spend a real API call on prose nobody is looking at.
     public static let maughamRunCompiler = Notification.Name("maugham.run.compiler")
-    /// Scope: .keyWindow — ⌘⇧R ("Reread" in Author, "Fresh Eyes" in Review).
-    /// The same trigger read cold: the
+    /// Scope: .keyWindow — ⇧⌘R, Reread (`RunCommand.reread`).
+    /// The same check read cold: the
     /// warm session is retired and the piece is read whole, rather than the
     /// delta since the last run's marker. Key-window-scoped for exactly the
     /// reason ⌘R is, and more so — a cold read is the most expensive thing the
@@ -63,37 +63,61 @@ extension Notification.Name {
     /// prose nobody is looking at is the worst case of the same defect.
     public static let maughamFreshEyesCompiler =
         Notification.Name("maugham.run.compiler.fresheyes")
+    /// Scope: .keyWindow — ⌃⌘R, Run Round (`RunCommand.runRound`): the key
+    /// window asks its compiler for a numbered round on the piece its subject
+    /// names. Key-window-scoped for ⌘R's reason.
+    public static let maughamRunRound = Notification.Name("maugham.run.round")
+    /// Scope: .keyWindow — ⌃⇧⌘R, Fresh Eyes (`RunCommand.freshEyes`): the
+    /// round read cold. Key-window-scoped for ⇧⌘R's reason, and more so.
+    public static let maughamFreshEyesRound =
+        Notification.Name("maugham.run.round.fresheyes")
     public static let maughamToggleNoChrome = Notification.Name("maugham.toggleNoChrome")
-    public static let maughamToggleReviewMode = Notification.Name("maugham.toggleReviewMode")
-    /// Posted by the Translation Review menu command (`.keyWindow`, menu-command
-    /// class). The app-global menu can't reach the focused window's active-doc
-    /// selection or project URL, so it just asks the key window to resolve the
-    /// active doc's available translation languages and present the picker.
-    public static let maughamShowTranslationPicker = Notification.Name("maugham.showTranslationPicker")
-    /// Posted when the writer picks a translation to review — the key
-    /// ProjectWindow enters read-only translation-review posture for the active
-    /// doc (EditorHost swaps in the derived translated surface; the coordinator
-    /// flips its membrane synchronously). `userInfo["language"]` carries the
-    /// BCP-47 language tag. Scope: .keyWindow.
-    public static let maughamEnterTranslationReview = Notification.Name("maugham.enterTranslationReview")
-    /// Posted to leave translation review and show the source manuscript again.
+    /// **The open piece is to be read in a language** (shell p4 Task 8):
+    /// `userInfo["language"]` carries the BCP-47 tag. The SETTING event — a
+    /// reveal's first post (`TranslationReveal.perform`) and the window's own
+    /// choice (`ReadingLanguageModifier`) post it; the window writes
+    /// `EditorControl.translationLanguage` (EditorHost swaps in the derived
+    /// surface) and the key window's coordinator flips its membrane
+    /// synchronously. Scope: .keyWindow.
+    public static let maughamReadInLanguage = Notification.Name("maugham.readInLanguage")
+    /// **The open piece is to be read in its source again** — the setting
+    /// event's other half. Scope: .keyWindow.
+    public static let maughamReadInSource = Notification.Name("maugham.readInSource")
+    /// **The writer chose a language to read in** — the toolbar's language
+    /// switch, View ▸ Read In and ⌃⌘L. `userInfo["language"]` names it; its
+    /// absence is Source. The window keeps the writer's place (the caret's
+    /// paragraph) across the swap and posts the setting event itself.
     /// Scope: .keyWindow.
-    public static let maughamExitTranslationReview = Notification.Name("maugham.exitTranslationReview")
+    public static let maughamChooseReadingLanguage = Notification.Name("maugham.chooseReadingLanguage")
+    /// View ▸ Show Source Under Translation: the window flips it and
+    /// remembers it for the project. Scope: .keyWindow.
+    public static let maughamToggleSourceUnder = Notification.Name("maugham.toggleSourceUnder")
     /// Posted by `write_translation` after it appends new translation records —
     /// a data event, so its scope is `.project(for: projectURL)` (mirrors
     /// `maughamMCPNoteAdded`, delivered to live windows on the project only).
     /// `userInfo["document_id"]` and `userInfo["language"]` name the affected
-    /// (doc, language). A window already inside translation review for that
+    /// (doc, language). A window already reading a translation for that
     /// pair re-derives its read-only surface so a retranslation lands live
     /// rather than staying frozen until the writer exits and re-enters. Scope:
     /// .project(id:).
     public static let maughamTranslationDidUpdate = Notification.Name("maugham.translation.did.update")
+    /// Posted by `initialize_publish_template` once the publish template is
+    /// installed, so a live window's tree draws its Editions rows (shell p1
+    /// Task 3) without waiting for a manifest change. Data event. Scope:
+    /// .project(id:).
+    public static let maughamPublishInitialized = Notification.Name("maugham.publish.initialized")
     /// Posted by the window's pipeline wiring when a round ends — data event,
     /// scope `.project(for: projectURL)`, like `maughamTranslationDidUpdate`.
     /// `userInfo["language"]`, `["document_id"]`, `["round"]` (Int).
     public static let maughamTranslationRoundEnded = Notification.Name("maugham.translation.round.ended")
+    /// Posted when a round's RECORD changes under a verb — a departure
+    /// dismissed or ruled, a glossary proposal adopted or skipped (shell p4
+    /// Task 6 fix round) — so an edition's To resolve, its tree mark, its
+    /// Status and an open round report read again. Data event, scope
+    /// `.project(for: projectURL)`.
+    public static let maughamTranslationRoundChanged = Notification.Name("maugham.translation.round.changed")
     /// Posted by the round report and the Translation pane to take the writer
-    /// to one paragraph of one edition in translation review. Scope: .keyWindow.
+    /// to one paragraph of one edition, read in its language. Scope: .keyWindow.
     /// `userInfo["document_id"]`, `["language"]`, `["paragraph_id"]`.
     public static let maughamRevealTranslation = Notification.Name("maugham.revealTranslation")
     public static let maughamToggleFullScreen = Notification.Name("maugham.toggleFullScreen")
@@ -105,6 +129,10 @@ extension Notification.Name {
     /// move-to-iCloud explanation when the folder isn't in iCloud Drive.
     public static let maughamShareForReview = Notification.Name("maugham.shareForReview")
     public static let maughamToggleInspector = Notification.Name("maugham.toggleInspector")
+    /// Posted by View ▸ View as … (⌃⌘1/2/3): the key window's centre shows
+    /// the chosen view (`CentreViewSwitch`), as its toolbar switch does.
+    /// Payload: `MaughamEvent.centreViewKey`. Scope: .keyWindow.
+    public static let maughamChooseCentreView = Notification.Name("maugham.chooseCentreView")
     public static let maughamTidyAllFilenames = Notification.Name("maugham.tidyAllFilenames")
     /// Scope: .allWindows (no liveness guard — must reach everything; ADR 0021).
     /// Zombie-harm audit: receivers are `WelcomeHost` (`MaughamApp.swift`,
@@ -193,7 +221,7 @@ extension Notification.Name {
     /// write invented for the key. Scope: .keyWindow.
     public static let maughamSelectProjectRow = Notification.Name("maugham.select.project.row")
     /// Posted by ⌘⌥R (shell-finish stage-3a Task 5). Research stopped being a
-    /// right-pane segment when shell-finish stage 2a gave every persona's tree
+    /// right-pane segment when shell-finish stage 2a gave every tree
     /// its own Research section — so the shortcut's new job is opening that
     /// section if the writer had closed it, not showing a pane. Refused while
     /// `treeFindActive` covers the column: the overlay is the tree's
@@ -202,11 +230,82 @@ extension Notification.Name {
     /// ⌘⌥P's twin, for the tree's Palette section. Same task, same refusal.
     /// Scope: .keyWindow.
     public static let maughamRevealPaletteSection = Notification.Name("maugham.reveal.palette.section")
-    public static let maughamSetDetailSegment = Notification.Name("maugham.set.detail.segment")
-    /// Scope: .keyWindow — payload ["persona": Persona.rawValue].
-    /// Only the focused project window switches; other windows keep their own
-    /// persona, which is the point of per-window modes.
-    static let maughamSetPersona = Notification.Name("maugham.set.persona")
+    /// Posted by ⌘1/⌘2/⌘3 and the old pane keys that land on a position
+    /// (shell plan 3): the right column shows that position
+    /// (`MaughamEvent.postPosition`, `postResolve`). Scope: .keyWindow.
+    public static let maughamSetRightColumn = Notification.Name("maugham.set.right.column")
+    /// Posted by a click on the line above the prose (`IntentStrip`, shell
+    /// plan 3): the faces go to the open piece and the right column shows its
+    /// Brief (`MaughamEvent.postBriefOfTheOpenPiece`). Scope: .keyWindow.
+    public static let maughamShowOpenPieceBrief = Notification.Name("maugham.show.open.piece.brief")
+    /// Posted by a click on a margin mark (shell p5 Task 2, View ▸ Margin):
+    /// To resolve shows that paragraph's group; the editor moves nothing
+    /// (`MaughamEvent.postShowParagraphInResolve`). Scope: .keyWindow.
+    public static let maughamShowParagraphInResolve = Notification.Name("maugham.show.paragraph.in.resolve")
+    /// Posted by View ▸ Margin's items (shell p5 Task 2): the key window's
+    /// margin setting (`MaughamEvent.postMarginSetting`). Scope: .keyWindow.
+    public static let maughamSetMargin = Notification.Name("maugham.set.margin")
+    /// Posted by ⌘⌥G/⌘⌥Y/⌘⌥V/⌃⌘H (shell plan 3): a Book statement or the
+    /// faces' piece's History is pulled up beside the centre
+    /// (`MaughamEvent.postPullUp`). Scope: .keyWindow.
+    public static let maughamPullUp = Notification.Name("maugham.pull.up")
+    /// Posted by ⌘[ (View ▸ Back, appraisal wave): what was
+    /// pulled up before goes up again (`MaughamEvent.postPullUpPrevious`,
+    /// `PulledUpHistory`). Scope: .keyWindow.
+    public static let maughamPullUpPrevious = Notification.Name("maugham.pull.up.previous")
+    /// Posted by ⌘⌥E (shell plan 3): what a piece is pinned to is its fold in
+    /// the tree, so the key opens the faces' piece's fold and scrolls to it.
+    /// Scope: .keyWindow.
+    public static let maughamShowPieceFold = Notification.Name("maugham.show.piece.fold")
+    /// Posted by ⌘⌥K (shell p4 Task 7): the To resolve of the edition the
+    /// window is reading in, else the Source edition's — the faces move to
+    /// it (`MaughamEvent.postShowEditionResolve`). Scope: .keyWindow.
+    public static let maughamShowEditionResolve = Notification.Name("maugham.show.edition.resolve")
+    /// Posted by the Editions `+`, the Source row's menu and a proposed
+    /// brief's Add (shell p4 Task 7): present the Add Language sheet
+    /// (`MaughamEvent.postAddLanguage`). Scope: .keyWindow.
+    public static let maughamAddLanguage = Notification.Name("maugham.add.language")
+    /// Posted by a translated edition's row menu and File ▸ Remove Edition…
+    /// (shell p4 closing round): ask, then hide the edition named by
+    /// `userInfo["language"]` (`MaughamEvent.postRemoveEdition`). Scope:
+    /// .keyWindow.
+    public static let maughamRemoveEdition = Notification.Name("maugham.remove.edition")
+    /// Posted by ⌘⌥B (shell p1 Task 6): open the Inbox in the centre — the
+    /// same click on the Inbox row the tree makes, through `ClickRule`. The
+    /// Inbox stopped being a right-column pane when it became a row.
+    /// Scope: .keyWindow.
+    public static let maughamOpenInbox = Notification.Name("maugham.open.inbox")
+    /// Posted by View ▸ Go to the Canvas (shell p5 Task 7): open the Canvas
+    /// in the centre — the click on its binder row, through `ClickRule`.
+    /// Scope: .keyWindow.
+    public static let maughamOpenCanvas = Notification.Name("maugham.open.canvas")
+    /// Posted by View ▸ Open in Centre (shell p5 Task 7): the binder's
+    /// selected row, else what is pulled up, in the centre — ⌘↓'s act
+    /// (`TreeRowKeys.centreOpening`). Scope: .keyWindow.
+    public static let maughamOpenInCentre = Notification.Name("maugham.open.inCentre")
+    /// Posted by File ▸ Translate This Chapter into … / Translate Whole Book
+    /// into … (shell p5 Task 7): To resolve shows, and its head runs its own
+    /// Run (`ResolveRequest.translate`). Scope: .keyWindow.
+    public static let maughamTranslateFromMenu = Notification.Name("maugham.translate.fromMenu")
+    /// Posted by File ▸ New Chapter / New Part and the binder's own root
+    /// verbs (shell p5 Task 7): add a piece or a group at the binder's root,
+    /// `userInfo["binder_item"]` naming which (`MaughamEvent.postAddBinderItem`).
+    /// Scope: .keyWindow.
+    public static let maughamAddBinderItem = Notification.Name("maugham.add.binderItem")
+    /// Posted by Edit ▸ Comment… and the text's right-click Comment… /
+    /// Suggest… (shell p5 Task 7): open the annotation composer on the key
+    /// window's selection, `userInfo["kind"]` naming the kind
+    /// (`AnnotationOffer`). Scope: .keyWindow.
+    public static let maughamCommentOnSelection = Notification.Name("maugham.comment.onSelection")
+    /// Posted by every read-through route (`ReadThrough.post`): start or
+    /// resume `userInfo["doc_id"]`'s read-through as `userInfo["on"]` says
+    /// (`ReadThroughModifier`). Scope: .keyWindow.
+    public static let maughamSetReadThrough = Notification.Name("maugham.set.read.through")
+    /// Posted by the manuscript editor when a typed character met a view
+    /// that refuses typing (a piece in read-through, a translation —
+    /// `EditorHost.typingRefusal`): the quiet line over the text pulses once.
+    /// Scope: .keyWindow.
+    public static let maughamTypingRefused = Notification.Name("maugham.typing.refused")
     public static let maughamMCPNoteAdded = Notification.Name("maugham.mcp.note.added")
     public static let maughamAddLoosePiece = Notification.Name("maugham.add.loose.piece")
     public static let maughamAddScreenplayPiece = Notification.Name("maugham.add.screenplay.piece")
@@ -305,7 +404,7 @@ extension Notification.Name {
     /// helper's liveness guard, ADR 0021).
     public static let maughamQuarantineRecordsChanged = Notification.Name(
         "maugham.quarantine.recordsChanged")
-    /// Posted when the AnnotationsPane wants the editor to scroll to/select a paragraph.
+    /// Posted when the Annotations pane wants the editor to scroll to/select a paragraph.
     /// userInfo["paragraph_id"] contains the paragraph id string.
     public static let maughamNavigateToParagraph = Notification.Name(
         "maughamNavigateToParagraph")
@@ -316,15 +415,16 @@ extension Notification.Name {
     /// The key-window `EditorCoordinator` looks the id up in its
     /// `resolvedReviewMarks`: an `absoluteRange` selects the span; otherwise it
     /// falls back to scrolling to the paragraph (the legacy behaviour). Posted
-    /// by `AnnotationsPane.jump(_:)` and by clicking an interactive margin card.
+    /// by `Annotations pane.jump(_:)` and by clicking an interactive margin card.
     public static let maughamNavigateToAnnotation = Notification.Name(
         "maughamNavigateToAnnotation")
-    /// Posted by `treeTravelOnDoubleClick(_:)` — a double-click on a tree row's
-    /// LABEL LEAF (tripwire 9: never the row container, or the gesture eats
-    /// drag initiation the way `TaskRow.swift`'s once did). Denver's travel
-    /// rule, 2026-08-12: a double-click on any tree row in Plan takes the
-    /// writer to Author with that row's subject. `userInfo[MaughamEvent
-    /// .treeTravelSubjectKey]` (`BinderSubject`) is the row's OWN tag — never
+    /// Posted by `TreeTravelClickWatcher` for a click on a tree row's LABEL
+    /// LEAF (tripwire 9: never the row container, or the gesture eats drag
+    /// initiation the way `TaskRow.swift`'s once did). A double-click opens the
+    /// row in the centre; a single click on the row already selected is how
+    /// the tree hears a click its `List` writes nothing for (shell p1 Task 3).
+    /// `userInfo[MaughamEvent.treeTravelSubjectKey]` (`BinderSubject`) is the
+    /// row's OWN tag — never
     /// read from `state.selection`, so the posted subject cannot drift from
     /// what the writer actually clicked. Menu-command class: only the key
     /// window travels. Scope: .keyWindow.
@@ -355,9 +455,8 @@ extension Notification.Name {
     /// P5) — `propose_edition_brief`/`propose_visual_language` wrote a slot
     /// under `.maugham/statements/proposals/`, or the writer's Adopt/Discard
     /// emptied one. `StatementPane` draws its gate from that slot, the desk
-    /// marks its language row and `DetailPaneToggle` badges the Visual
-    /// Language segment; none of them can otherwise see a file an MCP tool
-    /// wrote behind them.
+    /// marks its language row and `RightColumnControl` puts a dot on Brief;
+    /// none of them can otherwise see a file an MCP tool wrote behind them.
     ///
     /// No payload: which slots a surface cares about is its own answer (it
     /// re-reads them). Post via `MaughamEvent.postStatementProposalsChanged`,

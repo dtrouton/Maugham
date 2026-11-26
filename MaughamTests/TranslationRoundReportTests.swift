@@ -131,7 +131,7 @@ final class TranslationRoundReportTests: XCTestCase {
     func test_theHeaderNamesTheRoundTheChapterAndTheEdition() {
         XCTAssertEqual(TranslationRoundReport.header(Self.round(), chapterTitle: "Chapter 1"),
                        "Round 3 \u{00b7} Chapter 1 \u{00b7} "
-                       + TranslationReviewIndicator.displayLabel(forLanguageTag: "es"))
+                       + LanguageName.labelled("es"))
         XCTAssertTrue(TranslationRoundReport.header(Self.round(), chapterTitle: nil).contains("Round 3"))
     }
 

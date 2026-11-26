@@ -32,9 +32,9 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
     /// Hard editing lock (WF1 iCloud role): when true the manuscript text is
     /// read-only because the current user is NOT an author of it (an iCloud
     /// reviewer, or the still-resolving `.unknown` role). Distinct from
-    /// `isReviewMode`: that is a soft, toggleable render posture an author opts
-    /// into; this is the floor that the membrane ANDs in so a reviewer's ⌘⌥⇧R can
-    /// flip the review render but can NEVER unlock text mutation. Threaded
+    /// `isReviewMode`, the review render (forced by the posture, or a piece in
+    /// read-through); this is the floor the membrane ANDs in, so nothing that
+    /// flips the render can ever unlock text mutation. Threaded
     /// ONE-WAY from ProjectWindow → EditorHost → EditorSurface (tripwires 2 & 6);
     /// nothing reads it back. Use `setLockEditing(_:)` to flip it.
     private(set) var lockEditing = false
@@ -44,11 +44,6 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
     /// Task 8). Use `setShareIsReadOnly(_:)`.
     private(set) var shareIsReadOnly = false
 
-    /// The window's explicit review mode (⌘⌥⇧R) alone — `isReviewMode` is
-    /// also forced where the text is refused. Only the figure grid's gate
-    /// reads it (R7c-6). Use `setManualReviewMode(_:)`.
-    private(set) var isManualReviewMode = false
-
     /// Translation-review posture (Task 11): when true the editor is displaying a
     /// DERIVED translated surface (`translatedText ?? sourceText`, joined) instead
     /// of the source manuscript, so the buffer is read-only — `shouldChangeTextIn`
@@ -57,8 +52,54 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
     /// reader can inspect a translation of a manuscript they authored. Plain
     /// stored property, no observers (tripwire 2), threaded ONE-WAY from
     /// ProjectWindow → EditorHost → EditorSurface; nothing reads it back. Use
-    /// `setTranslationReview(_:)` to flip it so the membrane sees it immediately.
-    private(set) var isTranslationReview = false
+    /// `setReadingTranslation(_:)` to flip it so the membrane sees it immediately.
+    ///
+    /// **Two facts, either refuses** (shell p4 Task 8 fix I1): a translation
+    /// is ASKED FOR (`translationRequested`, the control's language), or the
+    /// BUFFER still holds one (`bufferHoldsTranslation`). Leaving a
+    /// translation clears the first at once and the second only once the
+    /// source has landed in the text view, so a keystroke in between meets a
+    /// refusing membrane, a non-editable view and a binding that will not
+    /// write — never a manuscript write of the translated surface.
+    var isReadingTranslation: Bool { translationRequested || bufferHoldsTranslation }
+    /// The control's language is set (`setReadingTranslation`).
+    private(set) var translationRequested = false
+    /// **The text view holds a translated surface** (shell p4 Task 8 fix I1):
+    /// set before a translated buffer is swapped in, cleared only after the
+    /// source has landed (`EditorSurface.reconcileTextBuffer`, and the mount).
+    /// While set the view is not editable (AppKit refuses every route —
+    /// typing, paste, drops, Services, Writing Tools, spelling, text
+    /// replacement, input methods, find-bar Replace), the binding is never
+    /// written (`textDidChange`), and the view's undo manager is a throwaway
+    /// (`undoManager(for:)`, fix I5) so ⌘Z cannot spend the writer's history
+    /// on a surface it cannot change.
+    private(set) var bufferHoldsTranslation = false
+    /// The source text the buffer held when a translation came in: leaving
+    /// to the same text keeps the window's undo stack (fix I5); leaving to a
+    /// changed text drops it (ADR 0023 D1 — its ranges are stale).
+    private var sourceTextBeforeTranslation: String?
+    /// **The piece this buffer holds is in read-through** (shell read-through
+    /// Task 2): typing off, decisions on. Asked of the coordinator's own
+    /// `documentId`, never of the window's subject, and flipped only through
+    /// `setReadThrough(_:in:)`. While set the view is not editable, so AppKit
+    /// refuses every typing route; an op-driven change still lands through
+    /// the one `applyExternalText` site, and the window's undo manager stays
+    /// the view's (no `ReadingUndoGuard`), so a decision is undoable.
+    private(set) var isInReadThrough = false
+    /// A read-only recovery view (`EditorSurfaceConfiguration.readOnlyRecovery`),
+    /// set at the mount: it stays read-only whatever else flips.
+    var readOnlyRecovery = false
+    /// The control's read-through set as `applyControl` last reconciled it;
+    /// nil before the first apply.
+    private var appliedReadThroughDocIds: Set<String>?
+    /// The reading surface's own undo manager: nothing registers on it (the
+    /// view is not editable) and ⌘Z on it does nothing.
+    let readingUndoManager = UndoManager()
+    /// **The ranges that describe the text the view holds NOW** (fix round
+    /// (c)): set where the buffer is swapped, so a place read off the outgoing
+    /// surface is read against that surface, whatever the control's model
+    /// has moved on to. Empty over the source.
+    var bufferBadges: [TranslationBadgeLayout.BadgeRange] = []
 
     /// Weak handle to the floating selection toolbar overlay so the
     /// selection-change callback can position/show/hide it. Lives in the scroll
@@ -70,6 +111,13 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
     /// Cursor location to restore after the next attach. Set by EditorSurface
     /// when the user revisits a previously-open document.
     var initialCursorLocation: Int?
+
+    /// The id of the document this editor shows (`ParagraphProviders.documentId`,
+    /// `EditorHost`'s alone; fixed for the mount). A pending place lands only
+    /// on it (`landPendingPlace(from:)`), and a paragraph navigation naming
+    /// another document is left to that document's editor. Nil on every
+    /// other surface.
+    var documentId: String?
 
     /// Fired on every selection change with the new caret location, so the
     /// host can persist per-document cursor positions.
@@ -295,29 +343,24 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
     /// legacy scroll-to-paragraph behaviour).
     private var annotationNavigateObserver: NSObjectProtocol?
 
-    /// Observer token for `maughamToggleReviewMode` (⌘⌥⇧R). Flips the membrane
-    /// SYNCHRONOUSLY in the key window's coordinator so `isReviewMode` is correct
-    /// before the next key event — closing the race where a fast Enter pressed
-    /// right after ⌘⌥⇧R slipped a newline through `shouldChangeTextIn` before the
-    /// SwiftUI render round-trip pushed the new posture (Bug B). `ProjectWindow`
-    /// still toggles `isReviewModeOn` on the SAME notification (source of truth
-    /// for the indicator + annotation derive + persistence); the model-driven
-    /// `applyControl → setReviewMode` (observed via `withObservationTracking`) is
-    /// the no-op-guarded reconciler the two paths converge through (ADR 0017).
-    /// Both toggle the same boolean from the same value, so they can't diverge;
-    /// the reconciler re-converges if state ever drifts.
-    private var reviewToggleObserver: NSObjectProtocol?
-
     /// Observer tokens for translation-review entry/exit (Task 13). Same
-    /// rationale as `reviewToggleObserver`: flip the read-only membrane
+    /// rationale as `readThroughObserver` (Bug B): flip the read-only membrane
     /// SYNCHRONOUSLY in the key window's coordinator so the very next keystroke
     /// already sees the toggled posture — the `control.translationLanguage`
-    /// mirror lands a frame later. `ProjectWindow`'s `TranslationReviewModifier`
+    /// mirror lands a frame later. `ProjectWindow`'s `ReadingLanguageModifier`
     /// still owns the language + the surface swap on the SAME posts; the
-    /// model-driven `applyControl → setTranslationReview` is the no-op-guarded
+    /// model-driven `applyControl → setReadingTranslation` is the no-op-guarded
     /// reconciler both paths converge through (ADR 0017), so they can't diverge.
     private var translationEnterObserver: NSObjectProtocol?
     private var translationExitObserver: NSObjectProtocol?
+
+    /// Observer token for `.maughamSetReadThrough` (shell read-through Task
+    /// 2). **Bug B**: a Return pressed right after ⌘⌥⇧R must
+    /// meet a refusing view, and `control.readThroughDocIds` lands a turn
+    /// later. It flips only this coordinator's stored fact, for its own
+    /// document; `ReadThroughModifier` changes the store on the same post,
+    /// and `applyControl → setReadThrough` is the reconciler both converge on.
+    private var readThroughObserver: NSObjectProtocol?
 
     /// Observer tokens for the Insert menu's Table (⌘⇧T) and Footnote (⌘⇧N)
     /// (plan 3a Task 4). Key-window scoped like every observer here, and ALSO
@@ -340,6 +383,10 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
     /// expanded grid's controller. Key-window scoped; a surface with no grid
     /// opening never expands one, so it has nothing to hand on.
     private var figureTableCommandObserver: NSObjectProtocol?
+    /// Edit ▸ Comment… and the text's right-click Comment… / Suggest… (shell
+    /// p5 Task 7): the annotation composer on the selection. Key-window
+    /// scoped and asks `manuscriptCommandContext()`.
+    private var commentObserver: NSObjectProtocol?
 
     /// Whether this editor answers the Insert menu (plan 3a Task 4): true only
     /// for the manuscript editor of a Markdown piece, which `EditorHost` alone
@@ -421,6 +468,23 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
     var figureGridFolding: Task<Void, Never>?
     /// The window step the last in-place visit collapsed into, if any (a test's handle).
     var lastFigureVisitStep: FigureVisitUndo?
+    /// Every visit step this editor registered on the window's stack, so the
+    /// entry into read-through drops them by target: a visit is cells typed,
+    /// not a decision. Held weakly — the stack holds a live step (its handler
+    /// captures it) — and pruned at each append, so the list is bounded by
+    /// the steps still on the stack, never the editor's life. Cleared with
+    /// the stack.
+    var figureVisitSteps: [FigureVisitUndo] { figureVisitStepRefs.compactMap(\.step) }
+    private(set) var figureVisitStepRefs: [WeakFigureVisitUndo] = []
+
+    /// Notes a registered visit step, dropping those the stack let go.
+    func noteFigureVisitStep(_ step: FigureVisitUndo) {
+        figureVisitStepRefs.removeAll { $0.step == nil || $0.step === step }
+        figureVisitStepRefs.append(WeakFigureVisitUndo(step: step))
+    }
+
+    /// Forgets every noted visit step (the stack was cleared, or they were dropped).
+    func forgetFigureVisitSteps() { figureVisitStepRefs.removeAll() }
     /// How many times `figureTrailingRoom` asked the cards (tests read it).
     var trailingFigureRoomLookupCount = 0
 
@@ -446,11 +510,11 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
     var figureCaptionLinesCache: [FigureCaptionBar.Line]?
     /// The syntax ranges the caret's figure line is shown at full colour on,
     /// as layout-manager temporaries (`refreshFigureSyntaxUnfade`); empty in
-    /// translation review, which owns every temporary foreground colour.
+    /// reading a translation, which owns every temporary foreground colour.
     var unfadedFigureSyntax: [NSRange] = []
     /// True from a character edit while `unfadedFigureSyntax` is held: the
     /// edit may have moved the temporaries, so their next removal clears the
-    /// whole text's temporary foreground (exact outside translation review,
+    /// whole text's temporary foreground (exact outside reading a translation,
     /// where the un-fade is the only one) — at most once per character edit,
     /// never on a caret move (`figureSyntaxUnfadeWholeClears`). Until then,
     /// characters typed right after a shown run may draw in its `shown`
@@ -556,6 +620,9 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
     /// The most recent Insert ▸ Table or Convert to Table Figure, so a caller (a test) can await it
     /// instead of polling.
     var tableFigureTask: Task<Void, Never>?
+    /// The last margin-card action's work (`performReviewCardAction`), for a
+    /// test to await rather than poll.
+    var reviewActionTask: Task<Void, Never>?
     /// The most recent figure-birth undo or redo's store verb
     /// (`figureBirthUndo`), so a caller (a test) can await it.
     var figureBirthUndoTask: Task<Void, Never>?
@@ -596,6 +663,10 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
     /// Set by EditorSurface.updateNSView so the coordinator can resolve
     /// ranges against the live Document's `displayRange(forParagraphId:)`.
     var paragraphRangeProvider: ((String) -> NSRange?)?
+    /// The last source caret told to the host: a surface caret that is its
+    /// own image keeps it exact (fix M1) — never clamped to a translation's
+    /// length.
+    var lastToldSourceCaret: Int?
 
     /// Resolves a doc-wide UTF-16 location to the containing paragraph_id
     /// and the offset (in the same UTF-16 space) within that paragraph's
@@ -682,11 +753,30 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
     /// `EditorControl.posture`, set only through `updateReviewCardVerbs(for:)`.
     var reviewCardPosture: Posture?
 
-    /// Staleness-badge overlay for translation review (Task 12): margin dots in
+    /// Staleness-badge overlay for reading a translation (Task 12): margin dots in
     /// the LEFT inset — amber (stale) / gray-hollow (missing). Installed lazily
     /// on the text view (like the review overlays) and shown only in translation
     /// review. See `EditorCoordinator+TranslationBadges.swift`.
     weak var translationBadgeOverlay: TranslationBadgeOverlayView?
+    /// **View ▸ Margin's marks** (shell p5 Task 2), as last applied from
+    /// `EditorControl.margin`, and their places in the text (`MarginPlace`),
+    /// resolved when the marks arrive and shifted by each storage edit —
+    /// never per draw (tripwire 4). The overlay in the trailing inset reads
+    /// the places. See `MarginOverlayView.swift`.
+    var margin: MarginMarks = .none
+    var marginPlaces: [MarginPlace] = []
+    weak var marginOverlay: MarginOverlayView?
+    /// Moves whenever the places or their layout may have moved, so the
+    /// overlay knows its cached rects are stale (fix round 1, M10).
+    var marginGeneration = 0
+    /// How many times the places were resolved (fix round 1, I3's count pin).
+    var marginPlacesRecomputeCount = 0
+    /// A re-placing is queued for the next turn (a mark's place was
+    /// swallowed by an edit, fix round 2).
+    var marginReplaceScheduled = false
+    /// Every paragraph's display range, in ONE pass over the document
+    /// (`Document.displayRanges`, wired by `EditorHost`; fix round 1, I3).
+    var marginParagraphRangesProvider: (() -> [String: NSRange])?
     /// The current per-paragraph badge resolution (¶ → UTF-16 range + status) in
     /// the rendered translated surface. Recomputed only when the pushed model
     /// changes — never per draw (tripwire 4). The overlay reads this directly.
@@ -706,7 +796,7 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
     /// brief "stet" acknowledgement before it resolves out of the open set. While
     /// set, `ReviewMarginRailView.drawCard` paints the STET treatment on that card
     /// and the mark is deliberately NOT refreshed away. Mirrors the
-    /// AnnotationsPane `stetFlourishIds` dwell so the gesture reads in both
+    /// Annotations pane `stetFlourishIds` dwell so the gesture reads in both
     /// surfaces. (M3 P2 moved it off reject, where the word was a lie: a rejected
     /// note is exactly the one that did NOT stand.)
     var stetReviewCardId: String?
@@ -769,8 +859,8 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
     /// their scope through `receiverContext(.keyWindow)`, which is where this is
     /// read. Today that is `maughamNavigateToScene`, `maughamFindMatchSelected`,
     /// `maughamNavigateToParagraph`, `maughamNavigateToAnnotation`,
-    /// `maughamToggleReviewMode`, `maughamEnterTranslationReview`,
-    /// `maughamExitTranslationReview`, and the Insert menu's
+    /// `maughamReadInLanguage`,
+    /// `maughamReadInSource`, `maughamSetReadThrough`, and the Insert menu's
     /// `maughamInsertTable`, `maughamInsertFootnote`, `maughamInsertFigure`,
     /// `maughamInsertExistingFigure`,
     /// `maughamInsertCitation`, `maughamInsertCrossReference` and
@@ -782,9 +872,9 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
     /// every one there has ever been. M1A's statement panes are the first case
     /// of a SECOND `EditorSurface` alive in the same window at the same time,
     /// and every one of those commands is about the document in the centre
-    /// column: without this the intent pane flips into review chrome on ⌘⌥⇧R,
+    /// column: without this the intent pane takes the centre's read-through flip,
     /// moves its caret when the writer clicks a scene in the navigator, and
-    /// goes read-only when the manuscript enters translation review.
+    /// goes read-only when the manuscript is read in a translation.
     var respondsToWindowCommands: Bool = true
 
     /// Origin project id (`ProjectIdentifier.id(for:)`) stamped onto every
@@ -837,9 +927,17 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
                   let match = note.userInfo?["match"] as? SearchMatch,
                   let textView = self.textView else { return }
 
-            // Defer to allow the document load to complete first.
+            // Defer to allow the document load to complete first. A match is
+            // a range of the SOURCE (fix I2): the window reads Source first
+            // (`ProjectWindow`'s receiver), and the match is selected once the
+            // source is what the view holds — never at source offsets in a
+            // translated surface.
             Task { @MainActor in
                 try? await Task.sleep(nanoseconds: 50_000_000)
+                for _ in 0..<60 where self.isReadingTranslation {
+                    try? await Task.sleep(for: .milliseconds(50))
+                }
+                guard !self.isReadingTranslation else { return }
                 self.selectFindMatch(match.charRangeInDocument, in: textView)
             }
         }
@@ -849,31 +947,16 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
         ) { [weak self] note in
             guard let self,
                   let pid = note.userInfo?["paragraph_id"] as? String,
-                  let textView = self.textView,
-                  let provider = self.paragraphRangeProvider,
-                  let range = provider(pid) else { return }
-            let length = (textView.string as NSString).length
-            guard range.location >= 0,
-                  range.location + range.length <= length else { return }
-            // Position a cursor (length 0) at paragraph start rather
-            // than selecting the whole paragraph. Selecting the entire
-            // range was disorienting when navigating from the Tasks
-            // pane — the writer's "jump to this task" became "select
-            // the whole containing paragraph including unrelated
-            // text." A future refinement could thread an
-            // intra-paragraph offset through the notification to land
-            // exactly on the task line; for now, paragraph start is
-            // close enough and avoids the surprising selection.
-            //
-            // An offset (`MaughamEvent.paragraphOffsetKey`: a figure's Used-in
-            // link naming a line inside a paragraph of several) moves the
-            // caret that far into the paragraph, never past its end.
-            let offset = (note.userInfo?[MaughamEvent.paragraphOffsetKey] as? Int).map { max(0, min($0, range.length)) } ?? 0
-            let cursor = NSRange(location: range.location + offset, length: 0)
-            self.forceFoldFigureGrid(.navigation)   // the jump wins over an expanded grid
-            textView.setSelectedRange(cursor)
-            textView.scrollRangeToVisible(range)
-            textView.window?.makeFirstResponder(textView)
+                  let textView = self.textView else { return }
+            // A navigation naming another document is that document's: the
+            // window opens it, and the editor that loads it lands the place
+            // (`EditorControl.pendingPlace`). Never this document's paragraph
+            // that happens to share the id.
+            if let named = note.userInfo?[ManuscriptNavigation.docIdKey] as? String,
+               let mine = self.documentId, named != mine { return }
+            self.landOnParagraph(
+                pid, offset: note.userInfo?[MaughamEvent.paragraphOffsetKey] as? Int,
+                in: textView)
         }
         // Key-window scoped via the helper (ADR 0021) — the former inline
         // `textView.window?.isKeyWindow` guard is deleted; the `.keyWindow`
@@ -888,37 +971,32 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
             let pid = note.userInfo?["paragraph_id"] as? String
             self.navigateToAnnotation(id: annId, fallbackParagraphId: pid, in: textView)
         }
-        // This NC receiver exists deliberately (Editor AREA.md, Bug B): ⌘⌥⇧R
-        // flips the review membrane SYNCHRONOUSLY on the coordinator so the very
-        // next keystroke already sees the toggled value — a `control.*` mirror
-        // would land a frame later. Key-window scoping is now the helper's
-        // `.keyWindow` context (ADR 0021); the former inline `isKeyWindow` guard
-        // is deleted (it, and FocusPostureModifier, both act only when key).
-        reviewToggleObserver = MaughamEvent.observe(
-            .maughamToggleReviewMode,
-            context: { [weak self] in self?.receiverContext(.keyWindow) }
-        ) { [weak self] _ in
-            guard let self else { return }
-            self.setReviewMode(!self.isReviewMode)
-            // The explicit toggle, at once for the figure grid's gate;
-            // `ProjectWindow` flips the same flag, so the mirror agrees.
-            self.setManualReviewMode(!self.isManualReviewMode)
-        }
-        // Translation review (Task 13): flip the read-only membrane
-        // synchronously on the key window's coordinator, exactly as ⌘⌥⇧R does
-        // above. Language + surface swap stay EditorHost's; this only governs
+        // Reading a translation (Task 13): flip the read-only membrane
+        // synchronously on the key window's coordinator, as read-through's
+        // observer below does (Bug B). Language + surface swap stay EditorHost's; this only governs
         // the membrane so the next keystroke is already blocked (or unblocked).
         translationEnterObserver = MaughamEvent.observe(
-            .maughamEnterTranslationReview,
+            .maughamReadInLanguage,
             context: { [weak self] in self?.receiverContext(.keyWindow) }
         ) { [weak self] _ in
-            self?.setTranslationReview(true)
+            self?.setReadingTranslation(true)
         }
         translationExitObserver = MaughamEvent.observe(
-            .maughamExitTranslationReview,
+            .maughamReadInSource,
             context: { [weak self] in self?.receiverContext(.keyWindow) }
         ) { [weak self] _ in
-            self?.setTranslationReview(false)
+            self?.setReadingTranslation(false)
+        }
+        // This NC receiver exists deliberately (Editor AREA.md, Bug B): ⌘⌥⇧R
+        // flips the membrane SYNCHRONOUSLY so the very next keystroke already
+        // sees it — a `control.*` mirror would land a frame later.
+        readThroughObserver = MaughamEvent.observe(
+            .maughamSetReadThrough,
+            context: { [weak self] in self?.receiverContext(.keyWindow) }
+        ) { [weak self] note in
+            guard let self, let request = ReadThrough.request(of: note.userInfo),
+                  request.docId == self.documentId else { return }
+            self.setReadThrough(request.on)
         }
         // The Insert menu (plan 3a Task 4). The context asks the manuscript-
         // surface gate on top of the key-window one, so a research note — a
@@ -965,16 +1043,22 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
         ) { [weak self] _ in
             self?.convertTableToFigure()
         }
+        commentObserver = MaughamEvent.observe(
+            .maughamCommentOnSelection,
+            context: { [weak self] in self?.manuscriptCommandContext() }
+        ) { [weak self] note in
+            self?.commentOnSelection(AnnotationOffer.kind(of: note.userInfo) ?? .comment)
+        }
         figureTableCommandObserver = MaughamEvent.observe(
             .maughamFigureTableCommand,
-            context: { [weak self] in self?.receiverContext(.keyWindow) }
+            context: { [weak self] in self?.manuscriptCommandContext() }
         ) { [weak self] note in
             guard let command = note.userInfo?[MaughamEvent.figureTableCommandKey] as? FigureTableCommand
             else { return }
             self?.performFigureTableCommand(command)
         }
         // The former annotation-set-changed notification observer is gone (ADR
-        // 0017): an AnnotationsPane edit/withdraw bumps `annotationsVersion` on the shared
+        // 0017): an Annotations pane edit/withdraw bumps `annotationsVersion` on the shared
         // Document, which EditorHost mirrors into `control.reviewAnnotations` →
         // `applyControl` → `setReviewAnnotations`, recomputing the crafted marks
         // without a notification. The local in-editor create flow still uses
@@ -997,13 +1081,13 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
         if let token = annotationNavigateObserver {
             NotificationCenter.default.removeObserver(token)
         }
-        if let token = reviewToggleObserver {
-            NotificationCenter.default.removeObserver(token)
-        }
         if let token = translationEnterObserver {
             NotificationCenter.default.removeObserver(token)
         }
         if let token = translationExitObserver {
+            NotificationCenter.default.removeObserver(token)
+        }
+        if let token = readThroughObserver {
             NotificationCenter.default.removeObserver(token)
         }
         if let token = insertTableObserver {
@@ -1028,6 +1112,9 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
             NotificationCenter.default.removeObserver(token)
         }
         if let token = figureTableCommandObserver {
+            NotificationCenter.default.removeObserver(token)
+        }
+        if let token = commentObserver {
             NotificationCenter.default.removeObserver(token)
         }
         if let token = storageEditObserver {
@@ -1081,15 +1168,20 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
         syncFigureThumbnailOverlay()
         // The resolved labels (plan 3b Task 6), above the thumbnails.
         syncReferenceLabelOverlay()
-        // A re-attach in review or translation review: their overlays (and the
+        // A re-attach in review or reading a translation: their overlays (and the
         // dimming, a layout-manager temporary) come back on this text view —
         // the first attach has none to restore, its posture arrives later.
         if isReviewMode { syncReviewOverlays() }
-        if isTranslationReview {
+        if isReadingTranslation {
             applyTranslationDimming()
             syncTranslationBadgeOverlay()
         }
-        if let location = initialCursorLocation {
+        // The margin's marks (shell p5 Task 2), placed against this view's text.
+        if !margin.isEmpty { recomputeMarginPlaces() }
+        if let source = initialCursorLocation {
+            // A SOURCE caret, shown where the text held has it (fix 2, N6).
+            lastToldSourceCaret = source
+            let location = surfaceLocation(forSource: source)
             let length = (textView.string as NSString).length
             let clamped = max(0, min(location, length))
             let range = NSRange(location: clamped, length: 0)
@@ -1128,13 +1220,14 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
         problemTooltips?.removeAll(from: old)
         problemTooltips = nil
         let bound: [NSView?] = [figureThumbnailOverlay, referenceLabelOverlay, translationBadgeOverlay,
-                                markRenderer, marginRail]
+                                markRenderer, marginRail, marginOverlay]
         for view in bound { view?.removeFromSuperview() }
         figureThumbnailOverlay = nil
         referenceLabelOverlay = nil
         translationBadgeOverlay = nil
         markRenderer = nil
         marginRail = nil
+        marginOverlay = nil
         if old.delegate === self { old.delegate = nil }
         if let old = old as? MaughamTextView, old.coordinator === self { old.coordinator = nil }
     }
@@ -1171,27 +1264,31 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
         problemTooltips?.removeAll(from: textView)
         closeCompletion()
         disarmCompletionObservers()
+        // The window's manuscript editor no longer has this document — unless
+        // the next surface has already recorded its own (`editorDidDetach`
+        // clears only this coordinator's record).
+        control?.editorDidDetach(self)
         // Explicit liveness contract (ADR 0021): drop the scoped-event tokens on
         // teardown so a coordinator SwiftUI hasn't yet released stops receiving
         // deliveries. `receiverContext` also returns nil once `isDetached`, so
         // this is belt-and-suspenders with the deinit removal (which stays).
         for token in [navigateObserver, findMatchObserver, paragraphNavigateObserver,
-                      annotationNavigateObserver, reviewToggleObserver,
-                      translationEnterObserver, translationExitObserver,
+                      annotationNavigateObserver,
+                      translationEnterObserver, translationExitObserver, readThroughObserver,
                       insertTableObserver, insertFootnoteObserver, insertFigureObserver,
                       insertExistingFigureObserver,
                       insertCitationObserver, insertCrossReferenceObserver, convertTableObserver,
-                      figureTableCommandObserver] {
+                      figureTableCommandObserver, commentObserver] {
             if let token { NotificationCenter.default.removeObserver(token) }
         }
         navigateObserver = nil; findMatchObserver = nil; paragraphNavigateObserver = nil
-        annotationNavigateObserver = nil; reviewToggleObserver = nil
-        translationEnterObserver = nil; translationExitObserver = nil
+        annotationNavigateObserver = nil
+        translationEnterObserver = nil; translationExitObserver = nil; readThroughObserver = nil
         insertTableObserver = nil; insertFootnoteObserver = nil; insertFigureObserver = nil
         insertExistingFigureObserver = nil
         existingFigurePicker?.close()
         insertCitationObserver = nil; insertCrossReferenceObserver = nil; convertTableObserver = nil
-        figureTableCommandObserver = nil
+        figureTableCommandObserver = nil; commentObserver = nil
         if let token = storageEditObserver { NotificationCenter.default.removeObserver(token) }
         storageEditObserver = nil
         // Clear the native undo stack before the text-view reference is
@@ -1202,7 +1299,8 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
         // would stay poppable (the ⌘Z crash family's residual). Cross-doc
         // undo is not a thing: text edits are per-doc, and op-log-level
         // accept actions target the by-then-husked Document anyway.
-        (undoManagerOverrideForTesting ?? textView?.undoManager)?.removeAllActions()
+        dropTheUndoStack()
+        ReadingUndoGuard.remove(from: textView?.window, for: self)
         if let tv = textView, tv.delegate === self {
             tv.delegate = nil
         }
@@ -1210,6 +1308,23 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
         textView = nil
         selectionToolbar = nil
         completionList = nil
+    }
+
+    /// **This editor's typing undo goes** — the one spelling, for the two
+    /// moments the writer leaves a manuscript's text: `detach` (the piece left
+    /// the centre), and the centre item's cover arriving over it (shell plan 3
+    /// Task 5 fix 3, `CentreKeysView`), the only state that keeps a hidden
+    /// piece bound with its typing on the window's stack. ADR 0023: no
+    /// cross-subject undo.
+    ///
+    /// **Both stacks go** (fix 2, N1): the manager its typing registered on
+    /// (`typingUndoManager` — the window's for the primary editor, named
+    /// explicitly, never the view's answer, which over a translation is the
+    /// throwaway) and the reading throwaway.
+    func dropTheUndoStack() {
+        typingUndoManager?.removeAllActions()
+        readingUndoManager.removeAllActions()
+        forgetFigureVisitSteps()
     }
 
     /// The non-View `MaughamEvent.observe` liveness contract (ADR 0021): the
@@ -1257,7 +1372,12 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
         // own action and already cleared the stale ones; wiping here would
         // kill that registration).
         if !preserveUndoStack {
-            (undoManagerOverrideForTesting ?? textView.undoManager)?
+            // Over a translation the clear is the reading surface's own
+            // (fix I5): the window's stack is kept, unreachable, until the
+            // source lands (`sourceLanded` decides then).
+            (bufferHoldsTranslation
+                ? readingUndoManager
+                : (undoManagerOverrideForTesting ?? textView.undoManager))?
                 .removeAllActions()
         }
         isApplyingExternalUpdate = true
@@ -1277,7 +1397,16 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
             length: 0
         )
         textView.setSelectedRange(clamped)
+        // The surface's own ranges before anything is painted or counted over
+        // it (fix M10): the control's model arrives through observation a
+        // turn later, so a swapped surface would draw a frame in full ink.
+        bufferBadges = bufferHoldsTranslation
+            ? TranslationBadgeLayout.ranges(entries: control?.translationBadges.entries ?? []) : []
+        if bufferHoldsTranslation, let control { setTranslationBadges(control.translationBadges) }
         retokenizeAndStyle()
+        if bufferHoldsTranslation { applyTranslationDimming() }
+        // A whole-buffer replace: the margin's places are read again.
+        if !margin.isEmpty { recomputeMarginPlaces() }
         // The clamp is not a move the caret-left fold should see later.
         figureGrid?.textSelection = textView.selectedRange()
     }
@@ -1353,27 +1482,17 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
         figureGridOpening?.windows?.setShareIsReadOnly(readOnly)
     }
 
-    /// The explicit review toggle (`EditorControl.isManualReviewMode`).
-    /// Self-guarded (D2); only the figure grids' gates read it.
-    func setManualReviewMode(_ enabled: Bool) {
-        guard isManualReviewMode != enabled else { return }
-        isManualReviewMode = enabled
-        refreshFigureGridAccess()
-        // The figure windows this editor opened follow it (final review I2).
-        figureGridOpening?.windows?.reviewModeChanged(enabled, from: ObjectIdentifier(self))
-    }
-
     /// Whether a checkbox click may flip its bracket: the membrane's answer
     /// for a click (`EditorEditPolicy.allowsCheckboxToggle`), read from the
     /// coordinator's own stored flags — no new state (tripwire 2).
     var allowsCheckboxToggle: Bool {
         EditorEditPolicy.allowsCheckboxToggle(
-            lockEditing: lockEditing, isTranslationReview: isTranslationReview)
+            lockEditing: lockEditing, isReadingTranslation: isReadingTranslation)
     }
 
     /// Translation-review posture changed (Task 11). Plain stored-property flip
     /// threaded ONE-WAY from EditorSurface (tripwires 2 & 6). The membrane reads
-    /// `isTranslationReview` live in `shouldChangeTextIn`, so no restyle is needed
+    /// `isReadingTranslation` live in `shouldChangeTextIn`, so no restyle is needed
     /// — the next keystroke sees the new value (mirrors `setLockEditing`). The
     /// translated-surface buffer swap itself is EditorHost's job (the text binding
     /// value changes, flowing through the single `applyExternalText` site in
@@ -1385,15 +1504,171 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
     /// swap in the same layout pass, so it can force a non-undo-coherent buffer
     /// replace regardless of any one-shot undo-coherent flag).
     @discardableResult
-    func setTranslationReview(_ enabled: Bool) -> Bool {
-        guard isTranslationReview != enabled else { return false }
-        isTranslationReview = enabled
+    func setReadingTranslation(_ enabled: Bool) -> Bool {
+        guard translationRequested != enabled else { return false }
+        translationRequested = enabled
+        readingPostureChanged()
+        return true
+    }
+
+    /// **The buffer now holds (or no longer holds) a translated surface** —
+    /// see `bufferHoldsTranslation`. Self-guarded. Set it BEFORE the
+    /// translated text goes in and clear it AFTER the source has landed.
+    /// Returns whether it flipped.
+    @discardableResult
+    func setBufferHoldsTranslation(_ holds: Bool, in mountingView: NSTextView? = nil,
+                                   control mountingControl: EditorControl? = nil) -> Bool {
+        guard bufferHoldsTranslation != holds else { return false }
+        // At a mount the fact is set BEFORE `attach` (fix 2, N2), so the view
+        // and the control are handed in; everywhere else they are this
+        // coordinator's own.
+        let view = mountingView ?? textView
+        if holds {
+            // A surface mounted already holding the translation is described
+            // by the control's model; a swap about to bring one in overwrites
+            // this as it applies.
+            bufferBadges = TranslationBadgeLayout.ranges(
+                entries: (mountingControl ?? control)?.translationBadges.entries ?? [])
+            sourceTextBeforeTranslation = mountingView == nil ? view?.string : nil
+            // The typing in flight ends here (fix 2, N4): nothing typed after
+            // the source comes back may coalesce into an action whose ranges
+            // the translated surface invalidated.
+            view?.breakUndoCoalescing()
+            bufferHoldsTranslation = true
+            refreshEditability(in: view)
+            ReadingUndoGuard.install(over: view?.window, for: self)
+        } else {
+            bufferHoldsTranslation = false
+            bufferBadges = []
+            // A piece in read-through lands non-editable; a recovery view stays so.
+            refreshEditability(in: view)
+            ReadingUndoGuard.remove(from: view?.window, for: self)
+        }
+        readingPostureChanged()
+        return true
+    }
+
+    /// **Whether the view takes typing**: not in a read-only recovery, not
+    /// over a translation, not in read-through. The one writer of the
+    /// manuscript view's `isEditable` after the mount.
+    func refreshEditability(in mountingView: NSTextView? = nil) {
+        (mountingView ?? textView)?.isEditable =
+            !readOnlyRecovery && !bufferHoldsTranslation && !isInReadThrough
+    }
+
+    /// **The piece this buffer holds goes into, or out of, read-through.**
+    /// Self-guarded. On: an open composition is committed, the typing in
+    /// flight ends, the TYPING undo is dropped by its target (as
+    /// `sourceLanded` drops it; op-level ADR 0023 entries are kept — AppKit
+    /// would spend a typing entry silently on a view that is not editable),
+    /// the completion list closes, and editability, the review render, the
+    /// figure grids' access and the selection toolbar are refreshed, then the
+    /// caret redrawn. Off refreshes the same. At a mount the view is handed
+    /// in (`EditorSurface.mount`), before `attach`.
+    func setReadThrough(_ on: Bool, in mountingView: NSTextView? = nil) {
+        guard isInReadThrough != on else { return }
+        let view = mountingView ?? textView
+        if on, let view {
+            // The composition's text stays, as typed; the input method lets go.
+            if view.hasMarkedText() {
+                view.unmarkText()
+                view.inputContext?.discardMarkedText()
+            }
+            // An expanded grid folds first, its open edit committed, and its
+            // visit leaves no window step: cells typed before the entry are
+            // typing, never a decision ⌘Z may reach in read-through.
+            if mountingView == nil { forceFoldFigureGrid(.readThroughEntry) }
+            view.breakUndoCoalescing()
+            tableTidy.cancelPending()
+            // A fresh mount has no typing of its own yet (detach dropped the
+            // last piece's), so only a live view drops. Every target that is
+            // the writer's typing goes — the text's storage, a figure's birth
+            // riding a command's line (`FigureBirthUndo`, target the manager),
+            // and the grid visits' steps; op-level entries stay.
+            if mountingView == nil, let um = typingUndoManager {
+                if let storage = view.textStorage { um.removeAllActions(withTarget: storage) }
+                um.removeAllActions(withTarget: um)
+                for step in figureVisitSteps { um.removeAllActions(withTarget: step) }
+                forgetFigureVisitSteps()
+            }
+        }
+        isInReadThrough = on
+        closeCompletionIfTheMembraneRefuses()
+        refreshEditability(in: view)
+        // Before `attach` there is nothing to draw: the control's first apply
+        // enters the render whole (its on-entry pull, Bug A).
+        if textView != nil { setReviewMode(reviewRenderWanted) }
+        refreshFigureGridAccess()
+        if let textView { updateSelectionToolbar(in: textView) }
+        view?.needsDisplay = true
+    }
+
+    /// The review render: the review forced by the posture, or this piece in
+    /// read-through — `EditorControl.reviewRenders(docId:)` asked with the
+    /// coordinator's own fact, so the synchronous flip draws it before the
+    /// control's mirror lands.
+    var reviewRenderWanted: Bool { (control?.isReviewMode ?? false) || isInReadThrough }
+
+    /// Typing is off and a reading position is drawn instead of a caret: the
+    /// buffer holds a translation, or the piece is in read-through.
+    var typingIsOff: Bool { bufferHoldsTranslation || isInReadThrough }
+
+    /// **The manager this editor's typing registers on** (fix 2, N1): a
+    /// second editor's own; the primary editor's is the WINDOW's — named
+    /// explicitly, because over a translation the view's `undoManager`
+    /// answers the reading throwaway (`undoManager(for:)`), and clearing that
+    /// would leave the writer's typing on the window's stack against a view
+    /// about to go.
+    var typingUndoManager: UndoManager? {
+        if let override = undoManagerOverrideForTesting { return override }
+        if let view = textView as? MaughamTextView, view.usesPrivateUndoManager { return view.undoManager }
+        return textView?.window?.undoManager ?? textView?.undoManager
+    }
+
+    /// **The source has landed in the view** (`reconcileTextBuffer`): the
+    /// buffer no longer holds a translation, and the window's undo stack is
+    /// kept when the source is the very text it was built on — otherwise its
+    /// typing ranges are stale and it goes (ADR 0023 D1).
+    func sourceLanded(_ text: String) {
+        let before = sourceTextBeforeTranslation
+        guard setBufferHoldsTranslation(false) else { return }
+        sourceTextBeforeTranslation = nil
+        if before != text, let storage = textView?.textStorage {
+            // Only the TYPING goes (fix 2, N5): its ranges are the old
+            // source's (ADR 0023 D1). Typing registers with the text storage
+            // as its target (`EditorTypingUndoManager`); an op-level entry — a
+            // note resolved, a Translator's note filed while reading —
+            // re-checks the world when it fires, and is kept.
+            typingUndoManager?.removeAllActions(withTarget: storage)
+        }
+        // The source's own script and counts (fix 2, N2): the swap that
+        // brought it in ran while the buffer still held the translation, so
+        // it posted neither.
+        sourceDidLand()
+    }
+
+    /// What a change in the reading posture redraws: the completion list, the
+    /// figure grids' access, the caret line's figure syntax (the dimming owns
+    /// the temporary foreground while reading), the review marks (none drawn
+    /// over a translation, fix I3), the inks and badges, and the caret.
+    private func readingPostureChanged() {
+        if bufferHoldsTranslation { ReadingUndoGuard.install(over: textView?.window, for: self) }
         closeCompletionIfTheMembraneRefuses()
         refreshFigureGridAccess()
-        // Translation review shows no caret line's syntax (its dimming owns
-        // the temporary foreground); leaving it shows the caret's line again.
         refreshFigureSyntaxUnfade(force: true)
-        return true
+        recomputeReviewMarks()
+        refreshReviewOverlays()
+        applyTranslationDimming()
+        syncTranslationBadgeOverlay()
+        if let textView { updateSelectionToolbar(in: textView) }
+        textView?.needsDisplay = true
+    }
+
+    /// **The text view's undo manager** (fix I5): a throwaway while the buffer
+    /// holds a translation, so ⌘Z neither spends nor reaches the writer's
+    /// history there; the window's otherwise, as AppKit would choose.
+    func undoManager(for view: NSTextView) -> UndoManager? {
+        bufferHoldsTranslation ? readingUndoManager : view.window?.undoManager
     }
 
     func setReviewMode(_ enabled: Bool) {
@@ -1470,8 +1745,8 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
             // explicitly so the tracked set never silently widens.
             _ = control.lockEditing
             _ = control.shareIsReadOnly
-            _ = control.isManualReviewMode
             _ = control.isReviewMode
+            _ = control.readThroughDocIds
             _ = control.posture
             _ = control.theme
             _ = control.typography
@@ -1479,6 +1754,7 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
             _ = control.sentenceFocus
             _ = control.paragraphFocus
             _ = control.reviewAnnotations
+            _ = control.margin
             _ = control.translationLanguage
             _ = control.translationBadges
             _ = control.referenceIndexVersion
@@ -1508,12 +1784,19 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
         applyControlCount += 1
         setLockEditing(c.lockEditing)        // self-guarded
         setShareIsReadOnly(c.shareIsReadOnly) // self-guarded
-        setManualReviewMode(c.isManualReviewMode) // self-guarded
-        setReviewMode(c.isReviewMode)        // self-guarded
+        // Read-through asks about the document this buffer holds — only when
+        // the mirrored set MOVED (D2, on the control's value): an apply for
+        // another property, landing before the mirror, never undoes the key's
+        // synchronous flip.
+        if appliedReadThroughDocIds != c.readThroughDocIds {
+            appliedReadThroughDocIds = c.readThroughDocIds
+            setReadThrough(ReadThrough.isOn(documentId, in: c.readThroughDocIds))   // self-guarded
+        }
+        setReviewMode(c.isReviewMode || isInReadThrough)   // self-guarded; `reviewRenders(docId:)` on the fact
         updateReviewCardVerbs(for: c.posture) // self-guarded
-        // Translation review is a pure membrane flip driven off language
+        // Reading a translation is a pure membrane flip driven off language
         // presence; the surface buffer swap is EditorHost's (the text binding).
-        setTranslationReview(c.translationLanguage != nil)   // self-guarded
+        setReadingTranslation(c.translationLanguage != nil)   // self-guarded
         if theme != c.theme || typography != c.typography {
             applyAppearance(theme: c.theme, typography: c.typography)
         }
@@ -1524,6 +1807,7 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
             applyFocusPrefs(sentence: c.sentenceFocus, paragraph: c.paragraphFocus)
         }
         setReviewAnnotations(c.reviewAnnotations)   // self-guarded
+        setMargin(c.margin)                         // self-guarded
         setTranslationBadges(c.translationBadges)   // self-guarded
         setReferenceIndexVersion(c.referenceIndexVersion)   // self-guarded
         setFigureCardVersion(c.figureCardVersion)           // self-guarded
@@ -1592,7 +1876,7 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
         // no mutation leaks. Placed at the very top, before the existing guard.
         guard EditorEditPolicy.allowsTextMutation(
             isReviewMode: isReviewMode, lockEditing: lockEditing,
-            isTranslationReview: isTranslationReview) else {
+            isReadingTranslation: isReadingTranslation, isInReadThrough: isInReadThrough) else {
             return false
         }
         guard let replacementString,
@@ -1685,7 +1969,8 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
         guard !(mode is ScreenplayMode), !isApplyingCommandEdit, !isApplyingFigureSeparation,
               !textView.hasMarkedText(), textView.isEditable,
               EditorEditPolicy.allowsTextMutation(isReviewMode: isReviewMode, lockEditing: lockEditing,
-                                                  isTranslationReview: isTranslationReview),
+                                                  isReadingTranslation: isReadingTranslation,
+                                                  isInReadThrough: isInReadThrough),
               textView.undoManager?.isUndoing != true, textView.undoManager?.isRedoing != true
         else { return }
         let text = textView.string as NSString
@@ -1726,8 +2011,10 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
     }
 
     func textDidChange(_ notification: Notification) {
+        // A buffer holding a translated surface never reaches the binding,
+        // whatever changed it (fix I1): the binding writes MANUSCRIPT text.
         guard let textView = notification.object as? NSTextView,
-              !isApplyingExternalUpdate else { return }
+              !isApplyingExternalUpdate, !bufferHoldsTranslation else { return }
         if !isApplyingTabCycle {
             lastCycleTarget = nil
             lastCycleTargetLineRange = nil
@@ -1832,6 +2119,7 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
                 if !self.unfadedFigureSyntax.isEmpty { self.unfadedFigureSyntaxIsStale = true }
                 self.tableTidy.noteEdit(editedRange: range, changeInLength: delta)
                 self.figureGrid?.noteEdit(editedRange: range, changeInLength: delta)
+                self.marginNoteEdit(editedRange: range, changeInLength: delta)
             }
         }
     }
@@ -1939,7 +2227,13 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
         // The caption bar: the caret's figure line shows its syntax, on
         // temporaries over at most two lines — no storage edit, no re-layout.
         refreshFigureSyntaxUnfade()
-        onCursorChanged?(textView.selectedRange().location)
+        // The host hears the SOURCE caret (fix 2, N6): over a translation the
+        // surface's caret is told as the same paragraph's place, read against
+        // the ranges of the text the view holds.
+        if let told = sourceLocation(forSurface: textView.selectedRange().location) {
+            lastToldSourceCaret = told
+            onCursorChanged?(told)
+        }
         onElementChanged?(currentElementAbbreviation(in: textView))
         // One-way drive of the floating selection toolbar (review posture only).
         // No write-back into SwiftUI state.

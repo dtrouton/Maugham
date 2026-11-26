@@ -121,7 +121,7 @@ public enum ReadDocumentTool: MCPTool {
             try JSONEncoder().encode(content),
             hint: "This document is too large to return in one MCP response. "
                 + "Use search_text to locate the passage you need, or split the "
-                + "manuscript into per-chapter documents in the binder and read one.")
+                + "manuscript into smaller pieces in the binder and read one.")
     }
 
     private static func emitResearchItem(

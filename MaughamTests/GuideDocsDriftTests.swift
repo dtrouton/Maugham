@@ -217,7 +217,7 @@ final class GuideDocsDriftTests: XCTestCase {
         See [x](reference.md#no-such-heading) and [y](no-such-topic.md).
         But [z](getting-started.md#who-wrote-your-history) is real, and so are
         [self](#a-heading-here), [again](#a-heading-here-1) and
-        [the pane](backups-and-history.md#the-history-pane-h).
+        [history](backups-and-history.md#history).
         Not a link: `[w](nowhere.md)`. Nor [web](https://example.com/x.md).
         [bad self](#a-heading-here-2)
         ```

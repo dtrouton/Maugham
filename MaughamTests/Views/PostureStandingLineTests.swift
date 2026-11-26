@@ -220,6 +220,11 @@ final class PostureStandingLineTests: XCTestCase {
         XCTAssertEqual(unsettled?.kind, .yieldingToItsStarter(name: "Sam"))
         XCTAssertEqual(unsettled?.sentence(root: nil),
                        "Sam started this piece — it isn’t settled whose it is yet.")
+        var inANovel = unsettled
+        inANovel?.noun = .chapter
+        XCTAssertEqual(inANovel?.sentence(root: nil),
+                       "Sam started this chapter — it isn’t settled whose it is yet.",
+                       "in the project's word (wording round 2)")
         XCTAssertEqual(unsettled?.offersEditAnyway, true,
                        "Edit Anyway is how a book author who means it claims the piece")
 
@@ -524,14 +529,14 @@ final class PostureStandingLineTests: XCTestCase {
         XCTAssertEqual(line.kind, .yielding(to: "Sam"))
         XCTAssertTrue(line.offersEditAnyway)
         XCTAssertTrue(EditorControlMirror.membrane(
-            posture: yielding, manualReview: false, shareIsReadOnly: false).lockEditing)
+            posture: yielding, shareIsReadOnly: false).lockEditing)
 
         store.overrideYield(docId: line.docId)
 
         let after = store.posture(forDocId: PostureFixture.docId)
         XCTAssertNil(PostureStandingLine.line(for: after, title: "C1", docId: line.docId))
         XCTAssertFalse(EditorControlMirror.membrane(
-            posture: after, manualReview: false, shareIsReadOnly: false).lockEditing)
+            posture: after, shareIsReadOnly: false).lockEditing)
     }
 
     // MARK: - Her own lines, kept in History (controller ruling K)

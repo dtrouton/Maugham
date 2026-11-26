@@ -5,7 +5,7 @@ import MaughamCore
 /// **What the round report needs from the disk, fetched once, off a body path**
 /// (translation pipeline P4 Task 3).
 ///
-/// `DepartmentPaneHost`'s shape and its reason: `TranslationRoundReportView`
+/// `EditionStatusHost`'s shape and its reason: `TranslationRoundReportView`
 /// reads no store at all (tripwire 4), so everything it draws that is not in the
 /// `TranslationRound` itself is resolved here in a `.task` and handed down as a
 /// value.
@@ -39,6 +39,8 @@ struct TranslationRoundReportHost: View {
     var onClose: () -> Void = { }
     var onRoundChanged: (TranslationRound) -> Void = { _ in }
     var onReveal: (String) -> Void = { _ in }
+    /// A filed line's link to the Brief it names (`ProjectWindow.openBrief`).
+    var onOpenBrief: ((BinderSubject) -> Void)? = nil
 
     @State private var sources: [String: String] = [:]
     @State private var chapterTitle: String?
@@ -56,7 +58,8 @@ struct TranslationRoundReportHost: View {
             queries: queries, queriesFailure: queriesFailure,
             translatorName: translatorName,
             collatorName: collatorName, verbs: verbs, actions: actions,
-            onClose: onClose, onRoundChanged: onRoundChanged, onReveal: onReveal)
+            onClose: onClose, onRoundChanged: onRoundChanged, onReveal: onReveal,
+            onOpenBrief: onOpenBrief)
             // Keyed on the round's identity rather than the value: a verb's
             // write-back changes the value, and re-reading the whole document
             // on every "Fine" would put file I/O on the writer's click.
@@ -87,8 +90,9 @@ struct TranslationRoundReportHost: View {
     }
 
     private func load() async {
-        translatorName = EditionStatus.translatorName(
-            for: round.language, in: store.manifest) ?? round.language.uppercased()
+        // The name the round was signed with, not today's (review M3).
+        translatorName = round.signedBy(liveName: EditionStatus.translatorName(
+            for: round.language, in: store.manifest) ?? round.language.uppercased())
         collatorName = EditionStatus.collatorName(
             for: round.language, in: store.manifest) ?? round.language.uppercased()
         chapterTitle = TreeWalk.find(id: round.docId, in: store.manifest.structure)?.title
@@ -145,7 +149,7 @@ struct TranslationRoundReportHost: View {
             let found = try await withAnnotationDocument(
                 store: store, projectURL: projectURL, documentId: round.docId
             ) { document in
-                TranslationReviewPaneLogic.openQueries(
+                ResolveEditionItems.openQueries(
                     document.annotations(filter: AnnotationFilter(
                         kinds: [.query], statuses: [.open])),
                     language: round.language)

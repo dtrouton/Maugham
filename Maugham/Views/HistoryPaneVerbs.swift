@@ -369,8 +369,10 @@ struct HistoryPaneVerbs {
     func jump(_ entry: HistoryEntry) {
         guard case .op(let op) = entry,
               let pid = op.changes.first?.paragraphId else { return }
+        // The op's own document, so the window opens the right piece
+        // whatever the faces are on (`ManuscriptNavigation.paragraphDocId`).
         MaughamEvent.post(
             .maughamNavigateToParagraph, to: .keyWindow,
-            payload: ["paragraph_id": pid])
+            payload: ["paragraph_id": pid, ManuscriptNavigation.docIdKey: op.docId])
     }
 }

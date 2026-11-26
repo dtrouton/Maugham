@@ -95,8 +95,7 @@ final class FigureCardWindowTests: FigureGridMountedTestCase {
         XCTAssertEqual(asked, [figureId], "then the window was asked for")
         XCTAssertNotNil(m.coordinator.lastFigureVisitStep, "the visit collapsed into its step, as usual")
         XCTAssertEqual(windows.handoff(for: figureId), FigureWindows.Handoff(
-            number: number, caption: "Cash", piece: chapter.id, typography: .defaults,
-            isReviewMode: false, from: ObjectIdentifier(m.coordinator)))
+            number: number, caption: "Cash", piece: chapter.id, typography: .defaults))
         await m.coordinator.figureGridFolding?.value
         XCTAssertEqual(c.host.state.table[b2]?.content, .value(.number(4)), "the open edit was committed")
     }

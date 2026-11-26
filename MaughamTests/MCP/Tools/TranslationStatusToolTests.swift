@@ -633,9 +633,11 @@ final class TranslationStatusToolTests: XCTestCase {
                                   note: "Split.", gloss: "…", outcome: nil)]
         round.summary = "Done."
         round.legs = [.init(leg: .translate, status: .ran, counts: .init(entries: 1))]
+        round.endedAt = Date()
         try TranslationRoundStore(projectURL: h.projectURL).append(round)
         var other = TranslationRound(number: 5, language: "es", docId: "doc-other", startedAt: Date())
         other.legs = [.init(leg: .read, status: .failed, reason: "died")]
+        other.endedAt = Date()
         try TranslationRoundStore(projectURL: h.projectURL).append(other)
 
         let result = try await status(h, [
@@ -654,6 +656,67 @@ final class TranslationStatusToolTests: XCTestCase {
         XCTAssertNil(last.stopped_at)
 
         await h.documentStore.close()
+    }
+
+    /// **A whole-book run's every chapter keeps its round** (shell plan 4
+    /// Task 2): ten later rounds on other chapters age this chapter's out of
+    /// the ring, and `last_round` still reports it, because the tool reads
+    /// the piece's own latest rather than the ring.
+    func test_theLastRoundSurvivesTheRingAgingItOut() async throws {
+        let h = try await makeHarness()
+        try await seed(h, doc: h.doc1, paragraphId: h.doc1.sequence[0],
+                       language: "es", text: "a")
+        let store = TranslationRoundStore(projectURL: h.projectURL)
+        var mine = TranslationRound(number: 1, language: "es", docId: h.doc1.docId,
+                                    startedAt: Date())
+        mine.summary = "Chapter one."
+        mine.endedAt = Date()
+        try store.append(mine)
+        for number in 2...(TranslationRoundStore.ringSize + 1) {
+            var other = TranslationRound(number: number, language: "es",
+                                         docId: "doc-other-\(number)", startedAt: Date())
+            other.endedAt = Date()
+            try store.append(other)
+        }
+        XCTAssertFalse(store.rounds(language: "es").contains { $0.docId == h.doc1.docId },
+                       "premise: the ring no longer holds chapter one's round")
+
+        let result = try await status(h, ["project_id": h.projectId, "document_id": "doc-1"])
+        let row = try XCTUnwrap(result.rows.first { $0.language == "es" })
+        XCTAssertEqual(row.last_round?.number, 1)
+        XCTAssertEqual(row.last_round?.summary, "Chapter one.")
+
+        await h.documentStore.close()
+    }
+
+    /// **One ledger read per language, never one per row** (shell plan 4
+    /// Task 2 review I1). Each `TranslationRoundStore` reader decodes the
+    /// whole `<lang>.json`, which now holds a round per piece; a per-row
+    /// `latestFinished` made a whole-book call decode it once per chapter.
+    /// The handler must ask `latestFinishedByPiece` once per language.
+    func test_theHandlerReadsEachLanguagesLedgerOnceNotPerRow() throws {
+        let url = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent()
+            .deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("Maugham/MCP/Tools/TranslationTools.swift")
+        // adr-0018-ok: reads Swift source for a census, not manuscript text
+        let source = try String(contentsOf: url, encoding: .utf8)
+        let start = try XCTUnwrap(source.range(of: "public enum TranslationStatusTool"))
+        let tail = source[start.upperBound...]
+        let end = tail.range(of: "\n// MARK: - ")?.lowerBound ?? tail.endIndex
+        let handler = String(tail[..<end])
+
+        let perRow = ["rounds.latest(", "rounds.latestFinished(", ".rounds(language:"]
+        for offender in perRow {
+            XCTAssertFalse(handler.contains(offender),
+                           "translation_status reads a round ledger per row via `\(offender)`; "
+                           + "read `latestFinishedByPiece` once per language before the rows")
+        }
+        XCTAssertEqual(handler.components(separatedBy: "latestFinishedByPiece(").count - 1, 1,
+                       "exactly one call site, inside a per-language loop")
+        let mapStart = try XCTUnwrap(handler.range(of: "Result(rows: report.rows.map"))
+        XCTAssertFalse(handler[mapStart.lowerBound...].contains("latestFinishedByPiece("),
+                       "the per-language read must sit BEFORE the row map, not inside it")
     }
 
     /// The control: the same call over a book that reads cleanly reports the

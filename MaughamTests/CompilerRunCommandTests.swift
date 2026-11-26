@@ -598,7 +598,7 @@ final class CompilerRunCommandTests: XCTestCase {
             })
         defer { NotificationCenter.default.removeObserver(token) }
 
-        MaughamEvent.postCompilerRun()
+        MaughamEvent.postRun(.checkWriting)
         awaitSends(1, on: runner)
 
         XCTAssertEqual(runner.sends.count, 1,
@@ -624,36 +624,139 @@ final class CompilerRunCommandTests: XCTestCase {
             })
         defer { NotificationCenter.default.removeObserver(token) }
 
-        MaughamEvent.postCompilerRun()
+        MaughamEvent.postRun(.checkWriting)
         settle()
 
         XCTAssertEqual(runner.sends.count, 0)
     }
 
-    /// **Which verb a run key is.** Both keys mint their kind from the
-    /// window's persona, and only the cold read asks for fresh eyes. A
-    /// literal `.check` in either arm would leave every assertion in this file
-    /// green over a ⌘R pressed in Review that filed itself as a check. The
-    /// two ends no test can mount — the menu items in `MaughamApp` and the
-    /// arms that hand this request to the roster — are `WiringCensusTests`'
-    /// entries for `CompilerRunModifier` and `FocusedRunButtons`.
-    func test_eachRunKeyAsksForItsPersonasKindAndOnlyTheColdReadIsFresh() {
-        for persona in Persona.allCases {
-            XCTAssertEqual(
-                CompilerRunModifier.request(freshEyes: false, persona: persona, docId: docId),
-                .init(docId: docId, kind: RunKind.of(persona: persona), freshEyes: false),
-                "\u{2318}R in \(persona)")
-            XCTAssertEqual(
-                CompilerRunModifier.request(freshEyes: true, persona: persona, docId: docId),
-                .init(docId: docId, kind: RunKind.of(persona: persona), freshEyes: true),
-                "\u{2318}\u{21e7}R in \(persona)")
+    /// **⌘R is always a check**, whatever the window has open — the Book, a
+    /// piece, the Canvas, an edition, the Inbox — and Reread is the same check
+    /// read cold. The kind is the command's, never the window's (shell p1
+    /// Task 5). The two ends no test can mount — the menu items in
+    /// `MaughamApp` and the arms that hand this request to the roster — are
+    /// `WiringCensusTests`' entries for `CompilerRunModifier` and `RunButtons`.
+    func test_commandRAlwaysRequestsACheck() {
+        for subject in Self.subjectsFacingThePiece(docId) {
+            XCTAssertEqual(CompilerRunModifier.request(.checkWriting, subject: subject, structure: []),
+                           .init(docId: docId, kind: .check, freshEyes: false), "\(subject)")
+            XCTAssertEqual(CompilerRunModifier.request(.reread, subject: subject, structure: []),
+                           .init(docId: docId, kind: .check, freshEyes: true), "\(subject)")
         }
-        XCTAssertEqual(
-            CompilerRunModifier.request(freshEyes: true, persona: .review, docId: docId).kind,
-            .round, "a cold read in Review is a cold ROUND")
-        XCTAssertEqual(
-            CompilerRunModifier.request(freshEyes: false, persona: .author, docId: docId).kind,
-            .check, "control: Author's \u{2318}R is a check")
+    }
+
+    /// **Run Round is always a round**, and Fresh Eyes the round read cold —
+    /// wherever the writer stands.
+    func test_runRoundAlwaysRequestsARound() {
+        for subject in Self.subjectsFacingThePiece(docId) {
+            XCTAssertEqual(CompilerRunModifier.request(.runRound, subject: subject, structure: []),
+                           .init(docId: docId, kind: .round, freshEyes: false), "\(subject)")
+            XCTAssertEqual(CompilerRunModifier.request(.freshEyes, subject: subject, structure: []),
+                           .init(docId: docId, kind: .round, freshEyes: true), "\(subject)")
+        }
+    }
+
+    /// **The Canvas open and no piece on the faces: every command is a
+    /// no-op** — no request, so nothing reaches the compiler, exactly as with
+    /// no window in front. The same for an edition and the Inbox.
+    func test_aRunWithTheCanvasOpenAndNoPieceOnTheFacesIsANoOp() {
+        for open in [BinderSubject.canvas, .edition(language: "es"), .inbox, .palette, .project] {
+            for faces in [BinderSubject.project, .canvas, .research("r1"), .figure("f1")] {
+                let subject = WindowSubject(open: open, faces: faces)
+                for command in RunCommand.allCases {
+                    XCTAssertNil(CompilerRunModifier.request(command, subject: subject, structure: []),
+                                 "\(command) with \(open) open facing \(faces)")
+                }
+            }
+        }
+    }
+
+    /// **The Canvas open with a piece on the faces: the run ASKS for that
+    /// piece** — never the canvas, and a check stays a check. What production
+    /// does with the request is the next test's: with the canvas in the centre
+    /// no editor has the piece open, so the request is answered with a flash.
+    func test_aRunWithTheCanvasOpenAsksForTheFacesPiece() {
+        let subject = WindowSubject(open: .canvas, faces: .item(docId))
+        XCTAssertEqual(CompilerRunModifier.request(.checkWriting, subject: subject, structure: []),
+                       .init(docId: docId, kind: .check, freshEyes: false))
+        XCTAssertEqual(CompilerRunModifier.request(.runRound, subject: subject, structure: []),
+                       .init(docId: docId, kind: .round, freshEyes: false))
+        // An open piece answers when the faces name none.
+        XCTAssertEqual(CompilerRunModifier.runDocId(
+            for: WindowSubject(open: .item(docId), faces: .project), structure: []), docId)
+    }
+
+    /// **⌘R checks the piece being typed in** (shell closing A3): after a
+    /// Brief link or ⌘⌥K the faces sit on another piece or an edition while
+    /// the writer types in the open one — the open piece wins, so ⌘R never
+    /// says "open the piece first" inside the piece the writer is typing in.
+    func test_anOpenPieceWinsOverTheFaces() {
+        for faces in [BinderSubject.item("OTHER"), .edition(language: "sr"), .project] {
+            let subject = WindowSubject(open: .item(docId), faces: faces)
+            XCTAssertEqual(CompilerRunModifier.runDocId(for: subject, structure: []), docId,
+                           "open piece, faces on \(faces)")
+            for command in RunCommand.allCases {
+                XCTAssertEqual(CompilerRunModifier.decision(
+                    command, subject: subject, structure: [], isDocumentOpen: { $0 == self.docId }),
+                    .run(.init(docId: docId, kind: command.kind, freshEyes: command.isFreshEyes)),
+                    "\(command) in the open piece, faces on \(faces)")
+            }
+        }
+    }
+
+    /// **A run whose piece is not open says so** (shell p1 final fix, I2):
+    /// the compiler reads only an open document, and with the canvas or an
+    /// edition in the centre the faces' piece usually is not one. The press is
+    /// answered with `.openThePieceFirst` for the command's kind, never
+    /// silence, and it says what to do: nothing tried to open the piece, so
+    /// "try again" (`.pieceWouldNotOpen`, the board chip's timeout) would be
+    /// false (final fix 2). An open piece runs; no piece at all is nothing.
+    func test_aRunWhosePieceIsNotOpenFlashesInsteadOfDoingNothing() {
+        let subject = WindowSubject(open: .canvas, faces: .item(docId))
+        for command in RunCommand.allCases {
+            XCTAssertEqual(CompilerRunModifier.decision(
+                command, subject: subject, structure: [], isDocumentOpen: { _ in false }),
+                .pieceNotOpen(command.kind), "\(command): the faces' piece is not open")
+            XCTAssertEqual(CompilerRunModifier.decision(
+                command, subject: subject, structure: [], isDocumentOpen: { $0 == self.docId }),
+                .run(.init(docId: docId, kind: command.kind, freshEyes: command.isFreshEyes)),
+                "\(command): an open piece runs")
+            XCTAssertEqual(CompilerRunModifier.decision(
+                command, subject: WindowSubject(open: .canvas, faces: .canvas), structure: [],
+                isDocumentOpen: { _ in false }), .nothing, "\(command): no piece, no run")
+        }
+        XCTAssertEqual(CompilerOrchestrator.Acknowledgment.openThePieceFirst(.check).flashLabel,
+                       "Open the piece to run a check on it.")
+        XCTAssertEqual(CompilerOrchestrator.Acknowledgment.openThePieceFirst(.round).flashLabel,
+                       "Open the piece to run a round on it.")
+    }
+
+    /// **A Part on the faces is not a piece**: the run falls through to the
+    /// open piece, and with no open piece it is a no-op — a group id never
+    /// reaches the compiler.
+    func test_aPartOnTheFacesFallsThroughToTheOpenPiece() {
+        let structure = [StructureItem(id: "part", title: "Part I", type: .group, children: [
+            StructureItem(id: docId, title: "Chapter", type: .document)])]
+        XCTAssertEqual(CompilerRunModifier.request(
+            .checkWriting, subject: WindowSubject(open: .item(docId), faces: .item("part")),
+            structure: structure),
+            .init(docId: docId, kind: .check, freshEyes: false))
+        XCTAssertNil(CompilerRunModifier.request(
+            .runRound, subject: WindowSubject(open: .canvas, faces: .item("part")),
+            structure: structure), "a Part and no open piece: no run")
+        XCTAssertEqual(CompilerRunModifier.runDocId(
+            for: WindowSubject(open: .project, faces: .item(docId)), structure: structure), docId,
+            "control: a document on the faces is the piece")
+    }
+
+    /// Every shape of subject a writer can stand in with `piece` on the faces.
+    private static func subjectsFacingThePiece(_ piece: String) -> [WindowSubject] {
+        [WindowSubject(open: .item(piece), faces: .item(piece)),
+         WindowSubject(open: .project, faces: .item(piece)),
+         WindowSubject(open: .canvas, faces: .item(piece)),
+         WindowSubject(open: .edition(language: "es"), faces: .item(piece)),
+         WindowSubject(open: .inbox, faces: .item(piece)),
+         WindowSubject(open: .palette, faces: .item(piece), beside: .research("r1"))]
     }
 
     // MARK: - Refusal
@@ -719,9 +822,9 @@ final class CompilerRunCommandTests: XCTestCase {
             })
         defer { NotificationCenter.default.removeObserver(token) }
 
-        MaughamEvent.postCompilerRun()
+        MaughamEvent.postRun(.checkWriting)
         awaitSends(1, on: runner)
-        MaughamEvent.postCompilerRun()
+        MaughamEvent.postRun(.checkWriting)
         settle()
 
         XCTAssertEqual(runner.sends.count, 1)
@@ -1071,7 +1174,7 @@ final class CompilerRunCommandTests: XCTestCase {
 
     /// The three suppressed spellings are minted by the session and read by the
     /// orchestrator, so they are constants rather than two copies of a string —
-    /// the `MaughamEvent.personaKey` reasoning. A raw literal on either side is
+    /// the `MaughamEvent.positionKey` reasoning. A raw literal on either side is
     /// a rename away from a failure surface that never appears or never clears.
     func test_theSuppressedDetailsAreOneSpellingSharedByBothSides() throws {
         let session = try source(at: "Maugham/Compiler/ClaudeCLISession.swift")
@@ -1772,7 +1875,7 @@ final class CompilerRunCommandTests: XCTestCase {
     }
 
     /// **The regression this task's research caught.** `StructureItem.links`
-    /// is `InspectorLinksSection`'s document-to-document backlink field —
+    /// is the document-to-document link field —
     /// unrelated despite the name — and `ProjectStore.linkResearch` (the
     /// writer's actual "link this research to this document" action) never
     /// touches it; it writes `linkedResearchIds`. A fixture that sets only
@@ -2349,7 +2452,7 @@ final class CompilerRunCommandTests: XCTestCase {
                       "precondition: run 1 briefs the essay")
         XCTAssertEqual(deriver.calls, 1, "precondition: run 1 derived, on an empty cache")
 
-        // The writer answers a note. This is `DiagnosticsPane.commitAnswer`'s
+        // The writer answers a note. This is `CheckNarrative.commitAnswer`'s
         // own call, with its own arguments — the run has no route into a
         // statement and must not grow one (the membrane, AREA.md).
         let ruled = "Kelly heard about the call offstage."
@@ -2392,7 +2495,7 @@ final class CompilerRunCommandTests: XCTestCase {
     }
 
     /// **The enriched provenance survives the real chain too** (M4 P1 Task 6):
-    /// answering a strain through `DiagnosticsPane.commitAnswer` — the real
+    /// answering a strain through `CheckNarrative.commitAnswer` — the real
     /// pane function, which mints the enriched `«excerpt»` provenance rather
     /// than the bare legacy string `RulingPerformer.rule` is called with
     /// directly above — writes a ruling whose text is exactly the writer's
@@ -2428,7 +2531,7 @@ final class CompilerRunCommandTests: XCTestCase {
             diagnostics: [note], docId: "ch-1")
 
         let ruled = "Kelly heard about the call offstage."
-        let failure = await DiagnosticsPane.commitAnswer(
+        let failure = await CheckNarrative.commitAnswer(
             ruled, to: note, docId: "ch-1", store: fx.store, world: fx.declaredWorld,
             diagnostics: fx.diagnostics)
         XCTAssertNil(failure, "the commit reported: \(failure ?? "")")
@@ -2488,7 +2591,7 @@ final class CompilerRunCommandTests: XCTestCase {
     /// fact and once as the ruling's derived clause (assertion 6).
     func test_theBibleLoopConvergesAcrossRunsWithABlessInTheMiddle() async throws {
         let fixture = try await StatementMountFixture.novel(named: "bible-loop")
-        defer { fixture.tearDown() }
+        addTeardownBlock { await fixture.closeAndTearDown() }
         let docId = fixture.documentItemId
         let device = DeviceSlug.make(from: "test-mac")
         let bible = BibleStore(projectRoot: fixture.projectURL, device: device)
@@ -2548,7 +2651,7 @@ final class CompilerRunCommandTests: XCTestCase {
             + "to press, and the assertion after run 2 would pass over an empty pane")
 
         // 2. The writer blesses it, through the button they press.
-        try fixture.pressButton(labelled: "Bless", in: window)
+        try fixture.pressButton(labelled: BibleStratum.confirmTitle, in: window)
         await fixture.pumpUntil(deadline: 5) { bible.allFacts().isEmpty }
         let ruled = "Kelly is a nurse."
         let statement = try XCTUnwrap(
@@ -3992,7 +4095,7 @@ final class CompilerRunCommandTests: XCTestCase {
         let menu = verbs.chipMenu(
             for: "ch-1", pass: ReviewPass(id: "copyedit", name: "Copyedit"),
             current: nil, posture: .author)
-        XCTAssertEqual(menu.run?.title, "Run Gould\u{2019}s round",
+        XCTAssertEqual(menu.run?.title, "Run Gould\u{2019}s Round",
                        "premise: this is the verb a reviewer would press")
         try XCTUnwrap(menu.run).perform()
 

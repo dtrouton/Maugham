@@ -31,8 +31,7 @@ extension EditorCoordinator {
         // Fallback: paragraph start (length-0 cursor), mirroring the legacy
         // `.maughamNavigateToParagraph` handler.
         guard let pid = fallbackParagraphId,
-              let provider = paragraphRangeProvider,
-              let range = provider(pid),
+              let range = paragraphRangeNow(pid),
               range.location >= 0, range.location + range.length <= length
         else { return }
         textView.setSelectedRange(NSRange(location: range.location, length: 0))
@@ -50,8 +49,13 @@ extension EditorCoordinator {
         textView.scrollRangeToVisible(range)
     }
 
-    func navigateToLine(at location: Int, in textView: NSTextView) {
+    @discardableResult
+    func navigateToLine(at sourceLocation: Int, in textView: NSTextView) -> NSRange {
         forceFoldFigureGrid(.navigation)   // the jump wins over an expanded grid
+        // A line's location is the SOURCE's (the Scenes rows, a `.line`
+        // place): over a translation it lands where the surface shows that
+        // paragraph (fix I2).
+        let location = surfaceLocation(forSource: sourceLocation)
         let storage = textView.textStorage
         let length = (storage?.string as NSString?)?.length ?? 0
         let clamped = max(0, min(location, length))
@@ -59,6 +63,89 @@ extension EditorCoordinator {
         textView.setSelectedRange(range)
         textView.scrollRangeToVisible(range)
         textView.window?.makeFirstResponder(textView)
+        return range
+    }
+
+    /// **Going to a paragraph** (`.maughamNavigateToParagraph`, and a pending
+    /// place landing): a caret (length 0) at the paragraph's start, the
+    /// paragraph scrolled into view, the text focused. Returns the range
+    /// scrolled to, or nil — and nothing moves — when this document has no
+    /// such paragraph.
+    ///
+    /// A caret rather than the whole paragraph selected: selecting it was
+    /// disorienting from the Tasks pane — "jump to this task" became "select
+    /// the whole containing paragraph including unrelated text."
+    ///
+    /// An offset (`MaughamEvent.paragraphOffsetKey`: a figure's Used-in link
+    /// naming a line inside a paragraph of several) moves the caret that far
+    /// into the paragraph, never past its end.
+    @discardableResult
+    func landOnParagraph(_ paragraphId: String, offset: Int?, in textView: NSTextView) -> NSRange? {
+        // Where the paragraph stands in the text the view HOLDS (fix 2, N6):
+        // its translation's range over a translation, its source's otherwise.
+        guard let range = paragraphRangeNow(paragraphId) else { return nil }
+        let length = (textView.string as NSString).length
+        guard range.location >= 0,
+              range.location + range.length <= length else { return nil }
+        let into = offset.map { max(0, min($0, range.length)) } ?? 0
+        let cursor = NSRange(location: range.location + into, length: 0)
+        forceFoldFigureGrid(.navigation)   // the jump wins over an expanded grid
+        textView.setSelectedRange(cursor)
+        textView.scrollRangeToVisible(range)
+        textView.window?.makeFirstResponder(textView)
+        return range
+    }
+
+    /// **A document has just loaded into this editor** (`EditorSurface
+    /// .makeNSView`, which runs once per document because the surface is
+    /// keyed `.id(path)`): the window learns which document its manuscript
+    /// editor has (`EditorControl.mountedDocumentId`), and a place it was
+    /// asked to go to before the editor had it lands (`landPendingPlace`).
+    /// A second editor in the window (a statement pane) and any surface with
+    /// no document id do neither; they have their own `EditorControl`
+    /// besides.
+    func documentDidMount(control: EditorControl) {
+        guard respondsToWindowCommands, let documentId else { return }
+        control.editorDidMount(self, documentId: documentId)
+        landPendingPlace(from: control)
+    }
+
+    /// **The window's pending place, taken** (`EditorControl.pendingPlace`,
+    /// shell p1 Task 4b). Every manuscript load takes the slot, whatever it
+    /// names: it lands exactly as the synchronous navigation does when it
+    /// names THIS document and a place in it, and is dropped otherwise (a
+    /// paragraph that is not here, a line past the end) — it never lands on
+    /// a different document.
+    ///
+    /// At mount the text view is not yet in a window, so the scroll and the
+    /// focus are repeated on the next main-queue turn, as `attach(to:)` does
+    /// for a restored caret (and after it, so the place wins). The range is
+    /// clamped to the text as it is then, which a translation surface may
+    /// have replaced.
+    private func landPendingPlace(from control: EditorControl) {
+        guard let documentId, let place = control.pendingPlace else { return }
+        control.pendingPlace = nil
+        guard place.docId == documentId, let textView else { return }
+        let landed: NSRange?
+        switch place.target {
+        case .paragraph(let id, let offset):
+            landed = landOnParagraph(id, offset: offset, in: textView)
+        case .line(let location):
+            // A source location: past the end only of the source, which a
+            // translated surface cannot say (`navigateToLine` maps and clamps).
+            guard location >= 0,
+                  isReadingTranslation || location <= (textView.string as NSString).length else { return }
+            landed = navigateToLine(at: location, in: textView)
+        }
+        guard let landed, textView.window == nil else { return }
+        DispatchQueue.main.async { [weak textView] in
+            guard let textView else { return }
+            let length = (textView.string as NSString).length
+            let start = min(landed.location, length)
+            textView.scrollRangeToVisible(
+                NSRange(location: start, length: min(landed.length, length - start)))
+            textView.window?.makeFirstResponder(textView)
+        }
     }
 
     /// SPIKE (collab review): the selection's bounding rect in TEXT-VIEW
@@ -98,20 +185,33 @@ extension EditorCoordinator {
               let parent = toolbar.superview else { return }
         // Only surface the toolbar in review posture; in normal authoring the
         // editor stays clean.
-        guard isReviewMode, let rectInTextView = selectionViewRect(in: textView)
+        // The selection's offers are the right-click's own
+        // (`AnnotationOffer.kinds`); none, no toolbar.
+        let kinds = annotationKindsOffered
+        guard isReviewMode, let rectInTextView = selectionViewRect(in: textView), !kinds.isEmpty
         else {
             toolbar.isHidden = true
             return
         }
+        toolbar.show(kinds)
         // Convert the selection rect from text-view coords into the overlay
         // parent's coords. `convert(_:to:)` walks the view tree and accounts
         // for the scroll view's clip/scroll offset automatically, so as the
         // document scrolls the toolbar tracks the on-screen selection.
-        let rectInParent = textView.convert(rectInTextView, to: parent)
         // The toolbar is pure-frame (no Auto Layout): it sized itself to its
         // content at construction, so read its actual frame size rather than
         // `fittingSize` (which is .zero for an unconstrained NSView).
-        let size = toolbar.frame.size
+        toolbar.setFrameOrigin(Self.originAbove(rectInTextView, size: toolbar.frame.size,
+                                                in: parent, from: textView))
+        toolbar.isHidden = false
+    }
+
+    /// **Where an overlay sized `size` sits just above a selection** — the
+    /// floating toolbar's place, and the composer's when Edit ▸ Comment… or
+    /// the right-click opens it with no toolbar showing (shell p5 Task 7).
+    static func originAbove(_ rectInTextView: NSRect, size: NSSize, in parent: NSView,
+                            from textView: NSTextView) -> NSPoint {
+        let rectInParent = textView.convert(rectInTextView, to: parent)
         let gap: CGFloat = 6
         // Position just ABOVE the selection. AppKit's default coordinate system
         // is y-up (flipped == false for the scroll view's superview), so
@@ -124,7 +224,6 @@ extension EditorCoordinator {
                       min(originX, parent.bounds.maxX - size.width))
         originY = max(parent.bounds.minY,
                       min(originY, parent.bounds.maxY - size.height))
-        toolbar.setFrameOrigin(NSPoint(x: originX, y: originY))
-        toolbar.isHidden = false
+        return NSPoint(x: originX, y: originY)
     }
 }

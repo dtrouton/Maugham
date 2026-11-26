@@ -16,7 +16,7 @@ import MaughamCore
 /// 1. **The selection changes** (a binder click). `reconcile` for the incoming
 ///    scope runs `target.release()`, which emptied the draft, while the mint was
 ///    still in flight. `test_wordsSurviveASelectionChangeMidMint`.
-/// 2. **The pane changes** (`⌘⌥N` / `⌘⌥V`). `DetailPaneToggle.segmentContent`
+/// 2. **The pane changes** (`⌘⌥N` / `⌘⌥V`). `RightColumn`'s one `switch`
 ///    gives `.intent` and `.visualLanguage` separate `case` arms, so the host is
 ///    **torn down** and `release()` never runs at all — the draft survives in an
 ///    orphaned box, and the mint's `loadMayBind` refuses (`paneWants` is nil
@@ -48,7 +48,7 @@ final class StatementDraftHandoffTests: XCTestCase {
     private var fixtures: [StatementMountFixture] = []
 
     override func tearDown() async throws {
-        for fixture in fixtures { fixture.tearDown() }
+        for fixture in fixtures { await fixture.closeAndTearDown() }
         fixtures.removeAll()
         try await super.tearDown()
     }
@@ -133,12 +133,12 @@ final class StatementDraftHandoffTests: XCTestCase {
     /// into a pane that has left, and closes the `Document` it created without
     /// putting the writer's words in it.
     ///
-    /// **Driven through the real `detailSegment` binding** (the milestone's own
-    /// lesson: twenty-two green undo tests once sat on a ⌘Z that could not reach
-    /// the stack). `showSegment` writes the same `Binding<DetailSegment>` the
-    /// picker and the `⌘⌥N`/`⌘⌥V` key equivalents write, and
-    /// `DetailPaneToggle.segmentContent` does the routing that tears the host
-    /// down.
+    /// **Driven through the real position and subject bindings** (the
+    /// milestone's own lesson: twenty-two green undo tests once sat on a ⌘Z
+    /// that could not reach the stack). `showVisualLanguage` writes what ⌘⌥V
+    /// writes (`ProjectWindow.pullUp`: the item beside, the pulled-up
+    /// position), and `RightColumn`'s `switch` does the routing that tears the
+    /// intent's host down.
     func test_wordsSurviveAPaneSwitchMidMint() async throws {
         let fixture = try await fixture(named: "DraftSurvivesPaneSwitch")
 
@@ -165,7 +165,7 @@ final class StatementDraftHandoffTests: XCTestCase {
         // from here reports it — the incoming pane's own editor says the segment
         // moved, not that the outgoing one finished leaving. Shortening this on a
         // proxy would let the mint bind and the test pass for the wrong reason.
-        await fixture.showSegment(.visualLanguage)
+        await fixture.showVisualLanguage()
         fixture.store.unlockStatementOpen(projectIntent.id)
         await fixture.pumpUntil(deadline: 5) {
             !fixture.ops(forDocId: projectIntent.id).isEmpty
@@ -369,8 +369,8 @@ final class StatementDraftHandoffTests: XCTestCase {
     /// waiting for its turn. Both halves are asserted below rather than assumed.
     ///
     /// ⌘⌥V is the writer's departure (issue #21's door 2, through the same
-    /// `detailSegment` binding the picker and the key equivalent write) because
-    /// `DetailPaneToggle.segmentContent` tears this host down, and SwiftUI does
+    /// position binding the control and the key equivalent write) because
+    /// `RightColumn`'s `switch` tears this host down, and SwiftUI does
     /// that inside the forced layout pass — synchronously, before the mint's
     /// turn. A scope change cannot serve here: `reconcile` names the new
     /// destination from a `.task(id:)` body, which is itself an enqueued job, and
@@ -393,7 +393,7 @@ final class StatementDraftHandoffTests: XCTestCase {
         XCTAssertEqual(onChapter.string, "",
                        "the backspace never reached the editor, so a character is "
                        + "still waiting and this test is about the other case")
-        fixture.probe.detailSegment = .visualLanguage
+        fixture.pullUpVisualLanguage()
         // Forced rather than pumped: a pump would give the mint its turn, and
         // what has to happen first is the host's teardown (`.onDisappear` →
         // `leave()`, which clears the destination the mint checks itself
@@ -461,7 +461,7 @@ final class StatementDraftHandoffTests: XCTestCase {
                      "precondition: the chapter has no intent")
 
         press("x", into: onChapter)
-        fixture.probe.detailSegment = .visualLanguage
+        fixture.pullUpVisualLanguage()
         window.contentView?.layoutSubtreeIfNeeded()
 
         XCTAssertNil(fixture.store.statement(kind: .intent, scope: .document(docId)),
@@ -522,7 +522,7 @@ final class StatementDraftHandoffTests: XCTestCase {
 
         press("x", into: onChapter)
         press("", into: onChapter, replacing: NSRange(location: 0, length: 1))
-        fixture.probe.detailSegment = .visualLanguage
+        fixture.pullUpVisualLanguage()
         window.contentView?.layoutSubtreeIfNeeded()
 
         XCTAssertFalse(fixture.allTextViews(in: window).contains { $0 === onChapter },

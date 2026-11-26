@@ -17,21 +17,21 @@ import AppKit
 /// the keystroke makes both entries one behaviour, and both exits work: the
 /// flag goes off and the release arm runs.
 ///
-/// **Never automatic on entering the persona.** The collapse is (the canvas
+/// **Never automatic on opening the canvas.** The collapse is (the canvas
 /// is the centre column) AND (the writer asked for focus mode): the binder
 /// is needed to drag research and captures onto the canvas. The palette
 /// wall auto-hides on entry; §8A.3 says the canvas does not follow it.
 ///
 /// **One interaction worth knowing**: `CanvasClaudeArrivalModifier
 /// .Destination` force-opens the inspector so *Show* names what arrived. For
-/// a writer in focus mode arriving from another persona, `persona` changes
+/// a writer in focus mode arriving from elsewhere, the subject changes
 /// and this modifier collapses one pass later, closing that pane again (the
 /// cards are still revealed; `⌘\` brings the naming back). Already on the
 /// collapsed canvas, neither trigger fires and Show works as written.
 struct CanvasCollapseModifier: ViewModifier {
-    /// The window's working mode — `inspectorRoute`'s basis, and therefore one
-    /// of this modifier's two triggers.
-    let persona: Persona
+    /// The window's subject — `inspectorRoute`'s basis, and therefore one of
+    /// this modifier's two triggers.
+    let subject: WindowSubject
     let projectType: ProjectType
     let isNoChromeOn: Bool
     @Binding var columnVisibility: NavigationSplitViewVisibility
@@ -41,18 +41,18 @@ struct CanvasCollapseModifier: ViewModifier {
     func body(content: Content) -> some View {
         content
             .onChange(of: isNoChromeOn) { _, _ in apply() }
-            // **The other input of the route.** The decision reads the persona
+            // **The other input of the route.** The decision reads the subject
             // and the project type, and the project type cannot change under a
             // live window — so these two triggers are the whole of what can move
             // the answer. A trigger that watches less than its rule reads lags it.
-            .onChange(of: persona) { _, _ in apply() }
+            .onChange(of: subject) { _, _ in apply() }
     }
 
     /// Both triggers fold the same decision, and the decision is idempotent —
     /// they fire together on a project reopen that restores focus mode *and*
-    /// Plan from `UIState`, and the second one must not stash over the first.
+    /// the canvas from `UIState`, and the second one must not stash over the first.
     private func apply() {
-        let route = ProjectWindow.inspectorRoute(persona: persona,
+        let route = ProjectWindow.inspectorRoute(subject: subject,
                                                  projectType: projectType)
         ProjectWindow.applyCanvasCollapse(
             ProjectWindow.canvasCollapse(

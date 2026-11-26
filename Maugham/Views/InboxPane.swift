@@ -10,19 +10,26 @@ import MaughamCore
 ///
 /// Deferred (noted) to a later follow-up: Attach-to-current-document (routes
 /// images through ImagePasteHandler and text through the editor-typing path —
-/// editor coupling, tripwire 6/7 territory). The unread-count badge ships on the
-/// DetailPaneToggle picker (the discoverability signal for the async capture loop).
+/// editor coupling, tripwire 6/7 territory).
 struct InboxPane: View {
     @Bindable var store: InboxStore
     let projectStore: ProjectStore
-    /// Active manuscript document — target of the fast "Promote to Research
-    /// for [title]" path. Nil (or an invalid target) hides that menu item.
-    let activeDocumentId: String?
     /// True when local transcription is available (Apple Silicon). Gates the
     /// "Transcribe Again" affordance — there's no transcriber on Intel.
     let canTranscribe: Bool
     /// Re-arm + kick transcription for an entry (DocumentStore.retranscribe).
     let retranscribe: (InboxEntry) -> Void
+
+    /// Local transcription exists only on Apple Silicon (see
+    /// DocumentStore.makeTranscriber) — one answer for both mounts, the right
+    /// column's pane and the centre's.
+    static var localTranscriptionAvailable: Bool {
+        #if arch(arm64)
+        return true
+        #else
+        return false
+        #endif
+    }
 
     @State private var editing: InboxEntry?
     /// How many set-aside CAPTURES this device has not yet told the writer
@@ -383,8 +390,8 @@ struct InboxPane: View {
         .padding(.vertical, 8)
     }
 
-    /// **Told, and told where.** The sentence names the capture and the persona
-    /// the canvas lives in, because the card itself lands clear of the writer's
+    /// **Told, and told where.** The sentence names the capture and the canvas
+    /// it went to, because the card itself lands clear of the writer's
     /// work — which on any non-empty canvas is outside their viewport.
     private func sentStrip(_ message: String) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: 6) {
@@ -424,9 +431,7 @@ struct InboxPane: View {
         } else {
             List(store.trashedEntries) { entry in
                 HStack(alignment: .top, spacing: 10) {
-                    Image(systemName: icon(for: entry.kind))
-                        .foregroundStyle(.secondary)
-                        .frame(width: 18)
+                    leading(entry)
                     VStack(alignment: .leading, spacing: 2) {
                         Text(title(for: entry)).lineLimit(2)
                         // RULING-53: the same clock the project trash shows —
@@ -470,10 +475,9 @@ struct InboxPane: View {
                 }
                 .buttonStyle(.borderless)
                 .help(audio.isPlaying(entry.id) ? "Pause" : "Play recording")
+                .frame(width: RowThumbnail.inboxSide)
             } else {
-                Image(systemName: icon(for: entry.kind))
-                    .foregroundStyle(.secondary)
-                    .frame(width: 18)
+                leading(entry)
             }
             VStack(alignment: .leading, spacing: 2) {
                 Text(title(for: entry)).lineLimit(2)
@@ -502,10 +506,9 @@ struct InboxPane: View {
         }
         .padding(.vertical, 2)
         // **An inbox row is draggable onto the canvas** (spec §8A.4's amendment):
-        // `.inbox` is one of the Plan persona's panes, so the pane can sit in the
-        // right-hand column with the canvas in the centre — the two surfaces on
-        // screen together is what makes a drag the obvious act, and the capture
-        // lands where it is dropped.
+        // wherever a canvas is on screen to drop onto (another window's, since
+        // the Inbox is a centre of its own), the capture lands where it is
+        // dropped. Send to Canvas is the way there from this window.
         //
         // **PREFIXED, unlike every other `.draggable` in the app.** `ResearchRow`
         // sends `item.id` bare and each existing drop target reads one id space;
@@ -522,7 +525,7 @@ struct InboxPane: View {
         // house notes about that only look like they disagree.** `ResearchRow`
         // records that ".draggable on the container intercepts pointer/keyboard
         // input on child controls" and lifts its rename `TextField` out;
-        // `TasksPane` records the opposite outcome for `TaskRow`, which ships a
+        // the Tasks pane records the opposite outcome for `TaskRow`, which ships a
         // leading `Toggle(.checkbox)` and a borderless `Button` inside a
         // `.draggable` subtree in this same list style — "row-internal
         // interactive controls capture pointer events in their immediate area;
@@ -530,7 +533,7 @@ struct InboxPane: View {
         // padding". The reconciling fact is the CONTROL CLASS: `ResearchRow`'s
         // case is a `TextField` that needs keyboard focus (`@FocusState`, Return
         // to commit), and this is a tap-activated control, which is `TaskRow`'s
-        // case exactly. So the cost here is `TasksPane`'s stated one — a drag
+        // case exactly. So the cost here is the Tasks pane's stated one — a drag
         // cannot be started from the play button itself — and not a button that
         // stops working. **Smoke it anyway**: playback in place is a shipped
         // feature, and losing it would be a regression rather than a missing new
@@ -542,12 +545,7 @@ struct InboxPane: View {
                 .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 4))
         }
         .contextMenu {
-            Button("Promote to Research") { promote(entry, scope: .shared) }
-            if let target = activePromoteTarget {
-                Button("Promote to Research for “\(target.title)”") {
-                    promote(entry, scope: .document(target.id))
-                }
-            }
+            Button("Promote to \(FigureResearchDestination.wholeBookTitle)") { promote(entry, scope: .shared) }
             Button("Promote to Research for…") { promotePicking = entry }
             Divider()
             if let card = matchingPaletteCard(for: entry) {
@@ -558,8 +556,8 @@ struct InboxPane: View {
             Button("Promote to Palette Card…") { palettePicking = entry }
             // **Beside Promote to Palette, and not redundant with the drag**
             // (spec §8A.4's amendment): a drag is unreachable from the keyboard,
-            // unreachable to VoiceOver, and unavailable when the writer has the
-            // pane in another persona with no canvas on screen to drop onto.
+            // unreachable to VoiceOver, and unavailable when the Inbox is the
+            // centre with no canvas on screen to drop onto.
             Button("Send to Canvas") { sendToCanvas(entry) }
             if entry.kind == .audio {
                 Button("Edit Transcript…") { editing = entry }
@@ -638,7 +636,7 @@ struct InboxPane: View {
                 // appearance otherwise.
                 CanvasCapture.show(node, in: projectStore)
                 sentToCanvas = "Sent “\(title(for: entry))” to the canvas. "
-                    + "Open Plan (⌘1) to see it."
+                    + "Open the Canvas in the binder to see it."
             } catch { promoteError = error.localizedDescription }
         }
     }
@@ -664,14 +662,22 @@ struct InboxPane: View {
         }
     }
 
-    private var activePromoteTarget: StructureItem? {
-        guard let id = activeDocumentId,
-              projectStore.isResearchScopeTarget(id) else { return nil }
-        return TreeWalk.collect(
-            in: projectStore.manifest.structure, where: { $0.id == id }).first
-    }
-
     // MARK: - Row presentation
+
+    /// A row's leading column: a photo's thumbnail (its glyph until the
+    /// picture arrives), or the kind's glyph — one width for every row, so
+    /// the titles line up whichever the row is.
+    @ViewBuilder
+    private func leading(_ entry: InboxEntry) -> some View {
+        if let source = store.thumbnailSource(for: entry) {
+            RowThumbnail(source: source, glyph: icon(for: entry.kind),
+                         side: RowThumbnail.inboxSide, glyphScale: .medium)
+        } else {
+            Image(systemName: icon(for: entry.kind))
+                .foregroundStyle(.secondary)
+                .frame(width: RowThumbnail.inboxSide)
+        }
+    }
 
     private func icon(for kind: InboxEntry.Kind) -> String {
         switch kind {

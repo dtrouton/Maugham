@@ -137,38 +137,6 @@ final class PassOrderAdviceTests: XCTestCase {
         return (memory, ["structural": .done, "line": .done])
     }
 
-    func test_theNudgeSurvivesWideningTheFilterToAllPasses() {
-        let (memory, states) = workingProof
-        // The lens says: show me everything.
-        XCTAssertNil(AnnotationPassFilter.resolved(
-            .allPasses, piece: "piece-1", memory: memory, passes: passes))
-        // The piece has not changed, so neither has the advice. Keyed on the
-        // filter this would be nil — no pass, no "earlier than" — and the
-        // caption would silently disappear.
-        XCTAssertEqual(
-            PassOrderAdvice.advice(
-                forPiece: "piece-1", memory: memory,
-                passes: passes, passStates: states)?.id,
-            "copyedit")
-    }
-
-    func test_aMomentaryExplicitPassSelectionDoesNotMoveTheNudge() {
-        let (memory, states) = workingProof
-        // The writer glances at the Line pass's notes.
-        XCTAssertEqual(
-            AnnotationPassFilter.resolved(
-                .pass("line"), piece: "piece-1", memory: memory, passes: passes),
-            "line")
-        // Keyed on the filter, the advice would become nil (Structural, the
-        // only pass before Line, is done). Keyed on what is being WORKED, it
-        // is still Copyedit.
-        XCTAssertEqual(
-            PassOrderAdvice.advice(
-                forPiece: "piece-1", memory: memory,
-                passes: passes, passStates: states)?.id,
-            "copyedit")
-    }
-
     func test_noRecordedActivePassIsNoNudge() {
         XCTAssertNil(PassOrderAdvice.advice(
             forPiece: "piece-1", memory: .empty, passes: passes, passStates: nil))
@@ -195,21 +163,22 @@ final class PassOrderAdviceTests: XCTestCase {
     /// `advice` taking no selection makes the coupling unspellable, but the
     /// pane could still re-derive it inline — that is what this catches.
     func test_thePaneNudgeCannotReachTheFilterSelection() throws {
-        let text = try AnnotationsPaneSource.source(of: "AnnotationsPane.swift")
+        // To resolve's head draws the nudge (shell plan 2 Task 7).
+        let text = try AnnotationsPaneSource.source(of: "Resolve/ResolveHead.swift")
         let nudge = try XCTUnwrap(
-            text.range(of: "private var passOrderNudge: some View {"))
+            text.range(of: "private func standing(_ docId: String, offers: ResolveHeadOffers) -> some View {"))
         let body = try XCTUnwrap(
             text.range(of: "// MARK:", range: nudge.upperBound..<text.endIndex))
-        // The mount, and the windowless decision it draws (a static since
-        // #116 F11), read as one: neither may reach for the filter.
-        let statics = try AnnotationsPaneSource.source(of: "AnnotationsPaneStatics.swift")
+        // The mount, and the windowless decision it draws, read as one:
+        // neither may reach for the filter.
+        let statics = try AnnotationsPaneSource.source(of: "Resolve/ResolveHeadStatics.swift")
         let decision = try XCTUnwrap(
             statics.range(of: "static func passOrderNudgeDecision("))
         let decisionEnd = try XCTUnwrap(
             statics.range(of: "\n    }\n", range: decision.upperBound..<statics.endIndex))
         let source = String(text[nudge.upperBound..<body.lowerBound])
             + String(statics[decision.lowerBound..<decisionEnd.upperBound])
-        XCTAssertTrue(source.contains("Self.passOrderNudgeDecision("),
+        XCTAssertTrue(source.contains("ResolveHead.passOrderNudgeDecision("),
                       "the mount draws the windowless decision")
         XCTAssertTrue(source.contains("PassOrderAdvice.advice("),
                       "the nudge derives from the piece's recorded active pass")

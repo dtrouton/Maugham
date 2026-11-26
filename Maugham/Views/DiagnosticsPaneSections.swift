@@ -3,15 +3,20 @@ import MaughamCore
 
 // MARK: - The cold-start offer
 
-/// `DiagnosticsPane`'s empty state for a document worth reading that has never
-/// been checked — see `coldStartOffer` below and the pane's own doc.
+/// To resolve's empty state for an open piece worth reading that has never
+/// been checked (spec §4: *"one refusable offer... On-demand, never
+/// background, never re-asked as a nag."*). **Read** asks for ⌘R's check
+/// through the command's one delivery path (`MaughamEvent.postRun`), never the
+/// orchestrator directly; **Not now** records the refusal in
+/// `DiagnosticsStore` and the offer never renders again for this document.
 @MainActor
 struct DiagnosticsColdStartOffer: View {
     let docId: String
     let diagnostics: DiagnosticsStore
-    let orchestrator: CompilerOrchestrator
-    /// `DiagnosticsPane.otherLoopLine`: non-`nil` refuses Read and says why.
+    /// `CheckNarrative.otherLoopLine`: non-`nil` refuses Read and says why.
     let otherLoopLine: String?
+    /// What the project calls this piece (`PieceNoun`).
+    let noun: PieceNoun
 
     var body: some View { coldStartOffer }
 
@@ -32,23 +37,25 @@ struct DiagnosticsColdStartOffer: View {
             // scrolled back, and the centre column's editor sat above the
             // visible region entirely. `DiagnosticsPaneColumnHeightTests`
             // measures it.
-            Text(DiagnosticsPane.coldStartOfferSentence)
+            Text(CheckNarrative.coldStartOfferSentence(noun))
                 .font(.callout)
                 .multilineTextAlignment(.center)
                 .frame(maxWidth: 280)
             HStack(spacing: 8) {
                 Button("Not now") { diagnostics.refuseColdStart(docId: docId) }
                     .buttonStyle(.bordered)
-                // The cold-start offer is the Diagnostics pane's, which is
-                // Author's report — a check, said literally (two loops P1).
+                // A check, said literally (two loops P1) — and asked for the
+                // way ⌘R asks: the command, whose receiver reads the window's
+                // open piece, which is the only piece this offer is drawn on
+                // (`ResolvePane`, shell plan 2 Task 7).
                 Button("Read") {
-                    orchestrator.runRequested(docId: docId, kind: .check)
+                    MaughamEvent.postRun(.checkWriting)
                 }
                     .buttonStyle(.borderedProminent)
                     // Refused up front while another run holds the session
                     // (#83), saying whose run it waits for.
-                    .disabled(DiagnosticsPane.refusesColdStartRead(otherLoopLine: otherLoopLine))
-                    .help(otherLoopLine ?? DiagnosticsPane.coldStartOfferSentence)
+                    .disabled(CheckNarrative.refusesColdStartRead(otherLoopLine: otherLoopLine))
+                    .help(otherLoopLine ?? CheckNarrative.coldStartOfferSentence(noun))
             }
         }
         .padding(24)
@@ -70,13 +77,13 @@ struct DiagnosticsDriftLine: View {
     /// Above the conformance summary because it is a claim about a clause the
     /// summary is about to name again (spec §4's last bullet). Not a
     /// `Diagnostic`: no id, no dismissal, no reply field — pressing it opens
-    /// Intent, and the pattern breaking is what takes the line away, not a
+    /// Brief, and the pattern breaking is what takes the line away, not a
     /// tap. See `driftNote`.
     @ViewBuilder
     private var driftLine: some View {
-        if let line = DiagnosticsPane.driftNote(driftFindings) {
+        if let line = CheckNarrative.driftNote(driftFindings) {
             Button {
-                MaughamEvent.postDetailSegment(.intent)
+                MaughamEvent.postPosition(.brief)
             } label: {
                 Text(line)
                     .font(.callout)
@@ -93,234 +100,14 @@ struct DiagnosticsDriftLine: View {
     }
 }
 
-// MARK: - This check
-
-/// The wet-ink view — see `thisCheckSection` below.
-@MainActor
-struct DiagnosticsThisCheckSection: View {
-    /// `DiagnosticsPane.thisCheckAnnotations`, already in manuscript order.
-    let thisCheckAnnotations: [Annotation]
-    let currentText: (String) -> String?
-    /// `offersDurableActions` and the posture's `offersDisposal`, together.
-    let canDispose: Bool
-    let answerFailures: [String: String]
-    let onGotIt: (Annotation) -> Void
-    let onNotThis: (Annotation) -> Void
-
-    var body: some View { thisCheckSection }
-
-    /// **The wet-ink view** (spec §7.0) — the notes this check just raised,
-    /// drawn in the pane's own register rather than the queue's.
-    ///
-    /// It draws above the drift line and the conformance summary because those
-    /// two are the standing account of the writer's declared world, and this is
-    /// what the keystroke they just pressed came back with. Nothing here says
-    /// who wrote it, and no row needs to: these notes carry the byline of
-    /// whoever read the piece — its stage editor, the coach (Le Guin, on a
-    /// piece with no pass set, since Task 5), or Claude where nobody reads it
-    /// — and that reader is already named once, in the header's reader
-    /// line. A byline on every row would repeat it down the whole pane.
-    ///
-    /// No section at all when there is nothing to draw, rather than a heading
-    /// over an empty list: this is a view of one run's output, and a run that
-    /// raised nothing has nothing to show for itself here.
-    @ViewBuilder
-    private var thisCheckSection: some View {
-        let notes = thisCheckAnnotations
-        if !notes.isEmpty {
-            PaneSectionHeader(title: "This check") { EmptyView() }
-            ForEach(notes) { note in
-                CompilerNoteRow(
-                    annotation: note,
-                    excerpt: DiagnosticsPane.jumpExcerpt(for: note, currentText: currentText),
-                    canDispose: canDispose,
-                    failure: answerFailures[note.id],
-                    onJump: { DiagnosticsPane.jump(toParagraph: $0) },
-                    onGotIt: { onGotIt(note) },
-                    onNotThis: { onNotThis(note) })
-                Divider()
-            }
-        }
-    }
-}
-
-// MARK: - Conformance
-
-/// The report's first section — see `conformanceSection` below.
-@MainActor
-struct DiagnosticsConformanceSection: View {
-    let clauses: [DiagnosticIngest.ClauseStatus]
-    /// `DiagnosticsPane.strains` — the conformance strains alone.
-    let strains: [Diagnostic]
-    /// Whether a clause's strains offer Answer: a project to file into, a
-    /// finished run, and a posture that may edit this piece's intent. Each
-    /// note also asks `DiagnosticsPane.offersAnAnswer(_:)` of its own kind.
-    let canAnswer: Bool
-    let canPromote: Bool
-    let answering: Set<String>
-    let answerFailures: [String: String]
-    let onPromote: (Diagnostic) -> Void
-    let onAnswer: (String, Diagnostic) -> Void
-
-    var body: some View { conformanceSection }
-
-    /// **The report's first section, and the reason the pane exists** — the
-    /// writer's own clauses, quoted, each with how this draft sat against it.
-    @ViewBuilder
-    private var conformanceSection: some View {
-        let paired = DiagnosticsPane.conformanceRows(clauses: clauses, strains: strains)
-        if !paired.rows.isEmpty || !paired.orphans.isEmpty {
-            PaneSectionHeader(title: "Conformance") {
-                // The clauses are derived from the writer's intent statement,
-                // and this is the door to it — the one place on the pane where
-                // the declared world can be changed rather than answered.
-                Button("Open Intent") { MaughamEvent.postDetailSegment(.intent) }
-                    .buttonStyle(.plain)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-            ForEach(paired.rows) { row in
-                ClauseRow(row: row,
-                          canAnswer: canAnswer,
-                          canPromote: canPromote,
-                          answering: answering, answerFailures: answerFailures,
-                          onJump: { DiagnosticsPane.jump(toParagraph: $0) },
-                          onPromote: { onPromote($0) },
-                          onAnswer: { onAnswer($0, $1) })
-                Divider()
-            }
-            // A strain whose clause is not in this run's summary at all. It
-            // cannot happen through the ingest — a strain and its `ClauseStatus`
-            // are minted from the same entry — and it is drawn anyway, because
-            // the alternative is a note the compiler raised disappearing with
-            // nothing said.
-            ForEach(paired.orphans) { note in
-                noteRow(note)
-                Divider()
-            }
-        }
-    }
-
-    // **The Continuity and "The reader" sections are gone** (M4 P1 Task 3),
-    // and with them the reader's truncation sentence. Both kinds now mint as
-    // annotations at the end of a run, so the writer answers them where every
-    // other note about their prose lives — in the queue, under the round and
-    // the editor that raised them, surviving the next check. A pane that still
-    // drew them would be the second home this milestone exists to close.
-    // `CompilerRun.truncatedReader` is still recorded; nothing reads it here,
-    // because the sentence belongs beside the reports it is about.
-
-    @ViewBuilder
-    private func noteRow(_ diagnostic: Diagnostic) -> some View {
-        DiagnosticRow(
-            diagnostic: diagnostic,
-            canAnswer: canAnswer && DiagnosticsPane.offersAnAnswer(diagnostic),
-            canPromote: canPromote,
-            isSubmitting: answering.contains(diagnostic.id),
-            answerFailure: answerFailures[diagnostic.id],
-            onJump: { DiagnosticsPane.jump(toParagraph: $0) },
-            onPromote: { onPromote(diagnostic) },
-            onAnswer: { onAnswer($0, diagnostic) })
-    }
-}
-
-// MARK: - Sections
-
-@MainActor
-private struct PaneSectionHeader<Trailing: View>: View {
-    let title: String
-    @ViewBuilder var trailing: Trailing
-
-    var body: some View {
-        HStack(spacing: 8) {
-            Text(title.uppercased())
-                .font(.caption2.weight(.semibold))
-                .foregroundStyle(.secondary)
-            Spacer()
-            trailing
-        }
-        .padding(.horizontal, 12)
-        .padding(.top, 12)
-        .padding(.bottom, 4)
-    }
-}
-
-/// One clause of the conformance summary: the writer's sentence, how the draft
-/// sat against it, and — when it strains — what pulled.
-@MainActor
-private struct ClauseRow: View {
-    let row: DiagnosticsPane.ConformanceRow
-    let canAnswer: Bool
-    /// Passed through to every strain under this clause — see
-    /// `DiagnosticsPane.offersDurableActions`. Separate from `canAnswer`
-    /// because the two are false for different reasons: no project to write a
-    /// ruling into, versus a run still arriving.
-    let canPromote: Bool
-    let answering: Set<String>
-    let answerFailures: [String: String]
-    let onJump: (String) -> Void
-    let onPromote: (Diagnostic) -> Void
-    let onAnswer: (String, Diagnostic) -> Void
-
-    /// **Open, and collapsible — not closed and expandable.** The note under a
-    /// strain is the finding; a summary that hid it behind a chevron would make
-    /// the writer click once per strain to learn what the run actually said,
-    /// and a finding one click away is a finding half the time.
-    @State private var isExpanded = true
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack(alignment: .firstTextBaseline, spacing: 8) {
-                Image(systemName: DiagnosticsPane.statusSymbol(row.status.status))
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .accessibilityLabel(DiagnosticsPane.statusWord(row.status.status))
-                // The writer's own words, quoted — never a summary of them.
-                Text("\u{201C}\(row.status.clauseQuote)\u{201D}")
-                    .font(.callout)
-                    .fixedSize(horizontal: false, vertical: true)
-                Spacer(minLength: 0)
-                if !row.strains.isEmpty {
-                    Button {
-                        isExpanded.toggle()
-                    } label: {
-                        Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
-                            .font(.caption2)
-                    }
-                    .buttonStyle(.plain)
-                    .foregroundStyle(.secondary)
-                    .accessibilityLabel(isExpanded ? "Hide what pulls" : "Show what pulls")
-                }
-            }
-            .padding(.horizontal, 12)
-            .padding(.top, 10)
-            .padding(.bottom, row.strains.isEmpty || !isExpanded ? 10 : 0)
-
-            if isExpanded {
-                ForEach(row.strains) { strain in
-                    DiagnosticRow(
-                        diagnostic: strain,
-                        canAnswer: canAnswer && DiagnosticsPane.offersAnAnswer(strain),
-                        canPromote: canPromote,
-                        isSubmitting: answering.contains(strain.id),
-                        answerFailure: answerFailures[strain.id],
-                        onJump: onJump,
-                        onPromote: { onPromote(strain) },
-                        onAnswer: { onAnswer($0, strain) })
-                }
-            }
-        }
-    }
-}
-
 // MARK: - One note
 
 @MainActor
-private struct DiagnosticRow: View {
+struct DiagnosticRow: View {
     let diagnostic: Diagnostic
     /// Whether this row offers the **Answer** action at all — false for a
     /// reader report, false with no project to write into, and false for every
-    /// row of a preview (`DiagnosticsPane.offersDurableActions`).
+    /// row of a preview (`CheckNarrative.offersDurableActions`).
     let canAnswer: Bool
     /// Whether this row offers **Promote to Task**. Its own flag rather than
     /// `canAnswer`'s: a reader's report has no answer to give and promotes
@@ -362,10 +149,10 @@ private struct DiagnosticRow: View {
                               + "intent, and the next check reads it.")
                 }
                 if canPromote {
-                    Button("Promote to Task", action: onPromote)
+                    Button("Make a To-Do", action: onPromote)
                         .buttonStyle(.bordered)
                         .controlSize(.small)
-                        .help("Keep this note as a task on the document.")
+                        .help("Keep this note as a to-do on the document.")
                 }
             }
             if isAnswering { replyField }
@@ -377,7 +164,7 @@ private struct DiagnosticRow: View {
         // editor out from under them mid-sentence.
         .onTapGesture {
             guard !isAnswering,
-                  let pid = DiagnosticsPane.paragraphToNavigateTo(for: diagnostic)
+                  let pid = CheckNarrative.paragraphToNavigateTo(for: diagnostic)
             else { return }
             onJump(pid)
         }
@@ -447,88 +234,6 @@ private struct DiagnosticRow: View {
 }
 
 // MARK: - One note from this check (spec §7.0)
-
-/// **One note the latest run raised** — `DiagnosticRow`'s shape over an
-/// `Annotation` rather than a `Diagnostic`.
-///
-/// A sibling rather than a widening of that row, and the two are not the same
-/// thing wearing two types: a `Diagnostic` is a conformance strain read beside
-/// the clause it pulls against, whose fates are a ruling and a task; this is a
-/// note about the WORDS, whose fates are the annotation layer's own accept and
-/// decline. A row generic over both would be two rows sharing a body with a
-/// branch on every line of it.
-///
-/// **No byline.** The note is signed in the queue by the pass's named editor;
-/// in Author the voice is Claude's and unremarked, because wet-ink feedback is
-/// not a pass (spec §7.0).
-@MainActor
-private struct CompilerNoteRow: View {
-    let annotation: Annotation
-    /// The words the jump chip shows, or `nil` for a note with nowhere to jump
-    /// — `DiagnosticsPane.jumpExcerpt`.
-    let excerpt: Diagnostic.Ref?
-    /// Whether the two verbs are offered at all — false for every row of a
-    /// preview (`DiagnosticsPane.offersDurableActions`), because a run still
-    /// arriving has not raised these notes yet in the only sense that matters:
-    /// `finish` is what mints them, and what is on screen mid-stream is the
-    /// last finished run's.
-    let canDispose: Bool
-    /// What the last disposition of this note refused with, or `nil` — the
-    /// pane's `answerFailures` idiom, keyed by the annotation's own id. A
-    /// refusal that reached only the log would leave a row that looks pressed
-    /// and a note that did not move.
-    let failure: String?
-    let onJump: (String) -> Void
-    let onGotIt: () -> Void
-    let onNotThis: () -> Void
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack(alignment: .firstTextBaseline, spacing: 8) {
-                // The kind's own glyph and its own word, from MaughamCore's
-                // single spelling — the queue draws these notes with the same
-                // two, and a second mapping here is how one surface comes to
-                // call a question something the other does not.
-                Image(systemName: annotation.kind.systemImageName)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .accessibilityLabel(annotation.kind.displayName)
-                Text(annotation.body)
-                    .font(.callout)
-                    .fixedSize(horizontal: false, vertical: true)
-                Spacer(minLength: 0)
-            }
-            if let excerpt {
-                ExcerptChip(ref: excerpt, onJump: onJump)
-            }
-            if canDispose {
-                HStack(spacing: 6) {
-                    Button("Got it", action: onGotIt)
-                        .buttonStyle(.bordered)
-                        .controlSize(.small)
-                        .help("Take the note. It settles here and in your queue.")
-                    Button("Not this", action: onNotThis)
-                        .buttonStyle(.bordered)
-                        .controlSize(.small)
-                        .help("Let it go. Nothing to explain \u{2014} the written "
-                              + "decline belongs to a review pass.")
-                }
-            }
-            if let failure {
-                Text(failure)
-                    .font(.caption)
-                    .foregroundStyle(.red)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-        }
-        .padding(.horizontal, 12).padding(.vertical, 10)
-        .contentShape(Rectangle())
-        .onTapGesture {
-            guard let paragraphId = annotation.paragraphId else { return }
-            onJump(paragraphId)
-        }
-    }
-}
 
 /// A paragraph the note points at, drawn as **the words it said** — the whole
 /// of requirement 3 on this surface. Pressing it makes the same jump the row

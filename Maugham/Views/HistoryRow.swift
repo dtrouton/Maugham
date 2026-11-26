@@ -23,10 +23,16 @@ struct HistoryRow: View {
     /// Whether a checkpoint row's *Revert here…* is drawn — only where the
     /// picker would offer at least one document this Mac may write.
     let offersRevert: Bool
+    /// A checkpoint row's *Compare…*: absent, drawn, or drawn disabled with
+    /// its reason (`HistoryPane.compareOffer(_:docId:documentIsOpen:holdsOp:)`).
+    let compareOffer: HistoryPane.CompareOffer
     /// Names the project scope the per-row Rewind button posts
     /// `.maughamOpenRewind` to (ADR 0021), so multi-window setups dispatch the
     /// modal only on the window on that project.
     let projectURL: URL
+    /// The piece this History is of — what the row's Rewind post names, so
+    /// the sheet opens for it and never for the faces (final wave, C1).
+    let docId: String
 
     /// For lifecycle ops (claudeAccept/claudeReject/claudeArchive) the body
     /// of interest is on the CREATION op (claudeComment/claudeSuggestion/
@@ -65,18 +71,33 @@ struct HistoryRow: View {
             } else {
                 collapsedPreview
             }
-            if case .checkpoint = entry, offersRevert {
-                Button("Revert here…", action: onRevert)
-                    .controlSize(.small)
-                    .buttonStyle(.bordered)
-                    .simultaneousGesture(TapGesture().onEnded { })
+            if case .checkpoint(let cp) = entry, offersRevert || compareOffer != .absent {
+                HStack(spacing: 6) {
+                    if compareOffer != .absent {
+                        Button("Compare…") {
+                            if let payload = HistoryPane.comparePayload(docId: docId, checkpoint: cp) {
+                                MaughamEvent.post(
+                                    .maughamOpenRewind, to: .project(for: projectURL), payload: payload)
+                            }
+                        }
+                        .disabled(compareOffer == .unavailable)
+                        .help(compareOffer == .unavailable
+                              ? HistoryPane.compareUnavailableHelp
+                              : "Show what has changed since this checkpoint")
+                    }
+                    if offersRevert {
+                        Button("Revert here…", action: onRevert)
+                    }
+                }
+                .controlSize(.small)
+                .buttonStyle(.bordered)
+                .simultaneousGesture(TapGesture().onEnded { })
             } else if case .op(let op) = entry, mutatesManuscript(op.kind),
                       offersRewind, let before = rewindTarget {
                 Button {
                     MaughamEvent.post(
                         .maughamOpenRewind, to: .project(for: projectURL),
-                        payload: ["scrub_op_id": before.opId,
-                                  "scrub_op_at": before.at])
+                        payload: HistoryPane.rewindPayload(docId: docId, before: before))
                 } label: {
                     Label("Rewind to before this…", systemImage: "arrow.uturn.backward")
                         .labelStyle(.iconOnly)
@@ -208,14 +229,14 @@ struct HistoryRow: View {
                     .font(.caption).foregroundStyle(.secondary)
                 }
             case .annotationEdit:
-                Text(op.provenance?.annotationBody ?? "Annotation edited")
+                Text(op.provenance?.annotationBody ?? "Note edited")
                     .font(.caption).foregroundStyle(.secondary)
                     .lineLimit(1)
             case .annotationWithdraw:
-                Text("Annotation withdrawn")
+                Text("Note withdrawn")
                     .font(.caption).foregroundStyle(.secondary)
             case .annotationReopen:
-                Text("Annotation reopened")
+                Text("Note reopened")
                     .font(.caption).foregroundStyle(.secondary)
             case .annotationStet:
                 // Same shape as the reject arm: the writer's own words about
@@ -358,20 +379,20 @@ struct HistoryRow: View {
                 default: return "Reverted"
                 }
             case .bootstrap: return "Initial"
-            case .taskCreate: return "Task created"
-            case .taskStatusChange: return "Task status"
-            case .taskPriorityChange: return "Task reorder"
-            case .taskParentChange: return "Task nested"
-            case .taskBodyEdit: return "Task edited"
-            case .taskArchive: return "Task archived"
-            case .annotationEdit: return "Annotation edited"
-            case .annotationWithdraw: return "Annotation withdrawn"
-            case .annotationReopen: return "Annotation reopened"
+            case .taskCreate: return "To-do created"
+            case .taskStatusChange: return "To-do status"
+            case .taskPriorityChange: return "To-do reordered"
+            case .taskParentChange: return "To-do nested"
+            case .taskBodyEdit: return "To-do edited"
+            case .taskArchive: return "To-do archived"
+            case .annotationEdit: return "Note edited"
+            case .annotationWithdraw: return "Note withdrawn"
+            case .annotationReopen: return "Note reopened"
             // "Stet" is the one user-facing word for the verb (M3 P2) — the
             // pane's button, the margin card's tooltip, the Edit menu's undo
             // and this row all say it.
-            case .annotationStet: return "Annotation stetted"
-            case .annotationTriage: return "Annotation triaged"
+            case .annotationStet: return "Note stetted"
+            case .annotationTriage: return "Note triaged"
             case .figureCreate: return "Figure created"
             case .figureCellSet: return "Cell edited"
             case .figureStructure: return "Rows or columns changed"

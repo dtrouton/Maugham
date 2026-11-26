@@ -53,7 +53,8 @@ final class BinderTreeSectionsTests: XCTestCase {
         let chapters = store.manifest.structure.count
         XCTAssertEqual(
             table.numberOfRows,
-            1 + chapters + (1 + 2) + (1 + 1),
+            1 + TreeFurniture.topRows + chapters + (1 + 2) + (TreeFurniture.paletteHead + 1)
+                + TreeFurniture.editions,
             "the project row, the chapters, then a Research section (header + "
             + "two notes) and a Palette section (header + one card)")
     }
@@ -66,7 +67,8 @@ final class BinderTreeSectionsTests: XCTestCase {
 
         XCTAssertEqual(
             table.numberOfRows,
-            1 + store.manifest.structure.count + (1 + 2) + (1 + 1),
+            1 + TreeFurniture.topRows + store.manifest.structure.count + (1 + 2)
+                + (TreeFurniture.paletteHead + 1) + TreeFurniture.editions,
             "the project row, the pieces, then both sections")
     }
 
@@ -77,7 +79,8 @@ final class BinderTreeSectionsTests: XCTestCase {
 
         XCTAssertEqual(
             table.numberOfRows,
-            1 + 1 + 2 + (1 + 2) + (1 + 1),
+            1 + TreeFurniture.topRows + 1 + 2 + (1 + 2) + (TreeFurniture.paletteHead + 1)
+                + TreeFurniture.editions,
             "the project row, the script row, the two sluglines, then both sections")
     }
 
@@ -105,11 +108,12 @@ final class BinderTreeSectionsTests: XCTestCase {
         let table = try XCTUnwrap(firstTableView(in: window))
 
         let chapters = store.manifest.structure.count
-        XCTAssertEqual(table.numberOfRows, 1 + chapters + (1 + 2) + (1 + 2) + (1 + 1),
+        XCTAssertEqual(table.numberOfRows, 1 + TreeFurniture.topRows + chapters + (1 + 2) + (1 + 2)
+                       + (TreeFurniture.paletteHead + 1) + TreeFurniture.editions,
                        "the project row, the chapters, the Figures section (header + two "
                        + "figures), then Research and Palette")
 
-        await select(row: 1 + chapters + 1, in: table,
+        await select(row: 1 + TreeFurniture.topRows + chapters + 1, in: table,
                      until: { probe.subject == .figure("fig-0a1b2c3d") })
         XCTAssertEqual(probe.subject, .figure("fig-0a1b2c3d"),
                        "the first figure row is the Figures section's first row")
@@ -139,7 +143,8 @@ final class BinderTreeSectionsTests: XCTestCase {
                               referencedFrom: [], pieceOfLine: chapter.id)])
         let (window, probe) = try await hostBinder(store: store, treeState: state, key: true)
         let table = try XCTUnwrap(firstTableView(in: window))
-        let rowIndex = 1 + (store.manifest.structure.firstIndex { $0.id == chapter.id } ?? 0)
+        let rowIndex = TreeFurniture.firstManuscriptRow
+            + (store.manifest.structure.firstIndex { $0.id == chapter.id } ?? 0)
         let rowRect = table.convert(table.rect(ofRow: rowIndex), to: nil)
         // The count is the row's one control: SwiftUI mounts a focus-ring view
         // for a `Button(.plain)` (as for the section chevrons), which is where
@@ -176,6 +181,59 @@ final class BinderTreeSectionsTests: XCTestCase {
         XCTAssertEqual(subjectAfterCount, subjectBefore,
                        "the count's click selected the chapter row; it must select nothing")
         XCTAssertEqual(probe.subject, .item(chapter.id))
+    }
+
+    /// **The Palette row's chevron takes its own click** (shell p1 Task 3 fix
+    /// round, review M3). The row is now a selectable subject — the wall — so a
+    /// press on its chevron that also selected the row would replace the
+    /// writer's centre with the wall. A real click at the chevron must fold the
+    /// cards and leave the subject where it was; the control click on the
+    /// row's title does select it, so "nothing" is the button's doing.
+    func test_aClickOnThePaletteRowsChevronFoldsItAndSelectsNothing() async throws {
+        let store = try await novel(notes: [], cards: ["Harbour"])
+        let chapter = try XCTUnwrap(TreeWalk.first(in: store.manifest.structure,
+                                                   where: { $0.type == .document }))
+        let state = BinderTreeSectionsState()
+        let (window, probe) = try await hostBinder(store: store, treeState: state, key: true)
+        probe.subject = .item(chapter.id)
+        pump(0.2)
+        let table = try XCTUnwrap(firstTableView(in: window))
+        var all: [NSView] = []
+        collect(NSView.self, in: try XCTUnwrap(window.contentView), into: &all)
+        let mark = try XCTUnwrap(all.compactMap { $0 as? TreeTravelTargetView }
+                                    .first { $0.subject == .palette }, "no Palette row drawn")
+        let row = table.row(for: mark)
+        XCTAssertGreaterThanOrEqual(row, 0, "the Palette title sits in no row")
+        // The row is a `DisclosureGroup` since the owner's hand check of
+        // 2026-11-21, so its chevron is the outline's own triangle.
+        let outline = try XCTUnwrap(table as? NSOutlineView, "the tree is no outline")
+        let cell = outline.frameOfOutlineCell(atRow: row)
+        XCTAssertGreaterThan(cell.width, 0, "the Palette row draws no chevron")
+        let chevron = outline.convert(cell, to: nil)
+        _ = await TestWindow.activate(window)
+
+        XCTAssertTrue(state.paletteSectionExpanded, "premise: the cards are shown")
+        clickCount(at: CGPoint(x: chevron.midX, y: chevron.midY), in: window)
+        await pumpUntil(deadline: 3) { !state.paletteSectionExpanded }
+        let foldedAfterChevron = !state.paletteSectionExpanded
+        let subjectAfterChevron = probe.subject
+
+        // The fold is the delivery's proof: a click the chevron's button took
+        // is a click AppKit delivered, so the subject read beside it means
+        // something whether or not the host is the active app.
+        if !foldedAfterChevron {
+            // Control, and the measurement: the title, away from the chevron,
+            // does select the row — so a fold that never came is the button's
+            // failure, not a click that never arrived.
+            let title = mark.convert(mark.bounds, to: nil)
+            clickCount(at: CGPoint(x: title.midX, y: title.midY), in: window)
+            await pumpUntil(deadline: 3) { probe.subject == .palette }
+            try skipIfTheClickWasNeverDelivered(
+                at: table.convert(CGPoint(x: title.midX, y: title.midY), from: nil), in: table)
+        }
+        XCTAssertTrue(foldedAfterChevron, "the chevron's click did not reach its button")
+        XCTAssertEqual(subjectAfterChevron, .item(chapter.id),
+                       "the chevron's click selected the Palette row and opened the wall")
     }
 
     /// **Raised after the control click, on a measurement** — TreeTravelTests'
@@ -236,7 +294,8 @@ final class BinderTreeSectionsTests: XCTestCase {
                                                      treeState: plantedFigures())
         let table = try XCTUnwrap(firstTableView(in: window))
 
-        XCTAssertEqual(table.numberOfRows, 1 + 1 + 2 + (1 + 2) + (1 + 1),
+        XCTAssertEqual(table.numberOfRows, 1 + TreeFurniture.topRows + 1 + 2 + (1 + 2)
+                       + (TreeFurniture.paletteHead + 1) + TreeFurniture.editions,
                        "the screenplay tree is what it was: no Figures section")
     }
 
@@ -254,7 +313,8 @@ final class BinderTreeSectionsTests: XCTestCase {
 
         XCTAssertEqual(
             table.numberOfRows,
-            1 + store.manifest.structure.count + (1 + 1) + (1 + 1),
+            1 + TreeFurniture.topRows + store.manifest.structure.count + (1 + 1)
+                + (TreeFurniture.paletteHead + 1) + TreeFurniture.editions,
             "Research must hold the ONE note and not the palette group beside it")
     }
 
@@ -266,7 +326,7 @@ final class BinderTreeSectionsTests: XCTestCase {
         let table = try XCTUnwrap(firstTableView(in: window))
         let note = try XCTUnwrap(researchNote(named: "Ships", in: store))
 
-        let row = 1 + store.manifest.structure.count + 1
+        let row = 1 + TreeFurniture.topRows + store.manifest.structure.count + 1
         await select(row: row, in: table, until: { probe.subject == .research(note.id) })
 
         XCTAssertEqual(probe.subject, .research(note.id),
@@ -279,7 +339,7 @@ final class BinderTreeSectionsTests: XCTestCase {
         let table = try XCTUnwrap(firstTableView(in: window))
         let note = try XCTUnwrap(researchNote(named: "Ships", in: store))
 
-        let row = 1 + store.manifest.structure.count + 1
+        let row = 1 + TreeFurniture.topRows + store.manifest.structure.count + 1
         await select(row: row, in: table, until: { probe.subject == .research(note.id) })
 
         XCTAssertEqual(probe.subject, .research(note.id))
@@ -291,8 +351,8 @@ final class BinderTreeSectionsTests: XCTestCase {
         let table = try XCTUnwrap(firstTableView(in: window))
         let note = try XCTUnwrap(researchNote(named: "Ships", in: store))
 
-        // project, script, two sluglines, Research header, then the note.
-        await select(row: 5, in: table, until: { probe.subject == .research(note.id) })
+        // project, Canvas, script, two sluglines, Research header, then the note.
+        await select(row: 5 + TreeFurniture.topRows, in: table, until: { probe.subject == .research(note.id) })
 
         XCTAssertEqual(probe.subject, .research(note.id),
                        "the navigator's projection has to let a research write "
@@ -309,7 +369,8 @@ final class BinderTreeSectionsTests: XCTestCase {
         let (novelWindow, novelProbe) = try await hostBinder(store: novelStore)
         let novelTable = try XCTUnwrap(firstTableView(in: novelWindow))
         let novelCard = try XCTUnwrap(novelStore.loadPaletteCards().first)
-        let novelRow = 1 + novelStore.manifest.structure.count + 2 + 1
+        let novelRow = 1 + TreeFurniture.topRows + novelStore.manifest.structure.count + 2
+            + TreeFurniture.paletteHead
         await select(row: novelRow, in: novelTable,
                      until: { novelProbe.subject == .research(novelCard.id) })
         XCTAssertEqual(novelProbe.subject, .research(novelCard.id), "novel tree")
@@ -319,7 +380,8 @@ final class BinderTreeSectionsTests: XCTestCase {
         let (collectionWindow, collectionProbe) = try await hostCollection(store: collectionStore)
         let collectionTable = try XCTUnwrap(firstTableView(in: collectionWindow))
         let collectionCard = try XCTUnwrap(collectionStore.loadPaletteCards().first)
-        let collectionRow = 1 + collectionStore.manifest.structure.count + 2 + 1
+        let collectionRow = 1 + TreeFurniture.topRows + collectionStore.manifest.structure.count + 2
+            + TreeFurniture.paletteHead
         await select(row: collectionRow, in: collectionTable,
                      until: { collectionProbe.subject == .research(collectionCard.id) })
         XCTAssertEqual(collectionProbe.subject, .research(collectionCard.id), "collection tree")
@@ -329,7 +391,7 @@ final class BinderTreeSectionsTests: XCTestCase {
             store: screenplayStore, script: Self.twoScenes)
         let screenplayTable = try XCTUnwrap(firstTableView(in: screenplayWindow))
         let screenplayCard = try XCTUnwrap(screenplayStore.loadPaletteCards().first)
-        await select(row: 7, in: screenplayTable,
+        await select(row: 6 + TreeFurniture.topRows + TreeFurniture.paletteHead, in: screenplayTable,
                      until: { screenplayProbe.subject == .research(screenplayCard.id) })
         XCTAssertEqual(screenplayProbe.subject, .research(screenplayCard.id), "screenplay tree")
     }
@@ -361,7 +423,7 @@ final class BinderTreeSectionsTests: XCTestCase {
 
         let state = BinderTreeSectionsState()
         BinderTreeSections(store: store, state: state,
-                           selectedSubject: .constant(nil))
+                           subject: .constant(.book))
             .actions.delete(card.id)
         await pumpUntil(deadline: 5) { store.paletteCardItems().count == 1 }
 
@@ -385,7 +447,7 @@ final class BinderTreeSectionsTests: XCTestCase {
         let before = table.numberOfRows
 
         BinderTreeSections(store: store, state: BinderTreeSectionsState(),
-                           selectedSubject: .constant(nil))
+                           subject: .constant(.book))
             .actions.duplicate(card.id)
         await pumpUntil(deadline: 5) { store.paletteCardItems().count == 2 }
 
@@ -475,7 +537,7 @@ final class BinderTreeSectionsTests: XCTestCase {
 
         XCTAssertEqual(
             table.numberOfRows,
-            1 + store.manifest.structure.count + (1 + 1) + (1 + 1),
+            1 + TreeFurniture.topRows + store.manifest.structure.count + TreeFurniture.emptySections,
             "each empty section is its header plus one placeholder row")
     }
 
@@ -494,7 +556,7 @@ final class BinderTreeSectionsTests: XCTestCase {
         XCTAssertEqual(probe.subject, .project, "precondition")
 
         // The Research section's placeholder: header, then the row.
-        let placeholder = 1 + store.manifest.structure.count + 1
+        let placeholder = 1 + TreeFurniture.topRows + store.manifest.structure.count + 1
         // fixed window: asserting an absence — the subject must still be there
         // after the placeholder's write has had its full chance to arrive.
         await select(row: placeholder, in: table)
@@ -542,8 +604,8 @@ final class BinderTreeSectionsTests: XCTestCase {
         await BinderTreeSections.addLink(
             title: "Tide tables", url: "https://example.invalid/tides",
             parentId: nil, store: store, state: state,
-            selectedSubject: Binding(get: { probe.subject },
-                                     set: { probe.subject = $0 }))
+            subject: .tree(Binding(get: { probe.subject },
+                                     set: { probe.subject = $0 })))
 
         let link = try XCTUnwrap(
             TreeWalk.first(in: store.manifest.research,
@@ -582,7 +644,7 @@ final class BinderTreeSectionsTests: XCTestCase {
         let sections = BinderTreeSections(
             store: store,
             state: BinderTreeSectionsState(),
-            selectedSubject: .constant(nil))
+            subject: .constant(.book))
 
         XCTAssertFalse(
             sections.actions.internalDrop("some-other-id", .middle, target),
@@ -612,7 +674,7 @@ final class BinderTreeSectionsTests: XCTestCase {
         let script = try XCTUnwrap(TreeWalk.first(
             in: store.manifest.structure, where: { $0.type == .document }))
         let verbs = BinderTreeVerbs(store: store, state: BinderTreeSectionsState(),
-                                    selectedSubject: .constant(nil))
+                                    subject: .constant(.book))
 
         XCTAssertFalse(
             verbs.routeExternalDrop(providers: [], position: .middle,
@@ -640,7 +702,7 @@ final class BinderTreeSectionsTests: XCTestCase {
         let sections = BinderTreeSections(
             store: store,
             state: BinderTreeSectionsState(),
-            selectedSubject: .constant(nil))
+            subject: .constant(.book))
 
         XCTAssertTrue(
             sections.actions.internalDrop(dragged.id, .middle, target),
@@ -685,9 +747,9 @@ final class BinderTreeSectionsTests: XCTestCase {
 
         let shown = state.reveal(note.id, structure: store.manifest.structure,
                                  research: store.manifest.research,
-                                 projectType: store.manifest.type)
+                                 projectType: store.manifest.type, openPiece: nil)
 
-        XCTAssertEqual(shown, .research(note.id),
+        XCTAssertEqual(shown, .row(.research(note.id)),
                        "and it answers with the row the tree can now show — "
                        + "the scroll target its caller needs")
         XCTAssertTrue(state.researchSectionExpanded,
@@ -711,9 +773,9 @@ final class BinderTreeSectionsTests: XCTestCase {
 
         let shown = state.reveal(card.id, structure: store.manifest.structure,
                                  research: store.manifest.research,
-                                 projectType: store.manifest.type)
+                                 projectType: store.manifest.type, openPiece: nil)
 
-        XCTAssertEqual(shown, .research(card.id),
+        XCTAssertEqual(shown, .row(.research(card.id)),
                        "a card's row is its own subject, section or no section")
         XCTAssertTrue(state.paletteSectionExpanded, "the card's own section")
         XCTAssertFalse(state.researchSectionExpanded,
@@ -737,7 +799,7 @@ final class BinderTreeSectionsTests: XCTestCase {
 
         let shown = state.reveal("no-such-item", structure: store.manifest.structure,
                                  research: store.manifest.research,
-                                 projectType: store.manifest.type)
+                                 projectType: store.manifest.type, openPiece: nil)
 
         XCTAssertNil(shown, "an id in no tree names no row to scroll to")
         XCTAssertFalse(state.researchSectionExpanded)
@@ -763,7 +825,7 @@ final class BinderTreeSectionsTests: XCTestCase {
 
         state.reveal(note.id, structure: store.manifest.structure,
                      research: store.manifest.research,
-                     projectType: store.manifest.type)
+                     projectType: store.manifest.type, openPiece: nil)
 
         XCTAssertEqual(state.expandedResearchGroups, [first.id, second.id],
                        "the group the writer had open is still open")
@@ -791,17 +853,17 @@ final class BinderTreeSectionsTests: XCTestCase {
 
         let shown = state.reveal(owned.id, structure: store.manifest.structure,
                                  research: store.manifest.research,
-                                 projectType: store.manifest.type)
+                                 projectType: store.manifest.type, openPiece: nil)
 
         XCTAssertEqual(state.expandedPieceFolds, [piece.id],
                        "the fold that actually holds the row opens")
         XCTAssertFalse(state.researchSectionExpanded,
                        "and the shared section does not — it does not hold this "
                        + "row, and opening it moves the writer's tree for nothing")
-        XCTAssertEqual(shown, .item(piece.id),
-                       "the row the tree can now show is the PIECE: a closed "
-                       + "fold has no row of its own to scroll to, and its "
-                       + "chevron is on the piece's row")
+        XCTAssertEqual(shown, .foldRow(researchId: owned.id, piece: piece.id),
+                       "the row the tree can now show is the note's own row in "
+                       + "the fold (shell p5 Task 4a: a fold row's scroll identity "
+                       + "is its fold tag)")
     }
 
     /// A group between the piece's root and the note opens too — the fold is a
@@ -819,20 +881,18 @@ final class BinderTreeSectionsTests: XCTestCase {
         let state = BinderTreeSectionsState()
         let shown = state.reveal(child.id, structure: store.manifest.structure,
                                  research: store.manifest.research,
-                                 projectType: store.manifest.type)
+                                 projectType: store.manifest.type, openPiece: nil)
 
         XCTAssertEqual(state.expandedPieceFolds, [piece.id])
         XCTAssertTrue(state.expandedResearchGroups.contains(group.id),
                       "the group inside the fold is an ancestor like any other")
-        XCTAssertEqual(shown, .item(piece.id))
+        XCTAssertEqual(shown, .foldRow(researchId: child.id, piece: piece.id))
     }
 
-    /// **A novel chapter's fold is a view of SHARED items**, so a linked note is
-    /// revealed through the shared section it actually lives in — the fold's
-    /// duplicate row is a second drawing of that same item and needs no opening
-    /// of its own. (Opening the chapter's fold instead would scroll the writer
-    /// to a chapter for a note that is the project's.)
-    func test_revealingALinkedNoteOpensTheSharedSectionAndNotTheChaptersFold() async throws {
+    /// **A linked note is the chapter's** (shell p5 Task 4a, either/or): it is
+    /// drawn only in the chapter's fold, so a reveal opens that fold, the Parts
+    /// above the chapter, and leaves the Research section as it was.
+    func test_revealingALinkedNoteOpensTheChaptersFoldAndNotTheSection() async throws {
         let store = try await novel(notes: ["Tides"], cards: [])
         let chapter = try XCTUnwrap(store.manifest.structure.first)
         let note = try XCTUnwrap(researchNote(named: "Tides", in: store))
@@ -843,24 +903,53 @@ final class BinderTreeSectionsTests: XCTestCase {
 
         let shown = state.reveal(note.id, structure: store.manifest.structure,
                                  research: store.manifest.research,
-                                 projectType: store.manifest.type)
+                                 projectType: store.manifest.type, openPiece: nil)
 
-        XCTAssertTrue(state.researchSectionExpanded)
-        XCTAssertTrue(state.expandedPieceFolds.isEmpty,
-                      "the chapter's fold holds a DUPLICATE of a shared row; "
-                      + "the shared section is where the item lives")
-        XCTAssertEqual(shown, .research(note.id))
+        XCTAssertFalse(state.researchSectionExpanded,
+                       "the Research section does not hold a chapter's note")
+        XCTAssertEqual(state.expandedPieceFolds, [chapter.id])
+        XCTAssertEqual(state.researchRowFolds[note.id], chapter.id,
+                       "and the row selected is the one in that fold")
+        XCTAssertEqual(shown, .foldRow(researchId: note.id, piece: chapter.id))
     }
 
-    /// The narrowed guard is about OWNERSHIP, not about the id being unknown: a
-    /// piece-scoped id in a project whose piece the manifest no longer holds is
-    /// the same nothing. Control for the pair above — with the piece present the
-    /// very same call opens a fold.
-    func test_revealingAPieceScopedNoteOfADeletedPieceMovesNothing() async throws {
+    /// **Two chapters link it: the open one's fold, else the first** (shell p5
+    /// Task 4a, F). One fold opens, never both.
+    func test_revealingANoteTwoChaptersLinkPrefersTheOpenChapter() async throws {
+        let store = try await novel(notes: ["Tides"], cards: [])
+        let first = try XCTUnwrap(store.manifest.structure.first)
+        let second = try await store.addStructureItem(parentId: nil, title: "Two",
+                                                      kind: .document(.markdown))
+        let note = try XCTUnwrap(researchNote(named: "Tides", in: store))
+        try await store.linkResearch(researchId: note.id, toDocumentId: first.id)
+        try await store.linkResearch(researchId: note.id, toDocumentId: second.id)
+
+        let open = BinderTreeSectionsState()
+        XCTAssertEqual(open.reveal(note.id, structure: store.manifest.structure,
+                                   research: store.manifest.research,
+                                   projectType: store.manifest.type, openPiece: second.id),
+                       .foldRow(researchId: note.id, piece: second.id))
+        XCTAssertEqual(open.expandedPieceFolds, [second.id])
+
+        let none = BinderTreeSectionsState()
+        XCTAssertEqual(none.reveal(note.id, structure: store.manifest.structure,
+                                   research: store.manifest.research,
+                                   projectType: store.manifest.type, openPiece: nil),
+                       .foldRow(researchId: note.id, piece: first.id),
+                       "no open chapter holds it: the first in tree order")
+        XCTAssertEqual(none.expandedPieceFolds, [first.id])
+    }
+
+    /// **Nothing is invisible** (shell p5 Task 4a, B): a piece-scoped note whose
+    /// piece the manifest no longer holds (a half-swept manifest) belongs to
+    /// no live piece, so it is the book's — drawn in the Research section, and
+    /// revealed there.
+    func test_revealingAPieceScopedNoteOfADeletedPieceRevealsItInTheSection() async throws {
         let store = try await collection(pieces: ["Alpha"], notes: [], cards: [])
         let piece = try XCTUnwrap(store.manifest.structure.first)
         let owned = try await store.addPieceResearchNote(
             pieceId: piece.id, title: "Alpha's Note")
+        _ = piece
 
         let state = BinderTreeSectionsState()
         state.researchSectionExpanded = false
@@ -870,10 +959,10 @@ final class BinderTreeSectionsTests: XCTestCase {
 
         let shown = state.reveal(owned.id, structure: orphanedStructure,
                                  research: store.manifest.research,
-                                 projectType: store.manifest.type)
+                                 projectType: store.manifest.type, openPiece: nil)
 
-        XCTAssertNil(shown)
-        XCTAssertFalse(state.researchSectionExpanded)
+        XCTAssertEqual(shown, .row(.research(owned.id)))
+        XCTAssertTrue(state.researchSectionExpanded)
         XCTAssertTrue(state.expandedPieceFolds.isEmpty)
     }
 
@@ -1047,9 +1136,9 @@ private struct BinderSectionsProbeView: View {
     var treeState = BinderTreeSectionsState()
 
     var body: some View {
-        BinderView(store: store,
-                   selectedSubject: Binding(get: { probe.subject },
-                                            set: { probe.subject = $0 }),
+        TreeHostFixture.binder(store: store,
+                   subject: .tree(Binding(get: { probe.subject },
+                                            set: { probe.subject = $0 })),
                    treeState: treeState)
     }
 }
@@ -1062,10 +1151,10 @@ private struct CollectionSectionsProbeView: View {
     let treeState = BinderTreeSectionsState()
 
     var body: some View {
-        CollectionPiecesPane(
+        TreeHostFixture.collection(
             store: store,
-            selectedSubject: Binding(get: { probe.subject },
-                                     set: { probe.subject = $0 }),
+            subject: .tree(Binding(get: { probe.subject },
+                                     set: { probe.subject = $0 })),
             renamingItemId: $renaming,
             treeState: treeState)
     }
@@ -1080,13 +1169,11 @@ private struct NavigatorSectionsProbeView: View {
     var treeState = BinderTreeSectionsState()
 
     var body: some View {
-        SceneNavigatorPane(
+        TreeHostFixture.scenes(
             store: store,
             script: script,
-            projectTitle: store.manifest.title,
-            selectedSubject: Binding(get: { probe.subject },
-                                     set: { probe.subject = $0 }),
-            documentID: documentID,
+            subject: .tree(Binding(get: { probe.subject },
+                                     set: { probe.subject = $0 })),
             treeState: treeState,
             onSelect: { _ in })
     }

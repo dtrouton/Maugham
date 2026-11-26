@@ -11,16 +11,15 @@ extension ProjectWindow {
     /// by BOTH columns for the same reason: one value, so the centre and the
     /// right column cannot disagree about whether the subject is in force.
     ///
-    /// - `takesTheCentre` — Author and Review: the figure is the centre
-    ///   column (Review's read-only comes with the grid, Task 6).
-    /// - `besideTheCanvas` — Plan: the canvas STAYS MOUNTED (one mount,
-    ///   tripwires 27/30) and the right column shows the figure, revealed by
-    ///   `revealResearchColumn`, so the click is never silently nothing.
-    /// - `nothingMoves` — Publish, whose centre is the book, and every subject
-    ///   that is not a figure.
+    /// - `takesTheCentre` — the figure is the subject's `open`: the centre
+    ///   column shows it.
+    /// - `pulledUp` — the figure is the subject's `beside`: the right
+    ///   column shows it, revealed by `revealResearchColumn`, and the centre
+    ///   (the canvas's one mount included) is left alone.
+    /// - `nothingMoves` — no figure in either place.
     enum FigureSubjectPlacement: Equatable {
         case takesTheCentre(String)
-        case besideTheCanvas(String)
+        case pulledUp(String)
         case nothingMoves
 
         /// The figure the CENTRE column shows, or `nil`.
@@ -31,26 +30,26 @@ extension ProjectWindow {
 
         /// The figure the RIGHT column shows (beside the canvas), or `nil`.
         var besideFigureID: String? {
-            if case .besideTheCanvas(let id) = self { return id }
+            if case .pulledUp(let id) = self { return id }
             return nil
         }
     }
 
-    /// Pure and exhaustive over its inputs, asked through the same two persona
-    /// predicates `researchSubjectPlacement` asks — no persona name.
-    static func figureSubjectPlacement(
-        persona: Persona, subject: BinderSubject?
-    ) -> FigureSubjectPlacement {
-        guard let id = subject?.figureID else { return .nothingMoves }
-        guard !persona.previewsThePublishedBook else { return .nothingMoves }
-        return persona.centresTheCanvas ? .besideTheCanvas(id) : .takesTheCentre(id)
+    /// Pure and exhaustive over its inputs, asked of the subject's two places
+    /// as `researchSubjectPlacement` asks: a figure in `open` takes the centre
+    /// (a figure is manuscript content), one in `beside` shows in the right
+    /// column.
+    static func figureSubjectPlacement(subject: WindowSubject) -> FigureSubjectPlacement {
+        if let id = subject.open.figureID { return .takesTheCentre(id) }
+        if let id = subject.beside?.figureID { return .pulledUp(id) }
+        return .nothingMoves
     }
 }
 
 /// **What a figure subject shows** (report plan 8a Task 6), in the centre and
-/// in Plan's right column alike: a table's grid (`FigureCentreGrid`, one mount
-/// per figure), read-only where the persona does not edit figures or the
-/// window's ⌘⌥⇧R is on; an image, its picture large (`FigureImageSubject`);
+/// in the right column beside the canvas alike: a table's grid (`FigureCentreGrid`, one mount
+/// per figure), read-only where one of the figure's pieces is in
+/// read-through (`ReadThroughGate`); an image, its picture large (`FigureImageSubject`);
 /// anything else — a kind from a later build, a window with no session —
 /// its name and number.
 struct FigureSubjectSurface: View {
@@ -61,7 +60,8 @@ struct FigureSubjectSurface: View {
     let presence: FigureGridPresence
     let listing: FigureListingModel
     let control: EditorControl
-    let persona: Persona
+    /// The window's read-through gate, asked of this figure.
+    let readThrough: ReadThroughGate
     let window: NSWindow?
 
     /// The image figure's file, resolved once per path, never per body pass.
@@ -100,7 +100,8 @@ struct FigureSubjectSurface: View {
                     figureId: figureID, store: store, documentStore: documentStore,
                     figureWindows: figureWindows, presence: presence, listing: listing,
                     typography: control.typography,
-                    isReviewMode: control.isManualReviewMode || !persona.editsFigures,
+                    // One of the figure's pieces in read-through: the gate's one rule.
+                    readThrough: readThrough.refusal(.figure(figureID)),
                     shareIsReadOnly: control.shareIsReadOnly, window: window)
                     .id(figureID)
             }

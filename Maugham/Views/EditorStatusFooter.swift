@@ -11,6 +11,14 @@ struct EditorStatusFooter: View {
     let sessionStart: Date?
     let paragraphId: String?
     let elementLabel: String?
+    /// **The open piece's target, settable here** (shell p3 Task 8 — the old
+    /// Inspector's steppers). Nil draws the right label as plain text, exactly
+    /// as before; a value makes the label a menu (`PieceTargetMenu`).
+    var target: PieceTargetMenu? = nil
+    /// The store the target is written to; nil offers no menu.
+    var store: ProjectStore? = nil
+
+    @State private var editingTarget = false
 
     var body: some View {
         HStack(alignment: .center, spacing: 12) {
@@ -22,7 +30,7 @@ struct EditorStatusFooter: View {
                 paragraphId: paragraphId,
                 elementLabel: elementLabel))
                 .frame(maxWidth: .infinity, alignment: .center)
-            Text(Self.rightLabel(for: goalState))
+            rightLabelView
                 .frame(maxWidth: .infinity, alignment: .trailing)
         }
         .font(.system(size: 11, weight: .regular, design: .default))
@@ -31,6 +39,47 @@ struct EditorStatusFooter: View {
         .padding(.horizontal, 12)
         .padding(.vertical, 4)
         .background(.thinMaterial)
+    }
+
+    /// The right label: plain text, or — where a target may be set — the same
+    /// text as a menu's label, borderless and unmarked, so the line reads as
+    /// it always did (`PieceTargetMenu.decide`).
+    @ViewBuilder
+    private var rightLabelView: some View {
+        if let target, let store {
+            Menu {
+                Button(target.setTitle) { editingTarget = true }
+                if target.offersClear {
+                    Button(PieceTargetMenu.clearTitle) {
+                        Task { try? await PieceTargetMenu.perform(target.write, value: 0, store: store) }
+                    }
+                }
+            } label: {
+                Text(Self.rightLabel(for: goalState))
+                    .lineLimit(1)
+            }
+            .menuStyle(.button)
+            .buttonStyle(.plain)
+            .menuIndicator(.hidden)
+            .help(target.setTitle)
+            .popover(isPresented: $editingTarget, arrowEdge: .top) {
+                PieceTargetField(
+                    menu: target,
+                    onSet: { value in
+                        Task { try? await PieceTargetMenu.perform(target.write, value: value, store: store) }
+                    },
+                    onDone: { editingTarget = false })
+                    // One field per target: an edit in progress is never
+                    // carried onto another piece's.
+                    .id(target.write)
+            }
+            // The open piece changed under an open popover (a key, MCP's
+            // navigate): it closes, so what was typed for one piece is never
+            // set on another.
+            .onChange(of: target.write) { _, _ in editingTarget = false }
+        } else {
+            Text(Self.rightLabel(for: goalState))
+        }
     }
 
     // MARK: - Pure formatters (testable)

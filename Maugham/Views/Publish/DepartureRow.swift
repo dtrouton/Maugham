@@ -139,26 +139,49 @@ struct DepartureRowView: View {
     /// The row's own verbs, beyond Fine — a pure decision so it is pinned with
     /// nothing mounted. Hidden, never disabled: each writes a statement, and
     /// its door (`RulingPerformer`) refuses a press that arrives anyway.
-    enum Offer: Equatable { case keepMine, makeRule }
+    enum Offer: Equatable { case fine, keepMine, makeRule }
 
+    /// Fine is a disposition on the round's document (`answer`, shell p4
+    /// Task 6 fix round: a Mac that may not answer there — a reviewer, a
+    /// piece outside a narrowed book — is offered none); Keep mine and Make
+    /// it a rule file where their homes may be written.
+    /// A settled row — ruled or said fine — offers nothing (fix round 2,
+    /// N6).
     static func offers(isSettled: Bool, verbs: TranslationAuthorVerbs) -> [Offer] {
         guard !isSettled else { return [] }
-        return (verbs.keepMine ? [.keepMine] : []) + (verbs.rule ? [.makeRule] : [])
+        return (verbs.answer ? [.fine] : [])
+            + (verbs.keepMine ? [.keepMine] : []) + (verbs.rule ? [.makeRule] : [])
     }
 
+    /// One trailing line where it fits (the report's centre); in a narrow
+    /// column — To resolve's edition list (shell p4 Task 6) — the verbs wrap
+    /// at their own width rather than truncate.
     private var verbRow: some View {
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: 8) {
+                Spacer(minLength: 0)
+                verbButtons()
+            }
+            FlowLayout(spacing: 6) { verbButtons() }
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+
+    @ViewBuilder
+    private func verbButtons() -> some View {
         let offers = Self.offers(isSettled: isSettled, verbs: verbs)
-        return HStack(spacing: 8) {
-            Spacer(minLength: 0)
+        Group {
             if isSettled {
                 Text(TranslationRoundReport.ruledOutcomeLine)
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
-            Button(TranslationRoundReport.fineTitle, action: onFine)
-                .controlSize(.small)
-                .accessibilityLabel(TranslationRoundReport.fineLabel(id: row.id))
-                .help(DepartureRowCopy.fineHelp)
+            if offers.contains(.fine) {
+                Button(TranslationRoundReport.fineTitle, action: onFine)
+                    .controlSize(.small)
+                    .accessibilityLabel(TranslationRoundReport.fineLabel(id: row.id))
+                    .help(DepartureRowCopy.fineHelp)
+            }
             if offers.contains(.keepMine) {
                 Button(TranslationRoundReport.keepMineTitle, action: onKeepMine)
                     .controlSize(.small)
@@ -172,6 +195,7 @@ struct DepartureRowView: View {
                     .help(DepartureRowCopy.makeRuleHelp)
             }
         }
+        .fixedSize()
     }
 }
 

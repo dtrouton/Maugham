@@ -632,12 +632,14 @@ final class FigureCommandTests: XCTestCase {
                 && FileManager.default.fileExists(atPath: url.path)
             return "research/pasted.png"
         })
-        let pasteboard = NSPasteboard.general
+        // Its own pasteboard: `.general` is every process's (shell p4 Task 11).
+        let pasteboard = NSPasteboard(name: NSPasteboard.Name("maugham-test-\(UUID().uuidString)"))
+        defer { pasteboard.releaseGlobally() }
         pasteboard.clearContents()
         XCTAssertTrue(pasteboard.writeObjects([Self.picture()]))
         m.textView.setSelectedRange(NSRange(location: 5, length: 0))
 
-        m.textView.paste(nil)
+        m.textView.paste(from: pasteboard)
         await m.coordinator.figureIngestTask?.value
 
         XCTAssertFalse(m.textView.string.contains("\u{FFFC}"), m.textView.string.debugDescription)

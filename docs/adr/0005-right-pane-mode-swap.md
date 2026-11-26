@@ -1,5 +1,7 @@
 # 0005 — Right-pane mode-swap pattern (Inspector / Research / Outline)
 
+> **Superseded in part by [ADR 0035](0035-the-subject-not-the-persona.md) (2026-11-17):** the right pane is no longer scoped by persona; the persona shell that amended this ADR is gone.
+
 **Status:** Accepted
 **Date:** 2026-05-14
 

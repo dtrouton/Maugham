@@ -50,6 +50,13 @@ extension EditorCoordinator {
     /// but still anchored at the paragraph start. Cached in `resolvedReviewMarks`;
     /// the overlay draws read the cache, never recompute (tripwire 4).
     func recomputeReviewMarks() {
+        // Over a translation no mark is painted (fix I3): every anchor is a
+        // SOURCE position, and the surface is not the source.
+        guard !isReadingTranslation else {
+            resolvedReviewMarks = []
+            if selectedReviewCardId != nil { clearReviewCardSelection() }
+            return
+        }
         let localName = reviewLocalAuthorName?() ?? ""
         var marks: [ResolvedReviewMark] = []
         for ann in reviewAnnotations {
@@ -258,6 +265,9 @@ extension EditorCoordinator {
     func updateReviewCardVerbs(for posture: Posture?) {
         guard posture != reviewCardPosture else { return }
         reviewCardPosture = posture
+        // The selection's offers follow the posture (fix round 2, N2): the
+        // toolbar never shows a set the press would refuse.
+        if let textView { updateSelectionToolbar(in: textView) }
         marginRail?.reloadCardSelection()
     }
 
@@ -265,7 +275,7 @@ extension EditorCoordinator {
     /// Records the stet immediately (never blocked), dismisses the actions row,
     /// then holds the card on-screen with a STET treatment for ~2s before
     /// refreshing the marks (which drops the now-stetted annotation out of the
-    /// open set). Mirrors the AnnotationsPane dwell so the gesture reads here too.
+    /// open set). Mirrors the Annotations pane dwell so the gesture reads here too.
     ///
     /// M3 P2 moved the flourish here from reject, where it had been since the
     /// margin card shipped: "stet" means *let it stand*, and a rejected note is
@@ -287,7 +297,7 @@ extension EditorCoordinator {
     /// Run a disposition handler, then refresh marks from the provider so the
     /// card list reconciles (the resolved annotation drops out of the open set).
     private func runReviewAction(_ work: @escaping () async -> Void) {
-        Task { @MainActor [weak self] in
+        reviewActionTask = Task { @MainActor [weak self] in
             await work()
             self?.clearReviewCardSelection()
             self?.refreshReviewMarksFromProvider()
@@ -343,9 +353,9 @@ extension EditorCoordinator {
             return
         }
         let alert = NSAlert()
-        alert.messageText = "Delete your annotation"
+        alert.messageText = "Delete your note"
         alert.informativeText =
-            "This removes your annotation. The history is preserved, but the annotation will no longer appear here or in the editor."
+            "This removes your note. The history is preserved, but the note will no longer appear here or in the editor."
         alert.addButton(withTitle: "Delete")
         alert.addButton(withTitle: "Cancel")
         alert.alertStyle = .warning
@@ -413,12 +423,52 @@ extension EditorCoordinator {
         annotationComposer = composer
 
         // Position the composer where the toolbar is (just above the selection),
-        // then hide the toolbar so they don't overlap.
-        if let toolbar = selectionToolbar {
+        // then hide the toolbar so they don't overlap. With no toolbar showing
+        // (Edit ▸ Comment…, the right-click), the same place, measured.
+        if let toolbar = selectionToolbar, !toolbar.isHidden {
             composer.setFrameOrigin(toolbar.frame.origin)
             toolbar.isHidden = true
+        } else if let rect = selectionViewRect(in: textView) {
+            composer.setFrameOrigin(Self.originAbove(rect, size: composer.frame.size,
+                                                     in: parent, from: textView))
         }
         composer.focus()
+    }
+
+    // MARK: - Comment… outside the toolbar (shell p5 Task 7)
+
+    /// What the selection may take now, by the posture (`AnnotationOffer`).
+    var annotationKindsOffered: [SelectionToolbarView.Kind] {
+        AnnotationOffer.kinds(posture: reviewCardPosture, isReadingTranslation: isReadingTranslation,
+                              inReadThrough: isInReadThrough,
+                              hasSelection: (textView?.selectedRange().length ?? 0) > 0,
+                              answersAnnotations: createAnnotationHandler != nil)
+    }
+
+    /// **The text's right-click Comment… (and Suggest…)** on a selection —
+    /// built for `AnnotationOffer.compose`, each item reaching
+    /// `commentOnSelection`, as Edit ▸ Comment… does through its event.
+    func annotationMenuItems() -> [NSMenuItem] {
+        annotationKindsOffered.map { kind in
+            let item = NSMenuItem(title: AnnotationOffer.title(of: kind),
+                                  action: #selector(commentFromMenu(_:)), keyEquivalent: "")
+            item.target = self
+            item.representedObject = kind.rawValue
+            return item
+        }
+    }
+
+    @objc func commentFromMenu(_ sender: NSMenuItem) {
+        commentOnSelection((sender.representedObject as? String)
+            .flatMap(SelectionToolbarView.Kind.init(rawValue:)) ?? .comment)
+    }
+
+    /// **The one receiver of Comment… and Suggest…**: the toolbar's composer
+    /// on the selection, where the posture offers the kind; a beep where it
+    /// does not (no selection, a translation, a refusing posture).
+    func commentOnSelection(_ kind: SelectionToolbarView.Kind) {
+        guard annotationKindsOffered.contains(kind) else { NSSound.beep(); return }
+        handleToolbarAction(kind)
     }
 
     /// Compute (paragraphId, SpanAnchor, selectedText) for the current non-empty

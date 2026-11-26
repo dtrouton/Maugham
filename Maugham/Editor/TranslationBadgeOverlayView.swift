@@ -69,9 +69,9 @@ final class TranslationBadgeOverlayView: NSView {
               let layoutManager = textView.layoutManager,
               let container = textView.textContainer,
               let coordinator,
-              coordinator.isTranslationReview else { return }
+              coordinator.isReadingTranslation else { return }
 
-        let badges = coordinator.resolvedTranslationBadges
+        let badges = coordinator.bufferBadges
         guard !badges.isEmpty else { return }
 
         let inset = textView.textContainerInset
@@ -111,6 +111,63 @@ final class TranslationBadgeOverlayView: NSView {
             case .fresh:   break   // unreachable (guarded above)
             }
         }
+    }
+
+    // MARK: - VoiceOver (shell p4 Task 8 fix round (d))
+
+    /// **What VoiceOver hears beside each paragraph that is not current**:
+    /// the note ("Out of date: …" / "Not translated yet: …") and the
+    /// paragraph's opening words, in order. Pure over the badges and the text.
+    static func accessibilityLabels(_ badges: [TranslationBadgeLayout.BadgeRange],
+                                    text: String) -> [String] {
+        let ns = text as NSString
+        return badges.compactMap { badge in
+            guard let note = TranslationBadgeLayout.accessibilityNote(badge.status) else { return nil }
+            let loc = min(badge.range.location, ns.length)
+            let len = min(badge.range.length, ns.length - loc, 60)
+            let opening = ns.substring(with: NSRange(location: loc, length: max(0, len)))
+            return opening.isEmpty ? note : "\(note). \(opening)\(badge.range.length > 60 ? "\u{2026}" : "")"
+        }
+    }
+
+    override func isAccessibilityElement() -> Bool { false }
+
+    /// The elements standing, by paragraph id: the same element answers
+    /// every query while its paragraph stays not current, so VoiceOver's
+    /// cursor survives a re-read of the children (closing round B), as the
+    /// margin's do (`MarginOverlayView.elements`).
+    private var elements: [String: NSAccessibilityElement] = [:]
+
+    /// One static-text element per paragraph that is not current, framed on
+    /// its first line, so VoiceOver reads "out of date" / "not translated
+    /// yet" where it is, not only in the line over the text.
+    override func accessibilityChildren() -> [Any]? {
+        guard let textView = associatedTextView, let coordinator, coordinator.isReadingTranslation,
+              let layoutManager = textView.layoutManager else {
+            elements = [:]
+            return []
+        }
+        let badges = coordinator.bufferBadges.filter { $0.status != .fresh }
+        let labels = Self.accessibilityLabels(badges, text: textView.string)
+        let length = textView.textStorage?.length ?? 0
+        var kept: [String: NSAccessibilityElement] = [:]
+        let children = zip(badges, labels).compactMap { badge, label -> NSAccessibilityElement? in
+            guard length > 0 else { return nil }
+            let glyph = layoutManager.glyphIndexForCharacter(at: min(badge.range.location, length - 1))
+            var rect = layoutManager.lineFragmentRect(forGlyphAt: glyph, effectiveRange: nil)
+            rect.origin.y += textView.textContainerInset.height
+            rect.origin.x += textView.textContainerInset.width
+            let screen = textView.window?.convertToScreen(textView.convert(rect, to: nil)) ?? rect
+            let element = elements[badge.paragraphId] ?? NSAccessibilityElement()
+            element.setAccessibilityRole(.staticText)
+            element.setAccessibilityLabel(label)
+            element.setAccessibilityFrame(screen)
+            element.setAccessibilityParent(self)
+            kept[badge.paragraphId] = element
+            return element
+        }
+        elements = kept
+        return children
     }
 
     private func drawFilledDot(in rect: NSRect, color: NSColor) {

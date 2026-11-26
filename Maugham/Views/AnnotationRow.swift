@@ -128,26 +128,19 @@ struct AnnotationRow: View {
     /// posture would otherwise draw every verb, so every host — a test's
     /// included — says what it means (`.unrestricted(isOwn:)` is the P1
     /// surface, by name). Carries ownership too (`ownNote`): Edit + Delete of
-    /// the local writer's own note. A verb the posture forbids is not drawn;
-    /// `verbsEnabled` below is a different question (is there a live document
-    /// to append to at all).
+    /// the local writer's own note. A verb the posture forbids is not drawn,
+    /// and neither is a `Document` verb on a piece this window may not act on
+    /// (`ResolveVerbGate.noteVerbs`, applied by `AnnotationRowHost`): hidden,
+    /// never disabled.
     let verbs: AnnotationRowVerbs
-    /// **Whether this row's verbs can act** (M3 P2 Task 7). False in the
-    /// cross-document scope when the row's piece is closed: there is no live
-    /// `Document` to append to, and the alternative — a transient one — would
-    /// land an op the writer's ⌘Z could never reach. Disabled WITH a reason,
-    /// never enabled and silently inert (RULING-35).
-    var verbsEnabled: Bool = true
-    var verbsDisabledReason: String? = nil
     /// **A note on a table figure** (report plan 9c-1 Task 7): its anchor
     /// line, a suggestion's cells, and the verbs that work only in the table
     /// (`FigureRowGate`). Nil for every note on a document.
     var figure: FigureRowGate? = nil
     /// Multiselect (M3 P2 Task 5) — true only while the pane is in selection
-    /// mode. The control is a `Button`, so it takes the click the row's
-    /// whole-body `.onTapGesture` would otherwise read as navigation: selecting
-    /// a note and travelling to it are different intentions and must not share
-    /// a gesture.
+    /// mode. The control is a `Button` beside the row's text, never inside
+    /// it: selecting a note and travelling to it are different intentions and
+    /// must not share a gesture.
     var isSelectable: Bool = false
     var isSelected: Bool = false
     var onToggleSelection: () -> Void = {}
@@ -209,15 +202,25 @@ struct AnnotationRow: View {
 
     private var offered: AnnotationRowVerbs { verbs }
 
+    /// **The row's text is its one click** (tripwire 9: `Button(.plain)`,
+    /// never a tap gesture) — the note goes to its place. The tick and the
+    /// verbs sit outside that button, so a press on either is never also a
+    /// click on the row.
     var body: some View {
         HStack(alignment: .top, spacing: 8) {
             if isSelectable { selectionToggle }
-            rowContent
+            VStack(alignment: .leading, spacing: 6) {
+                Button(action: onJumpToParagraph) {
+                    rowText
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                actionRow
+            }
         }
         .padding(.horizontal, 12).padding(.vertical, 10)
         .background(isSelected ? Color.accentColor.opacity(0.10) : Color.clear)
-        .contentShape(Rectangle())
-        .onTapGesture { onJumpToParagraph() }
         .animation(.easeInOut(duration: 0.3), value: showingStet)
     }
 
@@ -233,8 +236,10 @@ struct AnnotationRow: View {
         .accessibilityLabel(isSelected ? "Selected" : "Not selected")
     }
 
+    /// Everything the row says — its header, anchor line, body, history and
+    /// card — without its verbs.
     @ViewBuilder
-    private var rowContent: some View {
+    private var rowText: some View {
         VStack(alignment: .leading, spacing: 6) {
             header
             if let figure {
@@ -263,7 +268,6 @@ struct AnnotationRow: View {
             } else if annotation.kind == .suggestedChange, figure == nil {
                 diffCard
             }
-            actionRow
         }
     }
 
@@ -445,7 +449,7 @@ struct AnnotationRow: View {
     /// layout width, and everything in the column is then centred against a
     /// width the column does not have. The third variant closes the gaps instead
     /// of taking anything else away, since by that point there is no word left
-    /// to lose. `AnnotationsQueueToolbarWidthTests.test_theRowsVerbsFitTheColumn`
+    /// to lose. `ResolveColumnWidthTests.test_theRowsVerbsFitTheColumn`
     /// is the measurement.
     @ViewBuilder
     private var actionRow: some View {
@@ -455,13 +459,22 @@ struct AnnotationRow: View {
             actions(useIcons: true, spacing: Self.tightVerbSpacing)
         }
         .controlSize(.small)
-        // The whole row of verbs, gated together: a closed piece's note is
-        // readable and not actable, and the tooltip says what to do about it.
-        // The `.help` is applied only when there IS something to say — an
-        // empty help string is a tooltip that opens with nothing in it.
-        .disabled(!verbsEnabled)
-        .modifier(RowDisabledReason(
-            reason: verbsEnabled ? nil : verbsDisabledReason))
+    }
+
+    /// **A triage mark is about an OPEN note** (`TriageMark`: "a mark, not a
+    /// resolution"), so a settled row — a stetted one inside its flourish
+    /// included — draws no triage menu, only Reopen.
+    static func offersTriage(status: AnnotationStatus) -> Bool {
+        switch status {
+        case .open: return true
+        case .accepted, .rejected, .archived, .stetted: return false
+        }
+    }
+
+    /// **The mark a row shows read-only**: its triage, wherever the menu is
+    /// not drawn (a settled or stetted row, or a posture that marks nothing).
+    static func readOnlyMark(_ triage: TriageMark?, menuDrawn: Bool) -> TriageMark? {
+        menuDrawn ? nil : triage
     }
 
     /// The gap the last-resort variant closes to. Small enough to buy back the
@@ -491,7 +504,15 @@ struct AnnotationRow: View {
                               action: onReopen)
                 }
             }
-            if offered.dispose, figure == nil || FigureRowGate.drawsTriage { triageMenu }
+            if offered.dispose, Self.offersTriage(status: annotation.status),
+               figure == nil || FigureRowGate.drawsTriage { triageMenu }
+            else if let mark = Self.readOnlyMark(annotation.triage, menuDrawn: false) {
+                // Settled, stetted, or not this Mac's to mark: the mark is
+                // still SAID, read-only (Task 7b).
+                Label(mark.queueLabel, systemImage: mark.symbolName)
+                    .font(.caption).foregroundStyle(.secondary)
+                    .help("Triaged \(mark.queueLabel)")
+            }
             if offered.ownNote {
                 Spacer(minLength: 4)
                 ownAffordances
@@ -709,12 +730,12 @@ struct AnnotationRow: View {
             Image(systemName: "pencil")
         }
         .buttonStyle(.bordered)
-        .help("Edit your annotation")
+        .help("Edit your note")
         Button(action: onWithdraw) {
             Image(systemName: "trash")
         }
         .buttonStyle(.bordered)
-        .help("Delete your annotation")
+        .help("Delete your note")
     }
 
     private var kindColor: Color {

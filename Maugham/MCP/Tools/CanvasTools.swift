@@ -5,7 +5,7 @@ import MaughamCore
 ///
 /// **This is a read tool over a surface with no op log behind it.** The canvas's
 /// only records are `canvas.md` and `.maugham/canvas.json`, and which of them is
-/// authoritative depends on whether the writer has the Plan persona on screen. The
+/// authoritative depends on whether the canvas is the centre of a project window. The
 /// tool does not decide that for itself: `CanvasClaudeWrite.readScene` is the one
 /// place the attached-or-sidecar discriminator is spelled, and the write tool uses
 /// the same one, so a read and a write in the same breath cannot disagree about
@@ -185,13 +185,13 @@ public enum ListCanvasTool: MCPTool {
 
     public static let description = """
         Read a project's planning canvas: every card, every region and every line, \
-        with the marks the inspector shows. A "scrap" is a loose thought whose words \
+        with the marks the writer sees on each card. A "scrap" is a loose thought whose words \
         live only on the canvas; an "item" node is something the canvas shows as \
         itself, and `provenance` says which sort: "project" for research the canvas \
         points at and never writes to (`reference_id` names it), or "owned" for a \
         photograph the canvas ingested, which exists nowhere else in the project and \
         has no id to read it by. `read_from` says which canvas answered — "open_canvas" when the \
-        writer has the Plan persona on screen, in which case the scene is live and \
+        canvas is the centre of the writer's window, in which case the scene is live and \
         may include a sentence they are still typing, or "sidecar" when it was read \
         from disk. `author` is absent on the writer's own cards and lines and reads \
         "claude" on ones added through this server. `promoted_item_id` is the \

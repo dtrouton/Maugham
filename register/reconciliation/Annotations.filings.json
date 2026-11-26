@@ -7,7 +7,7 @@
  {
   "claim_id": "M5-AN-002",
   "outcome": "NO_RULING_REACHES",
-  "reason": "A library default. The pane exposes both views with a labelled toggle ('Showing all statuses · click to show only open'), so no writer question is answered twice or wrongly."
+  "reason": "A library default. To resolve lists open notes, and its Settled section (on the open piece) lists the settled ones under their own heading, so no writer question is answered twice or wrongly. (As filed, the old pane exposed both views with a labelled 'show all statuses' toggle, gone with shell plan 2.)"
  },
  {
   "claim_id": "M5-AN-003",
@@ -112,7 +112,7 @@
   "clause_that_reaches_it": "Controls are unambiguous and DO WHAT THEY SAY.",
   "why_in_scope": "Unchanged in scope from the VIOLATES filing — the Edit menu shows 'Undo Edit Annotation', Maugham labelling an action, and R22's settled-in-scope list already contains a silent no-op of this shape ('stale cursor silent no-op'). WHY_IT_VIOLATED: the guard itself was right (it stops a concurrent edit being clobbered by capture-time state); what violated is that it declined to documentLog rather than to the writer, so the control did not do what it said and nothing said why. As of the fix the guard is untouched and the decline is spoken: a project-scoped .maughamDocumentNotice reaching RewindModifier's toast. RULING-19's corollary agreed from the other direction and still does — this is an ENTRY POINT guard (⌘Z), and an entry-point guard must fail and TELL.",
   "intent_expressed_when": "contemporaneous — the writer pressed ⌘Z asking for that edit back",
-  "call_path": "AnnotationsPane pencil → EditAnnotationSheet → Document.editReviewerAnnotation(undoManager:) → OpUndoRegistrar registers → a cross-device merge or a phone edit moves the annotation on → ⌘Z → the drift guard returns after documentLog.error. Reachability is a race window; PRINCIPLE-4 applies.",
+  "call_path": "To resolve row (filed against AnnotationsPane, since replaced) pencil → EditAnnotationSheet → Document.editReviewerAnnotation(undoManager:) → OpUndoRegistrar registers → a cross-device merge or a phone edit moves the annotation on → ⌘Z → the drift guard returns after documentLog.error. Reachability is a race window; PRINCIPLE-4 applies.",
   "violation_or_enhancement": "violation",
   "fix": {
    "commit": "234eb143d0e9116c90d070b7dd2f692e1efe7e9e",
@@ -134,7 +134,7 @@
   "clause_that_reaches_it": "THE WORK — the prose, the screenplay, the thing being created — is protected AT ALL COSTS and is version-controlled: every change to it is retained.",
   "why_in_scope": "R24 partitions by asset class, and the manuscript paragraph is squarely THE WORK. Deleting an annotation is an act on the annotation layer; letting it silently un-apply a manuscript change the writer had already accepted would let an annotation-layer gesture rewrite the work without going through the work's own version-controlled path. Leaving the applied text alone keeps the two layers separate, which is what the tier requires. Cited as a root because no sub-ruling partitions the annotation layer against the manuscript in this direction — RULING-25 does so only for time travel.",
   "intent_expressed_when": "earlier — the writer accepted the suggestion, and that intent persists past their deleting the note about it",
-  "call_path": "AnnotationsPane → own row → trash affordance → Document.withdrawReviewerAnnotation on an already-accepted suggestion",
+  "call_path": "To resolve row (filed against AnnotationsPane, since replaced) → own row → trash affordance → Document.withdrawReviewerAnnotation on an already-accepted suggestion",
   "violation_or_enhancement": "neither"
  },
  {
@@ -164,13 +164,13 @@
   "clause_that_reaches_it": "Maugham never guesses where an AI-authored change belongs.",
   "why_in_scope": "R5's subject is exactly the placement of an AI-authored replacement inside the writer's paragraph. Re-resolving the span against the paragraph's CURRENT text at accept time — rather than against the text captured when the suggestion was authored — is Maugham refusing to guess: it places the change where the anchor still points, so a one-word suggestion replaces one word even after the paragraph moved under it. This is the half of R5 that IS honoured; M5-AN-049 is the half that is not.",
   "intent_expressed_when": "contemporaneous — the writer clicked Accept on this suggestion",
-  "call_path": "AnnotationsPane → Accept → Document.acceptAnnotation → SuggestionSplice.apply(suggestion:span:to: current paragraph)",
+  "call_path": "To resolve row (filed against AnnotationsPane, since replaced) → Accept → Document.acceptAnnotation → SuggestionSplice.apply(suggestion:span:to: current paragraph)",
   "violation_or_enhancement": "neither"
  },
  {
   "claim_id": "M5-AN-027",
   "outcome": "NO_RULING_REACHES",
-  "reason": "The pane renders Accept / 'Got it' on resolved rows deliberately, under a labelled 'show all statuses' view; a button that marks a note accepted when clicked does what it says. No ruling requires resolution to be one-way."
+  "reason": "As filed, the old pane rendered Accept / 'Got it' on resolved rows deliberately, under a labelled 'show all statuses' view (gone with shell plan 2; To resolve's Settled section offers Reopen on rejected, archived and stetted rows). A button that marks a note accepted when clicked does what it says. No ruling requires resolution to be one-way."
  },
  {
   "claim_id": "M5-AN-028",
@@ -201,7 +201,7 @@
   "clause_that_reaches_it": "Where an action is complex or its consequences are confusing, that warrants an additional confirmation prompt.",
   "why_in_scope": "R22's escalation clause is the one that reaches a confirm-or-not question. Reverting an accepted suggestion over a paragraph the writer has since edited destroys those edits — a consequence the button's label cannot carry — and `acceptedTextDrifted` is precisely the test that decides when to escalate to the confirm. Whitespace-exact comparison against the accept op's own `next` means the escalation fires on any real divergence rather than on a heuristic.",
   "intent_expressed_when": "contemporaneous — the writer is about to click Revert",
-  "call_path": "AnnotationsPane → Revert → acceptedTextDrifted → revertConfirm alert",
+  "call_path": "To resolve row (filed against AnnotationsPane, since replaced) → Revert → acceptedTextDrifted → revertConfirm alert",
   "violation_or_enhancement": "neither"
  },
  {
@@ -211,7 +211,7 @@
   "clause_that_reaches_it": "its dead actions are DISABLED with the reason ('its paragraph was deleted'). Nothing renders an enabled control that silently does nothing.",
   "why_in_scope": "The ruling's sentence implemented as a pure row policy (AnnotationRowPolicy.revertEnabled) so the no-dead-controls rule is testable without mounting the pane; the stale mark was already derived (paragraphStale) and stays.",
   "intent_expressed_when": "contemporaneous — the writer clicked a button asking for their text back",
-  "call_path": "AnnotationsPane → 'show all statuses' → an accepted suggestion whose paragraph was deleted → Revert → Document.revertAcceptedAnnotation → `sequence.contains(pid)` guard → documentLog.error, return",
+  "call_path": "To resolve row (filed against AnnotationsPane, since replaced) → Settled (on the piece open in the window) → an accepted suggestion whose paragraph was deleted → Revert → Document.revertAcceptedAnnotation → `sequence.contains(pid)` guard → documentLog.error, return",
   "violation_or_enhancement": "violation",
   "fix": {
    "commit": "870ef2f30f2d9e593cec967f8098f2b2fd63dac7",
@@ -228,7 +228,7 @@
   "clause_that_reaches_it": "Where an action is complex or its consequences are confusing, that warrants an additional confirmation prompt.",
   "why_in_scope": "The behaviour itself — restoring the pre-accept text over whatever is there now — is destructive of intervening edits, which is the confusing consequence R22's escalation clause is about. It is gated behind a confirm whose message states that consequence in the writer's terms ('Edits made since the accept will be lost'). The dropped userResponse is the same shape as M5-AN-037 and is carried there rather than here.",
   "intent_expressed_when": "contemporaneous — the writer confirmed the alert",
-  "call_path": "AnnotationsPane → Revert → revertConfirm ('Revert anyway') → Document.revertAcceptedAnnotation",
+  "call_path": "To resolve row (filed against AnnotationsPane, since replaced) → Revert → revertConfirm ('Revert anyway') → Document.revertAcceptedAnnotation",
   "violation_or_enhancement": "neither"
  },
  {
@@ -258,7 +258,7 @@
   "clause_that_reaches_it": "Controls are unambiguous and DO WHAT THEY SAY.",
   "why_in_scope": "Unchanged in scope — the Edit menu reads 'Undo Withdraw Annotation' and the writer's expectation came from that wording. WHY_IT_VIOLATED: annotationReopen is one op kind serving two inverses and AnnotationDeriver reads every reopen through BOTH the withdraw-state pass and the lifecycle pass, so the reopen undoing a withdrawal also cancelled an archive or rejection the writer had made separately and never asked to undo — one ⌘Z taking two of their decisions, the shape CLAUDE.md's tripwire 32 records on the canvas arriving in the annotation layer. As of the fix the withdraw captures the status it was sitting on and re-applies it after the reopen, so the note comes back as the writer left it. The op kind still serves both inverses and the deriver still reads it as both: that is correct for the pane's own Reopen and the phone's, and RULING-8's sameness clause distinguishes them — the writer asking 'reopen this' and the writer asking 'undo my delete' are not the same question. Fixing it in AnnotationInverse would have answered both with one answer and broken the first.",
   "intent_expressed_when": "contemporaneous — the writer pressed ⌘Z once, for one action",
-  "call_path": "AnnotationsPane → own row → Archive → trash affordance ('Delete your annotation') → ⌘Z → Document.reopenAnnotation → AnnotationInverse.reopenOp(undoing: .annotationWithdraw) → one annotationReopen op that both passes of the deriver honour",
+  "call_path": "To resolve row (filed against AnnotationsPane, since replaced) → own row → Archive → trash affordance ('Delete your annotation') → ⌘Z → Document.reopenAnnotation → AnnotationInverse.reopenOp(undoing: .annotationWithdraw) → one annotationReopen op that both passes of the deriver honour",
   "violation_or_enhancement": "violation",
   "fix": {
    "commit": "234eb143d0e9116c90d070b7dd2f692e1efe7e9e",
@@ -290,7 +290,7 @@
   "clause_that_reaches_it": "Any archived or rejected annotation can be reopened by the writer from the annotations pane. Resolution is the writer's to reverse — whether Maugham made it or they did. A single undo immediately afterwards is not a recovery route; it expires. The pane action does not.",
   "why_in_scope": "The ruling implemented verbatim: the Reopen affordance on every archived/rejected row, backed by the undoable wrapper whose ⌘Z re-applies the prior resolution with its reason intact (RULING-31 riding the same fix, filed at M5-AN-055). The recorded traps were respected: the reopen op is the factory's own kind (M5-AN-036's double-inverse untouched) and the rejection reason survives (GAP-A3 closed by design, not lost by accident).",
   "intent_expressed_when": "contemporaneous — the writer is looking at a resolved note they want back",
-  "call_path": "AnnotationsPane → 'show all statuses' → any archived or rejected row → no affordance exists. `reopenAnnotation` is reachable only via ⌘Z immediately after the resolution, which RULING-29 states is not a recovery route because it expires.",
+  "call_path": "To resolve's Settled section, on the piece open in the window → an archived or rejected row → Reopen → ResolveNoteVerbs.reopen → Document.reopenAnnotation(id:undoManager:). (As filed against AnnotationsPane, whose resolved rows offered no way back: `reopenAnnotation` was reachable only via ⌘Z immediately after the resolution, which RULING-29 states is not a recovery route because it expires.)",
   "violation_or_enhancement": "violation",
   "fix": {
    "commit": "5ea5b8604eeaf4beeac0a3d353d6be4523be9375",
@@ -393,7 +393,7 @@
   "clause_that_reaches_it": "A suggestion whose quoted phrase can no longer be found in the writer's paragraph MUST NOT be applied. It is refused, the writer is told why, and they may ask again. Maugham never guesses where an AI-authored change belongs.",
   "why_in_scope": "The headline case verbatim: the span no longer resolves against the current paragraph, and the accept now refuses at the layer that computes the splice — before any op is appended — with the refusal surfaced on the pane and mirrored on the phone through the same shared SuggestionSplice.attempt. The ruling's consequence clause ('a suggestion the writer still wants becomes unusable after any nearby edit — accepted deliberately') is now the shipped behaviour.",
   "intent_expressed_when": "contemporaneous — the writer clicked Accept",
-  "call_path": "MCP add_suggested_change with a quote → AnnotationsPane row → the writer rewrites the sentence → Accept (via the stale confirm's 'Apply anyway', or with no confirm at all inside the burst window, M5-AN-050) → Document.acceptAnnotation → SuggestionSplice.apply → SpanAnchorResolver returns nil → `return bare`",
+  "call_path": "MCP add_suggested_change with a quote → To resolve row (filed against AnnotationsPane, since replaced) → the writer rewrites the sentence → Accept (via the stale confirm's 'Apply anyway', or with no confirm at all inside the burst window, M5-AN-050) → Document.acceptAnnotation → SuggestionSplice.apply → SpanAnchorResolver returns nil → `return bare`",
   "violation_or_enhancement": "violation",
   "fix": {
    "commit": "2d458c8f304a06eee4f887b8a10aeeb63271fbfe",
@@ -410,7 +410,7 @@
   "clause_that_reaches_it": "It is refused, the writer is told why, and they may ask again.",
   "why_in_scope": "The gate half: the staleness cache still lags (M5-AN-005's mechanism, deliberately untouched) but the lag is now advisory — the accept re-resolves against CURRENT text whatever the cache says, and the pane's performAccept surfaces the refusal rather than try?-swallowing it. RULING-19's layering: the entry point tells, the lower layer protects.",
   "intent_expressed_when": "contemporaneous — the writer clicked Accept moments after editing the paragraph",
-  "call_path": "AnnotationsPane renders (cache warm) → writer types (setFullText, no invalidation) → pane re-renders, isStale still false → Accept → no staleConfirm → Document.acceptAnnotation",
+  "call_path": "To resolve row (filed against AnnotationsPane, since replaced) renders (cache warm) → writer types (setFullText, no invalidation) → pane re-renders, isStale still false → Accept → no staleConfirm → Document.acceptAnnotation",
   "violation_or_enhancement": "violation",
   "fix": {
    "commit": "2d458c8f304a06eee4f887b8a10aeeb63271fbfe",
@@ -505,7 +505,7 @@
   "clause_that_reaches_it": "Maugham should never surprise the writer. Controls are unambiguous and DO WHAT THEY SAY.",
   "why_in_scope": "⌘Z is a control whose label states its subject, and after a non-suggestion accept it named that accept while reversing the writer's typing — the outcome differing from what the writer understood, which is R22's whole scope. Denver ruled it a fix rather than a blessing on 2026-08-18. The drifted undo's decline is R22's other half (the M5-AN-019/029/031/036 shape): it says why rather than doing nothing quietly.",
   "intent_expressed_when": "contemporaneous — Denver's 2026-08-18 ruling on the M3 handoff's carried shape",
-  "call_path": "AnnotationsPane / EditorHost margin card / DiagnosticsPane 'Got it' → Document.acceptAnnotation(id:userResponse:undoManager:) → OpUndoRegistrar.register → Document.reopenAcceptedTextlessAnnotation",
+  "call_path": "To resolve row (filed against AnnotationsPane, since replaced) / EditorHost margin card / To resolve finding row (was DiagnosticsPane) 'Got it' → Document.acceptAnnotation(id:userResponse:undoManager:) → OpUndoRegistrar.register → Document.reopenAcceptedTextlessAnnotation",
   "violation_or_enhancement": "enhancement — the fix of a filed shape"
  },
  {
@@ -515,7 +515,7 @@
   "clause_that_reaches_it": "Controls are unambiguous and DO WHAT THEY SAY.",
   "why_in_scope": "The Edit menu reads 'Undo Stet Annotation' — Maugham labelling an action with its subject — and the writer's expectation came from that wording. WHY_IT_VIOLATED: the undo ended in a bare `reopenAnnotation(id:)`, whose only outcome is `.open`, so a ⌘Z aimed at the stet also cancelled the accept, rejection or archive underneath it and discarded the reply the writer had typed into Reply… — one control reversing two of the writer's decisions, which is exactly R22's scope (the outcome differing from what the writer understood) and exactly M5-AN-036's shape one verb over. As of the fix the stet captures the status it was placed on and re-applies it after the reopen, so the note comes back as the writer left it. The verb stays permissive on the way IN — the deriver's latest-lifecycle-op-wins rule settles a stet over an earlier resolution, and M5-AN-035's parity with reject depends on that — which is why the obligation is filed against the undo rather than against the verb. RULING-8's sameness clause keeps `AnnotationInverse.reopenOp` out of it: 'reopen this' and 'undo my stet' are not the writer asking the same question, and answering both in the factory would break the phone's Reopen, which has no undo.",
   "intent_expressed_when": "contemporaneous — the writer pressed ⌘Z once, for one action",
-  "call_path": "AnnotationsPane row (show-resolved on, an accepted comment → `showsReopen` false → `dispositions` → Stet) / EditorHost margin card / the bulk bar → Document.stetAnnotation(id:userResponse:undoManager:) → OpUndoRegistrar.register → ⌘Z → Document.reopenAnnotation(id:) then Document.appendLifecycleOp restoring the prior status",
+  "call_path": "To resolve row (filed against AnnotationsPane, since replaced) (Settled on the open piece, an accepted comment → `showsReopen` false → `dispositions` → Stet) / EditorHost margin card / the bulk bar → Document.stetAnnotation(id:userResponse:undoManager:) → OpUndoRegistrar.register → ⌘Z → Document.reopenAnnotation(id:) then Document.appendLifecycleOp restoring the prior status",
   "violation_or_enhancement": "violation",
   "fix": {
    "commit": "ce487146d499d0425a42b4696646be86e97b7dfd",
@@ -532,7 +532,7 @@
   "clause_that_reaches_it": "Controls are unambiguous and DO WHAT THEY SAY.",
   "why_in_scope": "The writer pressed ⌘Z once, on a menu item naming the batch's verb, and the sentence Maugham answered with described ONE note. WHY_IT_VIOLATED: the expectation formed from that wording (‘my undo did not happen’, singular) differed from the outcome (two notes refused, one reopened), which is R22's stated scope exactly — the writer forms an expectation from what Maugham said and the outcome differs from it. It is M5-AN-019's decline one layer out: that claim made the refusal audible, this one makes it TRUE about how many. The shape is not invented here — RULING-32 already settled that a thing which can happen N times per writer action arrives as one quiet sentence carrying N, at a boundary rather than in the moment; R32's own scope is the typing sweep, so it is cited as the form the fix takes and R22 is the clause that reaches the case. The singular wording is unchanged on purpose: a one-note decline was already honest, and R22 is about the mismatch, not about rewriting sentences that never had one.",
   "intent_expressed_when": "contemporaneous — the writer pressed ⌘Z once, for one action",
-  "call_path": "AnnotationsPane bulk bar (Stet / Accept / a triage mark over a multi-note selection) → AnnotationBulkActions.perform → Document.stetAnnotation / acceptAnnotation / triageAnnotation (or editReviewerAnnotation from a row) → OpUndoRegistrar.register ×N → one ⌘Z → each closure's drift guard → Document.declineUndo(_:) → one Document.notifyWriter at the hop → MaughamEvent.postNotice → RewindModifier's toast",
+  "call_path": "To resolve row (filed against AnnotationsPane, since replaced) bulk bar (Stet / Accept / a triage mark over a multi-note selection) → AnnotationBulkActions.perform → Document.stetAnnotation / acceptAnnotation / triageAnnotation (or editReviewerAnnotation from a row) → OpUndoRegistrar.register ×N → one ⌘Z → each closure's drift guard → Document.declineUndo(_:) → one Document.notifyWriter at the hop → MaughamEvent.postNotice → RewindModifier's toast",
   "violation_or_enhancement": "violation",
   "fix": {
    "commit": "0405364f511000fa317628423147bb6f294fd787",
@@ -549,7 +549,7 @@
   "clause_that_reaches_it": "Controls are unambiguous and DO WHAT THEY SAY.",
   "why_in_scope": "The Edit menu read 'Undo Reject Annotation' and the writer's expectation came from that wording. WHY_IT_VIOLATED: the undo dispatched on whatever the note had become rather than on the reject it named, so over a note archived since it undid an ARCHIVE, and over a note withdrawn since it RESTORED a deletion — an outcome unlike the one the label promised, and silent. As of the fix the undo acts only on the resolution it wrote and says so when that resolution is gone; the pane Reopen's undo is held to the same rule from the other side. M5-AN-019's and M5-AN-060's shape at the remaining two resolutions and the Reopen.",
   "intent_expressed_when": "contemporaneous — the writer pressed ⌘Z on a menu item naming the act",
-  "call_path": "AnnotationsPane row → Reject / Archive (or Reopen) → Document.rejectAnnotation / archiveAnnotation / reopenAnnotation(id:undoManager:) → OpUndoRegistrar.register → ⌘Z → the closure's status re-check → Document.declineUndo(.reject / .archive / .reopen) → one Document.notifyWriter at the hop → RewindModifier's toast",
+  "call_path": "To resolve row (filed against AnnotationsPane, since replaced) → Reject / Archive (or Reopen) → Document.rejectAnnotation / archiveAnnotation / reopenAnnotation(id:undoManager:) → OpUndoRegistrar.register → ⌘Z → the closure's status re-check → Document.declineUndo(.reject / .archive / .reopen) → one Document.notifyWriter at the hop → RewindModifier's toast",
   "violation_or_enhancement": "violation",
   "fix": {
    "commit": "15724bca",
@@ -566,7 +566,7 @@
   "clause_that_reaches_it": "Controls are unambiguous and DO WHAT THEY SAY.",
   "why_in_scope": "The Edit menu reads 'Undo Reject Annotation' / 'Undo Archive Annotation' and the writer's expectation came from that wording. WHY_IT_VIOLATED: the undo ended in a bare `reopenAnnotation(id:)`, whose only outcome is `.open`, so over a note the writer had already answered (the manuscript allows answering over an answer) one ⌘Z reversed the rejection or archive AND the accept and reply underneath it — two decisions under a label naming one. M5-AN-060's defect at the two remaining resolutions, found during the figure-notes work (#128 item 1), whose figure verbs already put the displaced answer back (M5-AN-065). As of the fix the undo puts back the answer the decision displaced, through the same helper as stet's.",
   "intent_expressed_when": "contemporaneous — the writer pressed ⌘Z once, for one action",
-  "call_path": "AnnotationsPane row / EditorHost margin card → Document.rejectAnnotation / archiveAnnotation(…undoManager:) → Document.registerResolutionUndo → OpUndoRegistrar.register → ⌘Z → Document.reopenAnnotation(id:) then Document.appendLifecycleOp restoring the prior status",
+  "call_path": "To resolve row (filed against AnnotationsPane, since replaced) / EditorHost margin card → Document.rejectAnnotation / archiveAnnotation(…undoManager:) → Document.registerResolutionUndo → OpUndoRegistrar.register → ⌘Z → Document.reopenAnnotation(id:) then Document.appendLifecycleOp restoring the prior status",
   "violation_or_enhancement": "violation",
   "fix": {
    "commit": "a013ec7a",
@@ -634,7 +634,7 @@
   "clause_that_reaches_it": "When the cell already holds the suggestion's value, Accept marks the note accepted and writes nothing to the cell. Figures now. The manuscript too if the same sequence reproduces there",
   "why_in_scope": "The sequence reproduced in the manuscript (Task 5), so the clause's manuscript half applies: the paragraph already holds the suggested text (the splice is in place, or the paragraph already reads as the suggestion) and Accept writes no text.",
   "intent_expressed_when": "contemporaneous — the writer's second Accept",
-  "call_path": "AnnotationsPane / margin card Accept → Document.acceptAnnotation → SuggestionSplice.planAccept; the phone's AnnotationWriter.makeAccept",
+  "call_path": "To resolve row (filed against AnnotationsPane, since replaced) / margin card Accept → Document.acceptAnnotation → SuggestionSplice.planAccept; the phone's AnnotationWriter.makeAccept",
   "violation_or_enhancement": "violation",
   "fix": {
    "commit": "f5f12108 56f6cd55 128174cd 24d6349a 18b28714 d6ba45d1",
@@ -651,7 +651,7 @@
   "clause_that_reaches_it": "Controls are unambiguous and DO WHAT THEY SAY.",
   "why_in_scope": "The pane's Revert and the phone's Reopen & Revert say they take the accept back; pressed over a status-only accept they silently did nothing.",
   "intent_expressed_when": "contemporaneous — the writer's Revert",
-  "call_path": "AnnotationsPane Revert → Document.revertAcceptedAnnotation → SuggestionSplice.revertPlan; phone Reopen & Revert → AnnotationWriter.makeRevert",
+  "call_path": "To resolve row (filed against AnnotationsPane, since replaced) Revert → Document.revertAcceptedAnnotation → SuggestionSplice.revertPlan; phone Reopen & Revert → AnnotationWriter.makeRevert",
   "violation_or_enhancement": "violation",
   "fix": {
    "commit": "f5f12108 56f6cd55",
@@ -750,7 +750,7 @@
  {
   "claim_id": "M5-AN-090",
   "outcome": "NO_RULING_REACHES",
-  "reason": "No ruling states where a Research Replace splices, what a stale match does, whether Replaces take turns or what happens to the results after one; RULING-56 versions the text Replace writes (M5-AN-070) and is not about which text it replaces. Re-finding by ordinal, refusing a stale match, running Replaces one at a time (Replace All included), refreshing the results after each and skipping a file whose query is gone are the coordinator's calls, hardening 2026-11-16, not Denver's."
+  "reason": "No ruling states where a Research Replace splices, what a stale match does, whether Replaces take turns or what happens to the results after one; RULING-56 versions the text Replace writes (M5-AN-070) and is not about which text it replaces. Re-finding by ordinal, falling back by path, range and line for a click whose results were refreshed, in a document unchanged since (hardening 2026-11-17), refusing a stale match, running Replaces one at a time (Replace All included), refreshing the results after each and skipping a file whose query is gone are the coordinator's calls, hardening 2026-11-16, not Denver's."
  },
  {
   "claim_id": "M5-AN-091",
@@ -760,7 +760,7 @@
  {
   "claim_id": "M5-AN-092",
   "outcome": "NO_RULING_REACHES",
-  "reason": "RULING-24 and ADR 0034 say what the assistant's writes keep once a note exists; no ruling states whose text a note's first body is recorded as, or what a body write that does not land does to the call or to the note just created. Recording add_note's and an MCP promotion's body as the assistant's, and throwing before the inbox flip (leaving the empty note), are the coordinator's calls, hardening 2026-11-16, not Denver's."
+  "reason": "RULING-24 and ADR 0034 say what the assistant's writes keep once a note exists; no ruling states whose text a note's first body is recorded as, or what a body write that does not land does to the call or to the note just created. Recording add_note's and an MCP promotion's body as the assistant's, throwing before the inbox flip, and taking back the empty note the call created (hardening 2026-11-17, #148 D1; a note holding bytes by then is left and named), are the coordinator's calls, hardening 2026-11-16 and 2026-11-17, not Denver's."
  },
  {
   "_summary": {

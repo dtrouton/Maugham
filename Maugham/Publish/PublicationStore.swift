@@ -24,9 +24,20 @@ public final class PublicationStore {
     /// `PartitionedJSONLFile` rather than restating it.
     public nonisolated static let stemPath = ".maugham/publications"
 
-    public init(projectURL: URL, presenter: NSFilePresenter? = nil) {
+    /// The catalogue's read, run detached by `load` — `catalogue` in
+    /// production; a test hands in one that also notes where it ran.
+    typealias Read = @Sendable (_ projectURL: URL, _ presenter: NSFilePresenter?) throws -> [Publication]
+    private let read: Read
+
+    public convenience init(projectURL: URL, presenter: NSFilePresenter? = nil) {
+        self.init(projectURL: projectURL, presenter: presenter,
+                  read: { try PublicationStore.catalogue(in: $0, presenter: $1) })
+    }
+
+    init(projectURL: URL, presenter: NSFilePresenter?, read: @escaping Read) {
         self.projectURL = projectURL
         self.presenter = presenter
+        self.read = read
     }
 
     /// RULING-54: an unreadable-yet-present publication device file THROWS,
@@ -49,11 +60,29 @@ public final class PublicationStore {
         }
     }
 
+    /// **Read off the main actor** (shell p5a closing round B): the folder
+    /// listing and every device file's read run detached, so a slow folder —
+    /// a macOS consent prompt, an iCloud folder not yet downloaded — never
+    /// holds a window's first frame. The result is the caller's, on its actor.
     public func load() async throws -> [Publication] {
+        let projectURL = self.projectURL
+        let presenter = self.presenter
+        let read = self.read
+        return try await Task.detached(priority: .userInitiated) {
+            try read(projectURL, presenter)
+        }.value
+    }
+
+    /// The catalogue, read: every device file, merged. Never call it on the
+    /// main actor (`load` runs it detached).
+    nonisolated static func catalogue(in projectURL: URL,
+                                      presenter: NSFilePresenter?) throws -> [Publication] {
         var merged: [Publication] = []
         for url in Self.fileURLs(in: projectURL) {
-            let store = JSONLAppendStore<Publication>(fileURL: url, presenter: presenter)
-            do { merged.append(contentsOf: try await store.loadStrict()) }
+            do {
+                merged.append(contentsOf: try JSONLAppendStore<Publication>.loadStrictPlain(
+                    fileURL: url, presenter: presenter))
+            }
             catch {
                 throw ReadError.unreadableFile(
                     name: url.lastPathComponent,

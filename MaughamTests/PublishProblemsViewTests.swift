@@ -92,6 +92,35 @@ final class PublishProblemsViewTests: XCTestCase {
 
     /// R-S14: a problem found in the `sr` body of a two-body compile carries
     /// `sr` onto its row, and its reveal is the translated reveal in `sr`.
+    /// **A problem with no paragraph opens its piece** (shell p1 final fix,
+    /// C1): the list is only drawn over an edition, and the click rule there
+    /// moves only the faces. The problem is a place: its document piece takes
+    /// the centre and the faces; a Part named instead opens as a click would.
+    func test_aProblemWithNoParagraphOpensItsPiece() {
+        let structure: [StructureItem] = [
+            StructureItem(id: "part-1", title: "Part One", type: .group, children: [
+                StructureItem(id: "ch-1", title: "One", type: .document, path: "one.md"),
+            ]),
+        ]
+        for faces: BinderSubject in [.edition(language: "sr"), .item("ch-1"), .project] {
+            let current = WindowSubject(open: .edition(language: "sr"), faces: faces,
+                                        beside: .research("r-1"))
+            XCTAssertEqual(
+                PublishProblems.destination(revealing: .item("ch-1"), current: current,
+                                            structure: structure, projectType: .novel),
+                WindowSubject(open: .item("ch-1"), faces: .item("ch-1"),
+                              beside: .research("r-1"), besideIsLatest: false),
+                "faces \(faces): the problem's piece opens in the centre")
+        }
+        XCTAssertEqual(
+            PublishProblems.destination(
+                revealing: .item("part-1"),
+                current: WindowSubject(open: .edition(language: "sr"),
+                                       faces: .edition(language: "sr")),
+                structure: structure, projectType: .novel).open,
+            .item("part-1"), "a Part opens as its click does")
+    }
+
     func test_aProblemInATranslatedBodyRevealsInThatEdition() {
         let sr = Diagnostic(level: .error, file: nil, line: nil,
                             message: "[sr] No section is labelled @sec:intro.",
@@ -150,31 +179,31 @@ final class PublishProblemsViewTests: XCTestCase {
 
     // MARK: - The arm's place in the centre (R-S12)
 
-    func test_problemsOutrankTheRoundAndTheGateAndDrawOverAChapter() {
+    func test_problemsOutrankTheRoundAndTheGateWhateverTheFacesAreOn() {
         let round = PublishCentreModelTests.round()
         let proposal = PublishCentreModelTests.proposal()
-        for subject: BinderSubject? in [nil, .project, .item("chapter-1")] {
+        for faces: BinderSubject in [.edition(language: "es"), .project, .item("chapter-1")] {
             XCTAssertEqual(
                 ProjectWindow.publishCentre(
-                    persona: .publish, subject: subject,
-                    structure: CentreRouteTests.structure,
+                    subject: WindowSubject(open: .edition(language: "es"), faces: faces),
                     preview: .nothingCompiled, proposal: proposal, round: round,
                     problems: Self.problems),
-                .problems(Self.problems), "\(String(describing: subject))")
+                .problems(Self.problems), "faces on \(faces)")
         }
         XCTAssertNil(ProjectWindow.publishCentre(
-            persona: .author, subject: nil, structure: CentreRouteTests.structure,
-            preview: .nothingCompiled, problems: Self.problems),
-            "the persona guard applies to every arm")
+            subject: .book, preview: .nothingCompiled, problems: Self.problems),
+            "the edition guard applies to every arm")
         XCTAssertEqual(
             ProjectWindow.centreRoute(
-                persona: .publish, subject: .item("chapter-1"), projectType: .novel,
-                structure: CentreRouteTests.structure, showsPaletteWall: false,
+                subject: WindowSubject(open: .edition(language: "es"),
+                                       faces: .item("chapter-1")),
+                bookView: .outline, projectType: .novel,
+                structure: CentreRouteTests.structure,
                 preview: .nothingCompiled, problems: Self.problems),
-            .editor(altitude: false, cover: .publishProblems(Self.problems)))
+            .editor(altitude: .outline, cover: .publishProblems(Self.problems)))
     }
 
-    func test_showProblemsClearsTheOtherShowsAndBackOrAPersonaChangeClearsIt() {
+    func test_showProblemsClearsTheOtherShowsAndBackOrLeavingTheEditionClearsIt() {
         let model = PublishCentreModel()
         model.show(round: PublishCentreModelTests.round())
         model.show(problems: Self.problems)
@@ -191,7 +220,7 @@ final class PublishProblemsViewTests: XCTestCase {
 
         model.show(problems: Self.problems)
         model.clearDecisions()
-        XCTAssertNil(model.selectedProblems, "a persona change clears it")
+        XCTAssertNil(model.selectedProblems, "leaving the edition clears it")
     }
 
     /// I3: a recompile's problems reach the list only while it is showing.

@@ -871,8 +871,8 @@ extension TranslatorOrchestrator.Environment {
                             // reads `language` back out of and ignores the rest
                             // of.
                             toolArgs: toolArgs,
-                            // **The exact label IS the filter bucket**
-                            // (`AnnotationAuthorFilter.distinctLabels`), which
+                            // **The exact label is the row's byline**
+                            // (`AnnotationAuthorPresentation.label`), which
                             // is the feature: this edition's questions gather
                             // under its translator's name. `.claude` keeps
                             // `isClaude` true, so every existing Claude

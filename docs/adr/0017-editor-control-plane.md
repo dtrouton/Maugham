@@ -1,6 +1,6 @@
 # 0017 — Editor control plane: an observed model, not `updateNSView`/notifications
 
-- **Status:** Accepted
+- **Status:** Accepted; its `maughamToggleReviewMode` receiver is superseded by [ADR 0039](0039-read-through.md) (Manual Review Mode deleted; read-through's synchronous `.maughamSetReadThrough` observer keeps the Bug B shape)
 - **Date:** 2026-06-27
 - **Design detail:** `docs/superpowers/specs/2026-06-27-editor-control-plane-design.md`
 
@@ -70,7 +70,8 @@ Two invariants keep it fast and safe:
 - **The two state-propagation notifications collapse into the observed model.**
   `maughamReviewPostureResolved` is deleted; `maughamReviewAnnotationsChanged`
   collapses into the model's annotation set. The third — `maughamToggleReviewMode`
-  (⌘⌥R) — is a genuine *menu command*, not a propagation bypass, and the
+  (⌘⌥R; *superseded by ADR 0039: deleted with Manual Review Mode, its synchronous
+  flip now read-through's `.maughamSetReadThrough` observer*) — is a genuine *menu command*, not a propagation bypass, and the
   coordinator KEEPS observing it for a **synchronous** membrane flip (the Bug B
   fix: a fast Enter right after toggling review ON must not slip through, so it
   cannot wait for the model's async observation hop). It converges with the model

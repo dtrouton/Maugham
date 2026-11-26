@@ -22,6 +22,11 @@ final class EditorHostLoadGeneration {
     func abandon() { current += 1 }
 }
 
+/// Who answers a keystroke the manuscript view refused
+/// (`EditorHost.typingRefusal`): the recovery banner, the quiet line over
+/// the text (read-through, or a translation), or nobody but AppKit's beep.
+enum TypingRefusal: Equatable { case recovery, readThrough, none }
+
 /// Hosts the EditorSurface for a single selected document.
 /// Picks the WritingMode by file extension. As of Stage 2 of the
 /// document-first-class refactor (T10), the editor binds to a per-document
@@ -159,7 +164,7 @@ struct EditorHost: View {
     }
     @State private var loadOutcome: LoadOutcome? = nil
 
-    /// The derived translated surface shown in read-only translation review
+    /// The derived translated surface shown in a read-only translation
     /// (Task 11), or nil when the editor shows the source manuscript. This is
     /// DELIBERATE one-way threaded state (tripwire 6): it is recomputed ONLY on
     /// explicit events — `control.translationLanguage` changing, or an
@@ -245,12 +250,12 @@ struct EditorHost: View {
                     // (tripwires 2/3/6/7) — it stays inline here, NOT packaged into
                     // the configuration.
                     text: Binding(
-                        // In translation review the surface shows the derived
+                        // While a translation is read the surface shows the derived
                         // translated buffer, not the source manuscript.
                         get: { translatedSurfaceText ?? doc.displayText },
                         set: { newText in
                             // Defense in depth: the coordinator membrane already
-                            // blocks every mutation in translation review, so no
+                            // blocks every mutation while a translation is read, so no
                             // set should reach here — but if one did, it must
                             // NEVER write the translated buffer back onto the
                             // source op log.
@@ -271,6 +276,22 @@ struct EditorHost: View {
                 // tears the banner down and its `.onDisappear` cancels the
                 // readability watch. Nothing renders for an ordinary document.
                 .safeAreaInset(edge: .top) { recoveryBannerInset(doc: doc) }
+                // A piece read in a language says so over its text, quietly:
+                // read-only, what to do instead, what is out of date, and the
+                // press back to Source (shell p4 Task 8). It reads the control
+                // and feeds nothing back.
+                // A piece in read-through says so the same way, with the one
+                // press back to writing (shell read-through Task 3) — never
+                // both lines: over a translation the language's stands.
+                .safeAreaInset(edge: .top, spacing: 0) {
+                    if let language = control.translationLanguage {
+                        ReadingLanguageLine(language: language,
+                                            entries: control.translationBadges.entries,
+                                            window: window)
+                    } else if let offer = control.readThroughLineOffer(docId: doc.docId) {
+                        ReadThroughLine(offer: offer, window: window)
+                    }
+                }
                 .id(path)
                 // Crafted review render (Component F): the open-annotation set now
                 // flows through the control model (ADR 0017), not a per-prop push.
@@ -278,24 +299,23 @@ struct EditorHost: View {
                 // `control.reviewAnnotations` whenever it changes; the coordinator
                 // observes the model and reconciles via `applyControl` →
                 // `setReviewAnnotations`. Reading `doc.annotationsVersion` /
-                // `control.isReviewMode` in these closures is safe (unlike reading
+                // `control.reviewRenders(docId:)` in these closures is safe (unlike reading
                 // `displayText`): it never feeds the text binding, so the
-                // cursor-race triad (tripwires 6/7) stays closed. An AnnotationsPane
+                // cursor-race triad (tripwires 6/7) stays closed. An Annotations pane
                 // edit bumps `annotationsVersion` on the SAME registered Document
                 // instance, so the first `.onChange` carries it through.
                 .onChange(of: doc.annotationsVersion) { _, _ in
-                    control.reviewAnnotations = control.isReviewMode
-                        ? doc.annotations(filter: AnnotationFilter(statuses: [.open]))
-                        : []
-                    // While in translation review, a source-side edit (which
+                    control.reviewAnnotations = control.reviewRenders(docId: doc.docId)
+                        ? Self.reviewRenderSet(doc) : []
+                    // While a translation is read, a source-side edit (which
                     // flips paragraphs stale) must re-derive the surface. Note
                     // this fires on annotation-set changes only; a fresh
                     // translation WRITE (write_translation) does not bump
                     // annotationsVersion — that refresh arrives via the
                     // maughamTranslationDidUpdate observer below.
-                    if control.translationLanguage != nil {
-                        recomputeTranslatedSurface(doc: doc)
-                    }
+                    // A source-side edit re-derives a translated surface on
+                    // the trailing edge of the refresh below (fix I4), never
+                    // here, synchronously, per burst.
                 }
                 // A retranslation landed via write_translation for THIS doc:
                 // re-derive so the read-only surface + badges refresh live
@@ -312,14 +332,25 @@ struct EditorHost: View {
                     guard control.translationLanguage != nil,
                           note.userInfo?["document_id"] as? String == doc.docId
                     else { return }
-                    recomputeTranslatedSurface(doc: doc)
+                    control.translationRevision += 1
                 }
-                .onChange(of: control.isReviewMode) { _, nowReview in
-                    control.reviewAnnotations = nowReview
-                        ? doc.annotations(filter: AnnotationFilter(statuses: [.open]))
-                        : []
+                // **A translated surface refreshes on a trailing edge, off the
+                // main actor** (fix I4): a burst of source edits or of
+                // translation writes coalesces to one read, the read and the
+                // derive run detached, and an unchanged surface swaps nothing.
+                // The explicit events (a language, the source-under setting,
+                // a bind) stay immediate.
+                .task(id: TranslatedSurfaceRefresh(annotations: doc.annotationsVersion,
+                                                   translations: control.translationRevision)) {
+                    guard control.translationLanguage != nil else { return }
+                    try? await Task.sleep(for: .milliseconds(Self.surfaceRefreshDelayMs))
+                    guard !Task.isCancelled else { return }
+                    await refreshTranslatedSurface(doc: doc)
                 }
-                // Dedicated one-way recompute: entering translation review
+                .onChange(of: control.reviewRenders(docId: doc.docId)) { _, nowReview in
+                    control.reviewAnnotations = nowReview ? Self.reviewRenderSet(doc) : []
+                }
+                // Dedicated one-way recompute: reading a translation
                 // (language becomes non-nil) derives the surface once; exiting
                 // (nil) drops it so `text` reverts to `doc.displayText` and the
                 // existing applyExternalText site swaps the source buffer back in.
@@ -327,10 +358,14 @@ struct EditorHost: View {
                     recomputeTranslatedSurface(doc: doc)
                     figureCards.setReviewLanguage(language)
                 }
+                // The source under each paragraph turned on or off: the same
+                // one-way recompute, while a translation is up.
+                .onChange(of: control.showsSourceUnder) { _, _ in
+                    if control.translationLanguage != nil { recomputeTranslatedSurface(doc: doc) }
+                }
                 .onAppear {
-                    control.reviewAnnotations = control.isReviewMode
-                        ? doc.annotations(filter: AnnotationFilter(statuses: [.open]))
-                        : []
+                    control.reviewAnnotations = control.reviewRenders(docId: doc.docId)
+                        ? Self.reviewRenderSet(doc) : []
                     // A re-mount while a language is selected must restore the
                     // translated surface.
                     recomputeTranslatedSurface(doc: doc)
@@ -360,6 +395,15 @@ struct EditorHost: View {
         // ("can't type until I switch away and back"). Reads only manifest
         // state — no editor observable state (tripwire 6 stays closed).
         .onChange(of: currentItem?.path) { _, _ in
+            Task { await loadDocumentIfNeeded() }
+        }
+        // **A promotion gave a piece back** (shell p4 Task 11). It closed the
+        // piece's `Document` under this host; after a failure the piece is
+        // where it was, at the same path and id, so nothing above fires and
+        // the husk would stay bound to "Loading…". Loads only when the held
+        // Document is closed or stale (`needsReload`); reads only the store's
+        // counter (tripwire 6 stays closed).
+        .onChange(of: documentStore.promotionReturns) { _, _ in
             Task { await loadDocumentIfNeeded() }
         }
         // The reference index's manifest edges are the window's
@@ -577,11 +621,13 @@ struct EditorHost: View {
         guard let item = currentItem, let path = item.path else { return }
         let generation = loads.claim()
         do {
-            let doc = try await Document.load(
+            let doc = try await DocumentStore.loadManuscript(
+                path: path, title: item.title,
                 url: try store.resolvedProjectPath(path),
                 actor: .author, session: Self.sessionId,
                 presenter: documentStore.presenter,
-                recovery: .readOnlyPartial)
+                recovery: .readOnlyPartial,
+                through: documentStore)
             guard loads.isCurrent(generation) else {
                 await doc.close()
                 return
@@ -790,6 +836,8 @@ struct EditorHost: View {
                 sentenceFocus: userPreferences.sentenceFocus,
                 paragraphFocus: userPreferences.paragraphFocus,
                 showElementGutter: store.manifest.showElementGutter ?? true),
+            // What the binding's `get` serves (fix I1): the membrane follows it.
+            servesTranslatedSurface: translatedSurfaceText != nil,
             control: control,
             // Recovery spec §4: a read-only partial open refuses typing at the
             // AppKit level (Task 4) and answers the attempt by emphasising the
@@ -797,6 +845,10 @@ struct EditorHost: View {
             // the configuration this call site has always produced.
             readOnlyRecovery: doc.isReadOnlyRecovery,
             callbacks: .init(
+                // SOURCE carets both ways (fix 2, N6): the coordinator shows
+                // this one where the text it holds has it, and tells the
+                // source caret back — over a translation, the same
+                // paragraph's place — against the ranges of that text.
                 initialCursorLocation: doc.cursorLocation,
                 onCursorChanged: { offset in
                     doc.cursorLocation = offset
@@ -814,9 +866,19 @@ struct EditorHost: View {
                     onMetricsChanged?(metrics)
                     referenceIndex.noteSettled(docId: doc.docId, text: doc.displayText)
                 },
-                onTypingRefused: doc.isReadOnlyRecovery
-                    ? { recoveryBannerModel?.noteTypingRefused() }
-                    : nil),
+                // Every manuscript answers a refused keystroke: the recovery
+                // banner as ever, else the quiet line over the text pulses
+                // (`.maughamTypingRefused`) instead of AppKit's beep.
+                onTypingRefused: {
+                    switch Self.typingRefusal(
+                        isRecovery: doc.isReadOnlyRecovery,
+                        isInReadThrough: ReadThrough.isOn(doc.docId, in: control.readThroughDocIds),
+                        isReadingTranslation: control.translationLanguage != nil) {
+                    case .recovery: recoveryBannerModel?.noteTypingRefused()
+                    case .readThrough: MaughamEvent.post(.maughamTypingRefused, to: .keyWindow)
+                    case .none: NSSound.beep()
+                    }
+                }),
             paragraphProviders: .init(
                 wikiLinkResolver: wikiLinkResolver,
                 wikiLinkClickResolver: wikiLinkClickResolver,
@@ -824,6 +886,10 @@ struct EditorHost: View {
                 // window's screenplay re-parse can't relayout this editor or
                 // clobber its scene navigator (Channel A, ADR 0017 addendum).
                 scriptOriginProjectId: ProjectIdentifier.id(for: store.url),
+                // Where a pending place may land (`EditorControl.pendingPlace`).
+                documentId: doc.docId,
+                // The SOURCE's paragraph ranges: over a translation the
+                // coordinator reads its own buffer's (`paragraphRangeNow`).
                 paragraphRangeProvider: { paragraphId in
                     doc.displayRange(forParagraphId: paragraphId)
                 },
@@ -834,35 +900,9 @@ struct EditorHost: View {
                     return (paragraphId: pid,
                             offsetWithinParagraph: location - range.location)
                 },
-                checkboxToggleHandler: { paragraphId, offset, kind in
-                    // Mirror wiki-link click wiring: the flip goes through
-                    // Document.setParagraph, the standard mutation path.
-                    // Tripwire #7: this is NOT applyExternalText.
-                    guard let para = doc.paragraph(id: paragraphId) else { return }
-                    let flipped: String
-                    switch kind {
-                    case .markdown:
-                        flipped = MarkdownCheckboxScanner.flipBracket(
-                            in: para, atUTF16Offset: offset)
-                    case .fountain:
-                        flipped = FountainBoneyardScanner.flipTodoDone(
-                            in: para, atUTF16Offset: offset)
-                    }
-                    guard flipped != para else { return }
-                    // ⌘Z: a checkbox flip is text-is-state (no task op), so
-                    // undo is a guarded flip-back. `InlineToggleUndo` sets the
-                    // undo-coherent flag so the buffer replace this
-                    // setParagraph drives doesn't wipe the fresh registration.
-                    // `mayWrite` is the window's yield-aware posture (#74),
-                    // asked at the press and again inside every undo/redo.
-                    let docId = doc.docId
-                    InlineToggleUndo.perform(
-                        on: doc, paragraphId: paragraphId,
-                        prior: para, flipped: flipped, undoManager: um,
-                        mayWrite: { [weak postureStore = documentStore] in
-                            postureStore?.posture(forDocId: docId)
-                                .allows(.writeText) ?? false
-                        })
+                checkboxToggleHandler: { [documentStore] paragraphId, offset, kind in
+                    Self.toggleCheckbox(on: doc, paragraphId: paragraphId, offset: offset, kind: kind,
+                                        undoManager: um, documentStore: documentStore)
                 },
                 paragraphRangeAtLocation: { location in
                     doc.paragraphRange(at: location)
@@ -977,7 +1017,7 @@ struct EditorHost: View {
                     // Annotation creation is an op-log append, not a text
                     // mutation — it doesn't write the editor binding, so the
                     // applyExternalText tripwires (6/7) don't apply. The
-                    // AnnotationsPane re-renders automatically off the
+                    // Annotations pane re-renders automatically off the
                     // Document's `annotationsVersion` bump (invalidated
                     // inside addAnnotation). The handler is async so the
                     // coordinator can await this append, then re-pull the
@@ -993,8 +1033,8 @@ struct EditorHost: View {
                         authorName: userPreferences.collaboratorDisplayName,
                         // The pass the writer is working this piece through
                         // (M3 P2 Task 8), so the note lands in that pass's
-                        // queue. Nil when no pass is active — an unstamped
-                        // note is in every pass's queue, never in none.
+                        // queue. Nil when no pass is active: the note is the
+                        // writer's own (Mine in To resolve), in no pass.
                         reviewPassId: activeReviewPassId(doc.docId))
                 },
                 reviewParagraphTextProvider: { pid in
@@ -1005,6 +1045,7 @@ struct EditorHost: View {
                 reviewParagraphRangeProvider: { pid in
                     doc.displayRange(forParagraphId: pid)
                 },
+                marginParagraphRangesProvider: { doc.displayRanges() },
                 // Pull-on-entry: the coordinator invokes this ONLY when
                 // entering review (membrane toggle OR fresh launch), so it
                 // derives the current open annotations on demand without the
@@ -1012,10 +1053,7 @@ struct EditorHost: View {
                 // gating would defeat the purpose (the first toggle's entry
                 // happens while isReviewMode is still flipping). It's never
                 // called during authoring, so no per-keystroke derivation.
-                reviewAnnotationsProvider: {
-                    doc.annotations(
-                        filter: AnnotationFilter(statuses: [.open]))
-                },
+                reviewAnnotationsProvider: { Self.reviewRenderSet(doc) },
                 // Local reviewer name — gates Edit/Delete on margin cards.
                 reviewLocalAuthorName: { userPreferences.collaboratorDisplayName }),
             // Interactive margin-card actions (Part 1). Each is an op-log
@@ -1028,12 +1066,8 @@ struct EditorHost: View {
                         // `mayWrite` is the window's yield-aware posture
                         // (#79), asked at the press and again inside the
                         // suggestion's ⌘Z and ⇧⌘Z (`InlineToggleUndo`'s shape).
-                        try await doc.acceptAnnotation(
-                            id: id, undoManager: um,
-                            mayWrite: { [weak postureStore = documentStore, docId = doc.docId] in
-                                postureStore?.posture(forDocId: docId)
-                                    .allows(.writeText) ?? false
-                            })
+                        try await Self.acceptFromCard(id, on: doc, undoManager: um,
+                                                      documentStore: documentStore)
                     } catch let error as AnnotationAcceptError
                         where error == .suggestionAnchorLost {
                         // RULING-5's told-why half on the margin-card surface —
@@ -1052,7 +1086,7 @@ struct EditorHost: View {
                 },
                 reviewRejectHandler: { id in
                     // The card has no reasoning field; the reason-capture sheet
-                    // stays in the AnnotationsPane. A card-reject records no
+                    // stays in the Annotations pane. A card-reject records no
                     // reason (a follow-up could surface the sheet from here).
                     try? await doc.rejectAnnotation(id: id, undoManager: um)
                 },
@@ -1065,13 +1099,10 @@ struct EditorHost: View {
                 reviewArchiveHandler: { id in
                     try? await doc.archiveAnnotation(id: id, undoManager: um)
                 },
-                reviewReplyHandler: { id, reply in
+                reviewReplyHandler: { [documentStore] id, reply in
                     try? await doc.acceptAnnotation(
                         id: id, userResponse: reply, undoManager: um,
-                        mayWrite: { [weak postureStore = documentStore, docId = doc.docId] in
-                            postureStore?.posture(forDocId: docId)
-                                .allows(.writeText) ?? false
-                        })
+                        mayWrite: Self.mayWriteText(documentStore, docId: doc.docId))
                 },
                 reviewEditHandler: { id, newBody, newSuggested in
                     try? await doc.editReviewerAnnotation(
@@ -1109,34 +1140,90 @@ struct EditorHost: View {
             control.translationBadges = .empty
             return
         }
-        let records: [TranslationRecord]
-        do {
-            records = try TranslationStore.loadMerged(
-                forDocId: doc.docId, language: language, in: store.url)
-        } catch {
+        let derivedSurface = Self.derivedSurface(
+            records: Result { try TranslationStore.loadMerged(
+                forDocId: doc.docId, language: language, in: store.url) },
+            sequence: doc.sequence, paragraphs: doc.paragraphs, language: language,
+            showsSourceUnder: control.showsSourceUnder, isScreenplay: isScreenplay)
+        adopt(derivedSurface)
+    }
+
+    /// The trailing-edge refresh's delay (fix I4): longer than a typing
+    /// burst's flush interval, so a writer typing in another window costs a
+    /// reading window one refresh per pause, not one per burst.
+    static let surfaceRefreshDelayMs = 400
+
+    /// **The refresh, off the main actor** (fix I4): the source is snapshotted
+    /// here, the translation read and the surface derived detached, and the
+    /// result adopted only if nothing it was asked for has moved since.
+    private func refreshTranslatedSurface(doc: Document) async {
+        guard let language = control.translationLanguage else { return }
+        let shows = control.showsSourceUnder
+        let screenplay = isScreenplay
+        let sequence = doc.sequence, paragraphs = doc.paragraphs
+        let docId = doc.docId, url = store.url
+        let derived = await Task.detached(priority: .userInitiated) {
+            Self.derivedSurface(
+                records: Result { try TranslationStore.loadMerged(forDocId: docId, language: language, in: url) },
+                sequence: sequence, paragraphs: paragraphs, language: language,
+                showsSourceUnder: shows, isScreenplay: screenplay)
+        }.value
+        guard !Task.isCancelled, document === doc, control.translationLanguage == language,
+              control.showsSourceUnder == shows else { return }
+        adopt(derived)
+    }
+
+    /// Takes a derived surface: an unchanged one touches nothing, so no swap
+    /// and no restyle follow (fix I4).
+    private func adopt(_ derived: DerivedSurface) {
+        if translatedSurfaceText != derived.text { translatedSurfaceText = derived.text }
+        if control.translationBadges != derived.model { control.translationBadges = derived.model }
+    }
+
+    private var isScreenplay: Bool {
+        currentItem?.path.map { DocumentFormat.ofManuscript(path: $0).isScreenplay } ?? false
+    }
+
+    /// A translated surface and its badge model.
+    struct DerivedSurface: Equatable, @unchecked Sendable {
+        let text: String
+        let model: EditorControl.TranslationBadgeModel
+    }
+
+    /// **The read-only translated surface, derived** — pure over the records
+    /// read (or why they could not be), the source's order and text, the
+    /// language and the two display choices. Callable off the main actor.
+    nonisolated static func derivedSurface(
+        records: Result<[TranslationRecord], Error>, sequence: [String],
+        paragraphs: [String: String], language: String,
+        showsSourceUnder: Bool, isScreenplay: Bool
+    ) -> DerivedSurface {
+        let loaded: [TranslationRecord]
+        switch records {
+        case .success(let read): loaded = read
+        case .failure(let error):
             // **The pane says why instead of showing the source** (P2a D0). A
             // skipped actor file would render this document's paragraphs as
             // `missing` and fall back to source text — a read-only surface
             // that LOOKS like an untranslated manuscript, over a translation
             // that is sitting on disk intact. The refusal's own sentence names
             // the file, and the badges go empty so nothing claims coverage.
-            translatedSurfaceText = Self.translationSurfaceRefusal(error)
-            control.translationBadges = .empty
-            return
+            return DerivedSurface(text: translationSurfaceRefusal(error), model: .empty)
         }
         let derived = TranslationDeriver.derive(
-            records: records, sequence: doc.sequence,
-            paragraphs: doc.paragraphs, language: language)
+            records: loaded, sequence: sequence,
+            paragraphs: paragraphs, language: language)
         // The badge overlay measures ¶ ranges by accumulating each entry's OWN
         // text (TranslationBadgeLayout.ranges) rather than re-splitting a
         // joined string, so hand it the same per-block text the buffer swap
         // joins — same bytes as `translatedSurfaceText` below, just chunked
         // per paragraph (Task 12 fix round 1).
         //
-        let badgeEntries = Self.reviewBadgeEntries(from: derived.entries)
-        translatedSurfaceText = badgeEntries.map(\.text).joined(separator: "\n\n")
-        control.translationBadges = EditorControl.TranslationBadgeModel(
-            entries: badgeEntries, orphans: derived.orphans)
+        let badgeEntries = reviewBadgeEntries(
+            from: derived.entries, showsSourceUnder: showsSourceUnder, isScreenplay: isScreenplay)
+        return DerivedSurface(text: TranslationBadgeLayout.surface(entries: badgeEntries),
+                              model: EditorControl.TranslationBadgeModel(
+                                entries: badgeEntries, orphans: derived.orphans))
     }
 
     /// Every OTHER open document's live text, with its manuscript path — what
@@ -1153,33 +1240,144 @@ struct EditorHost: View {
     /// What the read-only translation surface shows when the read refuses
     /// (P2a D0). Pure + static so `EditorHostTranslationSurfaceTests` can pin
     /// that the file's own name reaches the writer without an AppKit surface.
-    static func translationSurfaceRefusal(_ error: Error) -> String {
+    nonisolated static func translationSurfaceRefusal(_ error: Error) -> String {
         (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
     }
 
-    /// Build the per-paragraph review entries from a derived translation. This
-    /// is the ONE place the review plane's text is constructed — the surface
-    /// buffer (`translatedSurfaceText`), the badge ranges, and the ⌘⌥L pane all
-    /// derive from these entry texts, so stripping inline task anchors here
-    /// keeps them byte-consistent and anchor-free. A `missing` paragraph falls
-    /// back to its source text, which can carry `<!--t-XXXX-->` anchors; without
-    /// this strip they'd render raw in the read-only surface. Pure + static so
-    /// `EditorHostTranslationSurfaceTests` can pin the anchor-free rendering
-    /// without an AppKit surface (mirrors `TranslationBadgeLayout.ranges`).
-    static func reviewBadgeEntries(
-        from entries: [TranslatedDocument.Entry]
+    /// Build the per-paragraph entries of the read-only translated surface
+    /// from a derived translation. This is the ONE place that surface's text
+    /// is constructed — the buffer (`translatedSurfaceText`, joined by
+    /// `TranslationBadgeLayout.surface`), the badge ranges, the source inks
+    /// and the translation pane all derive from these entries, so stripping
+    /// inline task anchors here keeps them byte-consistent and anchor-free. A
+    /// `missing` paragraph falls back to its source text, which can carry
+    /// `<!--t-XXXX-->` anchors; without this strip they'd render raw.
+    ///
+    /// **The source under each paragraph** (shell p4 Task 8), when
+    /// `showsSourceUnder`: drawn under a paragraph that HAS a translation
+    /// (`sourceUnder`). Off, the surface is byte-for-byte the surface before
+    /// there was a source under it (`TranslationSourceUnderTests`).
+    ///
+    /// **A screenplay keeps its structure**: its translated text carries the
+    /// source's elements (`TranslatedFountainStructure.displayText`, the rule
+    /// Publish renders by — the source element wins), and its source sits a
+    /// blank line under it, so each half parses as its own block.
+    ///
+    /// Pure + static so `EditorHostTranslationSurfaceTests` and
+    /// `TranslationSourceUnderTests` pin it without an AppKit surface.
+    nonisolated static func reviewBadgeEntries(
+        from entries: [TranslatedDocument.Entry],
+        showsSourceUnder: Bool = false,
+        isScreenplay: Bool = false
     ) -> [TranslationBadgeLayout.Entry] {
-        entries.map {
-            TranslationBadgeLayout.Entry(
-                paragraphId: $0.paragraphId,
-                text: RenderFilter.stripTaskAnchorsInline($0.translatedText ?? $0.sourceText),
-                status: $0.status)
+        entries.map { entry in
+            let shown = isScreenplay
+                ? TranslatedFountainStructure.displayText(for: entry)
+                : (entry.translatedText ?? entry.sourceText)
+            let text = RenderFilter.stripTaskAnchorsInline(shown)
+            let source = showsSourceUnder
+                ? sourceUnder(entry, shownAs: text, isScreenplay: isScreenplay) : nil
+            return TranslationBadgeLayout.Entry(
+                paragraphId: entry.paragraphId, text: text, source: source,
+                status: entry.status,
+                sourceSeparator: isScreenplay
+                    ? TranslationBadgeLayout.screenplaySourceSeparator
+                    : TranslationBadgeLayout.proseSourceSeparator)
         }
+    }
+
+    /// **The source drawn under one paragraph, or nil.** Nil where the
+    /// paragraph has no translation (its source is already the text — shown
+    /// once, never twice), where the source is blank or says exactly what the
+    /// translation says (a verbatim paragraph), and under a figure or a table:
+    /// a second figure line would draw a second picture, and a second table a
+    /// second grid, for a caption or a cell the Publish pages carry anyway.
+    nonisolated static func sourceUnder(_ entry: TranslatedDocument.Entry, shownAs text: String,
+                            isScreenplay: Bool) -> String? {
+        guard entry.translatedText != nil else { return nil }
+        let source = RenderFilter.stripTaskAnchorsInline(entry.sourceText)
+        guard !source.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              source != text else { return nil }
+        if !isScreenplay, source.hasPrefix("![") || source.contains("|") {
+            switch ManuscriptBlocks.parse(source).first?.block {
+            case .figure?, .table?: return nil
+            default: break
+            }
+        }
+        return source
     }
 
     private var currentItem: StructureItem? {
         guard let id = selectedItemId else { return nil }
         return TreeWalk.find(id: id, in: store.manifest.structure)
+    }
+
+    /// **Whether `item` is a manuscript this host loads**: a document with a
+    /// path, and never a Collection's reference piece — whose path is its
+    /// `.maugham-link.json`, and which a promotion turns the open piece into
+    /// while this host is still mounted on it (shell p4 Task 11). Static +
+    /// pure for `EditorHostReloadPredicateTests`.
+    static func loadsAsAManuscript(_ item: StructureItem) -> Bool {
+        item.type == .document && item.path != nil && item.pieceKind != .reference
+    }
+
+    /// **What the review render draws beside the text** (shell p5 Task 2):
+    /// the open notes a person wrote, through the margin's one predicate
+    /// (`MarginMarks.drawnBesideTheText`). Claude's notes stay in To resolve
+    /// under read-through too — the owner's answer of 2026-11-22 (ADR 0027
+    /// §1, amended). Every push and pull of `reviewAnnotations` reads this.
+    static func reviewRenderSet(_ doc: Document) -> [Annotation] {
+        MarginMarks.drawnBesideTheText(doc.annotations(filter: AnnotationFilter(statuses: [.open])),
+                                       owner: doc.noteOwner)
+    }
+
+    // MARK: - The decisions' handlers (read-through: typing off, decisions on)
+
+    /// **What a decision asks before it writes**: the window's yield-aware
+    /// posture (#74, #79), asked at the press and again inside every undo and
+    /// redo. Never the editor's membrane or `isEditable`: a decision passes in
+    /// read-through (`ReadThroughDecisionTests` runs through these).
+    static func mayWriteText(_ documentStore: DocumentStore?, docId: String) -> @MainActor () -> Bool {
+        { [weak documentStore] in documentStore?.posture(forDocId: docId).allows(.writeText) ?? false }
+    }
+
+    /// **A checkbox click's flip** (`checkboxToggleHandler`): through
+    /// `Document.setParagraph`, never `applyExternalText` (tripwire 7). ⌘Z is
+    /// a guarded flip-back (`InlineToggleUndo`, which sets the undo-coherent
+    /// flag so the buffer replace keeps the fresh registration).
+    static func toggleCheckbox(on doc: Document, paragraphId: String, offset: Int,
+                               kind: DocumentFormat, undoManager um: UndoManager?,
+                               documentStore: DocumentStore?) {
+        guard let para = doc.paragraph(id: paragraphId) else { return }
+        let flipped: String
+        switch kind {
+        case .markdown:
+            flipped = MarkdownCheckboxScanner.flipBracket(in: para, atUTF16Offset: offset)
+        case .fountain:
+            flipped = FountainBoneyardScanner.flipTodoDone(in: para, atUTF16Offset: offset)
+        }
+        guard flipped != para else { return }
+        InlineToggleUndo.perform(
+            on: doc, paragraphId: paragraphId, prior: para, flipped: flipped, undoManager: um,
+            mayWrite: mayWriteText(documentStore, docId: doc.docId))
+    }
+
+    /// **The margin card's Accept** (`reviewAcceptHandler`), undoable on `um`.
+    static func acceptFromCard(_ id: String, on doc: Document, undoManager um: UndoManager?,
+                               documentStore: DocumentStore?) async throws {
+        try await doc.acceptAnnotation(id: id, undoManager: um,
+                                       mayWrite: mayWriteText(documentStore, docId: doc.docId))
+    }
+
+    /// **Who answers a keystroke the view refused** (shell read-through Task
+    /// 2): a read-only recovery's banner; a piece in read-through, or a
+    /// translation, by the quiet line over the text pulsing once
+    /// (`.maughamTypingRefused`); otherwise AppKit's beep.
+    static func typingRefusal(isRecovery: Bool, isInReadThrough: Bool,
+                              isReadingTranslation: Bool) -> TypingRefusal {
+        if isRecovery { return .recovery }
+        if isInReadThrough || isReadingTranslation { return .readThrough }
+        return .none
     }
 
     /// Whether the bound document must be (re)loaded for the given item.
@@ -1312,7 +1510,7 @@ struct EditorHost: View {
 
     private func loadDocumentIfNeeded() async {
         guard let item = currentItem,
-              item.type == .document,
+              Self.loadsAsAManuscript(item),
               let path = item.path,
               Self.needsReload(
                   itemId: item.id, path: path,
@@ -1348,12 +1546,30 @@ struct EditorHost: View {
             // document's mount does (plan 3b Task 1 fix round 1, I1).
             referenceIndex.invalidate(.piece(prior.docId))
         }
+        // **A promotion holds this piece** (shell p4 Task 11): its file is
+        // staged away, and a `Document` loaded now would register at the old
+        // path and write the file back there. Wait for the promotion to give
+        // the path back, then ask again what the item is: after a failure the
+        // same loose piece at the same path, which loads; after a success a
+        // reference, which never does (the centre shows its card).
+        if documentStore.isWithdrawnForPromotion(path: path) {
+            await documentStore.waitWhileWithdrawnForPromotion(path: path)
+            guard loads.isCurrent(generation), let now = currentItem,
+                  Self.loadsAsAManuscript(now), now.id == item.id, now.path == path
+            else { return }
+        }
         do {
-            let doc = try await Document.load(
+            // Through the promotion door (fix round 1, I1): a path a
+            // promotion took while this load was reading, or one a finished
+            // promotion turned into a reference's, is closed and refused
+            // there (caught below: `promotionReturns` loads again).
+            let doc = try await DocumentStore.loadManuscript(
+                path: path, title: item.title,
                 url: try store.resolvedProjectPath(path),
                 actor: .author,
                 session: Self.sessionId,
-                presenter: documentStore.presenter)
+                presenter: documentStore.presenter,
+                through: documentStore)
             // Superseded while we were in file I/O — the writer clicked on, or
             // this view went away. Never register it and never write the
             // markers; close it, or it deallocates with a pending buffer and
@@ -1362,10 +1578,24 @@ struct EditorHost: View {
                 await doc.close()
                 return
             }
+            // A promotion took the path while this load was reading it, or a
+            // promotion came and went across the whole load: the `Document`
+            // is registered only if the item is still this loose piece at
+            // this path (fix round 1, M2) — never over a file being staged
+            // away, never at a reference's old path.
+            guard !documentStore.isWithdrawnForPromotion(path: path),
+                  let still = currentItem, Self.loadsAsAManuscript(still),
+                  still.id == item.id, still.path == path else {
+                await doc.close()
+                return
+            }
             documentStore.register(document: doc, for: path)
             document = doc
             loadedItemId = item.id
             priorLoadedPath = path
+            // The surface a carried language reads in is this document's from
+            // its first frame — never the chapter just left (shell p4 Task 8).
+            recomputeTranslatedSurface(doc: doc)
             loadOutcome = nil
             // A document that opened has no refusal to show: the ladder goes
             // away with the failure that raised it. This is the belt — the
@@ -1456,11 +1686,20 @@ struct EditorHost: View {
             // Metrics for the freshly-loaded doc are delivered by the new
             // EditorSurface's coordinator `attach` (immediate, non-debounced) —
             // no EditorHost-side mirror call.
+        } catch is ManuscriptBeingPromoted {
+            // The door refused a held path (or closed a load a promotion
+            // overtook): not a failure, and nothing to mark — the promotion's
+            // return (`promotionReturns`) loads again.
+            return
         } catch {
             // A superseded failure must not overwrite the markers either: doing
             // so unbinds a document that loaded perfectly well and leaves the
             // editor on "Loading…" for a file that is open.
             guard loads.isCurrent(generation) else { return }
+            // A place the window held for this piece is dropped: no editor will
+            // land it, and it must not land on a later open
+            // (`EditorControl.pendingPlace`).
+            control.dropPendingPlace(naming: item.id)
             document = nil
             recoveryBannerModel = nil
             loadedItemId = item.id
@@ -1484,7 +1723,9 @@ struct EditorHost: View {
                 loadOutcome = .waitingForPiece(
                     docId: docId,
                     sentence: Document.waitingSentence(
-                        waiting, docId: docId, in: store.url))
+                        waiting, docId: docId, in: store.url,
+                        noun: PieceNoun.of(TreeWalk.find(id: docId, in: store.manifest.structure),
+                                           in: store.manifest)))
                 return
             }
             // RULING-7 + RULING-54: the refusal is SHOWN — in the pane where
@@ -1541,4 +1782,12 @@ struct EditorHost: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
+}
+
+/// What a translated surface's trailing-edge refresh is keyed on (shell p4
+/// Task 8 fix I4): the open document's annotation edge (a source burst's
+/// flush moves it) and the translation writes heard for it.
+struct TranslatedSurfaceRefresh: Hashable {
+    let annotations: Int
+    let translations: Int
 }

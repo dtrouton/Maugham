@@ -6,8 +6,10 @@ import Foundation
 public enum LinkResearchTool: MCPTool {
     public static let method = "link_research"
     public static let description =
-        "Link a research item to a manuscript document so it shows up in the " +
-        "Inspector. Idempotent. Use get_outline + list_research to find ids."
+        "Link a research item to a manuscript document so it shows up in that " +
+        "document's fold in the binder. Outside a Collection the note becomes that piece's and " +
+        "leaves the Research section; a note linked to two pieces shows in both folds. " +
+        "Idempotent. Use get_outline + list_research to find ids."
     public static let inputSchemaJSON =
         #"{"type":"object","properties":{"project_id":{"type":"string"},"research_id":{"type":"string"},"document_id":{"type":"string"}},"required":["project_id","research_id","document_id"]}"#
 
@@ -35,7 +37,10 @@ public enum LinkResearchTool: MCPTool {
 public enum UnlinkResearchTool: MCPTool {
     public static let method = "unlink_research"
     public static let description =
-        "Remove a research-to-document link. Idempotent (no-op if the link doesn't exist)."
+        "Remove a research-to-document link. Idempotent (no-op if the link doesn't exist). " +
+        "Outside a Collection, a note no piece links any more, itself or through its group, is the whole " +
+        "book's again, back in the " +
+        "binder's Research section."
     public static let inputSchemaJSON =
         #"{"type":"object","properties":{"project_id":{"type":"string"},"research_id":{"type":"string"},"document_id":{"type":"string"}},"required":["project_id","research_id","document_id"]}"#
 

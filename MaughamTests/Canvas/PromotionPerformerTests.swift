@@ -1025,7 +1025,7 @@ final class PromotionPerformerTests: XCTestCase {
     /// the hazard.
     func test_promotingWhileTheIntentPaneIsOpenDoesNotOpenASecondDocument() async throws {
         let fixture = try await StatementMountFixture.novel(named: "promote-intent")
-        defer { fixture.tearDown() }
+        addTeardownBlock { await fixture.closeAndTearDown() }
         let window = await fixture.host(kind: .intent, subject: nil)
         let textView = try fixture.textView(in: window)
         await fixture.type("Typed first.", into: textView)
@@ -1077,7 +1077,7 @@ final class PromotionPerformerTests: XCTestCase {
     /// different door.
     func test_promotingIntoAnUnboundPanesScopeSurvivesTheWritersFirstKeystroke() async throws {
         let fixture = try await StatementMountFixture.novel(named: "unbound-intent")
-        defer { fixture.tearDown() }
+        addTeardownBlock { await fixture.closeAndTearDown() }
         // Mounted, resolved, and holding NO Document: nothing has been typed, so
         // no statement exists for this scope yet.
         let window = await fixture.host(kind: .intent, subject: nil)
@@ -1599,7 +1599,7 @@ final class PromotionPerformerTests: XCTestCase {
     /// statement says after the pane has flushed.
     func test_aLinePromotionWhileTheIntentPaneIsOpenDoesNotOpenASecondDocument() async throws {
         let fixture = try await StatementMountFixture.novel(named: "promote-line")
-        defer { fixture.tearDown() }
+        addTeardownBlock { await fixture.closeAndTearDown() }
         let window = await fixture.host(kind: .intent, subject: nil)
         let textView = try fixture.textView(in: window)
         await fixture.type("Typed first.", into: textView)

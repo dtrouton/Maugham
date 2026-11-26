@@ -635,7 +635,7 @@ final class InsertCommandTests: XCTestCase {
     }
 
     func test_translationReviewRefusesBothInserts() throws {
-        try assertRefused { $0.setTranslationReview(true) }
+        try assertRefused { $0.setReadingTranslation(true) }
     }
 
     private func assertRefused(_ posture: (EditorCoordinator) -> Void,
@@ -772,18 +772,18 @@ final class InsertCommandTests: XCTestCase {
 
     func test_theMenuIsEnabledOnlyForAWritableMarkdownManuscriptInTheEditor() {
         let author = Posture(.unrestricted)
-        let bare = CentreRoute.editor(altitude: false, cover: nil)
+        let bare = CentreRoute.editor(altitude: nil, cover: nil)
         func gate(posture: Posture? = author, format: DocumentFormat? = .markdown,
-                  review: Bool = false, share: Bool = false, translation: Bool = false,
+                  readThrough: Bool = false, share: Bool = false, translation: Bool = false,
                   grid: Bool = false, route: CentreRoute? = bare) -> Bool {
-            InsertMenuGate.isEnabled(posture: posture, format: format, manualReview: review,
-                                     shareIsReadOnly: share, isTranslationReview: translation,
+            InsertMenuGate.isEnabled(posture: posture, format: format, readThrough: readThrough,
+                                     shareIsReadOnly: share, isReadingTranslation: translation,
                                      gridHoldsTheKeys: grid, route: route)
         }
         XCTAssertTrue(gate(), "a writable Markdown chapter in the editor")
         XCTAssertFalse(gate(posture: .settling), "a posture that refuses .writeText")
         XCTAssertFalse(gate(posture: nil), "no manuscript in the editor")
-        XCTAssertFalse(gate(review: true), "review mode")
+        XCTAssertFalse(gate(readThrough: true), "the open piece in read-through")
         XCTAssertFalse(gate(translation: true), "translation review")
         XCTAssertFalse(gate(share: true), "a read-only iCloud share")
         XCTAssertFalse(gate(format: .fountain), "a screenplay")
@@ -810,18 +810,18 @@ final class InsertCommandTests: XCTestCase {
             .designGate(CentreRouteTests.proposal),
             .books([CentreRouteTests.book]),
             .notice(.neverCompiled),
-            .reviewBoard,
         ]
         var routes: [CentreRoute] = covers.flatMap {
-            [CentreRoute.editor(altitude: false, cover: $0), .editor(altitude: true, cover: $0)]
+            [CentreRoute.editor(altitude: nil, cover: $0), .editor(altitude: .outline, cover: $0)]
         }
-        routes += [.editor(altitude: true, cover: nil), .canvas, .paletteWall,
+        routes += BookView.allCases.map { CentreRoute.editor(altitude: $0, cover: nil) }
+        routes += [.canvas, .paletteWall, .inbox, .figure(id: "f1"),
                    .research(id: "r1"), .reference(piece: reference)]
         for route in routes {
             XCTAssertFalse(
                 InsertMenuGate.isEnabled(posture: Posture(.unrestricted), format: .markdown,
-                                         manualReview: false, shareIsReadOnly: false,
-                                         isTranslationReview: false, gridHoldsTheKeys: false,
+                                         readThrough: false, shareIsReadOnly: false,
+                                         isReadingTranslation: false, gridHoldsTheKeys: false,
                                          route: route),
                 "the Insert menu is enabled under \(route)")
         }

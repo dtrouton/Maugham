@@ -7,18 +7,14 @@ import MaughamCore
 /// — pieces are flat, scenes are per-piece.
 struct CollectionBinderPaneToggle: View {
     @Bindable var store: ProjectStore
-    @Binding var selectedSubject: BinderSubject?
+    /// The window's subject, on its way to the tree — see `BinderPaneToggle`.
+    @Binding var subject: WindowSubject
     /// Find, as an overlay of this column — see `BinderPaneToggle`.
     @Binding var treeFindActive: Bool
     @Binding var renamingItemId: String?
     /// The sections' state, on its way from the window to the pieces tree — see
     /// `BinderView.treeState` (stage-3a Task 4).
     let treeState: BinderTreeSectionsState
-    /// The window's working mode — see `BinderPaneToggle`'s twin.
-    let persona: Persona
-    /// Opens the palette wall in the centre column — see `BinderPaneToggle`'s
-    /// twin, whose doc comment carries the whole reasoning.
-    var onOpenPaletteWall: () -> Void = {}
     /// A restore's report on its way to `ProjectWindow.restoreOutcome` — see
     /// `BinderPaneToggle`'s twin, whose comment carries the reasoning.
     var onRestoreOutcome: (String) -> Void = { _ in }
@@ -60,7 +56,7 @@ struct CollectionBinderPaneToggle: View {
             // its note, which carries the whole reasoning and is not restated
             // here), so the two toggles cannot come to disagree about when it
             // renders.
-            if persona.showsExports && PublishStarter.isInitialized(in: store.url) {
+            if PublishStarter.isInitialized(in: store.url) {
                 Divider()
                 ExportsListView(projectURL: store.url)
             }
@@ -86,16 +82,8 @@ struct CollectionBinderPaneToggle: View {
     private var piecesTree: some View {
         CollectionPiecesPane(
             store: store,
-            selectedSubject: $selectedSubject,
+            subject: $subject,
             renamingItemId: $renamingItemId,
-            treeState: treeState,
-            paletteWallTravels: paletteWallTravels,
-            onOpenPaletteWall: onOpenPaletteWall)
-    }
-
-    /// The wall's own door — see `BinderPaneToggle`'s twin, whose doc comment
-    /// carries the whole reasoning.
-    private var paletteWallTravels: Bool {
-        ProjectWindow.paletteWallDoorTravels(persona: persona)
+            treeState: treeState)
     }
 }

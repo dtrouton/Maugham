@@ -45,7 +45,7 @@ enum ProposableStatement: Equatable, Hashable, Codable, Sendable {
     var displayName: String {
         switch self {
         case .editionBrief(let language):
-            return TranslationReviewIndicator.displayLabel(forLanguageTag: language) + " edition brief"
+            return LanguageName.labelled(language) + " edition brief"
         case .visualLanguage: return "visual language"
         }
     }

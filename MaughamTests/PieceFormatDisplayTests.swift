@@ -24,13 +24,24 @@ final class PieceFormatDisplayTests: XCTestCase {
         XCTAssertEqual(PieceRow.iconName(for: piece(path: "pieces/A.FOUNTAIN")), "film")
     }
 
-    func test_pieceInspectorFormat_byPath() {
-        XCTAssertEqual(RightColumn.pieceInspectorFormat(path: "pieces/a.fountain"), .fountain)
-        XCTAssertEqual(RightColumn.pieceInspectorFormat(path: "pieces/a.md"), .markdown)
-        XCTAssertEqual(RightColumn.pieceInspectorFormat(path: nil), .markdown)
+    /// The format a loose piece is shown as is `DocumentFormat.ofManuscript` of
+    /// its path (prose for a path-less piece) — the row's icon above, and the
+    /// caption at the head of its Brief (`BriefPane.formatCaption`, which took
+    /// the old piece inspector's format label).
+    func test_pieceFormat_byPath() {
+        XCTAssertEqual(DocumentFormat.ofManuscript(path: "pieces/a.fountain"), .fountain)
+        XCTAssertEqual(DocumentFormat.ofManuscript(path: "pieces/a.md"), .markdown)
+        XCTAssertEqual(DocumentFormat.ofManuscript(path: nil), .markdown)
+        let structure = [piece(path: "pieces/a.fountain")]
+        XCTAssertEqual(BriefPane.formatCaption(docId: "p1", structure: structure,
+                                               projectType: .collection),
+                       DocumentFormat.fountain.kindLabel)
     }
 
-    func test_pieceInspectorFormat_upperCaseFountainInspectsAsScreenplay() {
-        XCTAssertEqual(RightColumn.pieceInspectorFormat(path: "pieces/A.FOUNTAIN"), .fountain)
+    func test_pieceFormat_upperCaseFountainShowsAsScreenplay() {
+        XCTAssertEqual(DocumentFormat.ofManuscript(path: "pieces/A.FOUNTAIN"), .fountain)
+        XCTAssertEqual(BriefPane.formatCaption(docId: "p1", structure: [piece(path: "pieces/A.FOUNTAIN")],
+                                               projectType: .collection),
+                       DocumentFormat.fountain.kindLabel)
     }
 }

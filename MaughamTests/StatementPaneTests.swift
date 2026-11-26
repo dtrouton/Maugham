@@ -12,7 +12,7 @@ final class StatementPaneTests: XCTestCase {
     private var fixtures: [StatementMountFixture] = []
 
     override func tearDown() async throws {
-        for fixture in fixtures { fixture.tearDown() }
+        for fixture in fixtures { await fixture.closeAndTearDown() }
         fixtures.removeAll()
         try await super.tearDown()
     }
@@ -25,56 +25,36 @@ final class StatementPaneTests: XCTestCase {
 
     // MARK: - The registry (spec §4.1, umbrella spec §6.3)
 
-    /// §6.3 gave Intent a cell in every persona and Visual language a cell in
-    /// Plan, Review and Publish — the shape `Persona.swift` reserved. The whole
-    /// matrix is checked by `PersonaPaneRegistryTests`; this pins the two rows
-    /// M1A consumes, so a sweep that drops one names the milestone that added
-    /// it.
-    ///
-    /// **The milestones doing the dropping, as that comment asked for.**
-    ///
-    /// **The persona shell, slice 1** (§5 of
-    /// `docs/superpowers/specs/2026-08-01-persona-shell-workflow-design.md`, an
-    /// amendment in force to §6.3): intent left **Publish**. Publish is where a
-    /// finished book is made to look right; what the writing is going for is
-    /// read where the writing happens.
-    ///
-    /// **The right-column re-cut, 2026-08-03** (§5.0 of the same document,
-    /// which supersedes §5's per-persona lists here): intent leaves **Plan**
-    /// too, leaving Author and Review. The reason is not that Plan stopped
-    /// caring about intent — it is that **Plan AUTHORS intent**, and the thing
-    /// a persona authors belongs in its left column, while the right column is
-    /// what you glance at while authoring something else. Author and Review
-    /// consult it; Plan writes it.
-    ///
-    /// **The cost, recorded because it is real and temporary.** Intent's
-    /// left-column home in Plan is a build §5.0 deliberately parks (a
-    /// `BinderSegment` case, a centre route, and a decision about what the left
-    /// pane shows while you edit), so **until it ships intent is reachable in
-    /// Plan by ⌘⌥N only** — the pane opens, renders and stays selected, but
-    /// Plan's picker does not lead you to it and `PersonaMemory` will not keep
-    /// it across a persona switch. Denver accepted that trade explicitly.
-    ///
-    /// The assertion is not weakened to "at least one" — it names the two, so
-    /// re-adding a third is as loud as losing one.
-    func test_intentIsOfferedByAuthorAndReviewOnly() {
-        XCTAssertEqual(
-            Set(Persona.allCases.filter { $0.panes.contains(.intent) }),
-            [.author, .review])
-    }
-
-    /// §6.3 marked Visual language ● for Plan, Review and Publish and — for
-    /// Author. §5.0's re-cut leaves **Publish alone**: Plan authors the visual
-    /// language (same parked left-column build as intent above, same ⌘⌥V
-    /// escape hatch until it lands), and Review adjudicates prose rather than
-    /// how the book looks. Publish is where "how the book looks" is read, and
-    /// it is Publish's default pane.
-    func test_visualLanguageIsOfferedByPublishOnly() {
-        XCTAssertEqual(
-            Set(Persona.allCases.filter { $0.panes.contains(.visualLanguage) }),
-            [.publish],
-            "visual language is Publish's column now (§5.0); Plan authors it "
-            + "and reaches it with ⌘⌥V until its left-column home is built")
+    /// The intent and Visual Language are reachable whatever the subject
+    /// (shell plan 3 Task 9; in every picker before it): Brief is always a
+    /// position, and it is where an intent is; Visual Language pulls up under
+    /// every subject, and the pulled-up position then shows it.
+    func test_bothStatementsAreReachableWhateverTheSubject() {
+        let structure = [StructureItem(id: "ch-1", title: "One", type: .document, path: "one.md")]
+        for subject in [WindowSubject.book,
+                        WindowSubject(open: .item("ch-1"), faces: .item("ch-1")),
+                        WindowSubject(open: .canvas, faces: .project),
+                        WindowSubject(open: .edition(language: "es"), faces: .project)] {
+            for selected in RightColumnPosition.allCases {
+                XCTAssertTrue(RightColumnControl.segments(
+                    offersPulledUp: RightColumnContent.offersPulledUp(
+                        subject, structure: structure, projectType: .novel),
+                    selected: selected).contains(.brief), "\(subject)")
+            }
+            guard case .brief = RightColumnContent.of(
+                position: .brief, subject: subject,
+                structure: structure, projectType: .novel) else {
+                return XCTFail("\(subject): Brief is Brief under every subject")
+            }
+            let pulled = ClickRule.pullUp(.visualLanguage, current: subject)
+            XCTAssertEqual(RightColumnContent.pulledUp(
+                for: .visualLanguage, subject: subject, structure: structure), .visualLanguage)
+            XCTAssertEqual(RightColumnContent.of(
+                position: .pulledUp, subject: pulled,
+                structure: structure, projectType: .novel), .pulledUp(.visualLanguage), "\(subject)")
+            XCTAssertTrue(RightColumnContent.offersPulledUp(
+                pulled, structure: structure, projectType: .novel))
+        }
     }
 
     /// Each pane needs a `⌘⌥` letter of its own. The letters themselves are
@@ -88,9 +68,9 @@ final class StatementPaneTests: XCTestCase {
                 .appendingPathComponent("Maugham/MaughamApp.swift"),
             encoding: .utf8)
         let tokens = DocSyncTests.extractCommandOptionShortcutTokens(from: source)
-        XCTAssertGreaterThanOrEqual(tokens.count, DetailSegment.allCases.count,
-                                    "the extractor found \(tokens.count) ⌘⌥ shortcuts, "
-                                    + "fewer than there are panes — it is reading nothing")
+        XCTAssertEqual(DocSyncTests.viewMenuPaneKeys.filter { !tokens.contains($0) }, [],
+                       "the extractor found \(tokens) — not every View-menu pane "
+                       + "key; it is reading nothing")
         XCTAssertEqual(Set(tokens).count, tokens.count,
                        "two View-menu commands share a ⌘⌥ letter: "
                        + "\(tokens.sorted())")
@@ -99,7 +79,7 @@ final class StatementPaneTests: XCTestCase {
     // MARK: - Scope follows the window's subject (spec §4.3)
 
     /// **`test_theProjectsIntentIsOneClickAwayFromADocuments` was deleted here**
-    /// (persona shell, slice 1, task 7), and deliberately rather than as tidying
+    /// (shell slice 1, task 7, 2026-08-03), and deliberately rather than as tidying
     /// after a signature change.
     ///
     /// It pinned the pane's promise that *"the other one click away"* — the
@@ -269,7 +249,7 @@ final class StatementPaneTests: XCTestCase {
         let caption = StatementPane.headerCaption(
             kind: .editionBrief("es"), scope: .project, structure: structure)
         XCTAssertTrue(
-            caption.contains(TranslationReviewIndicator.displayLabel(forLanguageTag: "es")),
+            caption.contains(LanguageName.labelled("es")),
             "the header must name the edition: \(caption)")
         XCTAssertNotEqual(caption, "What this project is going for")
         XCTAssertEqual(
@@ -509,8 +489,8 @@ final class StatementPaneTests: XCTestCase {
     // MARK: - The pane on screen (editorial letter P2, Task 5)
 
     /// **The mounted pane, because everything above this is a pure function and
-    /// a pane can be wired to none of them.** `DetailSegment.lessons` reaches
-    /// `StatementPane` through `DetailPaneToggle.statementPane(kind:)`, and what
+    /// a pane can be wired to none of them.** What I've Learned reaches
+    /// `StatementPane` pulled up (`PulledUpView`), and what
     /// this asserts is that the two sentences the ledger owns — the header
     /// caption and the strata's own heading — are drawn by the view the writer
     /// meets rather than only answered by the statics that compose them.

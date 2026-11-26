@@ -24,7 +24,7 @@ final class CompilerOrchestrator {
     /// **Every run case names its document and its loop.** The surface is
     /// per-document and this state per-window, and one session serves both
     /// loops, so each surface matches its own `docId` and `RunKind` and names
-    /// the other loop's run (`DiagnosticsPane.otherLoopLine`,
+    /// the other loop's run (`CheckNarrative.otherLoopLine`,
     /// `ReviewRoundCockpit.otherLoopLine`). `.idle` claims nothing.
     enum RunState: Equatable {
         case idle
@@ -66,6 +66,11 @@ final class CompilerOrchestrator {
         /// `RunWhenDocumentOpens`' bound (Denver's 2026-08-18 ruling). A
         /// FAILURE, so it says what to do next.
         case pieceWouldNotOpen
+        /// **A run asked of a piece that is not open** (shell p1 final fix
+        /// 2): the faces sit on a piece the centre does not show (the canvas
+        /// or an edition), so nothing tried to open it and trying again would
+        /// do nothing. Says what to do, by the kind the command named.
+        case openThePieceFirst(RunKind)
         /// A round on a piece with no STAGE (unassigned, or a retired pass). A
         /// round with no lane numbers nothing (`RoundEditor`); the coach reads
         /// checks and is no substitute. A FAILURE, worded the same way.
@@ -84,6 +89,8 @@ final class CompilerOrchestrator {
             case .alreadyChecking: return "Still checking\u{2026}"
             case .freshEyes: return "Reading whole\u{2026}"
             case .pieceWouldNotOpen: return "Couldn\u{2019}t open the piece \u{2014} try again."
+            case .openThePieceFirst(.check): return "Open the piece to run a check on it."
+            case .openThePieceFirst(.round): return "Open the piece to run a round on it."
             case .noEditor: return "Set a pass to run a round."
             case .notYourPiece: return "Not your piece \u{2014} leave a note instead."
             }
@@ -337,6 +344,9 @@ final class CompilerOrchestrator {
     }
 
     private var streaming: StreamingRun?
+    /// **The lane of the round in flight**, nil for a check or before the
+    /// run is briefed — what the toolbar names an editor's round by.
+    var runningRoundPassId: String? { streaming?.passId }
 
     var isRunning: Bool {
         if isPreparingRun { return true }
@@ -371,8 +381,8 @@ final class CompilerOrchestrator {
     /// dispositions are briefed. The round still mints, the marker still
     /// advances, and `CompilerRun.freshEyes` records it.
     /// - Parameter kind: **which loop asked.** Undefaulted, so no call site
-    ///   files a round as a check unnoticed. Minted from the persona only in
-    ///   `CompilerRunModifier`; every other caller belongs to one loop.
+    ///   files a round as a check unnoticed. `CompilerRunModifier` takes it
+    ///   from the command; every other caller belongs to one loop.
     func runRequested(docId: String, kind: RunKind, freshEyes: Bool = false) {
         guard let environment, diagnostics != nil else { return }
         // In flight: nothing queues, but the press is answered; a silent press

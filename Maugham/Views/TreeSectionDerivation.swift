@@ -5,36 +5,27 @@ import MaughamCore
 /// the per-piece research fold (shell-finish stage-2a, Task 3). Every static
 /// here takes manifest values directly — no `ProjectStore`, no disk — so
 /// Task 4's mount and this file's own tests can exercise the derivation
-/// without a window. The routing rules themselves are never restated: this
-/// file calls the pure cores `ResearchScope.swift` extracted for it
-/// (`ProjectStore.researchRouting(for:projectType:)`,
-/// `ProjectStore.pieceResearchSectionRoots(forDocumentId:structure:research:projectType:)`).
+/// without a window. The rules themselves are never restated: which research
+/// is the book's and which a piece's is `ResearchHomes`, and which documents
+/// fold is `ProjectStore.researchRouting(for:projectType:)`.
 enum TreeSectionDerivation {
 
-    /// Top-level research roots for the tree's Research section: every
-    /// manifest root EXCEPT the palette group — found role-first via
-    /// `PaletteLookup` (falls back to the legacy `research/palette` path, so
-    /// an un-healed project's group is still excluded; this is the
-    /// first-ever palette filter on a research surface, since
-    /// the deleted `ResearchView` rendered the group inline and was
-    /// untouched here) — and, for collections, every root under a loose
-    /// piece's `pieces/…/research/` prefix
-    /// (the deleted `CollectionResearchPane.sharedItems()`'s rule, hoisted in
-    /// stage-2a Task 4 so the pane and the tree agreed on one shape rather
-    /// than re-deriving it; the pane went in stage 2b Task 7 and the rule
-    /// stayed).
+    /// **The tree's Research section: the book's research only** (shell p5
+    /// Task 4a) — every item no piece's fold draws, in place, the palette group
+    /// out (`PaletteLookup`, role-first). `ResearchHomes.wholeBook`, asked;
+    /// a body asks the window's cache instead (`BinderTreeSectionsState.researchHomes`).
     static func sharedResearchRoots(
-        research: [ResearchItem], projectType: ProjectType
+        structure: [StructureItem], research: [ResearchItem], projectType: ProjectType
     ) -> [ResearchItem] {
-        let paletteGroupId = PaletteLookup.paletteGroup(in: research)?.id
-        return research.filter { item in
-            guard item.id != paletteGroupId else { return false }
-            guard projectType.holdsPieces, let path = item.path else { return true }
-            return !path.hasPrefix("pieces/")
-        }
+        ResearchHomes.derive(structure: structure, research: research,
+                             projectType: projectType).wholeBook
     }
 
-    /// The per-piece research fold shown under a manuscript document's row.
+    /// A piece's own research, as a fold: the research SOURCE of the tree's
+    /// piece fold (`PieceFoldIndex.entries` reads which research a piece holds
+    /// from it). What the fold DRAWS —
+    /// research, cards, palette, figures, links — is `PieceFoldIndex`'s (shell
+    /// p3 Task 7).
     struct PieceFold: Equatable {
         /// What kind of fold this is, independent of whether it happens to be
         /// empty right now — an empty `.contained`/`.linked` fold is still a
@@ -48,11 +39,15 @@ enum TreeSectionDerivation {
 
         let items: [ResearchItem]
         let semantic: Semantic
+        /// The roots the piece's own folder holds (a Collection's); the
+        /// others it links.
+        let owned: Set<String>
 
-        static let empty = PieceFold(items: [], semantic: .none)
+        static let empty = PieceFold(items: [], semantic: .none, owned: [])
 
-        /// Whether the tree draws this piece's row as a `DisclosureGroup`
-        /// (Task 6). **Two questions, and the tree asks both**: a document
+        /// Whether this research fold has anything in it. The tree's chevron
+        /// asks the fold index instead (shell p3 Task 7), whose entries hold
+        /// more than research. **Two questions**: a document
         /// that cannot fold at all (`.none`) and one that folds onto nothing
         /// yet are different facts about the manifest, but they are the same
         /// row on screen — a chevron opening onto nothing is noise, and on a
@@ -64,10 +59,9 @@ enum TreeSectionDerivation {
     }
 
     /// Derives a document's fold from `ProjectStore.researchRouting`'s pure
-    /// core — never restates the routing rule. `.pieceFolder` → the piece's
-    /// own research subtree roots (`.contained`); `.sharedPlusLink` → the
-    /// document's linked shared items, resolved and order-preserved
-    /// (`.linked`); `.sharedOnly` → `.none` (single-doc types have nothing to
+    /// core — never restates the routing rule. `.pieceFolder` (`.contained`)
+    /// and `.sharedPlusLink` (`.linked`) → the piece's `ResearchHomes.foldRoots`,
+    /// what its folder holds and what it links; `.sharedOnly` → `.none` (single-doc types have nothing to
     /// fold — everything is already the document's, spec's derivation).
     /// A missing document, a group id, a collection reference piece, or an
     /// unknown project type all fail `researchRouting` and land on `.none`
@@ -81,43 +75,34 @@ enum TreeSectionDerivation {
         projectType: ProjectType
     ) -> PieceFold {
         guard let item = TreeWalk.find(id: docId, in: structure) else { return .empty }
-        return pieceFold(for: item, structure: structure,
-                         research: research, projectType: projectType)
+        return pieceFold(for: item, projectType: projectType,
+                         homes: ResearchHomes.derive(structure: structure, research: research,
+                                                     projectType: projectType))
     }
 
-    /// The same fold, over an item the caller already has.
+    /// The same fold, over an item the caller already has and the homes the
+    /// caller derived once for every piece — the binder tree asks this per
+    /// piece, and one derivation per piece would be one walk becoming N on the
+    /// window's body path.
     ///
-    /// **The binder tree draws one row per structure item and asks for that
-    /// item's fold**, so the by-id spelling above would walk the whole
-    /// structure to find the very item the row was handed — one walk becoming
-    /// N, on the window's body path. `ProjectStore.researchRouting` was split
-    /// for exactly this reason and records the same measurement; this is that
-    /// split carried one level up, so the tree's per-row cost is the fold's
-    /// own work and not a search for its subject.
+    /// **Its rows are `ResearchHomes.foldRoots`** (shell p5 Task 4a): what the
+    /// piece's folder holds and what the piece links, each drawn once at the
+    /// top of the fold with its group whole beneath it.
     static func pieceFold(
         for item: StructureItem,
-        structure: [StructureItem],
-        research: [ResearchItem],
-        projectType: ProjectType
+        projectType: ProjectType,
+        homes: ResearchHomes
     ) -> PieceFold {
         guard let routing = try? ProjectStore.researchRouting(
             for: item, projectType: projectType) else { return .empty }
 
+        let roots = homes.foldRoots(of: item.id)
+        let owned = Set(roots.filter { homes.owner(of: $0.id) == item.id }.map(\.id))
         switch routing {
-        case .pieceFolder(let pieceId):
-            let items = ProjectStore.pieceResearchSectionRoots(
-                forDocumentId: pieceId, structure: structure,
-                research: research, projectType: projectType)
-            return PieceFold(items: items, semantic: .contained)
+        case .pieceFolder:
+            return PieceFold(items: roots, semantic: .contained, owned: owned)
         case .sharedPlusLink:
-            // The document's own `linkedResearchIds`, read off the item rather
-            // than through `ProjectStore.findItemLinks(documentId:in:)` — that
-            // helper is `TreeWalk.find(id:).linkedResearchIds`, so asking it
-            // here would walk the whole structure again to arrive back at the
-            // item this function was handed. Same list, one walk fewer per row.
-            let items = (item.linkedResearchIds ?? [])
-                .compactMap { TreeWalk.find(id: $0, in: research) }
-            return PieceFold(items: items, semantic: .linked)
+            return PieceFold(items: roots, semantic: .linked, owned: owned)
         case .sharedOnly:
             return .empty
         }

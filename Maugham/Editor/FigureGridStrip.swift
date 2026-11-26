@@ -62,9 +62,18 @@ enum FigureGridStrip {
         /// Why the buttons are disabled when the figure's posture refuses
         /// `.acceptOrReject`.
         static let notPermitted = "This Mac may not answer notes on this figure."
-        /// Why Accept is disabled in the window's review mode, where Got it
-        /// and Reject (no cell moves) stay offered (fix round ruling I1).
-        static let reviewModeAccept = "Turn off review mode to accept \u{2014} it writes the cell."
+        /// **Whether a read-only grid still answers its notes**: read-through,
+        /// where an Accept is a decision and writes the cell (Accept, Got it,
+        /// Reject). Every other reason hides the buttons.
+        static func keepsAnswers(_ reason: FigureGridGate.Reason?) -> Bool {
+            reason?.isReadThrough == true
+        }
+
+        /// Whether Accept may write the cell under `reason`: an editable grid,
+        /// or one in read-through.
+        static func acceptWrites(under reason: FigureGridGate.Reason?) -> Bool {
+            reason == nil || reason?.isReadThrough == true
+        }
 
         /// The entry on `page` (clamped) and its "1 of 2" (nil with one note).
         func page(_ page: Int) -> (entry: Entry, label: String?)? {
@@ -80,8 +89,8 @@ enum FigureGridStrip {
         /// - `mayReject`: a note may be answered without writing a cell
         ///   (Reject, Got it) — the posture allows `.acceptOrReject`.
         /// - `readOnly`: the grid's read-only reason; the buttons are hidden
-        ///   and the reason said — except review mode, which keeps Got it and
-        ///   Reject (the posture decides) and shows Accept disabled.
+        ///   and the reason said — except read-through, which keeps all three
+        ///   (the posture decides).
         static func make(
             notes: FigureCellNotes, active: CellKey?, table: FigureTable, names: FormulaNames,
             locale: TableLocale, mayAccept: Bool, mayReject: Bool, readOnly: FigureGridGate.Reason?
@@ -89,8 +98,7 @@ enum FigureGridStrip {
             guard let active else { return .empty }
             let found = notes.notes(containing: active)
             guard !found.isEmpty else { return .empty }
-            let reviewing = readOnly == .reviewMode
-            let hidden = readOnly != nil && !reviewing
+            let hidden = readOnly != nil && !keepsAnswers(readOnly)
             let entries = found.map { note -> Entry in
                 let address: String? = switch note.figureAnchor?.resolve(in: table) {
                 case .live(let a1)?: a1
@@ -103,7 +111,7 @@ enum FigureGridStrip {
                 if hidden {
                     actions = []
                 } else if note.kind == .suggestedChange {
-                    actions = [Action(verb: .accept, isEnabled: mayAccept && !reviewing),
+                    actions = [Action(verb: .accept, isEnabled: mayAccept),
                                Action(verb: .reject, isEnabled: mayReject)]
                 } else {
                     actions = [Action(verb: .gotIt, isEnabled: mayReject), Action(verb: .reject, isEnabled: mayReject)]
@@ -115,8 +123,6 @@ enum FigureGridStrip {
                 readOnly.sentence
             } else if !mayReject {
                 notPermitted
-            } else if reviewing, entries.contains(where: { $0.kind == .suggestedChange }) {
-                reviewModeAccept
             } else if entries.contains(where: { $0.actions.contains { !$0.isEnabled } }) {
                 notPermitted
             } else {

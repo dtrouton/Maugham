@@ -190,10 +190,12 @@ final class TranslationRoundActionsTests: XCTestCase {
         let pid = h.doc.sequence[1]
         let actions = actionsFor(h)
 
-        guard case .done = await actions.keepMine(
-            round, pid, "keep the repetition", .edition("es")) else {
+        guard case .filed(nil, let destination, _) = await actions.keepMine(
+            round, pid, "keep the repetition", .edition("es"), nil) else {
             return XCTFail("Keep mine was refused over the edition brief")
         }
+        XCTAssertEqual(destination, FiledDestination(kind: .editionBrief("es"), scope: .project),
+                       "where it went is read off the write (shell p4 Task 6)")
         let rulings = try briefRulings(h)
         XCTAssertEqual(rulings.count, 1)
         XCTAssertEqual(rulings[0].directive?.paragraphId, pid)
@@ -201,10 +203,11 @@ final class TranslationRoundActionsTests: XCTestCase {
         XCTAssertEqual(rulings[0].provenance,
                        TranslationRoundReport.provenance(round: round, verb: "keep mine"))
 
-        guard case .done = await actions.keepMine(
-            round, pid, "one sentence", .everyEdition) else {
+        guard case .filed(nil, let intentHome, _) = await actions.keepMine(
+            round, pid, "one sentence", .everyEdition, nil) else {
             return XCTFail("Keep mine was refused over the piece's own intent")
         }
+        XCTAssertEqual(intentHome, FiledDestination(kind: .intent, scope: .document(h.doc.docId)))
         let intent = try XCTUnwrap(
             h.store.statement(kind: .intent, scope: .document(h.doc.docId)),
             "every-edition did not reach the piece's craft intent")
@@ -228,7 +231,7 @@ final class TranslationRoundActionsTests: XCTestCase {
         let round = roundFor(h, number: 2)
 
         guard case .refused(let sentence) = await actionsFor(h).keepMine(
-            round, h.doc.sequence[0], "   ", .edition("es")) else {
+            round, h.doc.sequence[0], "   ", .edition("es"), nil) else {
             return XCTFail("an empty translator's note was written")
         }
         XCTAssertEqual(sentence, TranslatorsNoteCopy.emptyRefusal)
@@ -243,10 +246,11 @@ final class TranslationRoundActionsTests: XCTestCase {
         let h = try await makeHarness()
         let round = roundFor(h, number: 3)
 
-        guard case .done = await actionsFor(h).makeRule(
-            round, "Never soften an oath.") else {
+        guard case .filed(nil, let destination, _) = await actionsFor(h).makeRule(
+            round, "Never soften an oath.", nil) else {
             return XCTFail("Make it a rule was refused")
         }
+        XCTAssertEqual(destination, FiledDestination(kind: .editionBrief("es"), scope: .project))
         let rulings = try briefRulings(h)
         XCTAssertEqual(rulings.count, 1)
         XCTAssertEqual(rulings[0].text, "Never soften an oath.")
@@ -261,7 +265,7 @@ final class TranslationRoundActionsTests: XCTestCase {
 
     func test_makeItARuleWithNoWordsIsRefused() async throws {
         let h = try await makeHarness()
-        guard case .refused = await actionsFor(h).makeRule(roundFor(h, number: 3), "  ") else {
+        guard case .refused = await actionsFor(h).makeRule(roundFor(h, number: 3), "  ", nil) else {
             return XCTFail("an empty rule was written")
         }
         XCTAssertNil(h.store.statement(kind: .editionBrief("es"), scope: .project))
@@ -367,9 +371,10 @@ final class TranslationRoundActionsTests: XCTestCase {
             .init(term: "fog", rendering: "niebla", reason: "consistency", adopted: false)]
         try TranslationRoundStore(projectURL: h.projectURL).append(round)
 
-        guard case .done(let updated?, let sentence) = await actionsFor(h).adopt(round, 0) else {
-            return XCTFail("Adopt did not answer .done with the changed round")
+        guard case .filed(let updated?, let destination, let sentence) = await actionsFor(h).adopt(round, round.glossaryProposals[0].identity) else {
+            return XCTFail("Adopt did not answer .filed with the changed round")
         }
+        XCTAssertEqual(destination, FiledDestination(kind: .editionBrief("es"), scope: .project))
         XCTAssertEqual(sentence, TranslationRoundReport.adoptedLine)
         XCTAssertTrue(updated.glossaryProposals[0].adopted)
         XCTAssertEqual(storedRound(h)?.glossaryProposals[0].adopted, true,
@@ -395,7 +400,7 @@ final class TranslationRoundActionsTests: XCTestCase {
             .init(term: "  ", rendering: "niebla", reason: "consistency", adopted: false)]
         try TranslationRoundStore(projectURL: h.projectURL).append(round)
 
-        guard case .refused(let sentence) = await actionsFor(h).adopt(round, 0) else {
+        guard case .refused(let sentence) = await actionsFor(h).adopt(round, round.glossaryProposals[0].identity) else {
             return XCTFail("an empty glossary term was adopted")
         }
         XCTAssertEqual(sentence, TranslationRoundReport.emptyGlossaryTerm)
@@ -411,7 +416,7 @@ final class TranslationRoundActionsTests: XCTestCase {
             .init(term: "fog", rendering: "niebla", reason: "consistency", adopted: false)]
         try TranslationRoundStore(projectURL: h.projectURL).append(round)
 
-        guard case .done(let updated?, let sentence) = await actionsFor(h).skip(round, 0) else {
+        guard case .done(let updated?, let sentence) = await actionsFor(h).skip(round, round.glossaryProposals[0].identity) else {
             return XCTFail("Skip did not answer .done with the changed round")
         }
         XCTAssertEqual(sentence, TranslationRoundReport.skippedLine)
@@ -426,7 +431,8 @@ final class TranslationRoundActionsTests: XCTestCase {
     func test_skipOverAnIndexTheRoundDoesNotHaveIsRefused() async throws {
         let h = try await makeHarness()
         let round = roundFor(h, number: 7)
-        guard case .refused(let sentence) = await actionsFor(h).skip(round, 3) else {
+        try TranslationRoundStore(projectURL: h.projectURL).append(round)
+        guard case .refused(let sentence) = await actionsFor(h).skip(round, "gone") else {
             return XCTFail("Skip acted on a proposal that is not in the round")
         }
         XCTAssertEqual(sentence, TranslationRoundReport.rowGone)

@@ -60,7 +60,7 @@ enum LetterKeep {
     /// nothing in the guide.
     ///
     /// **Both extra spellings moved here in two loops P1 Task 8, and they are
-    /// about a STORED run rather than a strip.** Review's cockpit draws
+    /// about a STORED run rather than a strip.** the round cockpit draws
     /// neither any more: a round is a stage editor's, and the draft stage is
     /// the check loop's own derivation. What this renders is the heading of a
     /// note kept from a run that already happened — including a legacy round
@@ -73,9 +73,9 @@ enum LetterKeep {
     /// **The stage comes off the letter's own stamp** (P3 Task 5), never
     /// re-derived: a note kept six months later names the stage the run
     /// derived, not whatever the document has become since.
-    static func laneLine(for run: CompilerRun, store: ProjectStore) -> String {
+    static func laneLine(for run: CompilerRun, docId: String?, store: ProjectStore) -> String {
         laneLine(passId: run.passId, round: run.round,
-                 stage: run.letter?.draftStage, store: store)
+                 stage: run.letter?.draftStage, docId: docId, store: store)
     }
 
     /// The same lane, for a caller holding a NOTE rather than a run — the
@@ -91,8 +91,13 @@ enum LetterKeep {
     /// run has a letter and the letter has a stamp; an ANNOTATION has a pass
     /// and a round and nothing about the writer's delta, so the queue's door
     /// passes `nil` and the row it files names no stage (global constraint 28).
+    ///
+    /// **`docId` names the piece, so the noun is the piece's own** (shell
+    /// closing A9): a script in a Collection reads "reads this script" here
+    /// as the check head does (`DiagnosticsPaneHeader.noun`); nil is a piece
+    /// in general.
     static func laneLine(
-        passId: String?, round: Int?, stage: DraftStage?, store: ProjectStore
+        passId: String?, round: Int?, stage: DraftStage?, docId: String?, store: ProjectStore
     ) -> String {
         guard let passId,
               let pass = ReviewPass.pass(
@@ -105,7 +110,10 @@ enum LetterKeep {
         // Her introduction before any round, the lane line's own shape after
         // one — and her PASS name never, on either.
         let name = pass.effectiveEditorName
-        guard let round else { return "\(name) reads this piece" }
+        guard let round else {
+            let piece = docId.flatMap { TreeWalk.find(id: $0, in: store.manifest.structure) }
+            return CheckNarrative.readerCopy(for: .coach(pass), noun: PieceNoun.of(piece, in: store.manifest))
+        }
         return "\(name) \u{00b7} round \(round)\(word)"
     }
 
@@ -140,7 +148,7 @@ enum LetterKeep {
     ) async throws -> ResearchItem {
         let rendered = LetterMarkdown.render(
             letter, editorName: editorName,
-            laneLine: laneLine(for: run, store: store), at: run.at)
+            laneLine: laneLine(for: run, docId: docId, store: store), at: run.at)
         let created = try await store.createResearchNote(
             scope: .document(docId), title: rendered.title)
         guard let path = created.path else {
@@ -148,7 +156,7 @@ enum LetterKeep {
                 "The kept letter's note has no file to write to: \(created.id)")
         }
         // **Through the note door when a store is wired**, as the assistant's:
-        // a letter is the compiler persona's text (a `CompilerRun`'s derived
+        // a letter is the compiler's text (a `CompilerRun`'s derived
         // `Letter`), so the writer's first edit of the kept note keeps it as a
         // version marked "Written by assistant". It must land: the note was
         // just made empty and nothing over it is lost. Not `.saved` throws —
@@ -156,7 +164,9 @@ enum LetterKeep {
         if let documentStore = store.documentStore {
             guard case .saved = await documentStore.saveResearchNote(
                 itemId: created.id, text: rendered.body, by: .assistant, mustLand: true, from: store) else {
-                throw ProjectStoreError.researchTextNotSaved(title: created.title)
+                // The empty note it made is taken back first (#148 D1).
+                throw await store.takeBackUnsavedNewNote(
+                    created, refusal: ProjectStoreError.researchTextNotSaved(title: created.title))
             }
             return created
         }

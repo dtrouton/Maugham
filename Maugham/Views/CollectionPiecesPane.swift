@@ -5,16 +5,12 @@ import MaughamCore
 /// inline rename support, and a right-click context menu.
 struct CollectionPiecesPane: View {
     @Bindable var store: ProjectStore
-    @Binding var selectedSubject: BinderSubject?
+    /// The window's subject — see `BinderView.subject`.
+    @Binding var subject: WindowSubject
     @Binding var renamingItemId: String?
     /// The sections' state, owned by the window — see `BinderView.treeState`,
     /// whose doc comment carries the reasoning (stage-3a Task 4).
     let treeState: BinderTreeSectionsState
-    /// Threaded to `BinderTreeSections`' Palette header — see its own doc
-    /// comment (stage 3b Task 4). Defaulted for the mounted-tree fixtures that
-    /// do not care about the wall's door.
-    var paletteWallTravels: Bool = false
-    var onOpenPaletteWall: () -> Void = {}
 
     var body: some View {
         VStack(spacing: 0) {
@@ -48,7 +44,7 @@ struct CollectionPiecesPane: View {
             // project row carries no `.draggable` at all, so there is no
             // drag-interior claim to make here.
             .treeTravelOnDoubleClick(.project)
-            .tag(BinderSubject.project)
+            .tag(TreeRowTag.subject(.project))
     }
 
     /// One `List`, always — including when the Collection has no pieces.
@@ -85,24 +81,35 @@ struct CollectionPiecesPane: View {
         // `BinderView.body`'s twin comment; the reasoning is not restated here.
         ScrollViewReader { proxy in
             List(selection: BinderTreeSelection.binding(
-                    subject: $selectedSubject, state: treeState, store: store)) {
+                    subject: $subject, state: treeState, store: store)) {
+                // `TreeRowSlot`'s order, `BinderView`'s twin: the Book, Inbox
+                // and Canvas, the pieces, then the sections.
                 projectRow
+                TreeTopRows(hasInbox: TreeTopRows.hasInbox(
+                    state: treeState, store: store, subject: subject),
+                            hasNewCaptures: TreeTopRows.hasNewCaptures(store: store),
+                            canvasDrop: .init(store: store, state: treeState,
+                                              open: subject.open))
                 ForEach(store.manifest.structure) { piece in
                     pieceEntry(for: piece)
                 }
-                // Below the pieces — furniture at the foot of the column, with
-                // the project row still row zero.
                 BinderTreeSections(store: store, state: treeState,
-                                   selectedSubject: $selectedSubject,
-                                   paletteWallTravels: paletteWallTravels,
-                                   onOpenPaletteWall: onOpenPaletteWall)
+                                   subject: $subject)
             }
             .listStyle(.sidebar)
-            .overlay {
+            .treeRowStates(state: treeState, subject: subject)
+            // Return/Space pull a fold row up; ⌘↓ opens any row in the centre.
+            .treeRowKeys(store: store, state: treeState, subject: $subject,
+                         hostIsRenaming: renamingItemId != nil)
+            // At the column's foot, `BinderView`'s reason (shell p1 Task 3).
+            .overlay(alignment: .bottom) {
                 if store.manifest.structure.isEmpty { emptyState }
             }
             .binderTreeSections(store: store, state: treeState,
-                                selectedSubject: $selectedSubject)
+                                subject: $subject)
+            .pieceFoldIndex(store: store, state: treeState)
+            // A picture row's thumbnail is resolved under this project.
+            .environment(\.rowThumbnailRoot, store.url)
             .consumingTreeScrollRequests(proxy, state: treeState)
             // Dev-only diagnostic, inert everywhere else — `TreeScrollProbe.swift`.
             .treeScrollProbe()
@@ -182,6 +189,13 @@ struct CollectionPiecesPane: View {
                     providers: providers, position: position,
                     target: .pieceRow(piece.id))
             },
+            // `BinderView`'s twin (shell p4 Task 10): the drop's own rule.
+            dropAnswers: {
+                treeVerbs.dropAnswers(on: .pieceRow(piece.id), refusesStructure: { id in
+                    store.manifest.structure.first(where: { $0.id == id })
+                        .map { !structureVerbs(for: $0).move } ?? false
+                }, halves: true)
+            },
             // `BinderView.row(for:)`'s figure count, the same two reads.
             figureCount: treeState.figureCountText(
                 forPiece: piece.id, projectType: store.manifest.type),
@@ -201,6 +215,13 @@ struct CollectionPiecesPane: View {
                         MaughamEvent.post(.maughamPromotePiece, to: .keyWindow, payload: ["piece_id": piece.id])
                     }
                 }
+                // Tags…, Link to Another Piece…, Publishing… (shell p3 Task 8).
+                PieceRowMenuButtons(item: piece, verbs: verbs, state: treeState,
+                                    offersTarget: PieceRowMenus.target(for: piece, store: store) != nil,
+                                    // The project's noun, not the row's: the
+                                    // link may go to any piece, prose or script
+                                    // (shell closing A9).
+                                    noun: PieceNoun.of(nil, in: store.manifest))
                 if verbs.delete {
                     Divider()
                     Button("Delete", role: .destructive) {
@@ -219,10 +240,9 @@ struct CollectionPiecesPane: View {
     /// `pieces/<slug>/research/`, so a group in there is a group of this
     /// piece's research and expands like one. A *reference* piece never folds —
     /// its research lives in its own project — and that is not decided here:
-    /// `TreeSectionDerivation.pieceFold` asks `ProjectStore.researchRouting`,
-    /// the one rule, which refuses a reference piece outright.
+    /// `PieceFoldIndex` gives a reference piece no entries (it has no fold).
     ///
-    /// **An empty fold gets no chevron** (`PieceFold.showsDisclosure`) — a
+    /// **An empty fold gets no chevron** (the index holds no layout for it) — a
     /// triangle onto nothing on every piece of a new Collection. The row is
     /// still where the first item lands (Task 7's drop target).
     ///
@@ -238,31 +258,28 @@ struct CollectionPiecesPane: View {
     /// rows are stepped by the outline's per-level indent on top of this one.
     @ViewBuilder
     private func pieceEntry(for piece: StructureItem) -> some View {
-        let fold = TreeSectionDerivation.pieceFold(
-            for: piece,
-            structure: store.manifest.structure,
-            research: store.manifest.research,
-            projectType: store.manifest.type)
-        if fold.showsDisclosure {
+        // Looked up in the window's fold index (shell p3 Task 7), never
+        // computed per row (tripwire 4).
+        if let layout = treeState.foldLayout(of: piece.id, in: store.manifest) {
             // Bound for `BinderView.documentEntry`'s reason exactly (stage-3b
             // Task 7): the window's reveal opens a piece's fold, and it can
             // only open a flag it can reach.
             DisclosureGroup(isExpanded: treeState.foldExpansion(of: piece.id)) {
                 BinderPieceFold(store: store, state: treeState,
-                                selectedSubject: $selectedSubject,
-                                documentId: piece.id, fold: fold)
+                                subject: $subject,
+                                documentId: piece.id, layout: layout)
             } label: {
                 pieceRow(for: piece)
             }
             .padding(.leading, ProjectRowLabel.childIndent)
-            .tag(BinderSubject.item(piece.id))
+            .tag(TreeRowTag.subject(.item(piece.id)))
             // The find manuscript-match scroll target (stage-3b Task 8) —
             // `BinderView.outline`'s comment carries the reasoning.
             .id(BinderSubject.item(piece.id))
         } else {
             pieceRow(for: piece)
                 .padding(.leading, ProjectRowLabel.childIndent)
-                .tag(BinderSubject.item(piece.id))
+                .tag(TreeRowTag.subject(.item(piece.id)))
                 .id(BinderSubject.item(piece.id))
         }
     }
@@ -277,6 +294,9 @@ struct CollectionPiecesPane: View {
             Text(Self.emptyDescription(mayStartAPiece: mayStartAPiece))
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        // A box of its own at the column's foot, so the tree's rows above it
+        // stay clear (shell p1 Task 3).
+        .frame(height: 200)
     }
 
     /// **What the empty state tells her she can do** (P3c, controller ruling
@@ -297,7 +317,7 @@ struct CollectionPiecesPane: View {
     /// section and every fold, so the three cannot disagree about scope.
     private var treeVerbs: BinderTreeVerbs {
         BinderTreeVerbs(store: store, state: treeState,
-                        selectedSubject: $selectedSubject)
+                        subject: $subject)
     }
 
     private func handleDrop(
@@ -309,9 +329,7 @@ struct CollectionPiecesPane: View {
               let targetIdx = store.manifest.structure.firstIndex(where: { $0.id == targetId }) else {
             return
         }
-        // .top = before target; .bottom/.middle = after target.
-        // Pieces don't have children so .middle is treated as .top (just above).
-        var destIdx = (position == .bottom) ? targetIdx + 1 : targetIdx
+        var destIdx = Self.landsBelow(position) ? targetIdx + 1 : targetIdx
         // If the source is before the target, removing it shifts indices down
         // by 1, so the effective destination index decreases by 1.
         if sourceIdx < destIdx { destIdx -= 1 }
@@ -320,12 +338,16 @@ struct CollectionPiecesPane: View {
         }
     }
 
+    /// **Where a piece dropped on a piece row lands** — below it from the
+    /// bottom half, above it otherwise (a piece has no children, and the row
+    /// reads halves: `DropIntent.Position.of(…, halves: true)`). The drop and
+    /// its hover's insertion line both ask this.
+    static func landsBelow(_ position: DropIntent.Position) -> Bool { position == .bottom }
+
     /// The pieces' structural verbs, from the window's posture door —
     /// `BinderView.structureVerbs`' twin; no door, no verb (fails closed).
     func structureVerbs(for piece: StructureItem) -> TreeStructureVerbs {
-        guard let documentStore = store.documentStore else { return .none }
-        return TreeStructureVerbs.decide(
-            for: piece, postureOf: { documentStore.posture(forDocId: $0) })
+        TreeStructureVerbs.decide(for: piece, in: store)
     }
 
     /// The header's + menu: every item in it starts (or links in) a piece.
@@ -344,17 +366,17 @@ struct CollectionPiecesPane: View {
         .padding(8)
     }
 
-    /// New Prose Story / New Screenplay / Link Existing Project — each adds a
+    /// New Prose Piece / New Script / Link Existing Project — each adds a
     /// piece, so the menu is the book author's (ruling R3), hidden otherwise.
     private var addMenu: some View {
         Menu {
-            Button("New Prose Story") {
+            Button(StartAPieceDoor.newProsePieceTitle) {
                 MaughamEvent.post(.maughamAddLoosePiece, to: .keyWindow)
             }
-            Button("New Screenplay") {
+            Button(StartAPieceDoor.newScriptTitle) {
                 MaughamEvent.post(.maughamAddScreenplayPiece, to: .keyWindow)
             }
-            Button("Link Existing Project…") {
+            Button(StartAPieceDoor.linkProjectTitle) {
                 MaughamEvent.post(.maughamLinkProject, to: .keyWindow)
             }
         } label: {
@@ -373,10 +395,16 @@ struct CollectionPiecesPane: View {
 /// same `.startAPiece` question as the tree's own + (`TreeStructureVerbs`).
 enum StartAPieceDoor {
 
+    /// **One wording for a Collection's three, in File and on the + menu**
+    /// (shell p5 Task 7).
+    static let newProsePieceTitle = "New Prose \(PieceNoun.piece.capitalised)"
+    static let newScriptTitle = "New \(PieceNoun.script.capitalised)"
+    static let linkProjectTitle = "Link Existing Project\u{2026}"
+
     /// The menu item's enabled state. nil — no project window in front — keeps
     /// the item enabled as it always was: the receiver is already a no-op
     /// there, and greying it would read as broken while a sheet holds focus
-    /// (`FocusedRunButtons`' reasoning). Only a window that SAYS it may not
+    /// (`RunButtons`' reasoning). Only a window that SAYS it may not
     /// start a piece disables it.
     static func menuIsEnabled(mayStartAPiece: Bool?) -> Bool {
         mayStartAPiece != false

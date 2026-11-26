@@ -41,6 +41,12 @@ final class FigureVisitUndo {
 
     private weak var host: (any FigureGridHost)?
     private let projectURL: URL
+    /// **The session's read-through gate, asked of this figure at each ⌘Z
+    /// and ⇧⌘Z** (`FigureWindows.readThroughRefusal`): a step left on another
+    /// window's stack cannot write the cells of a figure one of whose pieces
+    /// is in read-through. The step stays, refused and said, for a ⌘Z after
+    /// Resume.
+    private let readThrough: @MainActor () -> ReadThroughRefusal?
     /// What a ⌘Z or ⇧⌘Z says when the figure is no longer open here.
     static let notOpenSentence = "Couldn't undo the table's changes — the table is no longer open."
     /// The visit, once every write the grid asked for has landed and the
@@ -61,8 +67,10 @@ final class FigureVisitUndo {
     private(set) var settled: Task<Void, Never>?
 
     private init(host: any FigureGridHost, visit: Task<FigureVisit?, Never>,
+                 readThrough: @escaping @MainActor () -> ReadThroughRefusal?,
                  workTaskSink: ((Task<Void, Never>) -> Void)?) {
         self.host = host
+        self.readThrough = readThrough
         projectURL = host.projectURL
         self.visit = visit
         self.workTaskSink = workTaskSink
@@ -72,9 +80,10 @@ final class FigureVisitUndo {
     /// fold, outside any undo or redo pass (registers nothing inside one).
     @discardableResult
     static func register(on um: UndoManager, host: any FigureGridHost,
-                         visit: Task<FigureVisit?, Never>) -> FigureVisitUndo? {
+                         visit: Task<FigureVisit?, Never>,
+                         readThrough: @escaping @MainActor () -> ReadThroughRefusal?) -> FigureVisitUndo? {
         guard !um.isUndoing, !um.isRedoing else { return nil }
-        let step = FigureVisitUndo(host: host, visit: visit,
+        let step = FigureVisitUndo(host: host, visit: visit, readThrough: readThrough,
                                    workTaskSink: { [weak host] in host?._lastUndoWorkTask = $0 })
         step.registerUndo(on: um)
         step.settled = Task { @MainActor [weak um] in
@@ -90,8 +99,26 @@ final class FigureVisitUndo {
         return step
     }
 
+    /// **Refused by read-through**: said, nothing written. A refused ⌘Z puts
+    /// the step back on the undo stack once this pass has ended, so a ⌘Z
+    /// after Resume takes it back; a refused ⇧⌘Z is said and the redo goes
+    /// (a known limit, ADR 0039 §4: AppKit offers no way back onto the redo
+    /// stack from outside a pass).
+    private func refusedByReadThrough(on um: UndoManager?, undoing: Bool) -> Bool {
+        guard let refusal = readThrough() else { return false }
+        MaughamEvent.postNotice(refusal.because("this table"), projectURL: projectURL)
+        if undoing {
+            Task { @MainActor [self, weak um] in
+                if let um { registerUndo(on: um) }
+            }
+        }
+        return true
+    }
+
     private func registerUndo(on um: UndoManager) {
         um.registerUndo(withTarget: self) { [self, weak um] _ in
+            if refusedByReadThrough(on: um, undoing: true) { return }
+
             if let um { registerRedo(on: um) }
             hop { step, host, visit in
                 guard step.applied else { return }
@@ -103,6 +130,7 @@ final class FigureVisitUndo {
 
     private func registerRedo(on um: UndoManager) {
         um.registerUndo(withTarget: self) { [self, weak um] _ in
+            if refusedByReadThrough(on: um, undoing: false) { return }
             if let um { registerUndo(on: um) }
             hop { step, host, visit in
                 guard !step.applied else { return }
@@ -129,4 +157,10 @@ final class FigureVisitUndo {
         pending = task
         if visitEnded { workTaskSink?(task) }   // else `settled` publishes it
     }
+}
+
+/// A visit step held without keeping it: the window's undo stack owns a live
+/// step (`EditorCoordinator.figureVisitStepRefs`).
+struct WeakFigureVisitUndo {
+    weak var step: FigureVisitUndo?
 }

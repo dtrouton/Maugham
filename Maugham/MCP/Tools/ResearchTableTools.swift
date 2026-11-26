@@ -121,7 +121,8 @@ public enum CreateResearchTableTool: MCPTool {
         takes them: machine-form values, "=" formulas with A1 references, \
         read_figure's format objects). The table is as large as the cells \
         need; with no cells it is a blank 4 × 3 table. header_rows is 0 or 1 \
-        (default 1). scope is "shared" (default) or a manuscript document's \
+        (default 1). scope is "shared" (the default: the whole book's, in the \
+        binder's Research section) or a manuscript document's \
         id (the table goes where a new research note for that document \
         would go). Returns the new item_id for write_research_cells and \
         read_research_table.

@@ -1,48 +1,91 @@
 import SwiftUI
 import MaughamCore
 
-/// **A research or figure subject arriving in Plan reveals the column that shows it**
-/// (shell-finish stage 2b, final review's Critical).
+/// **The right column follows the subject** (shell plan 3 Task 9; it began as
+/// the research reveal of shell-finish stage 2b, final review's Critical).
 ///
-/// The placement (`ProjectWindow.researchSubjectPlacement`, or
-/// `figureSubjectPlacement` for a figure) decides WHICH column
-/// the item belongs in; this decides that the column is on screen when it does.
-/// Beside the canvas the right column is the writer's only view of the item, and
-/// Plan opens on `.inbox` — so without this a research row in Plan's tree writes
-/// a subject that reaches no surface at all.
+/// Three things, one observer of the subject:
+/// - **the position after a subject change**
+///   (`RightColumnContent.positionAfterSubjectChange`): something newly pulled
+///   up shows the pulled-up position; that position left with nothing to show
+///   goes back to the face before it; the faces moving onto the canvas show
+///   its details;
+/// - **the reveal**: something ARRIVING pulled up shows the column, or a
+///   research row in the tree would write a subject that reaches no surface;
+/// - **the remembered position**: `UIState.rightColumnPosition`'s one writer,
+///   and `previousFace`'s.
 ///
 /// **An observer of the subject rather than a call at each writer.** The tree's
-/// rows write `selectedSubject` through a `List(selection:)` binding, so there is
-/// no call site to add anything to; a rule keyed on the state covers the tree,
-/// the find overlay's research match, and any future writer by construction. The
-/// two forced entries call `revealResearchColumn` directly as well — see
+/// rows write the subject through a `List(selection:)` binding, so there is no
+/// call site to add anything to; a rule keyed on the state covers the tree, the
+/// find overlay's research match, and any future writer by construction. The
+/// forced entries call `ProjectWindow.revealPulledUp` as well — see
 /// `ProjectWindow.openResearchItem` for the case the observer cannot see.
 struct ResearchRevealModifier: ViewModifier {
-    /// The window's working mode. Read, never written: revealing is about the
-    /// columns, and which persona the writer is in is their own choice.
-    let persona: Persona
-    @Binding var selectedSubject: BinderSubject?
+    /// The window's subject, `nil` until `load()` restores it — which is how
+    /// the restore is told apart from a change.
+    let subject: WindowSubject?
     @Binding var showInspector: Bool
-    @Binding var detailSegment: DetailSegment
+    @Binding var position: RightColumnPosition
+    @Binding var previousFace: RightColumnPosition
+    let store: ProjectStore?
+    let documentStore: DocumentStore?
 
     func body(content: Content) -> some View {
         content
-            .onChange(of: selectedSubject) { previous, next in
-                // **A restored subject is not an arrival.** `ProjectWindow.load`
+            .onChange(of: subject) { previous, next in
+                // **A restored subject is not a change.** `ProjectWindow.load`
                 // seeds the window's first subject from `UIState` — the one
-                // write whose predecessor is no subject at all, since
-                // `validSubject` always answers (`.project` needs nothing to
-                // exist) — and it lands beside a `detailSegment` restored
-                // VERBATIM from the same state. Revealing there would overwrite
-                // the writer's last explicit pane choice on every reopen with a
-                // research subject in it, which is the opposite of what the
-                // restore path is careful to preserve. A reveal is about a
-                // subject arriving while the writer is here.
-                guard previous != nil else { return }
-                ProjectWindow.revealResearchColumn(
-                    persona: persona, subject: next,
-                    showInspector: &showInspector,
-                    detailSegment: &detailSegment)
+                // write whose predecessor is no subject at all — beside a
+                // position restored VERBATIM from the same state. Moving the
+                // position there would overwrite the writer's last choice on
+                // every reopen.
+                guard let previous, let next else { return }
+                let after = RightColumnContent.positionAfterSubjectChange(
+                    position, from: previous, to: next, previousFace: previousFace,
+                    structure: store?.manifest.structure ?? [],
+                    projectType: store?.manifest.type ?? .novel)
+                if after != position { position = after }
+                if Self.reveals(from: previous, to: next) { showInspector = true }
             }
+            .onChange(of: position) { _, new in
+                previousFace = Self.previousFace(previousFace, after: new)
+                documentStore?.updateUIState { $0.rightColumnPosition = new }
+            }
+            // ⌘⌥E's menu item is enabled only where there is a piece whose
+            // fold it can open.
+            .focusedSceneValue(\.pieceFoldIsOffered,
+                               ProjectWindow.foldPiece(
+                                subject: subject ?? .book,
+                                structure: store?.manifest.structure ?? []) != nil)
+    }
+
+    /// **Only something ARRIVING pulled up reveals.** `beside` persists
+    /// across clicks (the click rule), so a change that leaves it as it was —
+    /// the faces moving to a chapter, the Book opening — is not an arrival, and
+    /// revealing on it would reopen a column the writer closed on every click
+    /// after the first. The restore (from `nil`) is not an arrival either, and
+    /// nor is putting what was beside away (shell p1 final fix). Something
+    /// already beside that a navigation makes the part clicked last again
+    /// (`ClickRule.navigate`) is: the writer asked to be shown it.
+    static func isAnArrival(from previous: WindowSubject?, to next: WindowSubject?) -> Bool {
+        guard let previous, let next, next.beside != nil else { return false }
+        return next.beside != previous.beside
+            || (next.besideIsLatest && !previous.besideIsLatest)
+    }
+
+    /// Whether a subject change shows the column: an arrival the right column
+    /// is where to see (`pulledUpIsShownBeside` — never an item the centre
+    /// already shows).
+    static func reveals(from previous: WindowSubject?, to next: WindowSubject?) -> Bool {
+        guard isAnArrival(from: previous, to: next), let next else { return false }
+        return ProjectWindow.pulledUpIsShownBeside(subject: next)
+    }
+
+    /// The face to go back to, after the position became `new`: the last
+    /// position that was not the pulled-up one.
+    static func previousFace(_ current: RightColumnPosition,
+                             after new: RightColumnPosition) -> RightColumnPosition {
+        new == .pulledUp ? current : new
     }
 }

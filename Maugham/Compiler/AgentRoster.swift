@@ -23,8 +23,11 @@ import Observation
 /// the translator it is waiting on stops existing.
 ///
 /// `translationRuns` holds no session — it is the record finished rounds
-/// leave for the desk — and is here because it is wired with the services
-/// (`onRunEnded`) and lives exactly as long as they do.
+/// leave (`TranslationRunState.resolve`'s `lastRun`), read by a piece read
+/// in a language's To resolve head (`PieceInLanguageHeadView`, shell p4 Task
+/// 9) for the last run's report on that piece. It is here because it is
+/// wired with the services (`onRunEnded`) and lives exactly as long as they
+/// do.
 @MainActor @Observable
 final class AgentRoster {
     let compiler: CompilerOrchestrator

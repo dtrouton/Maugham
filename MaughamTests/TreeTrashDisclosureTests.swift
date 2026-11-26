@@ -8,8 +8,8 @@ import MaughamCore
 /// **Trash becomes a disclosure at the tree's foot** (shell-finish stage 2b
 /// Task 2) — the segment strip's Trash entry is gone (nothing offers it, and
 /// after this task nothing selects it either); a writer browses and restores
-/// what they deleted from a `DisclosureGroup` mounted below the tree in every
-/// persona instead, present only while there is something in it.
+/// what they deleted from a `DisclosureGroup` mounted below the tree,
+/// whatever is open, present only while there is something in it.
 ///
 /// **The first mounted trash coverage in the suite** — the pre-task census
 /// found none. Two mounts do the work: `TrashDisclosure` on its own, with the
@@ -363,7 +363,7 @@ final class TreeTrashDisclosureTests: XCTestCase {
     // append-if-selected fallback re-admitted a phantom Trash tab even with
     // `hasTrash: false`, and the `.trash` switch arm rendered the same rows a
     // SECOND time in the main area beside the correct foot disclosure. One test
-    // asked the coercion over every persona × project type; the other mounted
+    // asked the coercion over every window mode × project type; the other mounted
     // the restored toggle against a control and compared table counts.
     //
     // There is no persisted left-column choice left to restore, no picker to
@@ -422,11 +422,9 @@ final class TreeTrashDisclosureTests: XCTestCase {
 
     private func mountToggle(store: ProjectStore, box: ToggleProbeBox,
                              shell: ProjectWindow.BinderShell,
-                             persona: Persona = .author,
                              keyed: Bool = false) -> NSWindow {
         let view = AnyView(
-            BinderToggleTrashProbeView(store: store, box: box, shell: shell,
-                                       persona: persona))
+            BinderToggleTrashProbeView(store: store, box: box, shell: shell))
         let size = CGSize(width: 320, height: 700)
         // `keyed` mounts in a `KeyTestWindow`, which reports itself key, for the
         // ⌘⌥Z test: `.maughamRestoreLastDeleted` is key-window scoped and a
@@ -598,7 +596,6 @@ private struct BinderToggleTrashProbeView: View {
     let store: ProjectStore
     let box: ToggleProbeBox
     let shell: ProjectWindow.BinderShell
-    let persona: Persona
     @State private var renamingItemId: String?
 
     private var subject: Binding<BinderSubject?> {
@@ -613,20 +610,18 @@ private struct BinderToggleTrashProbeView: View {
             case .standard:
                 BinderPaneToggle(
                     store: store,
-                    selectedSubject: subject,
+                    subject: .tree(subject),
                     projectType: store.manifest.type,
                     lastParsedScript: nil,
                     treeState: treeState,
-                    treeFindActive: .constant(false),
-                    persona: persona)
+                    treeFindActive: .constant(false))
             case .collection:
                 CollectionBinderPaneToggle(
                     store: store,
-                    selectedSubject: subject,
+                    subject: .tree(subject),
                     treeFindActive: .constant(false),
                     renamingItemId: $renamingItemId,
-                    treeState: treeState,
-                    persona: persona)
+                    treeState: treeState)
             }
         }
         .onKeyWindowCommand(.maughamRestoreLastDeleted, window: box.window) { _ in

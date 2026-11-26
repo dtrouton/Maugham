@@ -166,7 +166,7 @@ final class InboxStore {
          identities: LocalIdentities = .current,
          cache: RegistryCache? = nil) {
         self.projectURL = projectURL
-        self.inboxDir = projectURL.appendingPathComponent(".maugham/inbox")
+        self.inboxDir = Self.inboxDir(projectURL: projectURL)
         self.deviceId = deviceId
         self.identity = identity
         self.identities = identities
@@ -449,6 +449,10 @@ final class InboxStore {
     }
 
     private func manifestURLs() -> [URL] {
+        Self.manifestURLs(in: inboxDir)
+    }
+
+    private nonisolated static func manifestURLs(in inboxDir: URL) -> [URL] {
         let all = (try? FileManager.default.contentsOfDirectory(
             at: inboxDir, includingPropertiesForKeys: nil)) ?? []
         return all.filter { url in
@@ -456,6 +460,17 @@ final class InboxStore {
             return n == "inbox.jsonl"
                 || (n.hasPrefix("inbox.") && n.hasSuffix(".jsonl"))
         }
+    }
+
+    /// **Whether this project has an inbox** — a capture manifest from any
+    /// device under `.maugham/inbox/` (shell p1 Task 3: the tree's Inbox row
+    /// shows only then). A directory listing, so the tree caches it.
+    nonisolated static func projectHasInbox(projectURL: URL) -> Bool {
+        !manifestURLs(in: inboxDir(projectURL: projectURL)).isEmpty
+    }
+
+    private nonisolated static func inboxDir(projectURL: URL) -> URL {
+        projectURL.appendingPathComponent(".maugham/inbox")
     }
 
     // MARK: - Mutations (append a new row to this Mac's own stream)
@@ -705,7 +720,10 @@ final class InboxStore {
                 // this text marked as `writer`'s (#141 N5).
                 guard case .saved = await documentStore.saveResearchNote(
                     itemId: created.id, text: entry.inlineText ?? "", by: writer, from: projectStore) else {
-                    throw ProjectStoreError.researchTextNotSaved(title: created.title)
+                    // The empty note it made is taken back first, so a retry
+                    // makes one note, not a second (#148 D1).
+                    throw await projectStore.takeBackUnsavedNewNote(
+                        created, refusal: ProjectStoreError.researchTextNotSaved(title: created.title))
                 }
             } else {
                 // Never given a store: the raw write. Lost it (teardown):
@@ -1046,6 +1064,23 @@ final class InboxStore {
         case .audio: return "Voice capture"
         case .text:  return "Text capture"
         }
+    }
+
+    /// **Which captures show a thumbnail in the pane**: a photo, by its asset's
+    /// name under the image folder — the same name and folder `assetURL(for:)`
+    /// resolves, left for the thumbnail cache to resolve through
+    /// `SafeRelativePath` off the main actor. Text and voice keep their glyph.
+    /// Pure: touches no disk.
+    nonisolated static func thumbnailSource(for entry: InboxEntry,
+                                            inboxDir: URL) -> RowThumbnails.Source? {
+        guard entry.kind == .image, let name = entry.sourceFilename, !name.isEmpty,
+              let dir = InboxConvention.assetDir(for: entry.kind, inboxDir: inboxDir)
+        else { return nil }
+        return RowThumbnails.Source(path: name, root: dir)
+    }
+
+    func thumbnailSource(for entry: InboxEntry) -> RowThumbnails.Source? {
+        Self.thumbnailSource(for: entry, inboxDir: inboxDir)
     }
 
     /// Absolute URL of an entry's asset file (image/audio), or nil for inline

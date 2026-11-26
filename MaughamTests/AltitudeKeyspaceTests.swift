@@ -316,12 +316,11 @@ private struct AltitudeKeyspaceProbeView: View {
     var body: some View {
         BinderPaneToggle(
             store: store,
-            selectedSubject: selectedSubject,
+            subject: .tree(selectedSubject),
             projectType: store.manifest.type,
             lastParsedScript: nil,
             treeState: box.treeState,
-            treeFindActive: treeFindActive,
-            persona: .author)
+            treeFindActive: treeFindActive)
         .onKeyWindowCommand(.maughamSelectProjectRow, window: box.window) { _ in
             box.selectedSubject = .project
         }

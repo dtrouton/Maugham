@@ -36,7 +36,7 @@ struct HistoryTimeline: View {
         case .all:         return "No history yet"
         case .checkpoints: return "No checkpoints"
         case .edits:       return "No edits"
-        case .annotations: return "No annotations"
+        case .annotations: return "No notes"
         }
     }
 
@@ -58,7 +58,7 @@ struct HistoryTimeline: View {
         case .edits:
             return "Typing bursts appear here every 30 seconds while you work."
         case .annotations:
-            return "Ask Claude to comment or suggest a change — annotations land here as a forensic record."
+            return "Ask Claude to comment or suggest a change — notes land here as a record."
         }
     }
 
@@ -84,8 +84,10 @@ struct HistoryTimeline: View {
                 // What this Mac may do FROM history, asked once per body
                 // pass (P3c whole-branch fix wave, C1): a reviewer reads
                 // every row and is offered no rewind and no revert.
+                let pieceIsOpen = documentStore?.document(forDocId: activeDocId) != nil
                 let offersRewind = HistoryPane.offersRewind(
-                    documentStore?.posture(forDocId: activeDocId))
+                    documentStore?.posture(forDocId: activeDocId),
+                    documentIsOpen: pieceIsOpen)
                 let offersRevert = HistoryPane.offersRevert(
                     for: rows, docIds: allDocIds,
                     mayWrite: PartialRestorePicker.mayWrite(through: documentStore))
@@ -129,7 +131,16 @@ struct HistoryTimeline: View {
                                 },
                                 offersRewind: offersRewind,
                                 offersRevert: offersRevert,
-                                projectURL: projectURL)
+                                compareOffer: {
+                                    if case .checkpoint(let cp) = entry {
+                                        return HistoryPane.compareOffer(
+                                            cp, docId: activeDocId, documentIsOpen: pieceIsOpen,
+                                            holdsOp: { opsIndex[$0] != nil })
+                                    }
+                                    return .absent
+                                }(),
+                                projectURL: projectURL,
+                                docId: activeDocId)
                             Divider()
                         }
                     }

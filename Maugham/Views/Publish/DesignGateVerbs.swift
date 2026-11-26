@@ -1,4 +1,5 @@
 import Foundation
+import MaughamCore
 
 /// **What the writer can DO at the gate, and what happens when they can't**
 /// (publish-department P4 Task 6, spec §5's verdict).
@@ -41,7 +42,7 @@ extension DesignGate {
         var title: String {
             switch self {
             case .approve: return "Approve"
-            case .requestChanges: return DepartmentDesignRow.requestChangesTitle
+            case .requestChanges: return DesignRoundState.requestChangesTitle
             case .revert: return "Revert"
             case .finalize: return "Finalize"
             }
@@ -69,7 +70,7 @@ extension DesignGate {
                     + "current templates are backed up first, and Revert puts "
                     + "them back."
             case .requestChanges:
-                return DepartmentDesignRow.requestChangesHelp
+                return DesignRoundState.requestChangesHelp
             case .revert:
                 return "Take this promotion back. Your original templates are "
                     + "restored from the backup, and this round is marked "
@@ -103,6 +104,29 @@ extension DesignGate {
     /// Request Changes: a design the writer has already put live is not one they
     /// are still iterating on. `.rejected`, `.superseded` and a status from a
     /// newer build offer nothing at all — see `settledNote`.
+    /// **Whether this Mac may decide the book's design** — the Visual
+    /// Language statement's posture (the design's own home). The one
+    /// predicate the centre's gate and To resolve's design rows and head
+    /// ask (shell p4 Task 6 fix round 2, M10): a reviewer, or a book
+    /// narrowed away from it, is offered no verdict anywhere. Pure.
+    static func mayDecide(_ visualLanguage: Posture) -> Bool {
+        visualLanguage.allows(.editStatement)
+    }
+
+    /// `mayDecide` asked of the window's statement door.
+    @MainActor
+    static func mayDecide(documentStore: DocumentStore, statements: [Statement]) -> Bool {
+        mayDecide(documentStore.posture(forDocId: StatementEditorHost.postureDocId(
+            kind: .visualLanguage, scope: .project, statements: statements)))
+    }
+
+    /// The verbs, where this Mac may decide the design; none where it may
+    /// not (hidden, never disabled).
+    static func verbs(status: DesignProposalStore.Status, hasOpenProposalRound: Bool,
+                      mayDecide: Bool) -> [Verb] {
+        mayDecide ? verbs(status: status, hasOpenProposalRound: hasOpenProposalRound) : []
+    }
+
     static func verbs(status: DesignProposalStore.Status,
                       hasOpenProposalRound: Bool) -> [Verb] {
         switch status {
@@ -146,7 +170,7 @@ extension DesignGate {
 
     static let supersededNote =
         "A later round replaced this proposal, so there is nothing here to "
-        + "decide. The newest round is the one on the department desk."
+        + "decide. The newest round is the one the Source edition shows."
 
     /// A status this build cannot represent — `DesignProposalStore.Status
     /// .unknown`'s own discipline carried onto the surface. Naming the raw word
@@ -258,9 +282,26 @@ extension DesignGate {
         "Finalized \u{2014} this design is permanent. The templates it replaced "
         + "have been discarded, and the next round can be approved."
 
+    static let discardedConfirmation =
+        "Discarded \u{2014} nothing this round proposed reached the live templates."
+
+    static let discardTitle = "Discard"
+    static let discardConfirmTitle = "Discard this design?"
+    /// What Discard costs, said before it is done (review M8): it cannot be
+    /// taken back — the designer would have to run again.
+    static let discardCost =
+        "Nothing it proposed reaches the live templates, and it cannot be brought back "
+        + "\u{2014} the designer would have to run a new round."
+    static let discardHelp =
+        "Turn this proposal down. Nothing it proposed reaches the live templates."
+
+    /// Discard over a proposal that is no longer waiting.
+    static let notPendingRefusal =
+        "This proposal is no longer waiting on you, so there is nothing to discard."
+
     static let changesSentConfirmation =
         "Sent \u{2014} the designer is taking another round of this proposal. "
-        + "The department desk shows it running."
+        + "The Source edition\u{2019}s To resolve shows it running."
 
     /// The gate's own words-for-the-designer field. Distinct from the desk's
     /// `directionPrompt`, which is optional because a bare Run is briefed on the
@@ -318,7 +359,7 @@ struct DesignGateConfirmation: Identifiable {
 
 /// **The gate's actions seam** (P4 Task 6).
 ///
-/// Closures rather than stores, `DepartmentPane`'s rule for `DepartmentPane`'s
+/// Closures rather than stores, `EditionHeadVerbs`' rule for its
 /// reason: the gate takes a value and reads no disk on a body path (tripwire 4),
 /// and every one of these verbs reaches something that belongs to the window —
 /// the project's `CompileJobManager`, the warm designer session. Defaults that
@@ -332,7 +373,7 @@ struct DesignGateActions {
     var finalize: (DesignProposalStore.Proposal) async -> DesignGateOutcome
         = { _ in .refused(DesignGate.notWired) }
     /// **The desk's own verb, called and not restated** — the refusal sentence,
-    /// or `nil` when the words went. `DepartmentDesignRow.sendChanges` is the one
+    /// or `nil` when the words went. `DesignRoundState.sendChanges` is the one
     /// spelling both surfaces reach.
     var requestChanges: (String) -> String? = { _ in DesignGate.notWired }
 }
@@ -361,6 +402,13 @@ enum DesignGatePromotion {
     static func approve(_ proposal: DesignProposalStore.Proposal,
                         projectURL: URL,
                         jobManager: CompileJobManager) async -> DesignGateOutcome {
+        // **The STORE's proposal decides** (shell p4 Task 6 fix round 2, N1;
+        // Discard's guard): a surface still holding a proposal as pending
+        // after it was discarded or superseded — in the gate, another window,
+        // on a peer — must not promote it.
+        if let refusal = refusalUnlessStillPending(proposal, projectURL: projectURL) {
+            return .refused(refusal)
+        }
         do {
             try await ProposalPromotion.approve(
                 proposal: proposal, projectURL: projectURL, jobManager: jobManager)
@@ -398,6 +446,41 @@ enum DesignGatePromotion {
         // what shipped — so the re-read is about the rest of the record.
         return settled(proposal, projectURL: projectURL, status: .approved,
                        sentence: DesignGate.finalizedConfirmation)
+    }
+
+    /// **Discard a proposal still waiting** (shell p4 Task 6): marks it
+    /// turned down, with the gate's own note, and moves no live byte — a
+    /// pending proposal never reached the templates. The verb To resolve's
+    /// design row offers beside Approve; the gate's settled note then says
+    /// `turnedDownNote`. Refused over anything but a pending proposal.
+    static func discard(_ proposal: DesignProposalStore.Proposal,
+                        projectURL: URL) -> DesignGateOutcome {
+        // **The STORE's proposal decides, never the caller's copy** (review
+        // I3): a list holding it as pending while the gate approved it would
+        // otherwise mark a promoted design turned down and take its Revert
+        // away. An approved, superseded or already-turned-down proposal is
+        // left exactly as it is.
+        let store = DesignProposalStore(projectURL: projectURL)
+        if let refusal = refusalUnlessStillPending(proposal, projectURL: projectURL) {
+            return .refused(refusal)
+        }
+        do {
+            try store.reject(id: proposal.id, note: DesignGate.turnedDownNote)
+        } catch {
+            return .refused(DesignGate.refusalSentence(error))
+        }
+        return settled(proposal, projectURL: projectURL, status: .rejected,
+                       sentence: DesignGate.discardedConfirmation)
+    }
+
+    /// **Refused unless the store holds `proposal` as pending** — Approve's
+    /// and Discard's one guard: the copy a surface holds is never the
+    /// answer. Nil to go ahead.
+    static func refusalUnlessStillPending(_ proposal: DesignProposalStore.Proposal,
+                                          projectURL: URL) -> String? {
+        guard let stored = try? DesignProposalStore(projectURL: projectURL).load(id: proposal.id),
+              stored.status == .pending else { return DesignGate.notPendingRefusal }
+        return nil
     }
 
     /// The proposal as the store now holds it, and the announcement.

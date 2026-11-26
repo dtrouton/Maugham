@@ -23,19 +23,22 @@ struct ResearchNoteEditor: View {
     let path: String
     let itemId: String
     let previewVisible: Bool
-    /// **Review's locked posture, threaded from `ResearchSubjectCentre.readOnly`**
-    /// (shell-finish stage 3b Task 6) — forwarded straight into
-    /// `EditorControl.lockEditing`. Research notes still have no `isReviewMode`
-    /// toggle (there is no ⌘⌥⇧R here), but `lockEditing` is no longer always
-    /// false: Denver's ruling is that Review adjudicates and does not edit
-    /// research from its own columns, and `EditorEditPolicy.allowsTextMutation`
-    /// already treats `lockEditing` as the hard floor selection/scroll survive
-    /// but typing does not, which is the "reference view" shape this posture
-    /// wants rather than an unmounted editor.
+    /// **The note's piece is in read-through**, threaded from
+    /// `ResearchSubjectCentre.readOnly` (shell read-through Task 4; Review's
+    /// lock before it) — forwarded into `EditorControl.lockEditing`, the hard
+    /// floor selection and scroll survive but typing does not (a reference
+    /// view, not an unmounted editor). A refused key is answered with the
+    /// read-through line's pulse for this reason only (`answersLockedTyping`).
     let lockEditing: Bool
     /// A view-only iCloud share: typing is refused exactly as Review's lock
     /// refuses it (selection, scroll and copy survive).
     var shareIsReadOnly: Bool = false
+    /// **A second editor in its window** (shell p3 Task 7): pulled up in the
+    /// right column beside the manuscript's editor, the note answers none of
+    /// the window's manuscript commands and keeps its own undo stack
+    /// (`EditorSurfaceConfiguration.isSecondEditorInItsWindow`). False in the
+    /// centre, where it replaces the manuscript editor.
+    var isSecondEditor: Bool = false
     @Environment(UserPreferences.self) private var userPreferences
 
     /// Review's posture or a view-only share: the editor takes no typing.
@@ -81,7 +84,7 @@ struct ResearchNoteEditor: View {
             reloadWrittenBehind()
         }
         // Mirror appearance into editorControl (ADR 0017). isReviewMode stays
-        // false — research notes have no ⌘⌥⇧R toggle — but lockEditing now
+        // false — research notes have no review render — but lockEditing now
         // carries Review's posture, mirrored below like every other field here.
         .onChange(of: userPreferences.theme) { _, t in editorControl.theme = t }
         .onChange(of: effectiveTypography) { _, t in editorControl.typography = t }
@@ -139,7 +142,15 @@ struct ResearchNoteEditor: View {
                             initialCursorLocation: researchCursor,
                             onCursorChanged: { position in
                                 researchCursor = position
-                            }),
+                            },
+                            // A key typed while the note reads FOR ITS PIECE'S
+                            // READ-THROUGH pulses the line over it, as the
+                            // text's does; a share-locked note answers nothing
+                            // (no line of its own to point at).
+                            onTypingRefused: {
+                                MaughamEvent.post(.maughamTypingRefused, to: .keyWindow)
+                            },
+                            answersLockedTyping: lockEditing),
                         paragraphProviders: .init(
                             // **Gated on the lock, not just unconditionally
                             // wired** (shell-finish stage 3b Task 6 review
@@ -157,7 +168,8 @@ struct ResearchNoteEditor: View {
                             // so Paste's image affordance itself goes away in
                             // Review rather than accepting a paste that then
                             // silently drops the ref.
-                            imagePasteHandler: locked ? nil : makeImagePasteHandler()))
+                            imagePasteHandler: locked ? nil : makeImagePasteHandler()),
+                        isSecondEditorInItsWindow: isSecondEditor)
                 )
                 .id(path)
             } else {

@@ -441,22 +441,24 @@ final class ReviewPassEditorTests: XCTestCase {
                       "leaving the field commits. Got:\n\(section)")
     }
 
-    /// **Describe… does not post a segment event at all — the presenter
-    /// WRITES the segment from the sheet's own dismissal hook.**
+    /// **Describe… posts no event at all — the presenter pulls First Reader
+    /// up from the sheet's own dismissal hook.**
     ///
-    /// `postDetailSegment` is scoped `.keyWindow`, so a sheet posting for
-    /// itself is swallowed by the act of closing — and `onDismiss` runs before
-    /// the sheet's window has handed key status back, so a post there is
-    /// dropped too and the picker stays on Diagnostics (Denver's smoke,
+    /// The right column's posts are scoped `.keyWindow`, so a sheet posting
+    /// for itself is swallowed by the act of closing — and `onDismiss` runs
+    /// before the sheet's window has handed key status back, so a post there
+    /// is dropped too and the column stays where it was (Denver's smoke,
     /// 2026-09-06; the original shape was reasoned rather than measured). The
     /// presenter records the request and performs the act itself.
     ///
-    /// PLANTED REVERT: re-adding `MaughamEvent.postDetailSegment(.firstReader)`
-    /// to the hand-off is the exact regression, and it is asserted absent.
+    /// PLANTED REVERT: re-adding `MaughamEvent.postPullUp(.firstReader)` to
+    /// the hand-off is the exact regression, and it is asserted absent.
     func test_theDescribeHandoffWaitsForTheSheetToClose() throws {
         let sheet = try Self.source(of: "Views/ProjectSettingsSheet.swift")
-        XCTAssertFalse(sheet.contains("postDetailSegment("),
-                       "the sheet must not post while it is the key window")
+        for post in ["postPullUp(", "postPosition("] {
+            XCTAssertFalse(sheet.contains(post),
+                           "the sheet must not post while it is the key window")
+        }
         let describe = try XCTUnwrap(
             Self.declaration(named: "private func describeFirstReader() {", in: sheet))
         XCTAssertTrue(describe.contains("createStatement(kind: .firstReader, scope: .project)"),
@@ -472,35 +474,50 @@ final class ReviewPassEditorTests: XCTestCase {
             "the presenter acts from the sheet's own dismissal hook")
         let handoff = try SourceTree.declaration(
             named: "func openFirstReaderIfRequested() {", under: "Maugham")
-        XCTAssertFalse(handoff.contains("postDetailSegment"),
-                       "a key-window post is dropped while the sheet's window "
-                       + "still holds key. Got:\n\(handoff)")
-        XCTAssertTrue(handoff.contains("Self.selectDetailSegment(")
+        for post in ["postPullUp", "postPosition"] {
+            XCTAssertFalse(handoff.contains(post),
+                           "a key-window post is dropped while the sheet's window "
+                           + "still holds key. Got:\n\(handoff)")
+        }
+        XCTAssertTrue(handoff.contains("Self.pullUp(")
                       && handoff.contains(".firstReader"),
-                      "\u{2026}so the hand-off writes the segment through the "
+                      "\u{2026}so the hand-off pulls her statement up through the "
                       + "shared act. Got:\n\(handoff)")
     }
 
-    /// **The act has ONE spelling.** Revealing the column, ending a study and
-    /// writing the segment are three steps, and the Describe… hand-off does
-    /// exactly what the `.keyWindow` receiver does — so both call
-    /// `selectDetailSegment` rather than keeping a copy each.
+    /// **Each act has ONE spelling.** Showing the column on a position is
+    /// `selectPosition`: the `.keyWindow` receiver and the strip's hand-off
+    /// call it rather than keeping a copy each. Pulling a statement or a
+    /// History up is `pullUp`: the key's receiver, the Describe… hand-off and
+    /// a statement mark's Open call it.
     ///
-    /// Non-vacuity: the helper is read, and both callers are named.
+    /// Non-vacuity: the helpers are read, and the callers are counted.
     func test_thePaneSelectionActHasOneSpelling() throws {
         // What the act does, and that the receiver calls it:
         // `WiringCensusTests`.
-        let callers = try Self.selectDetailSegmentSites()
-        XCTAssertEqual(callers, 3,
-                       "the declaration plus its two callers — the key-window "
-                       + "receiver and the Describe\u{2026} hand-off — counted "
-                       + "across every view, so a copy in a sibling is a fourth")
+        XCTAssertEqual(try Self.sites(of: "selectPosition("), 5,
+                       "the declaration plus its callers — the key-window "
+                       + "receiver, the strip's hand-off, `EditionWiring`'s "
+                       + "To resolve (⌘⌥K, a new edition) and File ▸ Translate…'s "
+                       + "receiver (shell p5 Task 7) — counted across every "
+                       + "view, so a copy in a sibling is one more")
+        XCTAssertEqual(try Self.sites(of: "ProjectWindow.pullUp(") + Self.sites(of: "Self.pullUp(")
+                       + Self.sites(of: "static func pullUp("), 7,
+                       "the two declarations (a request's, and the one act it "
+                       + "goes through) plus five callers — the key's receiver, "
+                       + "the Describe\u{2026} hand-off, a statement mark's Open, "
+                       + "Brief's links and \u{2318}['s Back (`PulledUpHistoryWiring`)")
 
         let receiver = try SourceTree.declaration(
-            named: "onKeyWindowCommand(.maughamSetDetailSegment, window: window) { note in",
+            named: "onKeyWindowCommand(.maughamSetRightColumn, window: window) { note in",
             under: "Maugham")
-        XCTAssertFalse(receiver.contains("assistant.dismiss()"),
+        XCTAssertTrue(receiver.contains("ProjectWindow.selectPosition("))
+        XCTAssertFalse(receiver.contains("showInspector = true")
+                       || receiver.contains("position = asked"),
                        "\u{2026}and keeps no copy of it. Got:\n\(receiver)")
+        let act = try SourceTree.declaration(named: "static func selectPosition(", under: "Maugham")
+        XCTAssertTrue(act.contains("showInspector.wrappedValue = true"), act)
+        XCTAssertTrue(act.contains("position.wrappedValue = asked"), act)
     }
 
     // MARK: - The name survives every way out of the sheet (fix round 1)
@@ -578,9 +595,9 @@ final class ReviewPassEditorTests: XCTestCase {
 
     // MARK: - Census helpers
 
-    /// `selectDetailSegment(` as code across every file under `Maugham/Views`.
-    private static func selectDetailSegmentSites(base: URL = SourceTree.repoRoot) throws -> Int {
-        try SourceTree.codeOccurrences(of: "selectDetailSegment(", base: base).values.reduce(0, +)
+    /// `token` as code across every file under `Maugham/Views`.
+    private static func sites(of token: String, base: URL = SourceTree.repoRoot) throws -> Int {
+        try SourceTree.codeOccurrences(of: token, base: base).values.reduce(0, +)
     }
 
     /// **The planted control for the window reads** (foundations plan 2): the
@@ -590,25 +607,25 @@ final class ReviewPassEditorTests: XCTestCase {
         let base = try SourceTree.plantedTree([
             "Maugham/Views/ProjectWindow.swift": """
             struct ProjectWindow: View {
-                // selectDetailSegment( in a comment
-                func f() { ProjectWindow.selectDetailSegment(seg) }
+                // selectPosition( in a comment
+                func f() { ProjectWindow.selectPosition(asked) }
             }
             """,
             "Maugham/Views/ProjectWindow+Panes.swift": """
             extension ProjectWindow {
-                static func selectDetailSegment(_ seg: DetailSegment) {
-                    assistant.dismiss()
+                static func selectPosition(_ asked: RightColumnPosition) {
+                    position.wrappedValue = asked
                 }
             }
             """,
             "Maugham/Views/SomeSiblingView.swift": """
-            struct SomeSiblingView { func g() { ProjectWindow.selectDetailSegment(seg) } }
+            struct SomeSiblingView { func g() { ProjectWindow.selectPosition(asked) } }
             """,
         ])
         let act = try SourceTree.declaration(
-            named: "static func selectDetailSegment(", under: "Maugham", base: base)
-        XCTAssertTrue(act.contains("assistant.dismiss()"), "the act is found in the extension")
-        XCTAssertEqual(try Self.selectDetailSegmentSites(base: base), 3,
+            named: "static func selectPosition(", under: "Maugham", base: base)
+        XCTAssertTrue(act.contains("position.wrappedValue = asked"), "the act is found in the extension")
+        XCTAssertEqual(try Self.sites(of: "selectPosition(", base: base), 3,
                        "the declaration, the window's call and the sibling's")
     }
 

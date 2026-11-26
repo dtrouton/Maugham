@@ -6,7 +6,7 @@ import MaughamCore
 /// literals.
 ///
 /// A problem is a `TectonicLogParser.Diagnostic` that names its piece
-/// (`pieceID != nil`; `DepartmentCompileState.problems(in:)`). Each row names
+/// (`pieceID != nil`; `CompileRunState.problems(in:)`). Each row names
 /// the piece by its TITLE, never its id: the id is a binder key the writer has
 /// never seen, and a list of them would be a list nobody could act on.
 enum PublishProblems {
@@ -69,6 +69,17 @@ enum PublishProblems {
         case piece(BinderSubject)
     }
 
+    /// **A problem with no paragraph opens its piece** (shell p1 final fix,
+    /// C1): a place, so a document piece takes the centre and the faces
+    /// (`ManuscriptNavigation.travel`) even though the list was drawn over an
+    /// edition — never the click rule, which would move only the faces.
+    static func destination(revealing piece: BinderSubject, current: WindowSubject,
+                            structure: [StructureItem],
+                            projectType: ProjectType) -> WindowSubject {
+        ManuscriptNavigation.travel(to: piece, current: current,
+                                    structure: structure, projectType: projectType)
+    }
+
     static func reveal(_ row: Row) -> Reveal {
         guard let paragraphID = row.paragraphID else { return .piece(.item(row.pieceID)) }
         return .paragraph(TranslationReveal(
@@ -108,8 +119,8 @@ enum PublishProblems {
     static let closeTitle = "Back"
     static let closeAccessibilityLabel = "Back to the book"
     static let showInManuscriptTitle = "Show in Manuscript"
-    static let openPieceHelp = "Open this piece in the manuscript."
-    static let showParagraphHelp = "Open this piece and scroll to the paragraph."
+    static let openPieceHelp = "Open it in the manuscript."
+    static let showParagraphHelp = "Open it and scroll to the paragraph."
     static let emptyTitle = "No Problems"
     static let emptyMessage = "The last compile reported nothing to fix."
 
@@ -120,7 +131,7 @@ enum PublishProblems {
     }
 }
 
-/// **The publish problems arm of Publish's centre column** — the list the desk's
+/// **The publish problems arm of the edition's centre** — the list the desk's
 /// Show Problems opens. It takes values and closures only: the rows were
 /// derived by the caller, Back is `onClose`, and each row's Show in Manuscript
 /// hands its piece and paragraph to `onReveal`, which the window wires to the

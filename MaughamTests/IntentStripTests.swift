@@ -6,7 +6,7 @@ import MaughamCore
 @testable import Maugham
 
 /// The intent strip (M2 spec §6.1) — the writer's signature line above the
-/// prose, Author persona only.
+/// prose, only where a piece is open in the centre.
 ///
 /// **The identity invariant this suite exists to hold is ADR 0027 §1**: nothing
 /// model-produced renders in the editor or its chrome, and the strip is the one
@@ -115,28 +115,38 @@ final class IntentStripTests: XCTestCase {
 
     // MARK: - Contract 2: when there is a strip at all
 
-    /// Author only. Asked over the whole product of persona and chrome state
-    /// rather than the one path the plan happened to name.
-    func test_theStripIsAuthorsAloneAndHidesWithTheChrome() {
+    /// A piece open in the centre only. Asked over the whole product of every
+    /// kind of `open` and chrome state rather than the one path the plan
+    /// happened to name.
+    func test_theStripIsAPiecesAloneAndHidesWithTheChrome() {
         let text = "A woman walks into the sea."
-        for persona in Persona.allCases {
+        for open in SubjectSamples.everyOpen {
             for isNoChromeOn in [false, true] {
                 let line = IntentStrip.line(
-                    persona: persona, isNoChromeOn: isNoChromeOn, statementText: text)
-                let shouldShow = (persona == .author && !isNoChromeOn)
+                    subject: SubjectSamples.opened(open), structure: SubjectSamples.structure,
+                    isNoChromeOn: isNoChromeOn, statementText: text)
+                let shouldShow = (SubjectSamples.kind(of: open) == "piece" && !isNoChromeOn)
                 XCTAssertEqual(
                     line != nil, shouldShow,
-                    "persona \(persona), no-chrome \(isNoChromeOn)")
+                    "\(open) open, no-chrome \(isNoChromeOn)")
             }
         }
+        // The faces on a piece while the canvas holds the centre: no strip.
+        XCTAssertNil(IntentStrip.line(
+            subject: WindowSubject(open: .canvas, faces: .item(SubjectSamples.pieceID)),
+            structure: SubjectSamples.structure, isNoChromeOn: false, statementText: text))
     }
 
     func test_noIntentIsNoStrip() {
+        let piece = SubjectSamples.opened(.item(SubjectSamples.pieceID))
         XCTAssertNil(IntentStrip.line(
-            persona: .author, isNoChromeOn: false, statementText: nil))
+            subject: piece, structure: SubjectSamples.structure,
+            isNoChromeOn: false, statementText: nil))
         XCTAssertNil(IntentStrip.line(
-            persona: .author, isNoChromeOn: false, statementText: "# Intent\n"))
+            subject: piece, structure: SubjectSamples.structure,
+            isNoChromeOn: false, statementText: "# Intent\n"))
     }
+
 
     // MARK: - Contract 3: the data path, by construction
 
@@ -170,11 +180,18 @@ final class IntentStripTests: XCTestCase {
         // answers as `type:ProjectWindow`, so a split of the window moves
         // nothing here — and one in a child view sharing a window file answers
         // under that file (plan 2 final review, I1).
+        // The window's lines over the centre are one modifier
+        // (`CentreTopLines`, shell read-through Task 3 fix round M7): it
+        // builds the strip from the line the window hands it, and the window
+        // hands it the resolver's line.
         XCTAssertEqual(
             try Self.stripConstructionSites(in: sourceDir),
-            ["type:ProjectWindow"],
+            ["CentreTopLines.swift"],
             "the strip is constructed somewhere new; that site must feed it "
             + "statement text too")
+        let window = try code(of: sourceDir.appendingPathComponent("Views/ProjectWindow.swift"))
+        XCTAssertTrue(window.contains("intentLine: intentStripLine"),
+                      "the window hands the lines the resolver's line, and only it")
         // …and that it builds the line through `IntentStrip.line(`:
         // `WiringCensusTests`.
     }
@@ -268,8 +285,8 @@ final class IntentStripTests: XCTestCase {
         try await write("The chapter's own.", intentFor: .document(chapter.id), in: store)
 
         XCTAssertEqual(
-            IntentStrip.line(store: store, docId: chapter.id,
-                             persona: .author, isNoChromeOn: false),
+            IntentStrip.line(store: store,
+                             subject: SubjectSamples.opened(.item(chapter.id)), isNoChromeOn: false),
             "The chapter's own.")
     }
 
@@ -278,15 +295,15 @@ final class IntentStripTests: XCTestCase {
         try await write("The project's own.", intentFor: .project, in: store)
 
         XCTAssertEqual(
-            IntentStrip.line(store: store, docId: chapter.id,
-                             persona: .author, isNoChromeOn: false),
+            IntentStrip.line(store: store,
+                             subject: SubjectSamples.opened(.item(chapter.id)), isNoChromeOn: false),
             "The project's own.")
     }
 
     func test_neitherScopeHasOneAndThereIsNoStrip() async throws {
         let (_, store, chapter) = try await novelWithChapter(named: "StripNeither")
-        XCTAssertNil(IntentStrip.line(store: store, docId: chapter.id,
-                                      persona: .author, isNoChromeOn: false))
+        XCTAssertNil(IntentStrip.line(store: store,
+                                      subject: SubjectSamples.opened(.item(chapter.id)), isNoChromeOn: false))
     }
 
     /// **One spelling, shared with the compiler.** The strip and
@@ -341,14 +358,14 @@ final class IntentStripTests: XCTestCase {
 
         document.setFullText("First thought.")
         XCTAssertEqual(
-            IntentStrip.line(store: store, docId: chapter.id,
-                             persona: .author, isNoChromeOn: false),
+            IntentStrip.line(store: store,
+                             subject: SubjectSamples.opened(.item(chapter.id)), isNoChromeOn: false),
             "First thought.")
 
         document.setFullText("Second thought, typed over the first.")
         XCTAssertEqual(
-            IntentStrip.line(store: store, docId: chapter.id,
-                             persona: .author, isNoChromeOn: false),
+            IntentStrip.line(store: store,
+                             subject: SubjectSamples.opened(.item(chapter.id)), isNoChromeOn: false),
             "Second thought, typed over the first.",
             "the strip is showing stale text — it is not reading the live "
             + "Document the Intent pane writes into")
@@ -359,9 +376,8 @@ final class IntentStripTests: XCTestCase {
     /// The affordance is what this contract is about, so the control SwiftUI
     /// actually publishes is found and asserted DRAWN, its action naming the
     /// verb is `WiringCensusTests`' `type:IntentStrip` entry, and the verb is
-    /// called with nothing pressed (tripwire 33, #120 —
-    /// `InspectorIntentAffordanceTests`' shape).
-    func test_theStripAsksForTheIntentPane() async throws {
+    /// called with nothing pressed (tripwire 33, #120).
+    func test_theStripAsksForTheOpenPiecesBrief() async throws {
         let line = "A woman walks into the sea."
         let window = mount(AnyView(IntentStrip(line: line)))
 
@@ -369,10 +385,8 @@ final class IntentStripTests: XCTestCase {
                          "the strip is a button labelled with the writer's line")
         let notes = notesPostedByTheStrip()
 
-        XCTAssertEqual(notes.count, 1, "the strip should post exactly one segment request")
+        XCTAssertEqual(notes.count, 1, "the strip should post exactly one request")
         let note = try XCTUnwrap(notes.first)
-        XCTAssertEqual(note.userInfo?[MaughamEvent.detailSegmentKey] as? String,
-                       DetailSegment.intent.rawValue)
         XCTAssertTrue(
             MaughamEvent.shouldDeliver(note, to: EventReceiverContext(
                 kind: .keyWindow, isWindowLive: true, isWindowKey: true)),
@@ -383,35 +397,40 @@ final class IntentStripTests: XCTestCase {
             "control: a non-key window must not act on it")
     }
 
-    /// **The one accepted divergence between what the strip SHOWS and where the
-    /// click LANDS**, pinned so it is a recorded position and not a surprise.
+    /// **What the strip SHOWS and where the click LANDS agree now** (shell
+    /// plan 3 Task 9; this pinned their one accepted divergence before).
     ///
-    /// The strip falls back to the project's intent for a chapter that has none;
-    /// the Intent pane's scope follows the binder selection and never falls back
-    /// (`StatementPane.effectiveScope`), so the click opens that chapter's empty
-    /// editor rather than the project statement whose line was on screen.
-    /// Landing on the fallback scope would need Open-sets-scope machinery — the
-    /// reverted three-round M1A work — and was refused. If this test ever goes
-    /// red because the two agree, the refusal has been revisited and this
-    /// comment is the thing to update.
-    func test_theClickLandsOnTheBindersScopeEvenWhenTheStripShowedTheProjects()
+    /// The strip falls back to the project's intent for a chapter that has
+    /// none. The click opens that chapter's Brief — the faces go to the open
+    /// piece (`RightColumnContent.facesForTheStrip`) — whose Going for is the
+    /// chapter's own (empty) intent, and whose "From the book" holds the line
+    /// the strip showed. Nothing sets a scope: Brief follows the faces.
+    func test_theClickLandsOnTheOpenPiecesBriefWhichHoldsTheLineTheStripShowed()
         async throws
     {
-        let (_, store, chapter) = try await novelWithChapter(named: "StripDivergence")
+        let (_, store, chapter) = try await novelWithChapter(named: "StripAndBrief")
         try await write("The project's own.", intentFor: .project, in: store)
 
         XCTAssertEqual(
-            IntentStrip.line(store: store, docId: chapter.id,
-                             persona: .author, isNoChromeOn: false),
+            IntentStrip.line(store: store,
+                             subject: SubjectSamples.opened(.item(chapter.id)), isNoChromeOn: false),
             "The project's own.",
             "the strip stopped falling back to the project")
-        XCTAssertEqual(
-            StatementPane.effectiveScope(
-                kind: .intent, subject: .item(chapter.id),
-                structure: store.manifest.structure),
-            .document(chapter.id),
-            "the pane's scope now follows the strip's fallback — Open-sets-scope "
-            + "was built after all, and the accepted divergence is gone")
+
+        // The click, with the faces somewhere else (the Book).
+        let clicked = RightColumnContent.facesForTheStrip(
+            WindowSubject(open: .item(chapter.id), faces: .project),
+            structure: store.manifest.structure)
+        let scope = BriefScope.of(clicked.faces, structure: store.manifest.structure,
+                                  projectType: store.manifest.type)
+        XCTAssertEqual(scope, .piece(docId: chapter.id), "the click lands on the open piece's Brief")
+        let snapshot = BriefReader.read(scope: scope, store: store, bible: nil)
+        XCTAssertNil(snapshot.intentEssay, "the chapter has no intent of its own")
+        XCTAssertEqual(snapshot.bookIntentEssay?.trimmingCharacters(in: .whitespacesAndNewlines),
+                       "The project's own.",
+                       "and the line the strip showed is in the Brief it opened, "
+                       + "under From the book")
+        XCTAssertTrue(BriefPane.quietLines(snapshot).fromTheBook)
     }
 
     // MARK: - Contract 7: the quiet mark (M3-P3 §7)
@@ -705,7 +724,7 @@ final class IntentStripTests: XCTestCase {
                        ["type:ProjectWindow", "ProjectWindow+Columns.swift"])
     }
 
-    // MARK: - Hosting (mirrors `InspectorIntentAffordanceTests`)
+    // MARK: - Hosting
 
     private func mount(_ view: AnyView) -> NSWindow {
         let window = TestWindow.mount(view, size: CGSize(width: 720, height: 200))
@@ -757,16 +776,16 @@ final class IntentStripTests: XCTestCase {
             + "Buttons found: \(labels)")
     }
 
-    /// What the strip's verb posts — `MaughamEvent.postDetailSegment(.intent)`,
+    /// What the strip's verb posts — `MaughamEvent.postBriefOfTheOpenPiece()`,
     /// its button's whole action (`WiringCensusTests`). Synchronous: the post
     /// is a plain `NotificationCenter` post on this thread.
     private func notesPostedByTheStrip() -> [Notification] {
         var received: [Notification] = []
         let token = NotificationCenter.default.addObserver( // adr-0021-ok: capture-only observer inspecting the exact scoped Notification the strip posts
-            forName: .maughamSetDetailSegment, object: nil, queue: nil
+            forName: .maughamShowOpenPieceBrief, object: nil, queue: nil
         ) { received.append($0) }
         defer { NotificationCenter.default.removeObserver(token) }
-        MaughamEvent.postDetailSegment(.intent)
+        MaughamEvent.postBriefOfTheOpenPiece()
         return received
     }
 }

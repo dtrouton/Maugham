@@ -158,6 +158,12 @@ public enum WriteTranslationTool: MCPTool {
         // 1. Valid language tag — the pipeline's own gate, called here so a
         // malformed tag is refused before the registry is touched.
         try TranslationWritePipeline.validate(language: params.language)
+        // A removed edition takes no writes: it would vanish from the writer's
+        // view (`BookEditions`; closing review). A round already running on
+        // another Mac writes through that Mac's own pipeline, not this tool.
+        try BookEditions.refuseIfRemoved(
+            [params.language],
+            removed: try resolveProject(params.project_id, in: registry).store.manifest.removedEditions)
 
         if DocumentClass.isFigureDocId(params.document_id) {
             return try await writeCells(params, registry: registry)
@@ -451,8 +457,9 @@ public enum TranslationStatusTool: MCPTool {
         public let verbatim: Int
         public let orphans: Int
         public let open_queries: Int
-        /// The newest pipeline round for this `(document, language)` pair
-        /// (`TranslationRoundStore.latest`), or omitted when none has run.
+        /// This document's newest FINISHED pipeline round in this language
+        /// (`TranslationRoundStore.latestFinishedByPiece`: kept per piece, so a
+        /// whole-book run's every chapter answers), or omitted when none has.
         public var last_round: LastRound? = nil
     }
 
@@ -464,7 +471,7 @@ public enum TranslationStatusTool: MCPTool {
         public let departures: Int
         public let declined: Int
         public let summary: String?
-        /// The leg a failed or cancelled round stopped at, else omitted.
+        /// The leg a failed round stopped at, else omitted.
         public let stopped_at: String?
     }
     public struct Params: Codable {
@@ -525,15 +532,21 @@ public enum TranslationStatusTool: MCPTool {
         "its rows' coverage counts are all zero (not started) with `open_queries` real. " +
         "Once the book has any translation in a language, a document with none of its own " +
         "counts every paragraph `missing`, as the compile's coverage gate does. " +
+        "An edition the writer REMOVED is omitted from `rows` and `figures` alike; its " +
+        "translations are kept, and write_translation, compile, preview_compile and " +
+        "propose_edition_brief refuse its language until the writer adds it again " +
+        "(Add Language). " +
         "`unreadable_documents` (always present, empty when the whole book read cleanly) " +
         "names every document this call could not open, with the reason — its rows are " +
-        "missing from `rows` rather than zero, so read it before concluding a chapter is " +
+        "missing from `rows` rather than zero, so read it before concluding a piece is " +
         "untranslated. " +
         "`reader` and `collator` name the edition's blind reader and collator the same way " +
-        "`translator` does. `last_round` (omitted until a pipeline round has run on that " +
-        "document) carries the newest round's number, the two readers' verdicts, its " +
+        "`translator` does. `last_round` (omitted until a pipeline round has finished on " +
+        "that document; a cancelled round is not reported) is that document's own newest " +
+        "finished round in that language, kept per document however many pieces later " +
+        "rounds covered, and carries its number, the two readers' verdicts, its " +
         "note/departure/declined counts, its summary, and `stopped_at` for a round that " +
-        "failed or was cancelled. " +
+        "failed. " +
         "`figures` (always present) lists the table figures those documents use, one " +
         "row per (figure, language) with text-cell counts — `fresh`, `stale`, `missing`, " +
         "`verbatim`, `orphans`, by the same rule: a table with no translation of its own " +
@@ -577,7 +590,7 @@ public enum TranslationStatusTool: MCPTool {
                     throw MCPError.invalidArgument(
                         "document_id \(documentId) is a figure, not a document: a table's "
                         + "cell coverage is in this tool's `figures` section — call it "
-                        + "without document_id, or with the id of a chapter that uses the table")
+                        + "without document_id, or with the id of a piece that uses the table")
                 }
                 throw MCPError.invalidArgument(
                     "document_id not found in project manifest: \(documentId)")
@@ -606,7 +619,14 @@ public enum TranslationStatusTool: MCPTool {
         let book = EditionStatus.manuscriptDocumentIds(in: entry.store.manifest)
         let report = await EditionStatus.documentRows(
             documentIds: docIds, layerScope: book, store: entry.store, projectURL: entry.url)
-        let rounds = TranslationRoundStore(projectURL: entry.url)
+        // One ledger read per LANGUAGE, before the rows: every reader decodes
+        // the whole `<lang>.json`, which holds a round per piece, so a
+        // per-row read would decode it once per chapter.
+        let roundStore = TranslationRoundStore(projectURL: entry.url)
+        var latestRounds: [String: [String: TranslationRound]] = [:]
+        for language in Set(report.rows.map(\.language)) {
+            latestRounds[language] = roundStore.latestFinishedByPiece(language: language)
+        }
 
         // The tables those documents use — `EditionStatus`'s, with the desk's
         // layer rule and the coverage gate's reader (`FigureUse`), so a
@@ -627,7 +647,7 @@ public enum TranslationStatusTool: MCPTool {
                 verbatim: $0.verbatim,
                 orphans: $0.orphans,
                 open_queries: $0.openQueries,
-                last_round: rounds.latest(language: $0.language, docId: $0.documentId).map {
+                last_round: latestRounds[$0.language]?[$0.documentId].map {
                     LastRound(number: $0.number, leg2_verdict: $0.leg2?.verdict,
                               leg4_verdict: $0.leg4?.verdict, notes: $0.noteCount,
                               departures: $0.departures.count, declined: $0.declinedCount,

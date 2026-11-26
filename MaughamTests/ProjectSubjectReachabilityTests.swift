@@ -39,11 +39,15 @@ final class ProjectSubjectReachabilityTests: XCTestCase {
     private var temp: TempDirectory!
     private var windows: [NSWindow] = []
 
-    /// Rows the Research and Palette sections contribute at the foot of every
-    /// tree when a project has neither yet (stage-2a Task 4): a header and one
-    /// placeholder row each. Every fixture here is a bare factory project, so
-    /// each count below is "the tree's own rows, plus the furniture".
-    private let emptySectionRows = (1 + 1) + (1 + 1)
+    /// Rows every fresh tree draws besides the Book row and its manuscript
+    /// (`TreeFurniture`): the Canvas row above, the sections below. Every
+    /// fixture here is a bare factory project, so each count below is "the
+    /// tree's own rows, plus the furniture".
+    private let emptySectionRows = TreeFurniture.topRows + TreeFurniture.emptySections
+
+    /// Where every census starts: the canvas open, so a click on the Book row
+    /// is a change the window can see.
+    private static let canvas = SubjectSamples.opened(.canvas)
 
     override func setUp() async throws {
         temp = TempDirectory()
@@ -68,7 +72,8 @@ final class ProjectSubjectReachabilityTests: XCTestCase {
     func test_everyProjectTypeCanNameItsOwnProject() async throws {
         for type in ProjectType.allCases {
             let store = try await project(of: type)
-            let (window, probe) = try await host(store: store, script: nil)
+            let (window, probe) = try await host(store: store, script: nil,
+                                                 subject: Self.canvas)
             let table = try XCTUnwrap(
                 firstTableView(in: window),
                 "\(type.rawValue): its tree "
@@ -76,10 +81,10 @@ final class ProjectSubjectReachabilityTests: XCTestCase {
                 + "List in the hierarchy — there is no row to select, so the "
                 + "project is unreachable")
 
-            await select(row: 0, in: table, until: { probe.subject == .project })
+            await select(row: 0, in: table, until: { probe.subject.open == .project })
 
             XCTAssertEqual(
-                probe.subject, .project,
+                probe.subject.open, .project,
                 "\(type.rawValue): selecting the head row of its "
                 + "\(TreePane(for: type).rawValue) tree must produce "
                 + "BinderSubject.project — nothing else constructs it, and "
@@ -97,40 +102,35 @@ final class ProjectSubjectReachabilityTests: XCTestCase {
         let script = try await productionScript(for: store, text: Self.twoScenes)
         XCTAssertEqual(script?.sceneSummaries().count, 2, "fixture precondition")
 
-        let (window, probe) = try await host(store: store, script: script)
+        let (window, probe) = try await host(store: store, script: script,
+                                             subject: Self.canvas)
         let table = try XCTUnwrap(firstTableView(in: window))
 
-        await select(row: 0, in: table, until: { probe.subject == .project })
-        XCTAssertEqual(probe.subject, .project,
+        await select(row: 0, in: table, until: { probe.subject.open == .project })
+        XCTAssertEqual(probe.subject.open, .project,
                        "the scene navigator's head row must be the project row, "
                        + "not the first slugline")
     }
 
-    // MARK: - Plan's tree (slice 2)
+    // MARK: - The canvas from the tree (shell p1 Task 3)
 
-    /// **The same census, in the persona whose centre column is the board.**
-    /// Plan shows the project's own manuscript tree with the canvas still in
-    /// the middle (spec §3.1), and "the tree" is three views — so the question
-    /// this file was written to ask has to be asked in Plan too, or Plan is
-    /// exactly where the slice-1 Critical returns. It was asked of a `.tree`
-    /// SEGMENT until shell-finish stage 2b Task 7; the persona is what carries
-    /// the difference now, and the tree it mounts is the same one Author gets.
-    func test_everyProjectTypeCanNameItsOwnProjectFromPlansTree() async throws {
+    /// **Every project type reaches the canvas from its own tree** — the
+    /// Canvas row, the one way into the canvas once there is no persona to
+    /// switch to. Found by its row's mark, never by position.
+    func test_everyProjectTypeCanOpenTheCanvasFromItsTree() async throws {
         for type in ProjectType.allCases {
             let store = try await project(of: type)
-            let (window, probe) = try await host(store: store, script: nil,
-                                                 persona: .plan)
+            let (window, probe) = try await host(store: store, script: nil)
             let table = try XCTUnwrap(
                 firstTableView(in: window),
-                "\(type.rawValue): Plan's left column put no List in the "
-                + "hierarchy — the writer opens Plan and gets a blank column")
+                "\(type.rawValue): the left column put no List in the hierarchy")
+            let row = try XCTUnwrap(rowIndex(of: .canvas, in: table),
+                                    "\(type.rawValue): its tree draws no Canvas row")
 
-            await select(row: 0, in: table, until: { probe.subject == .project })
+            await select(row: row, in: table, until: { probe.subject.open == .canvas })
 
-            XCTAssertEqual(
-                probe.subject, .project,
-                "\(type.rawValue): the head row of Plan's tree must be the "
-                + "project row, exactly as at the document home")
+            XCTAssertEqual(probe.subject, SubjectSamples.opened(.canvas),
+                           "\(type.rawValue): the Canvas row opens the canvas")
         }
     }
 
@@ -156,7 +156,7 @@ final class ProjectSubjectReachabilityTests: XCTestCase {
         XCTAssertEqual(script?.sceneSummaries().count, 2, "fixture precondition")
 
         let (window, probe) = try await host(store: store, script: script,
-                                             persona: .plan)
+                                             subject: Self.canvas)
         let table = try XCTUnwrap(firstTableView(in: window))
 
         XCTAssertEqual(table.numberOfRows, 4 + emptySectionRows,
@@ -165,8 +165,8 @@ final class ProjectSubjectReachabilityTests: XCTestCase {
                        + "would show two rows and no scenes at all — the "
                        + "2026-07-02 one-row-binder defect, in Plan")
 
-        await select(row: 0, in: table, until: { probe.subject == .project })
-        XCTAssertEqual(probe.subject, .project)
+        await select(row: 0, in: table, until: { probe.subject.open == .project })
+        XCTAssertEqual(probe.subject.open, .project)
     }
 
     /// **The planted offender for the fixture above, and the shape of the
@@ -185,8 +185,7 @@ final class ProjectSubjectReachabilityTests: XCTestCase {
         let script = try await productionScript(for: store, text: Self.twoScenes)
         XCTAssertEqual(script?.sceneSummaries().count, 2, "fixture precondition")
 
-        let (window, _) = try await host(store: store, script: nil,
-                                         persona: .plan)
+        let (window, _) = try await host(store: store, script: nil)
         let table = try XCTUnwrap(firstTableView(in: window))
 
         XCTAssertEqual(table.numberOfRows, 2 + emptySectionRows,
@@ -219,7 +218,8 @@ final class ProjectSubjectReachabilityTests: XCTestCase {
 
         XCTAssertTrue(
             ScreenplayScriptSource.needsDerivation(
-                persona: .plan, projectType: .screenplay, existing: nil),
+                subject: SubjectSamples.opened(.canvas), projectType: .screenplay,
+                existing: nil),
             "Plan with no parse yet is exactly the state that has to derive one")
         let derived = try XCTUnwrap(
             ScreenplayScriptSource.derive(store: store),
@@ -239,66 +239,51 @@ final class ProjectSubjectReachabilityTests: XCTestCase {
         let store = try await project(of: .collection)
         _ = try await store.addLoosePiece(title: "Piece One", format: .markdown)
         let (window, probe) = try await host(store: store, script: nil,
-                                             persona: .plan)
+                                             subject: Self.canvas)
         let table = try XCTUnwrap(firstTableView(in: window))
         XCTAssertEqual(table.numberOfRows, 2 + emptySectionRows,
                        "the project row, the one piece, and the sections' furniture")
 
-        await select(row: 0, in: table, until: { probe.subject == .project })
-        XCTAssertEqual(probe.subject, .project)
+        await select(row: 0, in: table, until: { probe.subject.open == .project })
+        XCTAssertEqual(probe.subject.open, .project)
     }
 
     // MARK: - The way out of a research subject (stage-2a final review, C)
 
-    /// **The tree's head row writes a research subject away** \u{2014} the one
-    /// mounted representative of the way out of the 2a Critical's trap.
-    ///
-    /// It was one of three. A loop that mounted the tree in every persona and
-    /// a second that mounted each persona twice around the find overlay both
-    /// timed out under a loaded gate and were cut (hardening 11-01, #129):
-    /// neither guarded a hard invariant, and their per-persona halves are
-    /// windowless already \u{2014} where a research subject goes in each persona
-    /// is `ResearchSubjectRoutingTests`' (`researchSubjectPlacement`), every
-    /// persona's left column is this same tree (stage 2b Task 7), and \u{2318}\u{2325}O
-    /// still lands on the project row with find covering the column
-    /// (`AltitudeKeyspaceTests.test_cmdOptOStillActsWhileFindCoversTheColumn`).
-    ///
-    /// **Publish is the persona it is driven in, on purpose** (shell-finish
-    /// stage 3b Task 5): Publish's `.nothingMoves` is the case most easily
-    /// waved through as exempt.
-    ///
-    /// The rule is *"every window state that lets a research subject STAND must
-    /// be able to clear it"*. Publish no longer lets one stand: the placement
-    /// moves neither column (spec §4's "—" row), so the centre shows the
-    /// compiled book or the project at altitude and the subject is holding
-    /// nothing hostage. The trap needs a surface that
-    /// the subject took AND no control able to give it back; Publish has neither
-    /// half.
-    ///
-    /// Driven anyway, because "exempt" is the shape of claim that goes quietly
-    /// wrong: the tree is still there and its head row still writes the subject
-    /// away.
-    func test_publishHoldsNoResearchSubjectAndItsTreeCanStillWriteTheSubjectAway() async throws {
-        let stuck = BinderSubject.research("r1")
-        XCTAssertEqual(
-            ProjectWindow.researchSubjectPlacement(persona: .publish, subject: stuck),
-            .nothingMoves,
-            "premise: Publish takes neither column for a research subject")
-
+    /// **A note opened beside can be put away from the tree** — the rule is
+    /// *"every window state that lets a research subject STAND must be able to
+    /// clear it"*, and the subject persists through `UIState`, so a relaunch
+    /// would reopen onto one nobody could clear. Beside an edition, where the
+    /// note takes no centre at all: a click on its own row puts it away
+    /// (controller ruling 2), through the real tree. The writer's last click
+    /// was the Book row, so the note is the outlined row and its click reaches
+    /// the `List` (a click on the row already selected is the watcher's —
+    /// `TreeTravelReceiverTests`).
+    func test_aNoteBesideCanBePutAwayFromItsOwnRow() async throws {
         let store = try await project(of: .novel)
-        let (window, probe) = try await host(
-            store: store, script: nil, persona: .publish, subject: stuck)
-        let table = try XCTUnwrap(
-            firstTableView(in: window),
-            "Publish's left column is the tree like everyone else's")
+        let note = try await store.addResearchTextNote(parentId: nil, title: "Beside")
+        let stuck = WindowSubject(open: .edition(language: "en"),
+                                  faces: .edition(language: "en"),
+                                  beside: .research(note.id))
+        XCTAssertNil(ProjectWindow.researchSubjectPlacement(subject: stuck).centreItemID,
+                     "premise: research beside an edition takes no centre")
 
-        await select(row: 0, in: table, until: { probe.subject != stuck })
+        let treeState = BinderTreeSectionsState()
+        treeState.record(selection: [.project], subject: stuck)
+        let (window, probe) = try await host(store: store, script: nil, subject: stuck,
+                                             treeState: treeState)
+        let table = try XCTUnwrap(firstTableView(in: window))
+        let drawn = await pumpUntil(deadline: 5) {
+            self.rowIndex(of: .research(note.id), in: table) != nil
+        }
+        XCTAssertTrue(drawn, "the note's row never drew")
+        let row = try XCTUnwrap(rowIndex(of: .research(note.id), in: table))
 
-        XCTAssertNotEqual(
-            probe.subject, stuck,
-            "the subject persists through `UIState`, so even a subject holding "
-            + "no column has to be clearable — otherwise a relaunch reopens onto "
-            + "it and the writer cannot tell what the window is about")
+        await select(row: row, in: table, until: { probe.subject.beside == nil })
+
+        XCTAssertNil(probe.subject.beside, "the note's own row puts it away")
+        XCTAssertEqual(probe.subject.open, .edition(language: "en"),
+                       "and the centre is left where it was")
     }
 
     // MARK: - Clicking a slugline in Plan (slice 2 review, F2)
@@ -321,8 +306,7 @@ final class ProjectSubjectReachabilityTests: XCTestCase {
     func test_aSluglineOnPlansTreePostsTheScreenplaysNavigation() async throws {
         let store = try await project(of: .screenplay)
         let script = try await productionScript(for: store, text: Self.twoScenes)
-        let (window, _) = try await host(store: store, script: script,
-                                         persona: .plan)
+        let (window, _) = try await host(store: store, script: script)
         let table = try XCTUnwrap(firstTableView(in: window))
         XCTAssertEqual(table.numberOfRows, 4 + emptySectionRows,
                        "precondition: project + script + 2, then the furniture")
@@ -337,11 +321,11 @@ final class ProjectSubjectReachabilityTests: XCTestCase {
         }
         defer { NotificationCenter.default.removeObserver(observer) }
 
-        // Row 2 — the first slugline, one below the script row. Fixed window,
+        // The first slugline, one below the script row. Fixed window,
         // deliberately: `posted.count == 1` is half a negative assertion — that
         // the click posted the navigation ONCE — and a wait that stopped at the
         // first arrival would no longer see a duplicate.
-        await click(row: 2, in: table, window: window)
+        await click(row: 1 + TreeFurniture.topRows + 1, in: table, window: window)
 
         XCTAssertEqual(posted.count, 1,
                        "the click on Plan's Structure tab must reach the "
@@ -353,22 +337,23 @@ final class ProjectSubjectReachabilityTests: XCTestCase {
                        + "the first scene starts at 0")
     }
 
-    /// **Where that click takes the window**, as a value. Plan does not show
-    /// manuscript documents, so the ruling applies and the writer moves to
-    /// Author — where the same slugline navigator is on the left and the script
-    /// is in the centre.
-    ///
-    /// **It used to assert the landing segment too** (`.scenes`, a screenplay's
-    /// document home, never `.manuscript`, which was the 2026-07-02 defect). A
-    /// destination carries no binder position since stage 2b Task 7, and which
-    /// tree a screenplay puts up is `TreePaneTests`'.
-    func test_thatNavigationTakesAScreenplayWriterFromPlanToAuthor() {
-        let destination = ManuscriptNavigation.destination(
-            from: .plan, currentDetailSegment: .inspector, memory: .empty)
-        XCTAssertEqual(destination.persona, .author)
-        XCTAssertTrue(destination.movesPersona,
-                      "the departing Plan position has to be recorded, or ⌘1 "
-                      + "does not come back to the pane the writer was on")
+    /// **Where that click takes the window**, as a value (shell p1 Task 4).
+    /// Over the canvas, the navigator first puts the script on the faces
+    /// (`SceneNavigatorPane.subject(_:whenNavigatingTo:)`, a click); the
+    /// slugline's navigation is then a place, and opens the faces' piece — the
+    /// script, in the centre, where the slugline can be scrolled to.
+    func test_aSluglineOverTheCanvasOpensTheScript() {
+        let script = SubjectSamples.pieceID
+        let faced = SceneNavigatorPane.subject(
+            SubjectSamples.opened(.canvas), whenNavigatingTo: script,
+            structure: SubjectSamples.structure, projectType: .screenplay)
+        XCTAssertEqual(faced.open, .canvas, "precondition: the navigator's click keeps the canvas")
+        let landed = ManuscriptNavigation.destination(
+            toDocument: ManuscriptNavigation.paragraphDocId(
+                payload: ["lineLocation": 0], current: faced,
+                structure: SubjectSamples.structure),
+            current: faced)
+        XCTAssertEqual(landed, WindowSubject(open: .item(script), faces: .item(script)))
     }
 
     // MARK: - Fixtures
@@ -439,20 +424,20 @@ final class ProjectSubjectReachabilityTests: XCTestCase {
     ///   click in that state could have produced.
     private func host(store: ProjectStore,
                       script: FountainScript?,
-                      persona: Persona = .author,
-                      subject: BinderSubject? = nil,
+                      subject: WindowSubject = .book,
+                      treeState: BinderTreeSectionsState? = nil,
                       findActive: Bool = false)
-    async throws -> (NSWindow, BinderSubjectProbe) {
-        let probe = BinderSubjectProbe()
-        probe.subject = subject
+    async throws -> (NSWindow, WindowSubjectProbe) {
+        let probe = WindowSubjectProbe(subject)
+        let treeState = treeState ?? BinderTreeSectionsState()
         let window = TestWindow.mount(
             AnyView(
                 BinderShellProbeView(store: store, probe: probe, script: script,
-                                     persona: persona,
-                                     findActive: findActive)),
+                                     treeState: treeState, findActive: findActive)),
             size: CGSize(width: 320, height: 600))
         windows.append(window)
         await pumpUntil(deadline: 5) { self.firstTableView(in: window) != nil }
+        await pumpUntil(deadline: 2) { TreeFurniture.isSettled(in: self.firstTableView(in: window)) }
         return (window, probe)
     }
 
@@ -497,6 +482,16 @@ final class ProjectSubjectReachabilityTests: XCTestCase {
         }
     }
 
+    /// The row whose label carries `subject`'s mark — never by position.
+    private func rowIndex(of subject: BinderSubject, in table: NSTableView) -> Int? {
+        var found: [NSView] = []
+        collect(NSView.self, in: table, into: &found)
+        return found.compactMap { $0 as? TreeTravelTargetView }
+            .first(where: { $0.subject == subject })
+            .map { table.row(for: $0) }
+            .flatMap { $0 >= 0 ? $0 : nil }
+    }
+
     private func firstTableView(in window: NSWindow) -> NSTableView? {
         guard let root = window.contentView else { return nil }
         var found: [NSTableView] = []
@@ -516,9 +511,8 @@ final class ProjectSubjectReachabilityTests: XCTestCase {
 @MainActor
 private struct BinderShellProbeView: View {
     let store: ProjectStore
-    let probe: BinderSubjectProbe
+    let probe: WindowSubjectProbe
     let script: FountainScript?
-    let persona: Persona
     @State private var treeFindActive: Bool
     @State private var renamingItemId: String?
 
@@ -527,20 +521,18 @@ private struct BinderShellProbeView: View {
     ///   hierarchy before the overlay covers it is a frame a table query would
     ///   latch onto, and a test asserting the tree's ABSENCE would pass against
     ///   the surface it was asserting the absence of.
-    init(store: ProjectStore, probe: BinderSubjectProbe, script: FountainScript?,
-         persona: Persona = .author, findActive: Bool = false) {
+    init(store: ProjectStore, probe: WindowSubjectProbe, script: FountainScript?,
+         treeState: BinderTreeSectionsState, findActive: Bool = false) {
         self.store = store
         self.probe = probe
         self.script = script
-        self.persona = persona
+        self.treeState = treeState
         _treeFindActive = State(initialValue: findActive)
     }
 
-    private var subject: Binding<BinderSubject?> {
-        Binding(get: { probe.subject }, set: { probe.subject = $0 })
-    }
+    private var subject: Binding<WindowSubject> { probe.binding }
 
-    let treeState = BinderTreeSectionsState()
+    let treeState: BinderTreeSectionsState
 
     var body: some View {
         Group {
@@ -548,20 +540,18 @@ private struct BinderShellProbeView: View {
             case .standard:
                 BinderPaneToggle(
                     store: store,
-                    selectedSubject: subject,
+                    subject: subject,
                     projectType: store.manifest.type,
                     lastParsedScript: script,
                     treeState: treeState,
-                    treeFindActive: $treeFindActive,
-                    persona: persona)
+                    treeFindActive: $treeFindActive)
             case .collection:
                 CollectionBinderPaneToggle(
                     store: store,
-                    selectedSubject: subject,
+                    subject: subject,
                     treeFindActive: $treeFindActive,
                     renamingItemId: $renamingItemId,
-                    treeState: treeState,
-                    persona: persona)
+                    treeState: treeState)
             }
         }
     }

@@ -82,9 +82,7 @@ final class DesignGateTests: XCTestCase {
         ] {
             XCTAssertEqual(
                 ProjectWindow.publishCentre(
-                    persona: .publish, subject: nil,
-                    structure: ProjectAltitudeCentreTests.structure,
-                    preview: preview, proposal: proposal),
+                    subject: Self.edition, preview: preview, proposal: proposal),
                 .designProposal(proposal),
                 "with a proposal selected the gate has the column whatever the "
                 + "catalog says (\(preview)) — the writer asked for the proposal")
@@ -103,27 +101,26 @@ final class DesignGateTests: XCTestCase {
         let round = TranslationRound(number: 1, language: "es", docId: "doc-1", startedAt: Date())
         XCTAssertEqual(
             ProjectWindow.publishCentre(
-                persona: .publish, subject: nil, structure: ProjectAltitudeCentreTests.structure,
+                subject: Self.edition,
                 preview: .ready(newestFirst: [PublishPreviewCentreTests.aBook]),
                 proposal: Self.proposal(), round: round),
             .translationRound(round))
-        // **A round draws over a chapter too** (2026-09-02, Denver's ruling): a
-        // round is about one chapter, and Show pressed with that chapter
-        // selected used to draw nothing until the writer moved to the project
-        // row. The book and the design gate stay project-level.
+        // **A round draws with its chapter in the faces** (2026-09-02, Denver's
+        // ruling): a round is about one chapter, and a click on that chapter
+        // while the edition is open moves only the faces.
+        let facesOnTheChapter = WindowSubject(open: .edition(language: "es"),
+                                              faces: .item("chapter-1"))
         XCTAssertEqual(ProjectWindow.publishCentre(
-            persona: .publish, subject: .item("chapter-1"), structure: ProjectAltitudeCentreTests.structure,
-            preview: .nothingCompiled, proposal: nil, round: round),
+            subject: facesOnTheChapter, preview: .nothingCompiled, proposal: nil, round: round),
             .translationRound(round),
-            "Show on a round must draw with the round's own chapter selected")
+            "Show on a round must draw with the round's own chapter in the faces")
         XCTAssertNil(ProjectWindow.publishCentre(
-            persona: .publish, subject: .item("chapter-1"), structure: ProjectAltitudeCentreTests.structure,
-            preview: .nothingCompiled, proposal: Self.proposal(), round: nil),
-            "the design gate is still project-level: a chapter in Publish is the editor")
+            subject: SubjectSamples.opened(.item("chapter-1")),
+            preview: .nothingCompiled, proposal: Self.proposal(), round: round),
+            "a chapter OPEN is the editor: nothing of an edition's covers it")
         XCTAssertNil(ProjectWindow.publishCentre(
-            persona: .author, subject: nil, structure: ProjectAltitudeCentreTests.structure,
-            preview: .nothingCompiled, proposal: nil, round: round),
-            "the report is Publish's")
+            subject: .book, preview: .nothingCompiled, proposal: nil, round: round),
+            "the report is an edition's")
     }
 
     /// …and **deselecting gives the book back**, untouched. The gate is a
@@ -140,10 +137,8 @@ final class DesignGateTests: XCTestCase {
         ]
         for (preview, expected) in table {
             XCTAssertEqual(
-                ProjectWindow.publishCentre(
-                    persona: .publish, subject: nil,
-                    structure: ProjectAltitudeCentreTests.structure,
-                    preview: preview, proposal: nil),
+                ProjectWindow.publishCentre(subject: Self.edition, preview: preview,
+                                            proposal: nil),
                 expected,
                 "with nothing selected the column is exactly what it was before "
                 + "the gate existed")
@@ -156,29 +151,30 @@ final class DesignGateTests: XCTestCase {
     /// answered its own subject rule would be a second answer free to disagree,
     /// and the disagreement would be a proposal drawn over the chapter a writer
     /// is fixing.
-    func test_aChapterSubjectOpensTheEditorEvenWithAProposalSelected() {
+    func test_aChapterOpenIsTheEditorEvenWithAProposalSelected() {
         XCTAssertNil(
             ProjectWindow.publishCentre(
-                persona: .publish, subject: .item("chapter-1"),
-                structure: ProjectAltitudeCentreTests.structure,
+                subject: SubjectSamples.opened(.item("chapter-1")),
                 preview: .ready(newestFirst: [PublishPreviewCentreTests.aBook]),
                 proposal: Self.proposal()),
-            "a chapter in Publish is the editor, proposal or no proposal")
+            "a chapter open is the editor, proposal or no proposal")
     }
 
-    /// **The gate is Publish's, like the book it stands in front of.** A
-    /// proposal selected before a persona switch must not follow the writer into
-    /// Author's centre column.
-    func test_onlyPublishHasAGate() {
-        for persona in Persona.allCases where !persona.previewsThePublishedBook {
+    /// **The gate is an edition's, like the book it stands in front of.** A
+    /// proposal selected while an edition was open must not follow the writer
+    /// into any other centre.
+    func test_onlyAnEditionHasAGate() {
+        for open in SubjectSamples.everyOpen where !open.isEdition {
             XCTAssertNil(
                 ProjectWindow.publishCentre(
-                    persona: persona, subject: nil,
-                    structure: ProjectAltitudeCentreTests.structure,
+                    subject: SubjectSamples.opened(open),
                     preview: .nothingCompiled, proposal: Self.proposal()),
-                "\(persona) has no gate — the department's centre is Publish's")
+                "\(open) has no gate — the gate is an edition's")
         }
     }
+
+    /// The edition the routing cases open.
+    static let edition = SubjectSamples.opened(.edition(language: "es"))
 
     // MARK: - The sample panel (no window)
 
@@ -270,7 +266,7 @@ final class DesignGateTests: XCTestCase {
         let caveat = try XCTUnwrap(DesignGate.caveat(language: "es"))
         XCTAssertTrue(
             caveat.contains(
-                TranslationReviewIndicator.displayLabel(forLanguageTag: "es")),
+                LanguageName.labelled("es")),
             "the caveat names the edition it is about: \(caveat)")
         XCTAssertFalse(caveat.isEmpty)
     }
@@ -385,12 +381,12 @@ final class DesignGateTests: XCTestCase {
     /// The button is about the NEWEST round — the one `latestLine` describes —
     /// so the row's sentence and its control are about the same thing.
     func test_theDesignRowOffersAWayToSeeTheNewestProposal() {
-        let row = DepartmentDesignRow.resolve(
+        let row = DesignRoundState.resolve(
             designerName: "Tschichold", proposals: [Self.proposal()],
             runState: .idle, session: .free, hasOpenProposalRound: false)
         XCTAssertTrue(row.offersShow)
 
-        let empty = DepartmentDesignRow.resolve(
+        let empty = DesignRoundState.resolve(
             designerName: "Tschichold", proposals: [],
             runState: .idle, session: .free, hasOpenProposalRound: false)
         XCTAssertFalse(empty.offersShow,
@@ -403,7 +399,7 @@ final class DesignGateTests: XCTestCase {
     /// it is deliberately not folded into `refusal`, which disables the two
     /// verbs that would contend for the session.
     func test_showIsNotRefusedByARoundInFlight() {
-        let row = DepartmentDesignRow.resolve(
+        let row = DesignRoundState.resolve(
             designerName: "Tschichold", proposals: [Self.proposal()],
             runState: .running(round: 2, language: nil),
             session: .busy(round: 2), hasOpenProposalRound: true)
@@ -411,16 +407,6 @@ final class DesignGateTests: XCTestCase {
         XCTAssertTrue(row.offersShow, "reading a staged proposal contends with "
                       + "nothing — only Run and Request Changes do")
         XCTAssertFalse(row.canRun, "…and the verbs that DO contend still refuse")
-    }
-
-    /// A desk with no round draws no Show at all.
-    func test_aDeskWithNoRoundDrawsNoShow() async throws {
-        let window = mountDesk(proposals: [], showProposal: { })
-        _ = try await settling(in: window)
-
-        let labels = try axButtonLabels(in: window)
-        XCTAssertFalse(labels.contains(DepartmentDesignRow.showAccessibilityLabel),
-                       "buttons published: \(labels.sorted())")
     }
 
     // MARK: - Mounted: the gate itself
@@ -651,7 +637,7 @@ final class DesignGateTests: XCTestCase {
             "Maugham/Views/ProjectWindow.swift": """
             struct ProjectWindow: View {
                 var body: some View { EmptyView() }
-                func actions() { DepartmentDesignRow.sendChanges(words, to: designer) }
+                func actions() { DesignRoundState.sendChanges(words, to: designer) }
             }
             """,
             "Maugham/Views/ProjectWindow+Centre.swift": """
@@ -668,8 +654,8 @@ final class DesignGateTests: XCTestCase {
                 }
             }
             """,
-            "Maugham/Views/Publish/DepartmentDesignRow.swift": """
-            enum DepartmentDesignRow { static func sendChanges() { designer.requestChanges(words) } }
+            "Maugham/Views/Publish/DesignRoundState.swift": """
+            enum DesignRoundState { static func sendChanges() { designer.requestChanges(words) } }
             """,
             "Maugham/Views/SomeSiblingView.swift": """
             struct SomeSiblingView { func f() { _ = designer.requestChanges(words) } }
@@ -692,35 +678,19 @@ final class DesignGateTests: XCTestCase {
             }
             """), "nor is a gate in another surface's arm")
         XCTAssertTrue(try SourceTree.windowCodeLines(base: base)
-            .contains { $0.contains("DepartmentDesignRow.sendChanges") },
+            .contains { $0.contains("DesignRoundState.sendChanges") },
             "the wiring reads the window's files")
         XCTAssertEqual(try Self.requestChangesCallers(under: "Maugham/Views", base: base),
-                       ["Maugham/Views/Publish/DepartmentDesignRow.swift",
+                       ["Maugham/Views/Publish/DesignRoundState.swift",
                         "Maugham/Views/SomeSiblingView.swift"],
                        "the widened census sees a second caller outside the window")
-    }
-
-    /// **The desk still reads no store** (tripwire 4). The Show affordance is a
-    /// closure the host fills, exactly as every other verb on the desk is, so
-    /// growing it must not put `DesignProposalStore` on a `body` path — which is
-    /// why the pane's own closure takes no argument and the host supplies the
-    /// proposal.
-    func test_theShowAffordanceLeavesThePanesCensusTrue() throws {
-        let code = SourceScan.codeLines(
-            of: try Self.source(of: "Views/Publish/DepartmentPane.swift"))
-
-        XCTAssertTrue(code.contains { $0.contains("showProposal") },
-                      "the pane must draw the affordance")
-        XCTAssertFalse(code.contains { $0.contains("DesignProposalStore") },
-                       "the pane may not name the store it would have to read "
-                       + "to know which proposal Show is about (tripwire 4)")
     }
 
     // MARK: - The verbs: what a proposal offers (Task 6, no window)
 
     /// **A proposal waiting on the writer offers Approve** — and Request Changes
     /// only while the session that made it can still be asked to revise it, which
-    /// is the desk's own rule (`DepartmentDesignRow.offersRequestChanges`): outside
+    /// is the desk's own rule (`DesignRoundState.offersRequestChanges`): outside
     /// that window the honest verb is a fresh Run, which lives on the desk.
     func test_aPendingProposalOffersApproveAndIterationWhileTheRoundIsOpen() {
         XCTAssertEqual(
@@ -789,7 +759,7 @@ final class DesignGateTests: XCTestCase {
                        + "failure this whole surface is written against")
     }
 
-    /// **A status from a newer build is carried raw**, `DepartmentDesignRow
+    /// **A status from a newer build is carried raw**, `DesignRoundState
     /// .statusWord`'s discipline: printing "unknown" over it would tell the
     /// writer their proposal is broken when it is merely from the future.
     func test_aStatusFromANewerBuildIsNamedRatherThanCalledBroken() throws {
@@ -813,8 +783,6 @@ final class DesignGateTests: XCTestCase {
         let store = DesignProposalStore(projectURL: project)
         let first = try store.stage(report: Self.report(), round: 1,
                                     designerName: "Tschichold", language: nil)
-        let second = try store.stage(report: Self.report(), round: 2,
-                                     designerName: "Tschichold", language: nil)
 
         // 1. A compile is running. Names the job, because a writer with two
         //    editions compiling needs to know which one to wait for.
@@ -838,11 +806,18 @@ final class DesignGateTests: XCTestCase {
             first, projectURL: project, jobManager: CompileJobManager())
         else { return XCTFail("the first approval should have gone through") }
 
-        // 3. The same proposal again: its own backup already stands.
+        // 3. The same proposal again: the store holds it approved, so the
+        //    guard every promotion asks first refuses it (shell p4 Task 6 fix
+        //    round 2, N1) — before the backup slot is consulted.
         let doubleApprove = try Self.refusal(
             await DesignGatePromotion.approve(first, projectURL: project,
                                               jobManager: CompileJobManager()))
-        XCTAssertTrue(doubleApprove.contains(first.id), doubleApprove)
+        XCTAssertEqual(doubleApprove, DesignGate.notPendingRefusal)
+
+        // A second round staged now is pending: the first is approved, not
+        // pending, so staging supersedes nothing.
+        let second = try store.stage(report: Self.report(), round: 2,
+                                     designerName: "Tschichold", language: nil)
 
         // 4. A DIFFERENT proposal, refused by the project's one backup slot —
         //    naming the proposal holding it and both ways out.
@@ -1240,7 +1215,7 @@ final class DesignGateTests: XCTestCase {
     /// put a second caller where it does not look.
     func test_requestChangesHasOneSpellingAndBothSurfacesReachIt() throws {
         XCTAssertEqual(try Self.requestChangesCallers(under: "Maugham/Views"),
-                       ["Maugham/Views/Publish/DepartmentDesignRow.swift"],
+                       ["Maugham/Views/Publish/DesignRoundState.swift"],
                        "the orchestrator's verb is called from `sendChanges` and "
                        + "nowhere else in this department")
 
@@ -1272,17 +1247,16 @@ final class DesignGateTests: XCTestCase {
         }
     }
 
-    /// **The desk re-derives when the gate acts.** The other half of the
-    /// write-back: `ProjectWindow`'s state feeds the gate, and the desk in the
-    /// right column has its own listing keyed on the designer's run state — which
-    /// a promotion never touches.
-    func test_theDeskListensForTheGatesVerdict() throws {
+    /// **To resolve re-reads when the gate acts** (moved from the desk, shell
+    /// p4 Task 7): the Source edition's head and list read the proposals, and
+    /// a promotion touches neither the designer's run state nor the manifest.
+    func test_toResolveListensForTheGatesVerdict() throws {
         let code = SourceScan.codeLines(
-            of: try Self.source(of: "Views/Publish/DepartmentPaneHost.swift"))
+            of: try Self.source(of: "Views/Resolve/ResolvePane.swift"))
         XCTAssertTrue(
             code.contains { $0.contains("maughamDesignProposalsChanged") },
-            "the desk must hear a promotion, or its Design row keeps describing "
-            + "a status the proposal no longer has")
+            "To resolve must hear a promotion, or the Source edition's head keeps "
+            + "describing a status the proposal no longer has")
     }
 
     // MARK: - Fixtures
@@ -1384,23 +1358,10 @@ final class DesignGateTests: XCTestCase {
     }
 
     /// A mutable cell an escaping closure can write into from the main actor.
-    /// `DepartmentRunTests.Box`'s twin.
+    /// `TranslationRunTests.Box`'s twin.
     private final class Box<Value> {
         var value: Value
         init(_ value: Value) { self.value = value }
-    }
-
-    private func mountDesk(proposals: [DesignProposalStore.Proposal],
-                           showProposal: @escaping () -> Void) -> NSWindow {
-        let row = DepartmentDesignRow.resolve(
-            designerName: "Tschichold", proposals: proposals,
-            runState: .idle, session: .free, hasOpenProposalRound: false)
-        return mount(AnyView(DepartmentPane(title: "The Project", languages: [],
-                                            unreadable: [],
-                                            translationOffers: .unrestricted,
-                                            design: row,
-                                            showProposal: showProposal)),
-                     width: 340)
     }
 
     private func mount(_ view: AnyView, width: CGFloat) -> NSWindow {

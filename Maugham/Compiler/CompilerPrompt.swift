@@ -288,7 +288,7 @@ enum CompilerPrompt {
 
     // MARK: - The two builders (two loops P1 Task 3, spec §4.9)
 
-    /// **Author's ⌘R.** The delta since the marker, dosed by the draft stage,
+    /// **The check's ⌘R.** The delta since the marker, dosed by the draft stage,
     /// filed in no lane — so this door has no `previousRound` to pass.
     ///
     /// Thin on purpose: one message builder, two named doors. The alternative
@@ -328,7 +328,7 @@ enum CompilerPrompt {
             previousBriefingHash: previousBriefingHash)
     }
 
-    /// **Review's Run round.** The piece whole, read by the pass's editor,
+    /// **The cockpit's Run round.** The piece whole, read by the pass's editor,
     /// with the prior round in this lane above it — so this door has no
     /// `stage`, no `freshEyes` and no `signals` to pass.
     ///
@@ -523,7 +523,7 @@ enum CompilerPrompt {
         // §4.9): a round is briefed by the lane's editor through
         // `passSection` below, a check by the writer's own reader. Switched on
         // the kind rather than gated on the reader being `.nobody`, on
-        // `RunKind.of(persona:)`'s rule — a third loop is then a compile error
+        // `RunKind`'s rule — a third loop is then a compile error
         // here instead of silently inheriting the check's frame.
         //
         // **Defaulted to `.nobody`, whose section is nil**, so a caller with no
@@ -566,7 +566,7 @@ enum CompilerPrompt {
         // P1): a round is always the full letter — its pass brief decides
         // which parts — so a stage reaching one would ask for the short letter
         // over a piece the editor was told to read whole. Switched rather than
-        // `if kind == .check`, on `RunKind.of(persona:)`'s rule: a third loop
+        // `if kind == .check`, on `RunKind`'s rule: a third loop
         // is then a compile error at every fork that decides on the kind,
         // instead of silently taking the arm nobody wrote for it.
         //

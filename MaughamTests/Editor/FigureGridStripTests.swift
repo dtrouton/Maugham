@@ -271,39 +271,46 @@ final class FigureGridStripTests: XCTestCase {
 
     // MARK: - Got it and Reject
 
-    /// **Review mode answers what moves no cell** (fix round ruling I1):
-    /// Got it and Reject act; Accept is shown disabled and, asked, writes
-    /// nothing and says why.
-    func test_inReviewModeGotItAndRejectAct_acceptSaysWhyNot() async throws {
+    /// **An answer after the fold is said, its typed reason with it** (fix round M4).
+    /// **In read-through every answer is a decision** (shell read-through
+    /// Task 2): the grid is read-only, yet Accept is offered and writes the
+    /// cell, on the grid's own undo; Got it and Reject act too.
+    func test_inReadThroughAcceptWritesTheCell_andGotItAndRejectAct() async throws {
         let (store, c, host) = try await openGrid()
-        let b2 = key(host, "B2")
-        let suggestion = try await suggest(number(9), at: b2, store: store, host: host)
-        let note = try await comment(on: b2, store: store, host: host)
+        let b2 = key(host, "B2"), c2 = key(host, "C2")
+        try await host.setCell(number(12), at: b2)
+        let suggestion = try await suggest(number(14), at: b2, store: store, host: host)
+        let note = try await comment(on: c2, store: store, host: host)
+        let other = try await comment(on: c2, store: store, host: host)
         await landed(c)
-        c.setAccess(.readOnly(.reviewMode), captionMayEdit: false)
+        final class Step { var undone = false }
+        let typedBefore = Step()
+        c.gridUndo.registerUndo(withTarget: typedBefore) { $0.undone = true }   // a cell typed before the entry
+        c.setAccess(.readOnly(.readThrough(nil)), captionMayEdit: false)
+        XCTAssertFalse(c.gridUndo.canUndo, "the entry drops the grid's steps before it")
         c.handle(.click(b2, extend: false))
-        let actions = Dictionary(uniqueKeysWithValues: c.stripPlan.entries.map { ($0.noteId, $0.actions) })
-        XCTAssertEqual(actions, [
-            suggestion: [.init(verb: .accept, isEnabled: false), .init(verb: .reject, isEnabled: true)],
-            note: [.init(verb: .gotIt, isEnabled: true), .init(verb: .reject, isEnabled: true)],
-        ])
-        XCTAssertEqual(c.strip.reasonLabel.stringValue, FigureGridStrip.Plan.reviewModeAccept)
+        XCTAssertEqual(c.stripPlan.entries.first?.actions,
+                       [.init(verb: .accept, isEnabled: true), .init(verb: .reject, isEnabled: true)])
+        XCTAssertNil(c.stripPlan.reason, "nothing is refused, so nothing is said")
 
         c.stripAccept(suggestion)
         await landed(c)
-        XCTAssertNil(host.state.table[b2], "Accept writes nothing in review mode")
-        XCTAssertEqual(c.bars.reasonMessage, FigureGridStrip.Plan.reviewModeAccept)
+        XCTAssertEqual(host.state.table[b2], number(14), "the Accept writes the cell")
+        XCTAssertEqual(status(suggestion, host), .accepted)
+        XCTAssertEqual(c.gridUndo.undoActionName, "Accept Suggestion")
+        c.undoInGrid()
+        await landed(c)
+        XCTAssertEqual(host.state.table[b2], number(12), "⌘Z in the grid takes it back")
+        XCTAssertFalse(typedBefore.undone)
 
         c.stripGotIt(note)
-        c.askRejectReason = { _ in .reject(reason: "Not now") }
-        await c.askToReject(suggestion).value
+        c.askRejectReason = { _ in .reject(reason: nil) }
+        await c.askToReject(other).value
         await landed(c)
         XCTAssertEqual(status(note, host), .accepted)
-        XCTAssertEqual(status(suggestion, host), .rejected)
-        XCTAssertNil(host.state.table[b2])
+        XCTAssertEqual(status(other, host), .rejected)
     }
 
-    /// **An answer after the fold is said, its typed reason with it** (fix round M4).
     func test_anAnswerAfterTheFoldIsSaidWithItsReason() async throws {
         let (store, c, host) = try await openGrid()
         let id = try await comment(on: key(host, "A2"), store: store, host: host)
@@ -361,7 +368,7 @@ final class FigureGridStripTests: XCTestCase {
         c.stripReject(note, reason: nil)
         await landed(c)
         XCTAssertEqual(status(note, host), .rejected)
-        XCTAssertEqual(c.gridUndo.undoActionName, "Reject Annotation", "on the grid's stack")
+        XCTAssertEqual(c.gridUndo.undoActionName, "Reject Note", "on the grid's stack")
     }
 
     // MARK: - Refusals

@@ -61,4 +61,55 @@ final class SampleProjectBuilderTests: XCTestCase {
             .novel, seedsRoot: seedRoot(), destinationParent: parent)
         XCTAssertNotEqual(first.lastPathComponent, second.lastPathComponent)
     }
+
+    /// **The sample novel is a walk through the window** (shell p5 Task 9):
+    /// its second chapter's fold holds a note of its own and a link to the
+    /// third, so clicking it opens a fold with something to pull up; the
+    /// Research section keeps a whole-book note; every path the manifest
+    /// names is in the seed.
+    func test_theSampleNovelsFoldsAndResearchAreWhoseTheSampleSays() throws {
+        let seed = seedRoot().appendingPathComponent("novel")
+        let data = try Data(contentsOf: seed.appendingPathComponent(ProjectManifest.fileName))
+        let manifest = try ProjectManifest.makeDecoder().decode(ProjectManifest.self, from: data)
+        let chapters = manifest.structure
+        XCTAssertEqual(chapters.map(\.title), ["Welcome", "Try It", "Going Further"])
+        let tryIt = try XCTUnwrap(chapters.first { $0.title == "Try It" })
+        let goingFurther = try XCTUnwrap(chapters.first { $0.title == "Going Further" })
+        XCTAssertEqual(tryIt.links, [goingFurther.id], "Try It's fold links to Going Further")
+        let homes = ResearchHomes.derive(structure: manifest.structure, research: manifest.research,
+                                         projectType: manifest.type)
+        let notes = TreeWalk.collect(in: manifest.research, where: { $0.type == .asset })
+        XCTAssertEqual(notes.count, 2)
+        let chaptersNote = try XCTUnwrap(notes.first { tryIt.linkedResearchIds?.contains($0.id) == true })
+        XCTAssertEqual(homes.homes(of: chaptersNote.id), [tryIt.id], "the chapter's note is Try It's")
+        let bookNote = try XCTUnwrap(notes.first { $0.id != chaptersNote.id })
+        XCTAssertEqual(homes.homes(of: bookNote.id), [], "the other note is the whole book's")
+        XCTAssertTrue(homes.wholeBook.contains { $0.id == bookNote.id }, "in the Research section")
+        for path in chapters.compactMap(\.path) + notes.compactMap(\.path) {
+            XCTAssertTrue(FileManager.default.fileExists(atPath: seed.appendingPathComponent(path).path), path)
+        }
+    }
+
+    /// **A sample opens on its first piece** (fix round 1, I1): the novel on
+    /// "Welcome", the screenplay on its script, read back through the store's
+    /// own load. An ordinary project keeps the Book's Outline.
+    func test_aSampleOpensOnItsFirstPieceAndAnOrdinaryProjectOnTheBook() async throws {
+        for kind in [SampleProjectBuilder.Kind.novel, .screenplay] {
+            let url = try await SampleProjectBuilder.build(kind, seedsRoot: seedRoot(),
+                                                           destinationParent: try tempParent())
+            let store = try await DocumentStore.open(url: url)
+            XCTAssertEqual(store.uiState.windowSubject.open, .item("doc-001"), "\(kind)")
+            XCTAssertEqual(store.uiState.windowSubject.faces, .item("doc-001"), "\(kind)")
+            // …and the window's own restore sweep keeps it (shell closing
+            // A10, N4): a sweep that demoted an item subject on first open
+            // would land the sample on the Book again.
+            let manifest = try await ProjectStore.load(from: url).manifest
+            XCTAssertEqual(ProjectWindow.validatedSubject(
+                store.uiState.windowSubject, structure: manifest.structure, research: manifest.research,
+                figures: manifest.figures ?? [], parked: [], editionLanguages: []),
+                WindowSubject(open: .item("doc-001"), faces: .item("doc-001")), "\(kind): restored as built")
+        }
+        XCTAssertEqual(UIState().windowSubject, .book, "the default for every other project is unchanged")
+        XCTAssertEqual(UIState().bookView, .outline)
+    }
 }
