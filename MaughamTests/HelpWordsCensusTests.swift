@@ -302,4 +302,80 @@ final class HelpWordsCensusTests: XCTestCase {
         XCTAssertEqual(Self.unboundKeys([("planted.md", "Press ⌘⌥⇧9 or ⌘S.")], bound: ["⌘S"]),
                        ["planted.md: ⌘⌥⇧9"])
     }
+
+    // MARK: - The owner's name ships nowhere (shell p5 Task 9)
+
+    static let ownerName = try! NSRegularExpression(pattern: #"(?i)denver|trouton"#)
+
+    /// file → phrase → why it may hold the owner's name. Only his GitHub
+    /// handle, which is where releases are published: the updater's own
+    /// address and the About tab's link to the repository.
+    static let ownerNameAllowed: [String: [String: String]] = [
+        "Maugham/Updates/GitHubReleasesAPI.swift": [
+            "dtrouton": "the GitHub account the updater reads releases from",
+        ],
+        "Maugham/Views/SettingsTabs/AboutSettingsTab.swift": [
+            "dtrouton": "the About tab's link to the repository",
+        ],
+    ]
+
+    /// Every shipped text that may carry a name: each file under
+    /// `Maugham/Resources/` read whole (a binary that is not UTF-8 is not
+    /// text), and every string literal in the Mac app, the phone app and
+    /// MaughamCore's sources. Comments are not shipped.
+    static func ownerNameOffenders(base: URL = SourceTree.repoRoot,
+                                   allowed: [String: [String: String]] = ownerNameAllowed) throws -> [String] {
+        var found: [String] = []
+        let resources = base.appendingPathComponent("Maugham/Resources", isDirectory: true).resolvingSymlinksInPath()
+        let walk = FileManager.default.enumerator(at: resources, includingPropertiesForKeys: [.isRegularFileKey])
+        var read = 0
+        while let url = walk?.nextObject() as? URL {
+            guard (try? url.resourceValues(forKeys: [.isRegularFileKey]))?.isRegularFile == true,
+                  let text = try? String(contentsOf: url, encoding: .utf8) else { continue }
+            read += 1
+            let path = "Maugham/Resources/" + url.resolvingSymlinksInPath().path.dropFirst(resources.path.count + 1)
+            let phrases = Array((allowed[path] ?? [:]).keys)
+            for (index, line) in text.components(separatedBy: "\n").enumerated()
+            where !WordingCensusTests.allMatchesAllowed(ownerName, in: line, phrases: phrases) {
+                found.append("\(path):\(index + 1): " + line.trimmingCharacters(in: .whitespaces).prefix(160))
+            }
+        }
+        guard read > 0 else { throw SourceTree.LookupError(description: "no text under Maugham/Resources") }
+        for root in ["Maugham", "MaughamPhone", "Packages/MaughamCore/Sources"] {
+            for path in try SourceTree.swiftFiles(under: root, base: base) {
+                let phrases = Array((allowed[path] ?? [:]).keys)
+                for literal in SwiftLiterals.extract(try SourceTree.read(path, base: base))
+                where !WordingCensusTests.allMatchesAllowed(ownerName, in: literal.text, phrases: phrases) {
+                    found.append("\(path):\(literal.line): " + literal.text.prefix(160))
+                }
+            }
+        }
+        return found.sorted()
+    }
+
+    func test_nothingShippedNamesTheOwner() throws {
+        let found = try Self.ownerNameOffenders()
+        XCTAssertEqual(found, [], "the owner's name ships in:\n" + found.joined(separator: "\n"))
+    }
+
+    /// The control: a resource line, a Mac literal, a phone literal and a
+    /// Core literal are each caught in any case; a comment is not; the
+    /// handle is allowed only where it is named.
+    func test_theOwnerNameCensusCatchesEveryShippedPlace() throws {
+        let base = try SourceTree.plantedTree([
+            "Maugham/Resources/PublishStarter/EMISSION.md": "2. Denver loads the new `.epub`.",
+            "Maugham/Resources/bin/tool": "no name here",
+            "Maugham/Views/Rogue.swift": "let a = \"Ask TROUTON\"\n// Denver's ruling, in a comment\nlet b = \"github.com/dtrouton\"",
+            "Maugham/Updates/GitHubReleasesAPI.swift": "let owner = \"dtrouton\"",
+            "MaughamPhone/Rogue.swift": "let c = \"denver's iPhone\"",
+            "Packages/MaughamCore/Sources/MaughamCore/Rogue.swift": "let d = \"Alex Moreno\"\nlet e = \"Denver\"",
+        ])
+        XCTAssertEqual(try Self.ownerNameOffenders(base: base), [
+            "Maugham/Resources/PublishStarter/EMISSION.md:1: 2. Denver loads the new `.epub`.",
+            "Maugham/Views/Rogue.swift:1: Ask TROUTON",
+            "Maugham/Views/Rogue.swift:3: github.com/dtrouton",
+            "MaughamPhone/Rogue.swift:1: denver's iPhone",
+            "Packages/MaughamCore/Sources/MaughamCore/Rogue.swift:2: Denver",
+        ])
+    }
 }

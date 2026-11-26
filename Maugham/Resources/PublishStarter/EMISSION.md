@@ -858,8 +858,8 @@ EPUB output is **OPEN-LOOP**: after each compile, `build/body.xhtml` contains th
 EPUB iteration therefore works as follows:
 
 1. Claude proposes a CSS change in `styles.css` (via `write_publish_file`) and compiles.
-2. Denver loads the new `.epub` in his reading application of choice (e.g. Books, Calibre, Kindle).
-3. Denver describes what he sees — spacing, font size, chapter breaks, etc.
-4. Claude iterates based on Denver's description.
+2. The writer loads the new `.epub` in their reading application of choice (e.g. Books, Calibre, Kindle).
+3. The writer describes what they see — spacing, font size, chapter breaks, etc.
+4. Claude iterates based on the writer's description.
 
 This is the accepted workflow for personal-use EPUB. Closing the loop (embedding a headless reader, capturing screenshots) is out of scope here.
