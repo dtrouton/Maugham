@@ -577,7 +577,7 @@ struct PieceInLanguageHeadView: View {
     var hasItemsToAnswer: Bool = false
     /// File ▸ Translate This Chapter into …'s ask (shell p5 Task 7, row 7):
     /// Run, pressed for the menu where Run is offered; spent either way.
-    var translateAsk: Binding<Bool> = .constant(false)
+    var translateAsk: Binding<TranslateMenuOffer?> = .constant(nil)
 
     @Environment(AgentRoster.self) private var roster: AgentRoster?
     @State private var notice: String?
@@ -650,11 +650,20 @@ struct PieceInLanguageHeadView: View {
 
     var body: some View {
         content.onChange(of: translateAsk.wrappedValue, initial: true) { _, asked in
-            guard asked else { return }
-            translateAsk.wrappedValue = false
+            guard let asked else { return }
+            translateAsk.wrappedValue = nil
+            // Only an ask for this piece in this language (C1), and only
+            // where Run is offered; otherwise said, never a silent nothing.
+            if case .refuse(let line) = TranslateMenuOffer.answer(asked, pieceHead: docId, language: language) {
+                notice = line
+                return
+            }
             guard ResolvePieceInLanguage.offersRun(docId: docId, isOpen: isOpen, mayTranslate: {
                 TranslationRunStart.postureOfTheTranslator(forPiece: $0, in: documentStore).allows(.translate)
-            }, relation: relation) else { return }
+            }, relation: relation) else {
+                notice = TranslateMenuOffer.notOfferedLine
+                return
+            }
             if runState.canRun { runThisPiece() } else { notice = runState.refusal }
         }
     }

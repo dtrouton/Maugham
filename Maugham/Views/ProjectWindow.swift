@@ -107,6 +107,8 @@ struct ProjectWindow: View {
     @State private var researchPreviewVisible: Bool = false
     /// Whether the window is full screen — View ▸ Full-Screen Focus's check.
     @State private var isFullScreen = false
+    /// File ▸ Translate…'s offer, cached on `translateOfferKey` (M3).
+    @State private var translateMenuOffer: TranslateMenuOffer?
     /// **Find in Project, as an overlay of the left column.** Window state
     /// rather than segment state: ⌘⌥F writes this and nothing else, so the
     /// overlay rides through a subject change untouched and closing it reveals
@@ -383,6 +385,15 @@ struct ProjectWindow: View {
             windowChrome: windowChrome,
             isFullScreen: $isFullScreen))
         .background(WindowAccessor(window: $window))
+        // The menu bar's cached reads (fix round 1, M3, M4): the Translate
+        // offer on its key; full screen seeded from the window it restored
+        // into, then followed by its notifications.
+        .onChange(of: translateOfferKey, initial: true) { _, _ in
+            translateMenuOffer = store.flatMap { translateOffer(store: $0) }
+        }
+        .onChange(of: window, initial: true) { _, window in
+            isFullScreen = Self.isFullScreen(window)
+        }
         // Signed op log P2b: a device asking to be let into this book. Mounted on
         // the whole window, because the question is the PROJECT's and arrives
         // whatever is open, loaded or not — the modifier's own guards decide.
@@ -610,6 +621,7 @@ struct ProjectWindow: View {
             showInspector: $showInspector,
             position: $rightColumnPosition,
             resolveRequest: $resolveRequest,
+            translateOffer: translateMenuOffer,
             briefFocus: $briefFocus,
             readingLanguage: facesReadingLanguage,
             sourceLanguage: publishCentre.sourceLanguage,
@@ -1084,6 +1096,8 @@ struct ProjectWindow: View {
         /// To resolve's filter request — what ⌘⌥A, ⌘⌥D and ⌘⌥T ask for
         /// beside the position (`MaughamEvent.resolveFilterKey`).
         @Binding var resolveRequest: ResolveRequest?
+        /// File ▸ Translate…'s offer — the same value the item is titled by.
+        var translateOffer: TranslateMenuOffer? = nil
         /// ⌘⌥I's and ⌘⌥N's Brief field.
         @Binding var briefFocus: BriefField?
         /// The language the faces are read in (`ReadingLanguage.of`) and the
@@ -1232,8 +1246,9 @@ struct ProjectWindow: View {
                 // File ▸ Translate… (row 7): To resolve shows, and its head
                 // presses its own Run (`ResolveRequest.translate`).
                 .onKeyWindowCommand(.maughamTranslateFromMenu, window: window) { _ in
+                    guard let offer = translateOffer else { return }
                     ProjectWindow.selectPosition(.resolve, showInspector: $showInspector, position: $position)
-                    resolveRequest = .translate
+                    resolveRequest = .translate(offer)
                 }
                 .onKeyWindowCommand(.maughamToggleResearchPreview, window: window) { _ in
                     researchPreviewVisible.toggle()
@@ -3109,12 +3124,33 @@ struct ProjectWindow: View {
         let mayTranslate = { (docId: String) in
             TranslationRunStart.postureOfTheTranslator(forPiece: docId, in: documentStore).allows(.translate)
         }
+        let open = TranslationReveal.openDocId(subject)
         return TranslateMenuOffer.of(
-            readingLanguage: editorControl.translationLanguage,
-            openPiece: TreeWalk.find(id: TranslationReveal.openDocId(subject), in: structure),
-            faces: subject.faces, sourceLanguage: publishCentre.sourceLanguage,
-            book: PieceNoun.Book(store.manifest), mayTranslate: mayTranslate,
+            scope: translateOfferKey.scope, isOpen: { $0 == open && documentStore.document(forDocId: $0) != nil },
+            structure: structure, book: PieceNoun.Book(store.manifest), mayTranslate: mayTranslate,
             mayTranslateAny: TreeWalk.first(in: structure, where: { $0.type == .document && mayTranslate($0.id) }) != nil)
+    }
+
+    /// **What the cached Translate offer is keyed on** (fix round 1, M3): the
+    /// scope To resolve will show (`ResolveScope.of`, the pane's own), the
+    /// open piece, the manifest's edit and the posture door's epoch — so the
+    /// translator's posture walk runs on a change, never per body pass
+    /// (tripwire 4).
+    struct TranslateOfferKey: Equatable {
+        let scope: ResolveScope
+        let openDocId: String
+        let modified: Date?
+        let postureEpoch: Int
+    }
+
+    private var translateOfferKey: TranslateOfferKey {
+        TranslateOfferKey(
+            scope: ResolveScope.of(subject.faces, readIn: facesReadingLanguage,
+                                   sourceLanguage: publishCentre.sourceLanguage,
+                                   structure: store?.manifest.structure ?? [],
+                                   projectType: store?.manifest.type ?? .novel),
+            openDocId: TranslationReveal.openDocId(subject),
+            modified: store?.manifest.modified, postureEpoch: documentStore?.postureEpoch ?? 0)
     }
 
     /// View ▸ Open in Centre's one receiver (`TreeRowKeys.centreOpening`).
@@ -3162,7 +3198,12 @@ struct ProjectWindow: View {
             opensInCentre: TreeRowKeys.centreOpening(
                 drawn: BinderTreeSelection.drawnTags(state: treeState, subject: subject, store: store),
                 beside: subject.beside) != nil,
-            translate: translateOffer(store: store))
+            translate: translateMenuOffer)
+    }
+
+    /// Full-Screen Focus's check for a window, as it stands now.
+    static func isFullScreen(_ window: NSWindow?) -> Bool {
+        window?.styleMask.contains(.fullScreen) ?? false
     }
 
     static func foldPiece(subject: WindowSubject, structure: [StructureItem]) -> String? {

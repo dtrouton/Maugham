@@ -72,30 +72,34 @@ final class MenuBarCensusTests: XCTestCase {
 
     // MARK: - Every key once
 
-    /// A key two items may share, each with its reason.
+    /// Items that may share a key — keyed by the token AND the exact items,
+    /// so an allowance never covers a later item (fix round 1, I1).
     struct AllowedOverlap {
         let token: String
+        let paths: Set<String>
         let reason: String
     }
 
-    static let allowedOverlaps: [AllowedOverlap] = [
-        // Never two menu items: Format ▸ Table ▸ Fill Right shows no glyph,
-        // because ⌘R is File ▸ Check Writing's; the expanded grid answers ⌘R
-        // in its own keyDown while it has the keys (R7d-1).
-        AllowedOverlap(token: "⌘R", reason: "Fill Right is the grid's keyDown, not a menu equivalent"),
-    ]
+    /// None today. ⌘R is Check Writing's alone: Format ▸ Table ▸ Fill Right
+    /// shows no key (the grid's own keyDown answers ⌘R while it has the keys,
+    /// R7d-1) — asserted in `test_everyMenuKeyIsBoundOnce`, not allowed here.
+    static let allowedOverlaps: [AllowedOverlap] = []
 
-    /// Each token bound by more than one item, with the items, minus the
-    /// allow-listed.
+    /// Each token bound by more than one item, with the items, minus an
+    /// allowance naming exactly those items.
     static func duplicates(_ items: [WalkedItem], allowed: [AllowedOverlap] = allowedOverlaps) -> [String] {
         let bound = items.compactMap { item in item.token.map { ($0, item) } }
         return Dictionary(grouping: bound, by: { $0.0 })
-            .filter { group in group.value.count > 1 && !allowed.contains { $0.token == group.key } }
+            .filter { group in
+                group.value.count > 1 && !allowed.contains {
+                    $0.token == group.key && $0.paths == Set(group.value.map(\.1.path))
+                }
+            }
             .map { "\($0.key): " + $0.value.map(\.1.path).joined(separator: " / ") }
             .sorted()
     }
 
-    func test_everyMenuKeyIsBoundOnce() {
+    func test_everyMenuKeyIsBoundOnce() throws {
         let items = menuBar
         // Premise: the walk reached the app's own commands, not an empty bar.
         XCTAssertTrue(items.contains { $0.token == "⌘S" }, "premise: File ▸ Save is in the walk")
@@ -104,10 +108,14 @@ final class MenuBarCensusTests: XCTestCase {
         XCTAssertEqual(Self.duplicates(items), [], "one key, two items")
         XCTAssertEqual(items.filter(\.lostItsKey).map(\.path), [],
                        "an item asked for a key another item already holds, and got none")
+        // ⌘R's other claimant is the grid's keyDown, never a menu item.
+        let fillRight = try XCTUnwrap(items.first { $0.path == "Format ▸ Table ▸ Fill Right" })
+        XCTAssertNil(fillRight.token, "Fill Right shows no key: ⌘R is Check Writing's")
     }
 
-    /// The control: a planted duplicate is reported; an allowed one is not;
-    /// a dropped key is seen.
+    /// The control: a planted duplicate is reported; one allowed by exactly
+    /// its items is not, and the same allowance does not cover a third; a
+    /// dropped key is seen.
     func test_theKeyCensusFiresOnAPlantedDuplicate() {
         let menu = NSMenu(title: "Planted")
         menu.addItem(withTitle: "One", action: nil, keyEquivalent: "j")
@@ -118,12 +126,65 @@ final class MenuBarCensusTests: XCTestCase {
         let lost = menu.addItem(withTitle: "Lost", action: nil, keyEquivalent: "")
         lost.keyEquivalentModifierMask = [.command, .option]
         let items = Self.walk(menu)
-        XCTAssertEqual(Self.duplicates(items), ["⌘J: One / Two"])
-        XCTAssertEqual(Self.duplicates(items, allowed: []), ["⌘J: One / Two", "⌘R: Three / Four"])
+        let allowed = [AllowedOverlap(token: "⌘R", paths: ["Three", "Four"], reason: "planted")]
+        XCTAssertEqual(Self.duplicates(items, allowed: allowed), ["⌘J: One / Two"])
+        XCTAssertEqual(Self.duplicates(items), ["⌘J: One / Two", "⌘R: Three / Four"])
+        menu.addItem(withTitle: "Six", action: nil, keyEquivalent: "r")
+        XCTAssertEqual(Self.duplicates(Self.walk(menu), allowed: allowed),
+                       ["⌘J: One / Two", "⌘R: Three / Four / Six"], "an allowance covers its items only")
         XCTAssertEqual(items.filter(\.lostItsKey).map(\.title), ["Lost"])
         XCTAssertEqual(Self.token(key: "Z", mask: .command), "⌘⇧Z")
         XCTAssertEqual(Self.token(key: "\u{F700}", mask: [.command, .option]), "⌘⌥↑")
         XCTAssertEqual(Self.token(key: "r", mask: [.command, .control, .shift]), "⌘⌃⇧R")
+    }
+
+    // MARK: - Every declared key reaches its item (fix round 1, I2)
+
+    /// The system's own items, which a declared key of ours can lose to: the
+    /// app menu, the Window menu, and AppKit's Edit and File items. A key
+    /// SwiftUI dropped because one of these held it shows on THEIR item, so
+    /// it is counted only on ours.
+    static let systemMenus: Set<String> = ["Window"]
+    static let systemItemPaths: Set<String> = [
+        "Edit ▸ Undo", "Edit ▸ Redo", "Edit ▸ Cut", "Edit ▸ Copy", "Edit ▸ Paste", "Edit ▸ Select All",
+        "Edit ▸ Emoji & Symbols", "Edit ▸ Start Dictation…", "File ▸ Close", "File ▸ Close All",
+    ]
+
+    /// The declared tokens the walk's own items carry fewer times than the
+    /// source declares them — a ⌘-only key lost to Hide (⌘H) or Minimize
+    /// (⌘M) is otherwise indistinguishable from a keyless item.
+    static func undelivered(declared: [String], walked: [WalkedItem], appMenu: String) -> [String] {
+        let ours = walked.filter { item in
+            let top = item.path.components(separatedBy: " ▸ ").first ?? ""
+            return top != appMenu && !systemMenus.contains(top) && !systemItemPaths.contains(item.path)
+        }.compactMap(\.token)
+        let have = Dictionary(grouping: ours, by: { $0 }).mapValues(\.count)
+        let want = Dictionary(grouping: declared, by: { $0 }).mapValues(\.count)
+        return want.filter { (have[$0.key] ?? 0) < $0.value }.keys.sorted()
+    }
+
+    func test_everyKeyTheSourceDeclaresIsOnItsItem() throws {
+        let declared = try DocSyncTests.menuKeySources.flatMap { path in
+            DocSyncTests.extractShortcutBindings(
+                from: DocSyncTests.resolvingNamedKeys(try SourceTree.read(path))).map(\.token)
+        }
+        XCTAssertGreaterThan(declared.count, 50, "premise: the extractor read the menu sources")
+        XCTAssertTrue(declared.contains("⌘⌃⇧L"), "premise: a key held in a named constant is read")
+        let appMenu = try XCTUnwrap(NSApp.mainMenu?.items.first?.title)
+        XCTAssertEqual(Self.undelivered(declared: declared, walked: menuBar, appMenu: appMenu), [],
+                       "a key the source declares is on no item of ours in the menu bar")
+    }
+
+    func test_theUndeliveredCensusFiresOnAPlantedOffender() throws {
+        let appMenu = try XCTUnwrap(NSApp.mainMenu?.items.first?.title)
+        let planted = DocSyncTests.extractShortcutBindings(from: #"""
+            Button("Pull Up Help") { }.keyboardShortcut("h", modifiers: .command)
+            Button("Save") { }.keyboardShortcut("s", modifiers: .command)
+            """#).map(\.token)
+        XCTAssertEqual(Self.undelivered(declared: planted, walked: menuBar, appMenu: appMenu), ["⌘H"],
+                       "⌘H is Hide's, on the app menu: our item never got it")
+        XCTAssertEqual(Self.undelivered(declared: ["⌘S"], walked: menuBar, appMenu: appMenu), [],
+                       "control: Save's ⌘S is on Save")
     }
 
     // MARK: - Every key listed
@@ -270,24 +331,44 @@ final class MenuBarCensusTests: XCTestCase {
         XCTAssertFalse(runBody.contains(".disabled("), "Run's four are never greyed")
     }
 
-    /// The `Button("…")`/`Toggle("…")` items in `body` with no `.disabled(`
-    /// before the next item.
+    /// The `Button(`/`Toggle(` items in `body` — whatever their title, a
+    /// literal or not (fix round 1, M2) — with no `.disabled(` before the next
+    /// item, named by their first argument's text.
     static func ungatedItems(in body: String) -> [String] {
-        let regex = try! NSRegularExpression(pattern: #"(?:Button|Toggle)\("([^"]*)"\)?"#)
+        let regex = try! NSRegularExpression(pattern: #"\b(?:Button|Toggle)\(\s*("(?:[^"\\]|\\.)*"|[^,{)]*)"#)
         let ns = body as NSString
         let matches = regex.matches(in: body, range: NSRange(location: 0, length: ns.length))
         var out: [String] = []
         for (i, match) in matches.enumerated() {
             let next = i + 1 < matches.count ? matches[i + 1].range.location : ns.length
             let span = ns.substring(with: NSRange(location: match.range.location, length: next - match.range.location))
-            if !span.contains(".disabled(") { out.append(ns.substring(with: match.range(at: 1))) }
+            guard !span.contains(".disabled(") else { continue }
+            let name = ns.substring(with: match.range(at: 1)).trimmingCharacters(in: .whitespaces)
+            out.append(name.hasPrefix("\"") && name.hasSuffix("\"") && name.count > 1
+                       ? String(name.dropFirst().dropLast()) : name)
         }
         return out
     }
 
     func test_theUngatedCensusFiresOnAPlantedOffender() {
-        let planted = #"Button("A") { x() } .disabled(!enabled()) Button("B") { y() } .keyboardShortcut("b") Toggle("C", isOn: z) .disabled(q)"#
-        XCTAssertEqual(Self.ungatedItems(in: planted), ["B"])
+        let planted = #"Button("A") { x() } .disabled(!enabled()) Button("B") { y() } .keyboardShortcut("b") Toggle("C", isOn: z) .disabled(q) Button(Self.title) { w() } Button(other) { v() } .disabled(!enabled())"#
+        XCTAssertEqual(Self.ungatedItems(in: planted), ["B", "Self.title"],
+                       "a non-literal title is seen, and the next item's gate does not cover it")
+    }
+
+    /// ⌃⌘1/2/3: every view a centre offers has its own digit (fix round 1,
+    /// M1) — the menu binds no fallback, so no state of the window can bind a
+    /// second ⌃⌘1.
+    func test_everyCentreViewHasItsOwnDigit() {
+        let offers = BookView.allCases.map(CentreViewSwitch.Offer.book)
+            + EditionView.allCases.map(CentreViewSwitch.Offer.edition)
+        for offer in offers {
+            let choices = CentreViewSwitch.choices(for: offer)
+            let keyed = CentreViewSwitch.keyedChoices(choices)
+            XCTAssertEqual(keyed.map(\.choice), choices, "\(offer): a choice with no digit")
+            XCTAssertEqual(Set(keyed.map(\.digit)).count, keyed.count, "\(offer): two choices, one digit")
+        }
+        XCTAssertTrue(CentreViewSwitch.keyedChoices([.none]).isEmpty, "control: a choice with no digit binds none")
     }
 
     // MARK: - Titles the table approved
@@ -404,44 +485,16 @@ final class MenuBarCensusTests: XCTestCase {
     // MARK: - File ▸ Translate… (row 7)
 
     func test_translateIsTitledForWhatItTranslatesAndOfferedWhereTheHeadRunsIt() throws {
-        let chapter = StructureItem(id: "c1", title: "One", type: .document, path: "one.md")
-        let novel = PieceNoun.Book(type: .novel)
-        func offer(reading: String?, faces: BinderSubject, may: Bool = true, any: Bool = true) -> TranslateMenuOffer? {
-            TranslateMenuOffer.of(readingLanguage: reading, openPiece: chapter, faces: faces,
-                                  sourceLanguage: "en", book: novel, mayTranslate: { _ in may },
-                                  mayTranslateAny: any)
-        }
-        XCTAssertEqual(offer(reading: "sr", faces: .item("c1"))?.title,
-                       "Translate This Chapter into \(LanguageName.title("sr"))")
-        XCTAssertEqual(offer(reading: nil, faces: .edition(language: "sr"))?.title,
-                       "Translate Whole Book into \(LanguageName.title("sr"))")
-        XCTAssertNil(offer(reading: nil, faces: .edition(language: "en")), "the Source edition translates nothing")
-        XCTAssertNil(offer(reading: nil, faces: .item("c1")), "a piece read in Source")
-        XCTAssertNil(offer(reading: "sr", faces: .item("c1"), may: false), "the translator may not")
-        XCTAssertNil(offer(reading: nil, faces: .edition(language: "sr"), any: false))
+        // The offer's table is `TranslateMenuRouteTests`; here, the item.
         XCTAssertEqual(TranslateMenuOffer.elsewhereTitle, "Translate\u{2026}")
-
-        // The menu posts; the window shows To resolve and asks its head; the
-        // pane hands the ask to the head, which presses its own Run.
-        func flat(_ text: String) -> String {
-            SourceScan.codeLines(of: text).map { $0.trimmingCharacters(in: .whitespaces) }.joined(separator: " ")
-        }
-        let app = flat(try SourceTree.read("Maugham/MaughamApp.swift"))
-        XCTAssertTrue(app.contains("MaughamEvent.post(.maughamTranslateFromMenu, to: .keyWindow) } .disabled(!enabled(chrome?.translate != nil))"))
-        let window = flat(try SourceTree.sourceOfType("ProjectWindow", under: ["Maugham"]))
-        XCTAssertTrue(window.contains(
-            ".onKeyWindowCommand(.maughamTranslateFromMenu, window: window) { _ in ProjectWindow.selectPosition(.resolve, showInspector: $showInspector, position: $position) resolveRequest = .translate }"))
-        let pane = flat(try SourceTree.read("Maugham/Views/Resolve/ResolvePane.swift"))
-        XCTAssertTrue(pane.contains("if case .translate = pending { translateAsk = true return }"))
-        XCTAssertTrue(pane.contains("translateAsk = false"), "a new scope spends the ask: it never fires minutes later")
-        let piece = flat(try SourceTree.read("Maugham/Views/Resolve/ResolvePieceInLanguage.swift"))
-        XCTAssertTrue(piece.contains("if runState.canRun { runThisPiece() } else { notice = runState.refusal }"))
-        let edition = flat(try SourceTree.read("Maugham/Views/Resolve/ResolveEditionItems.swift"))
-        XCTAssertTrue(edition.contains("if runState.canRunBook { runBook() } else { notice = runState.bookRefusal }"))
-        XCTAssertEqual(ResolvePane.apply(.translate, groups: [], sceneIndex: nil, chips: [], activePassId: nil,
-                                         dense: false, selection: [.mine], choices: [:]).selection, [.mine],
-                       "the list's selection is not the translate ask's")
+        let app = SourceScan.codeLines(of: try SourceTree.read("Maugham/MaughamApp.swift"))
+            .map { $0.trimmingCharacters(in: .whitespaces) }.joined(separator: " ")
+        XCTAssertTrue(app.contains("MaughamEvent.post(.maughamTranslateFromMenu, to: .keyWindow) } .disabled(!enabled(chrome?.translate != nil)) .help(chrome?.translate == nil ? TranslateMenuOffer.elsewhereHelp : \"\")"))
+        XCTAssertEqual(ResolvePane.apply(.translate(.book(language: "sr")), groups: [], sceneIndex: nil, chips: [],
+                                         activePassId: nil, dense: false, selection: [.mine], choices: [:]).selection,
+                       [.mine], "the list's selection is not the translate ask's")
         let item = try XCTUnwrap(menuBar.first { $0.path == "File ▸ Translate…" })
         XCTAssertNil(item.token, "no key")
     }
+
 }

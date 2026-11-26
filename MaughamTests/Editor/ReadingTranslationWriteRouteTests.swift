@@ -215,8 +215,10 @@ final class ReadingTranslationWriteRouteTests: XCTestCase {
     /// **Over a translation the toolbar offers only the Translator's note**,
     /// and no review mark is painted: every anchor is a source position.
     func test_overATranslationTheToolbarOffersTheNoteAndNoMarkIsPainted() {
-        XCTAssertEqual(SelectionToolbarView.kinds(isReadingTranslation: true), [.translatorsNote])
-        XCTAssertEqual(SelectionToolbarView.kinds(isReadingTranslation: false),
+        XCTAssertEqual(AnnotationOffer.kinds(posture: .author, isReadingTranslation: true, inReadThrough: true,
+                                             hasSelection: true, answersAnnotations: true), [.translatorsNote])
+        XCTAssertEqual(AnnotationOffer.kinds(posture: .author, isReadingTranslation: false, inReadThrough: true,
+                                             hasSelection: true, answersAnnotations: true),
                        SelectionToolbarView.Kind.allCases)
         let toolbar = SelectionToolbarView(frame: .zero)
         let full = toolbar.frame.width

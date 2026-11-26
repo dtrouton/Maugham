@@ -1,38 +1,52 @@
 import AppKit
 import MaughamCore
 
-/// **Comment… and Suggest… on a selection, outside the floating toolbar**
-/// (shell p5 Task 7, the owner's added row): a writer comments on her own
-/// text without entering read-through. Edit ▸ Comment… (⌘⇧K) and the text's
-/// right-click open the SAME composer read-through's selection toolbar opens
-/// (`EditorCoordinator.beginAuthoringAnnotation`); the toolbar itself stays
-/// read-through's.
+/// **What a selection is offered — one answer for the text's right-click and
+/// read-through's floating toolbar** (shell p5 Task 7; fix round 1, I3, the
+/// lead's ruling), so the same selection always gets the same offers. Edit ▸
+/// Comment… (⌘⇧K) and the right-click open the SAME composer the toolbar
+/// opens (`EditorCoordinator.beginAuthoringAnnotation`); the toolbar itself
+/// stays read-through's.
 ///
-/// **Offered by the posture, never by read-through state**: a note is the
-/// reviewer row — everybody's (`Posture.Verb.annotate`). Suggest… is offered
-/// where the posture refuses the words themselves (`.writeText`): a writer
-/// who may type changes her text; one who may not proposes the change. Over
-/// a translation neither — a note would anchor to source text the selection
-/// is not (`SelectionToolbarView.kinds`). Pure.
+/// - Over a translation: the Translator's note only — a note would anchor to
+///   source text the selection is not.
+/// - Where the posture refuses a note (`.annotate`), or no door stands
+///   behind the editor (no posture): nothing.
+/// - Where the writer may edit the words (`.writeText`) and they are not
+///   read-through's frozen text: Comment… only — she changes her words
+///   herself.
+/// - Where she may not (someone else's piece, read-through): what the
+///   toolbar offered before — Comment, Suggest, Query and the Translator's
+///   note (⌘⌥C's window command, which writes no annotation).
+///
+/// The posture is the window's one door's answer (`EditorControl.posture`);
+/// no permit rung is compared (tripwires 47, 51). Pure.
 enum AnnotationOffer {
     static let commentTitle = "Comment\u{2026}"
     static let suggestTitle = "Suggest\u{2026}"
+    static let queryTitle = "Query\u{2026}"
+    static let translatorsNoteTitle = "Translator\u{2019}s Note\u{2026}"
+    /// Edit ▸ Comment…'s tooltip: it acts on the words selected (fix round 1, M6).
+    static let commentHelp = "Select words in the text to comment on them"
     /// The event payload's key: which composer.
     static let kindKey = "kind"
 
-    /// What the text's right-click offers. `answersAnnotations`: the surface
-    /// is a manuscript that writes notes (`createAnnotationHandler` is set).
-    static func kinds(posture: Posture?, isReadingTranslation: Bool,
+    /// `answersAnnotations`: the surface is a manuscript that writes notes
+    /// (`createAnnotationHandler` is set).
+    static func kinds(posture: Posture?, isReadingTranslation: Bool, inReadThrough: Bool,
                       hasSelection: Bool, answersAnnotations: Bool) -> [SelectionToolbarView.Kind] {
-        guard hasSelection, answersAnnotations, !isReadingTranslation,
-              let posture, posture.allows(.annotate) else { return [] }
-        return posture.allows(.writeText) ? [.comment] : [.comment, .suggest]
+        guard hasSelection else { return [] }
+        if isReadingTranslation { return [.translatorsNote] }
+        guard answersAnnotations, let posture, posture.allows(.annotate) else { return [] }
+        return posture.allows(.writeText) && !inReadThrough ? [.comment] : SelectionToolbarView.Kind.allCases
     }
 
     static func title(of kind: SelectionToolbarView.Kind) -> String {
         switch kind {
+        case .comment: return commentTitle
         case .suggest: return suggestTitle
-        case .comment, .query, .translatorsNote: return commentTitle
+        case .query: return queryTitle
+        case .translatorsNote: return translatorsNoteTitle
         }
     }
 

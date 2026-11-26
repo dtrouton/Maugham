@@ -141,7 +141,9 @@ final class ReadThroughDecisionTests: XCTestCase {
         let rd = try await reading(night)
         let coordinator = rd.harness.coordinator
         XCTAssertTrue(coordinator.isReviewMode, "the review render: the selection toolbar shows")
-        XCTAssertEqual(SelectionToolbarView.kinds(isReadingTranslation: coordinator.isReadingTranslation),
+        XCTAssertEqual(AnnotationOffer.kinds(posture: .author, isReadingTranslation: coordinator.isReadingTranslation,
+                                             inReadThrough: coordinator.isInReadThrough,
+                                             hasSelection: true, answersAnnotations: true),
                        SelectionToolbarView.Kind.allCases)
         let pid = try firstParagraph(rd)
         let calls = coordinator.applyExternalTextCallCount
@@ -355,7 +357,9 @@ final class ReadThroughDecisionTests: XCTestCase {
         EditorSurface.reconcileTextBuffer(textView: rd.harness.textView, coordinator: coordinator,
                                           translationLanguage: "sr", text: "Noć je bila mračna.",
                                           undoCoherentApply: false)
-        XCTAssertEqual(SelectionToolbarView.kinds(isReadingTranslation: coordinator.isReadingTranslation),
+        XCTAssertEqual(AnnotationOffer.kinds(posture: .author, isReadingTranslation: coordinator.isReadingTranslation,
+                                             inReadThrough: coordinator.isInReadThrough,
+                                             hasSelection: true, answersAnnotations: true),
                        [.translatorsNote])
         let host = SourceScan.codeLines(of: try SourceTree.read("Maugham/Views/EditorHost.swift"))
             .joined(separator: "\n")

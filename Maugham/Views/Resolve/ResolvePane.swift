@@ -21,8 +21,19 @@ enum ResolveRequest: Equatable {
     /// note's (closing round B, M5) — the row the click shows and marks.
     case showParagraph(docId: String, paragraphId: String, annotationId: String? = nil)
     /// File ▸ Translate This Chapter into … / Translate Whole Book into …
-    /// (shell p5 Task 7, row 7): the head's own Run, pressed for the menu.
-    case translate
+    /// (shell p5 Task 7, row 7): the head's own Run, pressed for the menu —
+    /// for exactly the target the item was titled for (fix round 1, C1).
+    case translate(TranslateMenuOffer)
+}
+
+extension ResolvePane {
+    /// **What a pending request becomes when the scope changes** (fix round
+    /// 1, C1): File ▸ Translate…'s ask is its scope's and dies with it;
+    /// every other request waits for the new read, as it always did. Pure.
+    static func pendingSurvivingScopeChange(_ pending: ResolveRequest?) -> ResolveRequest? {
+        if case .translate? = pending { return nil }
+        return pending
+    }
 }
 
 /// What one refresh does (`ResolvePane.refreshStep`).
@@ -229,7 +240,7 @@ struct ResolvePane: View {
     @State private var sceneIndex: [String: Int]?
     @State private var chips: [ResolveSource] = []
     /// File ▸ Translate…'s ask, for the head's Run (row 7); spent by the head.
-    @State private var translateAsk = false
+    @State private var translateAsk: TranslateMenuOffer?
     @State private var dense = false
     @State private var incomplete: String?
     @State private var figureCells: [String: SuggestionDisplay.FigureCells] = [:]
@@ -605,7 +616,9 @@ struct ResolvePane: View {
             if let diagnostics { ResolveReader.loadFindings(scope: scope, diagnostics: diagnostics) }
         }
         .onChange(of: scope) { _, _ in
-            translateAsk = false
+            // A menu's ask belongs to the scope it was offered at (C1).
+            translateAsk = nil
+            pendingRequest = Self.pendingSurvivingScopeChange(pendingRequest)
             selection = []
             choices = [:]
             caretGroup = nil
@@ -1205,8 +1218,13 @@ struct ResolvePane: View {
         pendingRequest = nil
         // The menu's Translate is the head's Run (row 7): the head runs it
         // where it offers Run, and the ask is spent either way.
-        if case .translate = pending {
-            translateAsk = true
+        if case .translate(let ask) = pending {
+            if ask.lands(in: scope) {
+                translateAsk = ask
+            } else {
+                filedNotice = FiledNotice.after(
+                    .filed(FiledNotice.Filing(sentence: ask.notHereLine, brief: nil)), current: filedNotice)
+            }
             return
         }
         let activePass = pieceDocId.flatMap {

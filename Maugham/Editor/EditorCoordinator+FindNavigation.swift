@@ -185,14 +185,15 @@ extension EditorCoordinator {
               let parent = toolbar.superview else { return }
         // Only surface the toolbar in review posture; in normal authoring the
         // editor stays clean.
-        guard isReviewMode, let rectInTextView = selectionViewRect(in: textView)
+        // The selection's offers are the right-click's own
+        // (`AnnotationOffer.kinds`); none, no toolbar.
+        let kinds = annotationKindsOffered
+        guard isReviewMode, let rectInTextView = selectionViewRect(in: textView), !kinds.isEmpty
         else {
             toolbar.isHidden = true
             return
         }
-        // Over a translation only what is true there (fix I3): a Comment,
-        // Suggest or Query anchors to a SOURCE span the selection is not.
-        toolbar.show(SelectionToolbarView.kinds(isReadingTranslation: isReadingTranslation))
+        toolbar.show(kinds)
         // Convert the selection rect from text-view coords into the overlay
         // parent's coords. `convert(_:to:)` walks the view tree and accounts
         // for the scroll view's clip/scroll offset automatically, so as the

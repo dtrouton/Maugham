@@ -678,6 +678,7 @@ private struct FileMenuItems: View {
             MaughamEvent.post(.maughamTranslateFromMenu, to: .keyWindow)
         }
         .disabled(!enabled(chrome?.translate != nil))
+        .help(chrome?.translate == nil ? TranslateMenuOffer.elsewhereHelp : "")
         Divider()
         // New things (rows 10, 11, 14, 16).
         Button("Add Research File…") {
@@ -813,6 +814,7 @@ private struct EditMenuItems: View {
         }
         .keyboardShortcut("k", modifiers: [.command, .shift])
         .disabled(!enabled(mayComment == true))
+        .help(AnnotationOffer.commentHelp)
         // **⌘⌥C, for *direCtive*** — every letter of "translator's
         // note" the ⌘⌥ family could use is spoken for (T Tasks, N
         // Intent, R Research, A Annotations, L Translation, O Outline,
@@ -1090,40 +1092,81 @@ struct WindowChrome: Equatable {
 }
 
 /// **File ▸ Translate This Chapter into Serbian / Translate Whole Book into
-/// Serbian** (row 7, ★ approved): the round To resolve's head runs — a piece
-/// read in a language, or an edition faced — titled for what it translates;
-/// "Translate…" and disabled elsewhere. No key. Pure.
+/// Serbian** (row 7, ★ approved): the round To resolve's head runs, titled
+/// for what it translates; "Translate…" and disabled elsewhere. No key.
+///
+/// **The offer is read off the scope To resolve will show** — the faces read
+/// in the window's language (`ResolveScope.of`, what `ResolvePane` shows) —
+/// never off the centre, which can read a chapter while the faces stand on
+/// an edition or a Part (fix round 1, C1). The ask carries the offer, a head
+/// runs only an ask for itself and says why otherwise, and a pending ask dies
+/// with its scope (`ResolvePane.pendingSurvivingScopeChange`). Pure.
 enum TranslateMenuOffer: Equatable {
-    case piece(noun: PieceNoun, language: String)
+    case piece(docId: String, noun: PieceNoun, language: String)
     case book(language: String)
 
     static let elsewhereTitle = "Translate\u{2026}"
+    /// What the grey item says about itself (fix round 1, M6).
+    static let elsewhereHelp = "Read a piece in a language, or face a translated edition, to translate it"
 
     var title: String {
         switch self {
-        case .piece(let noun, let language):
+        case .piece(_, let noun, let language):
             return "\(TranslationRunState.runTitle(noun)) into \(LanguageName.title(language))"
         case .book(let language):
             return "\(TranslationRunState.runBookTitle) into \(LanguageName.title(language))"
         }
     }
 
-    /// What the window offers: the piece the editor reads in a language,
-    /// else a translated edition on the faces — each where this Mac's
-    /// translator may translate it (`mayTranslate`).
-    static func of(readingLanguage: String?, openPiece: StructureItem?, faces: BinderSubject,
-                   sourceLanguage: String?, book: PieceNoun.Book,
-                   mayTranslate: (String) -> Bool,
+    /// The offer at `scope`: a piece read in a language, open in the centre
+    /// (the head's Run needs it open) and this Mac's translator's to
+    /// translate; a translated edition where the translator may translate
+    /// any of it. Nothing anywhere else.
+    static func of(scope: ResolveScope, isOpen: (String) -> Bool, structure: [StructureItem],
+                   book: PieceNoun.Book, mayTranslate: (String) -> Bool,
                    mayTranslateAny: @autoclosure () -> Bool) -> TranslateMenuOffer? {
-        if let language = readingLanguage, let piece = openPiece {
-            return mayTranslate(piece.id) ? .piece(noun: PieceNoun.of(piece, in: book), language: language) : nil
+        switch scope {
+        case .pieceInLanguage(let docId, let language):
+            guard isOpen(docId), mayTranslate(docId) else { return nil }
+            return .piece(docId: docId, noun: PieceNoun.of(TreeWalk.find(id: docId, in: structure), in: book),
+                          language: language)
+        case .edition(let language, let isSource, _):
+            return !isSource && mayTranslateAny() ? .book(language: language) : nil
+        case .piece, .pieces, .figure, .outside, .elsewhere:
+            return nil
         }
-        if case .edition(let language) = faces,
-           language.caseInsensitiveCompare(sourceLanguage ?? "") != .orderedSame {
-            return mayTranslateAny() ? .book(language: language) : nil
-        }
-        return nil
     }
+
+    /// Whether `scope` is the one this ask was offered at.
+    func lands(in scope: ResolveScope) -> Bool {
+        switch (self, scope) {
+        case (.piece(let docId, _, let language), .pieceInLanguage(let scopeDoc, let scopeLanguage)):
+            return docId == scopeDoc && language.caseInsensitiveCompare(scopeLanguage) == .orderedSame
+        case (.book(let language), .edition(let scopeLanguage, false, _)):
+            return language.caseInsensitiveCompare(scopeLanguage) == .orderedSame
+        default:
+            return false
+        }
+    }
+
+    /// What a head does with an ask: run its own Run, or say why not.
+    enum HeadAnswer: Equatable { case run, refuse(String) }
+
+    static func answer(_ ask: TranslateMenuOffer, pieceHead docId: String, language: String) -> HeadAnswer {
+        ask.lands(in: .pieceInLanguage(docId: docId, language: language)) ? .run : .refuse(ask.notHereLine)
+    }
+
+    static func answer(_ ask: TranslateMenuOffer, editionHead language: String) -> HeadAnswer {
+        ask.lands(in: .edition(language: language, isSource: false, docIds: [])) ? .run : .refuse(ask.notHereLine)
+    }
+
+    /// The notice when the ask reaches a list it was not offered for.
+    var notHereLine: String {
+        "\(title) is not what To resolve shows now, so nothing was started."
+    }
+
+    /// The notice when the head's own Run is not offered here.
+    static let notOfferedLine = "This Mac\u{2019}s translator has nothing here it may translate, so nothing was started."
 }
 
 struct FocusedWindowChromeKey: FocusedValueKey { typealias Value = WindowChrome }

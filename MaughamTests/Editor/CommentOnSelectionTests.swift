@@ -22,32 +22,34 @@ final class CommentOnSelectionTests: XCTestCase {
 
     // MARK: - The offer, pure
 
-    func test_theOfferIsThePosturesAndNeverReadThroughs() {
-        typealias Offer = AnnotationOffer
-        XCTAssertEqual(Offer.kinds(posture: .author, isReadingTranslation: false,
-                                   hasSelection: true, answersAnnotations: true), [.comment],
-                       "a writer who may type comments; she changes her own words herself")
-        XCTAssertEqual(Offer.kinds(posture: reviewer, isReadingTranslation: false,
-                                   hasSelection: true, answersAnnotations: true), [.comment, .suggest],
-                       "one who may not type proposes the change")
-        XCTAssertEqual(Offer.kinds(posture: .author, isReadingTranslation: false,
-                                   hasSelection: false, answersAnnotations: true), [], "no selection")
-        XCTAssertEqual(Offer.kinds(posture: .author, isReadingTranslation: true,
-                                   hasSelection: true, answersAnnotations: true), [],
-                       "over a translation a note would anchor to source text the selection is not")
-        XCTAssertEqual(Offer.kinds(posture: .author, isReadingTranslation: false,
-                                   hasSelection: true, answersAnnotations: false), [],
-                       "a surface that writes no notes (a research note, a statement)")
-        XCTAssertEqual(Offer.kinds(posture: nil, isReadingTranslation: false,
-                                   hasSelection: true, answersAnnotations: true), [], "no posture yet")
-        XCTAssertEqual(Offer.kinds(posture: .settling, isReadingTranslation: false,
-                                   hasSelection: true, answersAnnotations: true),
-                       Posture.settling.allows(.annotate) ? [.comment, .suggest] : [],
+    /// **One answer for the right-click and the toolbar** (fix round 1, I3,
+    /// the lead's ruling): Comment… only where the writer may edit the
+    /// words; the toolbar's whole set where she may not (another's piece,
+    /// read-through); the Translator's note over a translation.
+    func test_oneOfferForTheRightClickAndTheToolbar() throws {
+        func kinds(_ posture: Posture?, translation: Bool = false, readThrough: Bool = false,
+                   selection: Bool = true, notes: Bool = true) -> [SelectionToolbarView.Kind] {
+            AnnotationOffer.kinds(posture: posture, isReadingTranslation: translation, inReadThrough: readThrough,
+                                  hasSelection: selection, answersAnnotations: notes)
+        }
+        let all = SelectionToolbarView.Kind.allCases
+        XCTAssertEqual(kinds(.author), [.comment], "she changes her own words herself")
+        XCTAssertEqual(kinds(.author, readThrough: true), all, "read-through's frozen text: the toolbar's set")
+        XCTAssertEqual(kinds(reviewer), all, "another's piece: Comment, Suggest, Query, Translator's note")
+        XCTAssertEqual(kinds(.author, translation: true), [.translatorsNote])
+        XCTAssertEqual(kinds(.author, selection: false), [], "no selection")
+        XCTAssertEqual(kinds(.author, notes: false), [], "a surface that writes no notes")
+        XCTAssertEqual(kinds(nil), [], "no door behind the editor: nothing")
+        XCTAssertEqual(kinds(.settling), Posture.settling.allows(.annotate) ? all : [],
                        "the settling posture answers as its table says")
-        // The offer takes no read-through input at all.
-        let signature = try? SourceTree.declaration(named: "static func kinds(posture: Posture?", under: "Maugham")
-        XCTAssertNotNil(signature)
-        XCTAssertFalse(signature?.contains("readThrough") ?? true, "offered by the posture, never by read-through")
+        // The toolbar draws this answer and keeps no list of its own.
+        let toolbar = SourceScan.codeLines(of: try SourceTree.read("Maugham/Editor/SelectionToolbarView.swift"))
+            .joined(separator: "\n")
+        XCTAssertFalse(toolbar.contains("static func kinds("), "no second list")
+        let find = SourceScan.codeLines(of: try SourceTree.read("Maugham/Editor/EditorCoordinator+FindNavigation.swift"))
+            .map { $0.trimmingCharacters(in: .whitespaces) }.joined(separator: " ")
+        XCTAssertTrue(find.contains("let kinds = annotationKindsOffered"))
+        XCTAssertTrue(find.contains("toolbar.show(kinds)"))
     }
 
     func test_theEditMenuGateAsksThePostureAndTheVisibleManuscript() {
@@ -150,7 +152,9 @@ final class CommentOnSelectionTests: XCTestCase {
         XCTAssertEqual(items.first?.action, #selector(EditorCoordinator.commentFromMenu(_:)))
 
         m.coordinator.updateReviewCardVerbs(for: reviewer)
-        XCTAssertEqual(m.coordinator.annotationMenuItems().map(\.title), ["Comment…", "Suggest…"])
+        XCTAssertEqual(m.coordinator.annotationMenuItems().map(\.title),
+                       ["Comment…", "Suggest…", "Query…", "Translator\u{2019}s Note…"],
+                       "the toolbar's set, where she may not edit the words")
 
         let bare = try mount(posture: .author, writesNotes: false)
         bare.coordinator.updateReviewCardVerbs(for: .author)
@@ -178,9 +182,12 @@ final class CommentOnSelectionTests: XCTestCase {
         XCTAssertEqual(composers().count, 1, "the right-click opened the composer")
         XCTAssertTrue(m.coordinator.selectionToolbar?.isHidden ?? false, "the floating toolbar stays read-through's")
 
-        // Edit ▸ Comment…'s post, as the menu item sends it.
+        // Edit ▸ Comment…'s post, as the menu item sends it, from nothing
+        // open (fix round 1, I4: a count that held either way pinned nothing).
+        composers().forEach { $0.removeFromSuperview() }
+        XCTAssertEqual(composers().count, 0, "premise: no composer before the post")
         MaughamEvent.post(.maughamCommentOnSelection, to: .keyWindow)
-        XCTAssertEqual(composers().count, 1, "the post opened the same composer, replacing the first")
+        XCTAssertEqual(composers().count, 1, "the post opened the composer")
 
         // The menu bar's item posts what the coordinator hears.
         let app = SourceScan.codeLines(of: try SourceTree.read("Maugham/MaughamApp.swift"))

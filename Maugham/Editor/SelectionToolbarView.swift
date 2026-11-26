@@ -90,13 +90,8 @@ final class SelectionToolbarView: NSView {
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) not used") }
 
-    /// **What the toolbar offers** (shell p4 Task 8 fix I3): every kind on the
-    /// manuscript; over a translation only the Translator's note, which names
-    /// the paragraph through the source caret — a Comment, Suggest or Query
-    /// would anchor to source text the selection is not.
-    static func kinds(isReadingTranslation: Bool) -> [Kind] {
-        isReadingTranslation ? [.translatorsNote] : Kind.allCases
-    }
+    // What it offers is `AnnotationOffer.kinds` — the right-click's answer
+    // too (shell p5 Task 7 fix round 1, I3); this view only draws it.
 
     /// Shows exactly `kinds`, resized to them. No-op when unchanged.
     func show(_ kinds: [Kind]) {

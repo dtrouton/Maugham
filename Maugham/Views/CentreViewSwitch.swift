@@ -77,6 +77,12 @@ enum CentreViewSwitch {
         }
     }
 
+    /// The choices that have a digit, each with it — the menu binds no key
+    /// a choice does not have. Pure.
+    static func keyedChoices(_ choices: [Offer]) -> [(choice: Offer, digit: Character)] {
+        choices.compactMap { choice in keyDigit(of: choice).map { (choice, $0) } }
+    }
+
     /// The menu event's payload: the chosen view as a string
     /// (`MaughamEvent.centreViewKey`), read back by `choice(from:)`.
     static func token(of choice: Offer) -> String? {
@@ -225,7 +231,10 @@ struct FocusedCentreViewItems: View {
         // discoverable.
         let listed = shown == .none
             ? CentreViewSwitch.choices(for: .book(.outline)) : CentreViewSwitch.choices(for: shown)
-        ForEach(listed, id: \.self) { choice in
+        // Each choice with its own digit (fix round 1, M1): no fallback,
+        // which would bind a second ⌃⌘1 to a choice with none.
+        ForEach(CentreViewSwitch.keyedChoices(listed), id: \.choice) { keyed in
+            let choice = keyed.choice
             Toggle(CentreViewSwitch.menuTitle(of: choice), isOn: Binding(
                 get: { choice == shown },
                 set: { _ in
@@ -233,8 +242,7 @@ struct FocusedCentreViewItems: View {
                                       payload: [MaughamEvent.centreViewKey:
                                                     CentreViewSwitch.token(of: choice) ?? ""])
                 }))
-            .keyboardShortcut(KeyEquivalent(CentreViewSwitch.keyDigit(of: choice) ?? "1"),
-                              modifiers: [.command, .control])
+            .keyboardShortcut(KeyEquivalent(keyed.digit), modifiers: [.command, .control])
             .disabled(shown == .none)
         }
     }

@@ -1060,7 +1060,7 @@ struct EditionHeadView: View {
     let onShowProposal: (DesignProposalStore.Proposal) -> Void
     /// File ▸ Translate Whole Book into …'s ask (shell p5 Task 7, row 7):
     /// Run Whole Book, pressed for the menu where it is offered.
-    var translateAsk: Binding<Bool> = .constant(false)
+    var translateAsk: Binding<TranslateMenuOffer?> = .constant(nil)
 
     @Environment(AgentRoster.self) private var roster: AgentRoster?
     @State private var notice: String?
@@ -1083,12 +1083,23 @@ struct EditionHeadView: View {
 
     var body: some View {
         content.onChange(of: translateAsk.wrappedValue, initial: true) { _, asked in
-            guard asked else { return }
-            translateAsk.wrappedValue = false
-            guard !isSource, editionRead.language != nil,
+            guard let asked else { return }
+            translateAsk.wrappedValue = nil
+            // Only the book's ask in this edition's language (C1) — a
+            // chapter's ask is never run as the book — and only where Run
+            // Whole Book is offered; otherwise said.
+            if isSource { notice = asked.notHereLine; return }
+            if case .refuse(let line) = TranslateMenuOffer.answer(asked, editionHead: language) {
+                notice = line
+                return
+            }
+            guard editionRead.language != nil,
                   Self.offersRun(docIds: editionRead.runBook, mayTranslate: {
                       TranslationRunStart.postureOfTheTranslator(forPiece: $0, in: documentStore)
-                          .allows(.translate) }) else { return }
+                          .allows(.translate) }) else {
+                notice = TranslateMenuOffer.notOfferedLine
+                return
+            }
             if runState.canRunBook { runBook() } else { notice = runState.bookRefusal }
         }
     }

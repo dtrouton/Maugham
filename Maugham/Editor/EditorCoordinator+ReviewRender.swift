@@ -437,6 +437,7 @@ extension EditorCoordinator {
     /// What the selection may take now, by the posture (`AnnotationOffer`).
     var annotationKindsOffered: [SelectionToolbarView.Kind] {
         AnnotationOffer.kinds(posture: reviewCardPosture, isReadingTranslation: isReadingTranslation,
+                              inReadThrough: isInReadThrough,
                               hasSelection: (textView?.selectedRange().length ?? 0) > 0,
                               answersAnnotations: createAnnotationHandler != nil)
     }
@@ -464,7 +465,7 @@ extension EditorCoordinator {
     /// does not (no selection, a translation, a refusing posture).
     func commentOnSelection(_ kind: SelectionToolbarView.Kind) {
         guard annotationKindsOffered.contains(kind) else { NSSound.beep(); return }
-        beginAuthoringAnnotation(kind: kind == .suggest ? .suggestedChange : .comment)
+        handleToolbarAction(kind)
     }
 
     /// Compute (paragraphId, SpanAnchor, selectedText) for the current non-empty

@@ -418,7 +418,7 @@ struct ResolveHeadView: View {
     /// re-reads its translation.
     var translationHeard = 0
     /// File ▸ Translate…'s ask (row 7), handed to the language heads.
-    var translateAsk: Binding<Bool> = .constant(false)
+    var translateAsk: Binding<TranslateMenuOffer?> = .constant(nil)
 
     @Environment(\.undoManager) private var undoManager
 
