@@ -238,6 +238,99 @@ final class ResolveHeadFoldTests: XCTestCase {
                        "control: a draft within the limit is what is said")
     }
 
+    // MARK: - The bar (round 3)
+
+    /// **A menu never holds one item**, and the menu layout is the only one
+    /// with a menu.
+    func test_theBarsActionsAreAMenuOnlyInTheMenuLayoutWithTwo() {
+        XCTAssertTrue(ResolveFilterBar.actionsUseAMenu(.menu, showsNewTodo: true, showsSelectionMode: true))
+        XCTAssertFalse(ResolveFilterBar.actionsUseAMenu(.menu, showsNewTodo: true, showsSelectionMode: false))
+        XCTAssertFalse(ResolveFilterBar.actionsUseAMenu(.menu, showsNewTodo: false, showsSelectionMode: true))
+        XCTAssertFalse(ResolveFilterBar.actionsUseAMenu(.plain, showsNewTodo: true, showsSelectionMode: true))
+    }
+
+    /// **Nothing to filter and nothing listed: no bar row.**
+    func test_theBarFoldsIntoTheNothingLineOnly() {
+        XCTAssertTrue(ResolvePane.barFoldsIntoTheEmptyLine(chips: [], triageOffered: false, hasItems: false,
+                                                           empty: .nothing))
+        XCTAssertFalse(ResolvePane.barFoldsIntoTheEmptyLine(chips: [.mine], triageOffered: false, hasItems: false,
+                                                            empty: .nothing))
+        XCTAssertFalse(ResolvePane.barFoldsIntoTheEmptyLine(chips: [], triageOffered: true, hasItems: false,
+                                                            empty: .nothing))
+        XCTAssertFalse(ResolvePane.barFoldsIntoTheEmptyLine(chips: [], triageOffered: false, hasItems: true,
+                                                            empty: nil))
+        XCTAssertFalse(ResolvePane.barFoldsIntoTheEmptyLine(chips: [], triageOffered: false, hasItems: false,
+                                                            empty: .coldStart))
+    }
+
+    /// **An empty list has no bar row; New To-Do is on its line**, at both
+    /// scales.
+    func test_anEmptyListHasNoBarRowAndNewToDoOnItsLine() async throws {
+        let f = try await makeFixture()
+        try requireAssistiveClient()
+        for oneX in [false, true] {
+            let view = pane(f, faces: .item(f.docId)).frame(width: 300, height: 700)
+            let window = oneX
+                ? TestWindow.mount(view, size: CGSize(width: 300, height: 700), as: OneXTestWindow.self)
+                : TestWindow.mount(view, size: CGSize(width: 300, height: 700))
+            windows.append(window)
+            let shown = await pumpUntil(deadline: 5) {
+                ((try? self.axTexts(in: window)) ?? []).contains(ResolvePane.EmptyState.nothing.sentence)
+            }
+            XCTAssertTrue(shown, "premise: the list says Nothing to resolve (\(oneX ? "1x" : "native"))")
+            XCTAssertNil(try frame(of: ResolveFilterBar.identifier, in: window), "no bar row over an empty list")
+            XCTAssertEqual(try axButtons(labelled: NewTaskSheet.title, in: window).count, 1,
+                           "New To-Do is a button on the empty line")
+            window.contentView = NSView(frame: .zero)
+        }
+    }
+
+    // MARK: - The column's line over the open piece (round 3)
+
+    /// **Why the owner still saw "Chapter 2"**: not the head — its name rule
+    /// held — but the column's subject line above To resolve, which named
+    /// the faces always. Over the piece open in the centre it now goes;
+    /// where the faces and the centre part, it stays. Pure.
+    func test_theSubjectLineLeavesToResolveOverTheOpenPiece() {
+        XCTAssertFalse(RightColumnSubjectLine.showsOverToResolve(
+            WindowSubject(open: .item("ch-2"), faces: .item("ch-2"))))
+        XCTAssertTrue(RightColumnSubjectLine.showsOverToResolve(
+            WindowSubject(open: .canvas, faces: .item("ch-2"))))
+        XCTAssertTrue(RightColumnSubjectLine.showsOverToResolve(
+            WindowSubject(open: .item("ch-1"), faces: .item("ch-2"))))
+        XCTAssertTrue(RightColumnSubjectLine.showsOverToResolve(WindowSubject(open: .project, faces: .project)))
+    }
+
+    /// **A new, empty chapter selected in the binder**: the column as the
+    /// window builds it shows neither the subject line nor the name in the
+    /// head's first row; with the canvas in the centre, the line is back.
+    func test_aNewEmptyChapterSelectedShowsNoName() async throws {
+        let f = try await StatementMountFixture.novel(named: "EmptyChapter")
+        try requireAssistiveClient()
+        let chapter = try await f.store.addStructureItem(parentId: nil, title: "Chapter 2", kind: .document(.markdown))
+        for (open, namesIt) in [(BinderSubject.item(chapter.id), false), (.canvas, true)] {
+            let probe = RightColumnFixture.Probe(position: .resolve,
+                                                 subject: WindowSubject(open: open, faces: .item(chapter.id)))
+            let window = TestWindow.mount(
+                RightColumnFixture.pane(store: f.store, documentStore: f.documentStore, probe: probe)
+                    .environment(f.preferences),
+                size: CGSize(width: 320, height: 700))
+            windows.append(window)
+            let drawn = await pumpUntil(deadline: 5) {
+                ((try? self.axElements(in: window)) ?? []).contains {
+                    (self.axAttribute($0, "accessibilityIdentifier") as? String) == "resolve.head.summary"
+                }
+            }
+            XCTAssertTrue(drawn, "premise: the head is drawn")
+            let subjectLine = try frame(of: "rightColumn.subject", in: window)
+            XCTAssertEqual(subjectLine != nil, namesIt, "the subject line, centre \(open)")
+            let words = summaryHelp(in: window) ?? ""
+            XCTAssertEqual(words.contains("Chapter 2"), namesIt,
+                           "the head's first row reads \"\(words)\" with the centre on \(open)")
+            window.contentView = NSView(frame: .zero)
+        }
+    }
+
     // MARK: - The list's room
 
     func test_anOpenHeadLeavesTheListItsFloor() {

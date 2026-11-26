@@ -97,8 +97,9 @@ final class RightColumnAppraisalTests: XCTestCase {
         // language's included) and Brief, from the faces — never over the
         // pulled-up position.
         let lines = SourceScan.codeLines(of: try! SourceTree.read("Maugham/Views/RightColumn.swift"))
-        XCTAssertEqual(lines.filter { $0.trimmingCharacters(in: .whitespaces) == "subjectLine" }.count, 1,
-                       "To resolve leads with the line")
+        XCTAssertEqual(lines.filter {
+            $0.trimmingCharacters(in: .whitespaces) == "if RightColumnSubjectLine.showsOverToResolve(subject) { subjectLine }"
+        }.count, 1, "To resolve leads with the line, except over the piece open in the centre")
         XCTAssertEqual(lines.filter { $0.trimmingCharacters(in: .whitespaces) == "subjectLine(brief: scope)" }.count, 1,
                        "and Brief with its own (closing review M5)")
         XCTAssertTrue(lines.contains { $0.contains("of: subject.faces,") })

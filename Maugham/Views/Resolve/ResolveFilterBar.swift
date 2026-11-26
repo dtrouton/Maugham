@@ -42,27 +42,42 @@ struct ResolveFilterBar: View {
         // decides it: the chips ask only `chipsIdealWidth` of the row, and the
         // bare All flag (or a short choice) stays at the row's end however
         // wide the chip set is (review minor).
+        // **Plain buttons where they fit, the … menu only where they would
+        // wrap the row** (owner, 2026-11-26), measured, never a width
+        // constant; the triage control wraps beneath only as a last resort.
         ViewThatFits(in: .horizontal) {
-            row(includesTriage: true)
+            row(includesTriage: true, actions: .plain)
+            row(includesTriage: true, actions: .menu)
             wrapped
         }
         .padding(.horizontal, 10).padding(.vertical, 5)
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier(Self.identifier)
     }
 
-    /// What the chips' scroller asks of the row when the bar is sized: room
-    /// for about one chip. They take whatever the row offers past that.
+    static let identifier = "resolve.filterBar"
+
+    /// How the bar's actions are drawn: plain buttons, or one menu.
+    enum ActionsStyle: Equatable { case plain, menu }
+
+    /// **Whether the actions are a menu**: only in the menu layout, and
+    /// only with two of them — a menu never holds one item. Pure.
+    static func actionsUseAMenu(_ style: ActionsStyle, showsNewTodo: Bool, showsSelectionMode: Bool) -> Bool {
+        style == .menu && showsNewTodo && showsSelectionMode
+    }
+
     static let chipsIdealWidth: CGFloat = 72
 
     /// The wrapped arm: the chips' row, then the triage control beneath.
     /// Internal so a test measures it on its own.
     var wrapped: some View {
         VStack(alignment: .leading, spacing: 4) {
-            row(includesTriage: false)
+            row(includesTriage: false, actions: .menu)
             if let triage { triageMenu(triage) }
         }
     }
 
-    private func row(includesTriage: Bool) -> some View {
+    private func row(includesTriage: Bool, actions style: ActionsStyle) -> some View {
         HStack(spacing: 6) {
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 4) {
@@ -77,21 +92,51 @@ struct ResolveFilterBar: View {
             if includesTriage, let triage {
                 triageMenu(triage)
             }
-            // **One menu, so the bar stays one row** (fix round 1, B2):
-            // New To-Do and the selection toggle, behind one icon.
-            // While selecting, the way out is on the bar itself, in the
-            // menu's place (re-review N6); the menu returns with Done.
-            if showsSelectionMode, selectionModeOn {
-                Button(Self.doneTitle, action: onToggleSelectionMode)
-                    .buttonStyle(.borderless)
-                    .font(.caption)
-                    .fixedSize()
-                    .help(Self.doneSelectingTitle)
-                    .accessibilityLabel(Self.doneSelectingTitle)
-            } else if showsSelectionMode || showsNewTodo {
-                actionsMenu
-            }
+            actions(style)
         }
+    }
+
+    /// The bar's actions. Plain: the selection toggle (Done while
+    /// selecting) and New To-Do's +. Menu, with both offered: one … menu,
+    /// and Done in its place while selecting (round 2, N6).
+    @ViewBuilder
+    private func actions(_ style: ActionsStyle) -> some View {
+        if Self.actionsUseAMenu(style, showsNewTodo: showsNewTodo, showsSelectionMode: showsSelectionMode) {
+            if selectionModeOn { doneButton } else { actionsMenu }
+        } else {
+            if showsSelectionMode {
+                if selectionModeOn {
+                    doneButton
+                } else {
+                    Button(action: onToggleSelectionMode) {
+                        Image(systemName: "checkmark.circle")
+                    }
+                    .buttonStyle(.borderless)
+                    .help(Self.selectNotesTitle)
+                    .accessibilityLabel(Self.selectNotesTitle)
+                }
+            }
+            if showsNewTodo { Self.newTodoButton(onNewTodo) }
+        }
+    }
+
+    /// New To-Do's + — on the bar, or on the empty list's line.
+    static func newTodoButton(_ action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: "plus")
+        }
+        .buttonStyle(.borderless)
+        .help(NewTaskSheet.title)
+        .accessibilityLabel(NewTaskSheet.title)
+    }
+
+    private var doneButton: some View {
+        Button(Self.doneTitle, action: onToggleSelectionMode)
+            .buttonStyle(.borderless)
+            .font(.caption)
+            .fixedSize()
+            .help(Self.doneSelectingTitle)
+            .accessibilityLabel(Self.doneSelectingTitle)
     }
 
     /// The overflow menu's items, in order — its VoiceOver label names them.

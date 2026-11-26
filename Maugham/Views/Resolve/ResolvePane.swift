@@ -541,8 +541,12 @@ struct ResolvePane: View {
                 }
                 if hasList {
                     VStack(spacing: 0) {
-                        filterBar
-                        Divider()
+                        // Nothing to filter, nothing listed: no bar row — New
+                        // To-Do sits on the empty line (owner, 2026-11-26).
+                        if !barFoldsIntoTheEmptyLine {
+                            filterBar
+                            Divider()
+                        }
                         list
                     }
                     // The filed line stands until the writer's next act here —
@@ -747,6 +751,25 @@ struct ResolvePane: View {
             onNewTodo: presentCreateSheet)
     }
 
+    /// **Whether the bar's row goes back to the list**: nothing to filter
+    /// (no chips, no triage) and nothing listed, so the bar would hold New
+    /// To-Do alone — it moves to the empty line's trailing edge.
+    private var barFoldsIntoTheEmptyLine: Bool {
+        Self.barFoldsIntoTheEmptyLine(
+            chips: shownChips, triageOffered: triageOffered, hasItems: !held.items.isEmpty,
+            empty: Self.emptyState(scope: scope, hasItems: !held.items.isEmpty, hasVisible: !shown.isEmpty,
+                                   offersColdStart: offersColdStart, editionClear: editionClear,
+                                   showsOnlyQuestions: shownSelection == [.questions]))
+    }
+
+    /// The pure half. Only over the "Nothing to resolve." line: every other
+    /// empty state keeps the bar. Pure.
+    static func barFoldsIntoTheEmptyLine(chips: [ResolveSource], triageOffered: Bool, hasItems: Bool,
+                                         empty: EmptyState?) -> Bool {
+        guard chips.isEmpty, !triageOffered, !hasItems, case .nothing? = empty else { return false }
+        return true
+    }
+
     /// Selection mode's door: the open piece's notes — at its own scope or
     /// inside a Book or Part list — where its posture leaves a bulk verb.
     private var showsSelectionMode: Bool {
@@ -914,11 +937,17 @@ struct ResolvePane: View {
                     .padding(.vertical, 16)
             }
         case .nothing?, .filteredOut?, .editionClear?, .noQuestions?:
-            Text((empty ?? .nothing).sentence)
-                .font(.callout)
-                .foregroundStyle(.secondary)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, 12).padding(.vertical, 10)
+            HStack(alignment: .firstTextBaseline, spacing: 6) {
+                Text((empty ?? .nothing).sentence)
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                // The bar's one action, where the bar has gone.
+                if barFoldsIntoTheEmptyLine, scope.translationLanguage == nil, creationVerbs.creation.offersAny {
+                    ResolveFilterBar.newTodoButton(presentCreateSheet)
+                }
+            }
+            .padding(.horizontal, 12).padding(.vertical, 10)
             // The source's items are one switch away: the line's own button
             // reads the piece in Source and shows them (closing review I2).
             if case .editionClear? = empty, let docId = sourceToShow {

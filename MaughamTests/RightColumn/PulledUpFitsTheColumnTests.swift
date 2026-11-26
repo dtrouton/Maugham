@@ -327,6 +327,76 @@ final class PulledUpFitsTheColumnTests: XCTestCase {
         }
     }
 
+    /// **Plain buttons where they fit; the menu only where they would wrap;
+    /// one action is always a button** (round 3), at both scales.
+    func test_theBarsActionsArePlainWhereTheyFitAndAMenuOnlyWhereTheyWouldWrap() async throws {
+        let chips: [ResolveSource] = [.pass("structural"), .mine, .checks]
+        func bar(width: Double, triage: ResolveTriageChoice?, selection: Bool, newTodo: Bool) -> some View {
+            ResolveFilterBar(
+                chips: chips, selection: [], passes: ReviewPass.presets,
+                showsSelectionMode: selection, selectionModeOn: false, showsNewTodo: newTodo,
+                triage: triage, onToggle: { _ in }, onToggleSelectionMode: {}, onNewTodo: {})
+                .frame(width: width)
+        }
+        func hasMenu(_ window: NSWindow) throws -> Bool {
+            try axElements(in: window).contains {
+                (axAttribute($0, "accessibilityIdentifier") as? String) == "resolve.filterBar.actions"
+            }
+        }
+        try requireAssistiveClient()
+        for scale in Scale.allCases {
+            // A wide column: plain buttons, one row.
+            let wide = mount(bar(width: 480, triage: .discuss, selection: true, newTodo: true), width: 480, scale: scale)
+            await waitOut(0.2)
+            XCTAssertFalse(try hasMenu(wide), "\(scale): a wide column draws the plain buttons")
+            XCTAssertEqual(try axButtons(labelled: NewTaskSheet.title, in: wide).count, 1)
+            XCTAssertEqual(try axButtons(labelled: ResolveFilterBar.selectNotesTitle, in: wide).count, 1)
+            wide.contentView = NSView(frame: .zero)
+            // One action: a button, never a menu, however narrow.
+            let one = mount(bar(width: Self.narrowest, triage: .untriaged, selection: false, newTodo: true),
+                            width: Self.narrowest, scale: scale)
+            await waitOut(0.2)
+            XCTAssertFalse(try hasMenu(one), "\(scale): one action is never a menu")
+            XCTAssertEqual(try axButtons(labelled: NewTaskSheet.title, in: one).count, 1)
+            one.contentView = NSView(frame: .zero)
+            // The narrowest column with the widest triage word and both
+            // actions: measured, the plain row still fits there — one row,
+            // the plain buttons.
+            let bare = mount(bar(width: Self.narrowest, triage: nil, selection: false, newTodo: false),
+                             width: Self.narrowest, scale: scale)
+            await waitOut(0.2)
+            let oneRow = try XCTUnwrap(bare.contentView).fittingSize.height
+            bare.contentView = NSView(frame: .zero)
+            let narrow = mount(bar(width: Self.narrowest, triage: .untriaged, selection: true, newTodo: true),
+                               width: Self.narrowest, scale: scale)
+            await waitOut(0.2)
+            XCTAssertEqual(try XCTUnwrap(narrow.contentView).fittingSize.height, oneRow, accuracy: 0.5,
+                           "\(scale): one row at the narrowest column")
+            XCTAssertFalse(try hasMenu(narrow), "\(scale): the plain buttons fit the narrowest column")
+            narrow.contentView = NSView(frame: .zero)
+            // Narrower than the plain row fits, the menu keeps it one row:
+            // walking down from the floor, the first width that drops the
+            // plain buttons draws the menu on one row.
+            var menuOnOneRow: Double?
+            var width = Self.narrowest - 2
+            while width > 150, menuOnOneRow == nil {
+                let squeezed = mount(bar(width: width, triage: .untriaged, selection: true, newTodo: true),
+                                     width: width, scale: scale)
+                await waitOut(0.1)
+                let plain = try axButtons(labelled: ResolveFilterBar.selectNotesTitle, in: squeezed).count == 1
+                if !plain {
+                    XCTAssertTrue(try hasMenu(squeezed), "\(scale) at \(width)pt: without the buttons, the menu")
+                    if try XCTUnwrap(squeezed.contentView).fittingSize.height <= oneRow + 0.5 { menuOnOneRow = width }
+                    squeezed.contentView = NSView(frame: .zero)
+                    break
+                }
+                squeezed.contentView = NSView(frame: .zero)
+                width -= 2
+            }
+            XCTAssertNotNil(menuOnOneRow, "\(scale): where the plain buttons would wrap, the menu keeps one row")
+        }
+    }
+
     // MARK: - New To-Do's sheet (fix round 1, B5)
 
     /// **New To-Do's buttons show their whole titles** — a novel's and a

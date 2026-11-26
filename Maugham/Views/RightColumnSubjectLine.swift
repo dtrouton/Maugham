@@ -46,6 +46,18 @@ struct RightColumnSubjectLine: View {
 
     static let sourceBriefWord = "Source brief"
 
+    /// **Whether To resolve carries the line**: not where the faces are the
+    /// piece open in the centre — even an empty one, even one still opening
+    /// (`open` is the binder's pick, set before its `Document` registers) —
+    /// for there the name is what the writer already has selected. Anywhere
+    /// the faces and the centre part (the canvas, an edition's book, a Brief
+    /// link, ⌘⌥K), or the faces are not a piece, it stays. Brief keeps its
+    /// line always: a writer typing into it must see whose it is. Pure.
+    static func showsOverToResolve(_ subject: WindowSubject) -> Bool {
+        guard case .item = subject.faces else { return true }
+        return subject.open != subject.faces
+    }
+
     private static func named(_ title: String, else fallback: String) -> String {
         let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? fallback : trimmed
