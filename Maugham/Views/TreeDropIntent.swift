@@ -136,7 +136,6 @@ enum TreeDropIntent {
         /// alert rather than here.
         case rescope(ids: [String], to: ResearchMoveTarget)
         case link(researchId: String, toDocumentId: String)
-        case unlink(researchId: String, fromDocumentId: String)
         /// A note dragged out of one chapter's fold onto another chapter: the
         /// first link goes, the second comes — a move, as the drag reads
         /// (shell p5 Task 4a).
@@ -735,9 +734,6 @@ enum TreeDropFeedback: Equatable {
         case .refuse:
             return .none
         case .link, .moveLink, .leaveGroup, .useInDocument:
-            return .into
-        case .unlink:
-            // Into the section, wherever on it: it keeps no position (M5).
             return .into
         case .researchReorder, .structureReorder:
             return .beside

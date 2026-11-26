@@ -51,7 +51,7 @@ final class ResearchHomeTreeTests: XCTestCase {
             .move(researchId: "solo", from: "one", to: "two"),
             .move(researchId: "solo", from: "one", to: "three")])
         XCTAssertEqual(menu.makeWholeBook,
-                       .init(title: "Make Whole-Book", verb: .unlink(researchId: "solo", from: ["one"])))
+                       .init(title: "Make Whole-Book", verb: .makeWholeBook(researchId: "solo", from: ["one"], fold: "one")))
         XCTAssertNil(menu.removeFromThis)
         XCTAssertNil(menu.alsoIn)
     }
@@ -65,7 +65,7 @@ final class ResearchHomeTreeTests: XCTestCase {
                        .init(title: "Remove from “Chapter one”",
                              verb: .unlink(researchId: "both", from: ["one"])))
         XCTAssertEqual(menu.alsoIn, "Also in “Chapter two”")
-        XCTAssertEqual(menu.makeWholeBook?.verb, .unlink(researchId: "both", from: ["one", "two"]))
+        XCTAssertEqual(menu.makeWholeBook?.verb, .makeWholeBook(researchId: "both", from: ["one", "two"], fold: "one"))
         XCTAssertEqual(menu.moveTargets.map(\.verb), [.move(researchId: "both", from: "one", to: "three")],
                        "a chapter already holding it is no target")
     }

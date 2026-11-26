@@ -256,7 +256,7 @@ final class ResearchHomesTests: XCTestCase {
                     XCTAssertTrue(underHeld, "seed \(seed): \(id) under \(group.id) is not held")
                 }
                 let plan = ResearchMovePlan.make(ids: [group.id], target: .group("elsewhere"), linkTo: nil,
-                                                 explicitUnlinks: nil, homes: homes, structure: structure,
+                                                 explicitUnlinks: nil, liftsHeld: true, homes: homes, structure: structure,
                                                  research: research, projectType: type)
                 XCTAssertEqual(Set(plan.lifts.flatMap(\.ids)), Set(plan.held),
                                "seed \(seed): Move lifts every held item under \(group.id)")
@@ -330,11 +330,23 @@ final class ResearchHomesTests: XCTestCase {
                     moves.append((.group(group.id), nil))
                 }
                 if let chapter = chapters.last { moves.append((.sharedRoot, chapter)) }
-                for move in moves {
-                    let plan = ResearchMovePlan.make(ids: batch, target: move.target, linkTo: move.linkTo,
-                                                     explicitUnlinks: nil, homes: before,
-                                                     structure: structure, research: research,
-                                                     projectType: .novel)
+                // Make Whole-Book: every link the row has goes, no file move (A4).
+                var wholeBook: [String: [String]] = [:]
+                for id in batch { let links = before.links(of: id); if !links.isEmpty { wholeBook[id] = links } }
+                var plans: [(ResearchMovePlan, String?)] = moves.map { move in
+                    (ResearchMovePlan.make(ids: batch, target: move.target, linkTo: move.linkTo,
+                                           explicitUnlinks: nil, liftsHeld: true, homes: before,
+                                           structure: structure, research: research, projectType: .novel),
+                     move.linkTo)
+                }
+                if batch.count == 1, !wholeBook.isEmpty {
+                    plans.append((ResearchMovePlan.make(ids: batch, target: nil, linkTo: nil,
+                                                        explicitUnlinks: wholeBook, liftsHeld: true,
+                                                        homes: before, structure: structure,
+                                                        research: research, projectType: .novel), nil))
+                }
+                for (plan, linkTo) in plans {
+                    let move = (target: plan.target, linkTo: linkTo)
                     let act = HeldResearchAct.ofMove(plan, landing: .end, sources: sources, homes: before,
                                                      research: research, structure: structure,
                                                      noun: "chapter")

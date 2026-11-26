@@ -243,11 +243,6 @@ final class TreeDropIntentTests: XCTestCase {
     func test_aLinkedNoteDroppedOnASectionRowLeavesItsChapter() {
         XCTAssertEqual(classify("linked", on: .researchRow("note"), in: Novel.self), .researchReorder,
                        "beside the row, its link taken by the move door (A2)")
-        XCTAssertEqual(TreeDropFeedback.of(.unlink(researchId: "linked", fromDocumentId: "ch1"),
-                                           on: .researchRow("note")), .into,
-                       "it lands where it lives: the section's look, never an insertion line (M5)")
-        XCTAssertEqual(TreeDropFeedback.of(.unlink(researchId: "linked", fromDocumentId: "ch1"),
-                                           on: .sharedSection), .into)
     }
 
     /// **Out of one chapter's fold onto another chapter: a move.**
@@ -342,15 +337,6 @@ final class TreeDropIntentTests: XCTestCase {
         XCTAssertEqual(classifyInWorld("group", on: .sharedSection, from: "ch2"),
                        .rescope(ids: ["group"], to: .sharedRoot),
                        "control: the group itself, linked, goes to the book (the door unlinks it)")
-    }
-
-    /// **An unlinking drop on a section row shows the section's look** (M5):
-    /// it keeps no position, so the hover promises none.
-    func test_anUnlinkingDropOnASectionRowShowsTheSectionsLook() {
-        XCTAssertEqual(TreeDropFeedback.of(.unlink(researchId: "linked", fromDocumentId: "ch1"),
-                                           on: .researchRow("note")), .into)
-        XCTAssertEqual(TreeDropFeedback.of(.unlink(researchId: "linked", fromDocumentId: "ch1"),
-                                           on: .sharedSection), .into)
     }
 
     // MARK: - Onto another research row

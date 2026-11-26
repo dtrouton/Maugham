@@ -60,8 +60,11 @@ struct ResearchMovePlan: Equatable {
     /// `explicitUnlinks`: the link edits a drop out of a fold makes on its own
     /// (a move between chapters by their links), nil to let the destination
     /// decide (to the book, a row's own links go).
+    /// `liftsHeld`: whether a Research-section group's hidden chapter notes
+    /// are lifted out first — the tree's door does; the assistant's move
+    /// does not, and its plan must be the move actually made (A4).
     static func make(ids: [String], target: ResearchMoveTarget?, linkTo: String?,
-                     explicitUnlinks: [String: [String]]?, homes: ResearchHomes,
+                     explicitUnlinks: [String: [String]]?, liftsHeld: Bool, homes: ResearchHomes,
                      structure: [StructureItem], research: [ResearchItem],
                      projectType: ProjectType) -> ResearchMovePlan {
         func parent(of id: String) -> String? {
@@ -70,7 +73,7 @@ struct ResearchMovePlan: Equatable {
         var lifts: [Lift] = []
         var held: [String] = []
         var unlinks = explicitUnlinks ?? [:]
-        if let target {
+        if let target, liftsHeld {
             // A Research-section row (no piece of its own) changing parent
             // lifts what chapters hold beneath it (fix rounds 1–3).
             let section = ids.filter { homes.homes(of: $0).isEmpty }.filter { id in
@@ -90,6 +93,8 @@ struct ResearchMovePlan: Equatable {
                     ?? homes.owner(of: id).map { .piece($0) } ?? .sharedRoot
                 lifts.append(Lift(ids: under, to: to))
             }
+        }
+        if let target {
             // To the book, a row's own links go (A2).
             if explicitUnlinks == nil, linkTo == nil, homes.homes(at: target).isEmpty {
                 for id in ids {

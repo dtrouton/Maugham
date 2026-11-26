@@ -251,7 +251,7 @@ final class BinderTreeDropRoutingTests: XCTestCase {
         verbs.bundle.dragStarted(note.id, two.id)
         XCTAssertTrue(verbs.routeSharedSectionDrop(draggedId: note.id))
         guard case .confirmHeld(let act)? = state.pendingAlert else { return XCTFail("it asks") }
-        XCTAssertEqual(act.message, "“Ships” is also \(one.title)’s; moving it to Research takes it from \(one.title).")
+        XCTAssertEqual(act.message, "“Ships” also belongs to \(one.title); moving it to Research takes it from \(one.title).")
         XCTAssertEqual(store.linkedResearchIds(forDocumentId: one.id), [note.id], "nothing yet")
         BinderTreeVerbs.confirmHeld(act, store: store, state: state)
         await settle(store) {
@@ -600,7 +600,7 @@ final class BinderTreeDropRoutingTests: XCTestCase {
                                             documentId: one.id, layout: .rows([]))
         fold.actions.move([ships.id], .group(places.id), one.id)
         guard case .confirmHeld(let act)? = state.pendingAlert else { return XCTFail("a group asks") }
-        XCTAssertEqual(act.message, "Moving “Ships” to “Places” takes 3 items from \(one.title).")
+        XCTAssertEqual(act.message, "Moving “Ships” to “Places” takes it and its 2 notes out of \(one.title).")
         BinderTreeVerbs.confirmHeld(act, store: store, state: state)
         await settle(store) {
             store.linkedResearchIds(forDocumentId: one.id).isEmpty
@@ -644,7 +644,7 @@ final class BinderTreeDropRoutingTests: XCTestCase {
         guard case .confirmHeld(let act)? = state.pendingAlert else {
             return XCTFail("a hold the writer isn't looking at goes: it asks")
         }
-        XCTAssertEqual(act.message, "“Hull” is also Two’s; moving it to “Places” takes it from Two.")
+        XCTAssertEqual(act.message, "“Hull” also belongs to Two; moving it to “Places” takes it from Two.")
         BinderTreeVerbs.confirmHeld(act, store: store, state: state)
         XCTAssertEqual(state.scrollRequest, .row(.research(hull.id)), "landed in the section, in sight")
         await settle(store) { store.linkedResearchIds(forDocumentId: two.id).isEmpty }
@@ -947,7 +947,7 @@ final class BinderTreeDropRoutingTests: XCTestCase {
                                               structureReorder: {}))
         // Several notes leaving their chapter: one sentence asks (A3).
         guard case .confirmHeld(let act)? = state.pendingAlert else { return XCTFail("several notes ask") }
-        XCTAssertEqual(act.message, "Moving 3 items to “Two” takes 3 notes from \(one.title).")
+        XCTAssertEqual(act.message, "Moving 3 notes to “Two” takes them out of \(one.title).")
         BinderTreeVerbs.confirmHeld(act, store: store, state: state)
         await settle(store) { store.linkedResearchIds(forDocumentId: one.id).isEmpty }
         XCTAssertEqual(Set(store.linkedResearchIds(forDocumentId: two.id)), Set(notes.map(\.id)),
@@ -1318,17 +1318,17 @@ final class BinderTreeDropRoutingTests: XCTestCase {
         let verbs = verbs(store)
         let fromOne = [hull.id: one.id]
         XCTAssertEqual(verbs.moveAct([hull.id], to: .sharedRoot, sources: fromOne)?.message,
-                       "“Hull” is also Two’s; moving it to Research takes it from Two.")
+                       "“Hull” also belongs to Two; moving it to Research takes it from Two.")
         XCTAssertEqual(verbs.moveAct([hull.id], to: .group(places.id), sources: fromOne)?.message,
-                       "“Hull” is also Two’s; moving it to “Places” takes it from Two.")
+                       "“Hull” also belongs to Two; moving it to “Places” takes it from Two.")
         let ontoThree = BinderTreeVerbs.moveAct(
             BinderTreeVerbs.plan([hull.id], to: .sharedRoot, linkTo: three.id, unlinks: nil,
                                  store: store, state: state(for: store)),
             landing: .end, sources: fromOne, store: store, state: state(for: store))
-        XCTAssertEqual(ontoThree?.message, "“Hull” is also Two’s; moving it to “Three” takes it from Two.")
+        XCTAssertEqual(ontoThree?.message, "“Hull” also belongs to Two; moving it to “Three” takes it from Two.")
         // Taken from nowhere known: no exemption, both named.
         XCTAssertEqual(verbs.moveAct([hull.id], to: .sharedRoot, sources: [:])?.message,
-                       "“Hull” is \(one.title) and Two’s; moving it to Research takes it from them.")
+                       "“Hull” belongs to \(one.title) and Two; moving it to Research takes it from both.")
         _ = two
     }
 
@@ -1388,8 +1388,125 @@ final class BinderTreeDropRoutingTests: XCTestCase {
         try await store.linkResearch(researchId: maps.id, toDocumentId: three.id)
         let act = try XCTUnwrap(verbs(store).moveAct([world.id, hull.id], to: .group(places.id),
                                                      sources: [hull.id: one.id]))
-        XCTAssertEqual(act.message, "“Maps” stays with Three; the rest of 2 items moves to “Places”, "
-                       + "taking 1 note from \(one.title) and 1 from Two.")
+        XCTAssertEqual(act.message, "Moving these 2 items to “Places” leaves “Maps” with Three "
+                       + "and takes a note each from \(one.title) and Two.")
+    }
+
+    /// **The oracle's simulation is the store's move** (closing round A4,
+    /// residual 1): on real temp novels, each planned move — to the Research
+    /// root, into a group, onto a chapter, Make Whole-Book — is made through
+    /// the door's own store calls (`performPlan`), and the homes derived from
+    /// the saved manifest equal those of `ResearchMovePlan.simulate`'s after.
+    func test_aPlansSimulationIsWhatTheStoreDoes() async throws {
+        var made = 0
+        for seed in UInt64(1)...6 {
+            var rng = SplitMix(seed: seed)
+            let store = try await novel(notes: [])
+            let one = try XCTUnwrap(store.manifest.structure.first)
+            let two = try await store.addStructureItem(parentId: nil, title: "Two", kind: .document(.markdown))
+            let three = try await store.addStructureItem(parentId: nil, title: "Three", kind: .document(.markdown))
+            let chapters = [one.id, two.id, three.id]
+            var ids: [String] = []
+            for g in 0..<2 {
+                let group = try await store.addResearchItem(parentId: nil, title: "G\(g)", kind: nil)
+                let inner = try await store.addResearchItem(parentId: group.id, title: "G\(g)i", kind: nil)
+                ids += [group.id, inner.id]
+                for n in 0..<2 { ids.append(try await store.addResearchTextNote(parentId: group.id, title: "N\(g)\(n)").id) }
+                ids.append(try await store.addResearchTextNote(parentId: inner.id, title: "M\(g)").id)
+            }
+            for n in 0..<2 { ids.append(try await store.addResearchTextNote(parentId: nil, title: "L\(n)").id) }
+            for id in ids where rng.next(3) == 0 {
+                for chapter in chapters where rng.next(2) == 0 {
+                    try await store.linkResearch(researchId: id, toDocumentId: chapter)
+                }
+            }
+            let state = state(for: store)
+            for _ in 0..<8 {
+                let id = ids[rng.next(ids.count)]
+                guard let row = TreeWalk.find(id: id, in: store.manifest.research) else { continue }
+                let groups = ids.filter { gid in
+                    TreeWalk.find(id: gid, in: store.manifest.research)?.type == .group
+                        && gid != id && !TreeWalk.contains(id: gid, in: row.children ?? [])
+                }
+                let homes = state.researchHomes(in: store.manifest)
+                let plan: ResearchMovePlan
+                switch rng.next(4) {
+                case 0:
+                    plan = BinderTreeVerbs.plan([id], to: .sharedRoot, linkTo: nil, unlinks: nil, store: store, state: state)
+                case 1 where !groups.isEmpty:
+                    plan = BinderTreeVerbs.plan([id], to: .group(groups[rng.next(groups.count)]), linkTo: nil,
+                                                unlinks: nil, store: store, state: state)
+                case 2:
+                    plan = BinderTreeVerbs.plan([id], to: .sharedRoot, linkTo: chapters[rng.next(3)],
+                                                unlinks: nil, store: store, state: state)
+                default:
+                    let links = homes.links(of: id)
+                    guard !links.isEmpty else { continue }
+                    plan = BinderTreeVerbs.plan([id], to: nil, linkTo: nil, unlinks: [id: links],
+                                                store: store, state: state)
+                }
+                let simulated = ResearchMovePlan.simulate(
+                    ids: plan.ids, target: plan.target, lifts: plan.lifts, unlinks: plan.unlinks,
+                    linkTo: plan.linkTo, structure: store.manifest.structure, research: store.manifest.research)
+                let expected = ResearchHomes.derive(structure: simulated.structure, research: simulated.research,
+                                                    projectType: .novel)
+                try await BinderTreeVerbs.performPlan(plan, landing: .end, afterLift: "", store: store)
+                made += 1
+                let real = ResearchHomes.derive(structure: store.manifest.structure,
+                                                research: store.manifest.research, projectType: .novel)
+                for item in TreeWalk.collect(in: store.manifest.research, where: { _ in true }) {
+                    XCTAssertEqual(Set(real.homes(of: item.id)), Set(expected.homes(of: item.id)),
+                                   "seed \(seed): \(item.title) after \(plan.ids) → \(String(describing: plan.target))")
+                }
+                XCTAssertEqual(Set(real.wholeBook.map(\.id)), Set(expected.wholeBook.map(\.id)), "seed \(seed)")
+            }
+        }
+        XCTAssertGreaterThan(made, 0)
+    }
+
+    /// **Make Whole-Book goes through the oracle** (closing round A4): chosen
+    /// in One's fold on a note One and Two both link, it asks about Two; on
+    /// a note only One links, it asks nothing and the note is the book's.
+    func test_makeWholeBookAsksAboutAnotherChapter() async throws {
+        let store = try await novel(notes: ["Both", "Solo"])
+        let both = try XCTUnwrap(research(named: "Both", in: store))
+        let solo = try XCTUnwrap(research(named: "Solo", in: store))
+        let one = try XCTUnwrap(store.manifest.structure.first)
+        let two = try await store.addStructureItem(parentId: nil, title: "Two", kind: .document(.markdown))
+        try await store.linkResearch(researchId: both.id, toDocumentId: one.id)
+        try await store.linkResearch(researchId: both.id, toDocumentId: two.id)
+        try await store.linkResearch(researchId: solo.id, toDocumentId: one.id)
+        let state = state(for: store)
+        let verbs = verbs(store)
+        verbs.performHome(.makeWholeBook(researchId: both.id, from: [one.id, two.id], fold: one.id))
+        guard case .confirmHeld(let act)? = state.pendingAlert else { return XCTFail("it asks about Two") }
+        XCTAssertEqual(act.message, "“Both” also belongs to Two; moving it to Research takes it from Two.")
+        state.dismissAlert(.confirmHeld(act))
+        XCTAssertEqual(store.linkedResearchIds(forDocumentId: two.id), [both.id], "nothing yet")
+
+        verbs.performHome(.makeWholeBook(researchId: solo.id, from: [one.id], fold: one.id))
+        XCTAssertNil(state.pendingAlert, "the one chapter it was chosen from: no question")
+        await settle(store) { !store.linkedResearchIds(forDocumentId: one.id).contains(solo.id) }
+        XCTAssertTrue(state.researchHomes(in: store.manifest).isWholeBook(solo.id))
+    }
+
+    /// **The several-rows and three-chapter sentences** (A4).
+    func test_theSeveralRowsAndThreeChapterSentences() async throws {
+        let store = try await novel(notes: ["A", "B", "C"])
+        let a = try XCTUnwrap(research(named: "A", in: store))
+        let b = try XCTUnwrap(research(named: "B", in: store))
+        let c = try XCTUnwrap(research(named: "C", in: store))
+        let one = try XCTUnwrap(store.manifest.structure.first)
+        let two = try await store.addStructureItem(parentId: nil, title: "Two", kind: .document(.markdown))
+        let three = try await store.addStructureItem(parentId: nil, title: "Three", kind: .document(.markdown))
+        for note in [a, b] { try await store.linkResearch(researchId: note.id, toDocumentId: one.id) }
+        try await store.linkResearch(researchId: c.id, toDocumentId: two.id)
+        XCTAssertEqual(verbs(store).moveAct([a.id, b.id, c.id], to: .sharedRoot, sources: [:])?.message,
+                       "Moving 3 notes to Research takes 2 out of \(one.title) and 1 out of Two.")
+        try await store.linkResearch(researchId: c.id, toDocumentId: one.id)
+        try await store.linkResearch(researchId: c.id, toDocumentId: three.id)
+        XCTAssertEqual(verbs(store).moveAct([c.id], to: .sharedRoot, sources: [:])?.message,
+                       "“C” belongs to \(one.title), Two and Three; moving it to Research takes it from all three.")
     }
 
     /// **From a chapter's row, the book's targets say so** (A3).
@@ -1491,7 +1608,7 @@ final class BinderTreeDropRoutingTests: XCTestCase {
         guard case .confirmHeld(let act)? = state.pendingAlert else {
             return XCTFail("it asks before One loses it")
         }
-        XCTAssertEqual(act.message, "“Ships” is also One’s; moving it to Research takes it from One.")
+        XCTAssertEqual(act.message, "“Ships” also belongs to One; moving it to Research takes it from One.")
         BinderTreeVerbs.confirmHeld(act, store: store, state: state)
         await settle(store) {
             self.research(named: "Ships", in: store)?.path?.hasPrefix("pieces/") == false

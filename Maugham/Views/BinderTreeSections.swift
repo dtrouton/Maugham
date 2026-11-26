@@ -804,6 +804,7 @@ struct BinderTreeVerbs {
                      unlinks: [String: [String]]?, store: ProjectStore,
                      state: BinderTreeSectionsState) -> ResearchMovePlan {
         ResearchMovePlan.make(ids: ids, target: target, linkTo: linkTo, explicitUnlinks: unlinks,
+                              liftsHeld: true,
                               homes: state.researchHomes(in: store.manifest),
                               structure: store.manifest.structure,
                               research: store.manifest.research, projectType: store.manifest.type)
@@ -1102,6 +1103,11 @@ struct BinderTreeVerbs {
         case .move(let id, let from, let to):
             state.showLanding(of: [id], inFoldOf: to, structure: structure, research: research)
             perform { try await relink([id], from: [from], to: to) }
+        case .makeWholeBook(let id, let pieces, let fold):
+            // **Through the one oracle** (closing round A4): it asks when a
+            // chapter other than the fold it was chosen from loses the note.
+            requestMove([id], to: nil, landing: .end, sources: [id: fold],
+                        linkTo: nil, unlinks: [id: pieces])
         case .unlink(let id, let pieces):
             let remaining = homes.homes(of: id).filter { !pieces.contains($0) }
             state.showLanding(of: [id], inFoldOf: remaining.first, structure: structure,

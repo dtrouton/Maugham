@@ -19,6 +19,9 @@ struct ResearchHomeMenu: Equatable {
         case link(researchId: String, to: String)
         case move(researchId: String, from: String, to: String)
         case unlink(researchId: String, from: [String])
+        /// Every link the note has goes, chosen in `fold`'s fold — a move
+        /// to the book through the one oracle (closing round A4).
+        case makeWholeBook(researchId: String, from: [String], fold: String)
     }
 
     struct Item: Equatable, Identifiable {
@@ -31,6 +34,7 @@ struct ResearchHomeMenu: Equatable {
             case .link(_, let to): return "link:" + to
             case .move(_, let from, let to): return "move:\(from)>\(to)"
             case .unlink(_, let from): return "unlink:" + from.joined(separator: ",")
+            case .makeWholeBook(_, let from, _): return "whole:" + from.joined(separator: ",")
             }
         }
     }
@@ -68,7 +72,7 @@ struct ResearchHomeMenu: Equatable {
             let piece: String
             switch item.verb {
             case .link(_, let to), .move(_, _, let to): piece = to
-            case .unlink: continue
+            case .unlink, .makeWholeBook: continue
             }
             insert(item, along: parts(piece)[...], into: &nodes)
         }
@@ -127,7 +131,8 @@ struct ResearchHomeMenu: Equatable {
         } : []
         let whole: Item?
         if Set(links) == Set(homesOfItem), links.allSatisfy(mayLink) {
-            whole = Item(title: makeWholeBookTitle, verb: .unlink(researchId: itemId, from: links))
+            whole = Item(title: makeWholeBookTitle,
+                         verb: .makeWholeBook(researchId: itemId, from: links, fold: fold))
         } else {
             whole = nil
         }
@@ -262,51 +267,88 @@ struct HeldResearchAct: Equatable {
             case .sharedRoot?, nil: to = "Research"
             }
         }
-        // "2 notes from One and 1 from Two", three chapters named, then more:
-        // every chapter that loses anything is counted ("items" once a group
-        // is among what goes).
-        func taking() -> String {
-            let allNotes = asked.keys.allSatisfy { TreeWalk.find(id: $0, in: research)?.type != .group }
-            let word = allNotes ? "note" : "item"
-            var perChapter: [String: Int] = [:]
-            for (_, pieces) in asked { for piece in pieces { perChapter[piece, default: 0] += 1 } }
-            let order = ranked(Set(perChapter.keys))
-            let parts = order.enumerated().map { index, piece -> String in
-                let n = perChapter[piece] ?? 0
-                let what = index == 0 ? "\(n) \(word)\(n == 1 ? "" : "s")" : "\(n)"
-                return "\(what) from \(chapter(piece))"
-            }
-            guard parts.count > 3 else { return and(parts) }
-            let more = parts.count - 3
-            return parts.prefix(3).joined(separator: ", ") + " and \(more) more \(noun)\(more == 1 ? "" : "s")"
+        // **The words** (closing round A4, the reviewer's strings): chapters
+        // named up to three, then "and N more".
+        func listed(_ names: [String]) -> String {
+            guard names.count > 3 else { return and(names) }
+            let more = names.count - 3
+            return names.prefix(3).joined(separator: ", ") + " and \(more) more"
         }
+        // "it", "both", "all three" — what "takes it from …" ends on.
+        func from(_ names: [String]) -> String {
+            let words = ["three", "four", "five", "six", "seven", "eight", "nine", "ten"]
+            switch names.count {
+            case 1: return names[0]
+            case 2: return "both"
+            case 3...10: return "all \(words[names.count - 3])"
+            default: return "all \(names.count)"
+            }
+        }
+        func plural(_ n: Int, _ word: String) -> String { n == 1 ? "1 \(word)" : "\(n) \(word)s" }
+        // Each losing chapter with how many of what goes leave it.
+        let perChapter: [String: Int] = asked.values.reduce(into: [:]) { counts, pieces in
+            for piece in pieces { counts[piece, default: 0] += 1 }
+        }
+        let losingOrder = ranked(Set(perChapter.keys))
+        let losingNames = losingOrder.map(chapter)
+        // "2 out of Chapter 1 and 1 out of Two" / "a note each from …".
+        func counted(_ joiner: String) -> String {
+            listed(losingOrder.map { "\(perChapter[$0] ?? 0) \(joiner) \(chapter($0))" })
+        }
+        let rowsAreNotes = ids.allSatisfy { TreeWalk.find(id: $0, in: research)?.type != .group }
         var sentence: String
         if !plan.held.isEmpty {
             let own = Set(ids.flatMap { homes.homes(of: $0) })
             func chapters(of id: String) -> String {
                 and(homes.homes(of: id).filter { !own.contains($0) }.map(chapter))
             }
-            let stays: String
-            if plan.held.count == 1, let id = plan.held.first {
-                stays = "“\(title(id))” stays with \(chapters(of: id))"
+            if asked.isEmpty {
+                let stays: String
+                if plan.held.count == 1, let id = plan.held.first {
+                    stays = "“\(title(id))” stays with \(chapters(of: id))"
+                } else {
+                    let shown = plan.held.prefix(3).map { "“\(title($0))” (\(chapters(of: $0)))" }
+                    let more = plan.held.count - shown.count
+                    let list = more > 0
+                        ? shown.joined(separator: ", ") + " and \(more) more"
+                        : shown.dropLast().joined(separator: ", ") + " and " + shown.last!
+                    stays = "\(list) stay with their \(noun)s"
+                }
+                sentence = "\(stays); the rest of \(named) moves to \(to)."
             } else {
-                let shown = plan.held.prefix(3).map { "“\(title($0))” (\(chapters(of: $0)))" }
-                let more = plan.held.count - shown.count
-                let list = more > 0
-                    ? shown.joined(separator: ", ") + " and \(more) more"
-                    : shown.dropLast().joined(separator: ", ") + " and " + shown.last!
-                stays = "\(list) stay with their \(noun)s"
+                // A lift and a loss: "Moving these 2 items to “Places” leaves
+                // “Maps” with Three and takes a note each from One and Two."
+                let leaves = plan.held.count == 1
+                    ? "“\(title(plan.held[0]))” with \(chapters(of: plan.held[0]))"
+                    : listed(plan.held.map { "“\(title($0))”" }) + " with their \(noun)s"
+                let each = losingOrder.allSatisfy { perChapter[$0] == 1 }
+                let takes = each && losingOrder.count > 1
+                    ? "a note each from \(listed(losingNames))"
+                    : counted("from")
+                let what = ids.count == 1 ? named : "these \(ids.count) items"
+                sentence = "Moving \(what) to \(to) leaves \(leaves) and takes \(takes)."
             }
-            sentence = "\(stays); the rest of \(named) moves to \(to)"
-                + (asked.isEmpty ? "." : ", taking \(taking()).")
         } else if ids.count == 1, let id = ids.first, TreeWalk.find(id: id, in: research)?.type != .group,
                   let losing = asked[id], asked.count == 1 {
+            // One note: "“Hull” also belongs to Two; moving it to “Places”
+            // takes it from Two." / "… belongs to One and Two; … from both."
             let names = ranked(Set(losing)).map(chapter)
             let also = (plan.losses[id] ?? []).count > losing.count
-            sentence = "“\(title(id))” is \(also ? "also " : "")\(and(names))’s; moving it to \(to) takes it from "
-                + (names.count == 1 ? names[0] : "them") + "."
+            sentence = "“\(title(id))” \(also ? "also " : "")belongs to \(listed(names)); "
+                + "moving it to \(to) takes it from \(from(names))."
+        } else if ids.count == 1, let id = ids.first {
+            // A group: "Moving “Ships” to “Places” takes it and its 2 notes
+            // out of Chapter 1."
+            let notes = asked.keys.filter { $0 != id }.count
+            let it = notes == 0 ? "it" : "it and its \(plural(notes, "note"))"
+            sentence = "Moving \(named) to \(to) takes \(it) out of \(listed(losingNames))."
         } else {
-            sentence = "Moving \(named) to \(to) takes \(taking())."
+            // Several rows: "Moving 3 notes to “Two” takes them out of
+            // Chapter 1." / "… takes 2 out of Chapter 1 and 1 out of Two."
+            let what = plural(ids.count, rowsAreNotes ? "note" : "item")
+            let takes = losingOrder.count == 1 && perChapter[losingOrder[0]] == asked.count
+                ? "them out of \(losingNames[0])" : counted("out of")
+            sentence = "Moving \(what) to \(to) takes \(takes)."
         }
         var act = HeldResearchAct(
             verb: .move(plan.target ?? .sharedRoot, landing: landing), ids: ids,

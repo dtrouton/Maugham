@@ -86,7 +86,9 @@ public enum MoveResearchItemTool: MCPTool {
                                           research: store.manifest.research,
                                           projectType: store.manifest.type)
         let plan = ResearchMovePlan.make(ids: params.research_ids, target: targets[0], linkTo: nil,
-                                         explicitUnlinks: nil, homes: before,
+                                         explicitUnlinks: nil,
+                                         // It lifts nothing: the plan is the move made (A4).
+                                         liftsHeld: false, homes: before,
                                          structure: store.manifest.structure,
                                          research: store.manifest.research,
                                          projectType: store.manifest.type)

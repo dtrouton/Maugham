@@ -37,8 +37,6 @@ final class TreeDropFeedbackTests: XCTestCase {
                                            on: .researchRow("g")), .into, "into the group")
         XCTAssertEqual(TreeDropFeedback.of(.rescope(ids: ["n"], to: .group("g")),
                                            on: .researchRow("leaf")), .beside, "beside a leaf")
-        XCTAssertEqual(TreeDropFeedback.of(.unlink(researchId: "n", fromDocumentId: "ch-1"),
-                                           on: .sharedSection), .into)
         XCTAssertEqual(TreeDropFeedback.of(.researchReorder, on: .researchRow("x")), .beside)
         XCTAssertEqual(TreeDropFeedback.of(.useInDocument(researchId: "t"), on: .figuresSection), .into)
         XCTAssertEqual(TreeDropFeedback.of(TreeDropIntent.Intent.refuse(.figuresHaveNoOrder), on: .figureRow("f")), .none)

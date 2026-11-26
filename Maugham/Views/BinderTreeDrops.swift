@@ -344,7 +344,6 @@ extension BinderTreeVerbs {
         switch (lhs, rhs) {
         case (.rescope(_, let a), .rescope(_, let b)): return a == b
         case (.link(_, let a), .link(_, let b)): return a == b
-        case (.unlink(_, let a), .unlink(_, let b)): return a == b
         case (.moveLink(_, let a, let c), .moveLink(_, let b, let d)): return a == b && c == d
         case (.leaveGroup(_, let a), .leaveGroup(_, let b)): return a == b
         case (.researchReorder, .researchReorder): return true
@@ -373,7 +372,7 @@ extension BinderTreeVerbs {
         // A, branch I2): such a row is not moved out, reordered or unlinked
         // by a drag; giving it to another chapter as well is no change to it.
         switch intent {
-        case .rescope, .unlink, .moveLink, .leaveGroup, .researchReorder:
+        case .rescope, .moveLink, .leaveGroup, .researchReorder:
             return readThroughRefusal([payloadId]) == nil ? intent : .refuse(.readThrough)
         default:
             return intent
@@ -386,7 +385,7 @@ extension BinderTreeVerbs {
     /// shows nothing.
     func permitted(_ intent: TreeDropIntent.Intent) -> TreeDropIntent.Intent {
         switch intent {
-        case .link(_, let piece), .unlink(_, let piece):
+        case .link(_, let piece):
             return mayEditResearchLinks(of: piece) ? intent : .refuse(.linksNotPermitted)
         case .moveLink(_, let from, let to):
             return mayEditResearchLinks(of: from) && mayEditResearchLinks(of: to)
@@ -432,11 +431,6 @@ extension BinderTreeVerbs {
             let batch = batch.isEmpty ? [researchId] : batch
             land(batch, inFoldOf: documentId)
             perform { try await relink(batch, from: [], to: documentId) }
-            return true
-        case .unlink(let researchId, let documentId):
-            let batch = batch.isEmpty ? [researchId] : batch
-            land(batch, inFoldOf: nil)
-            perform { try await relink(batch, from: [documentId], to: nil) }
             return true
         case .moveLink(let researchId, let from, let to):
             // Between chapters by their links, through the same oracle: a
