@@ -82,13 +82,13 @@ A long list is easier to answer once it's sorted. Each note's flag menu marks it
 
 ### Working a batch
 
-Choose **Select Notes** from the **…** menu at the top of To resolve. Each note gets a tick box, and a bar appears with three verbs:
+Press **Select Notes**, the checklist button at the top of To resolve (in the **…** menu when the column is too narrow). Each note gets a tick box, and a bar appears with three verbs:
 
 - **Triage** — the same marks as a row's flag menu (*"Mark what you plan to do about all of these"*).
 - **Accept** — answers the notes at once.
 - **Stet** — *"Read, considered — and the words stand. Resolves these without applying or refusing anything."*
 
-Tick the notes you mean. If you tick none, the verbs act on everything the list is showing, so your filters choose the batch. **Select All** ticks every row, and becomes **Deselect All** once something is ticked. Press **Done**, which takes the menu's place at the end of the row while you select, to leave.
+Tick the notes you mean. If you tick none, the verbs act on everything the list is showing, so your filters choose the batch. **Select All** ticks every row, and becomes **Deselect All** once something is ticked. Press **Done**, at the end of the row while you select, to leave.
 
 **Each button says how many notes it will reach** before you press it: *Accept all 6*, *Accept 4 selected*, or *Accept 4 of 6* when some are out of its reach. A bulk verb reaches exactly the notes the same button on each row would reach:
 

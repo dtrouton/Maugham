@@ -2,7 +2,7 @@
 
 The right column shows one of three places at a time — **To resolve** (⌘1), **Brief** (⌘2) and **Pulled up** (⌘3) — chosen with the three buttons at its top or the keys. [Getting Started](getting-started.md) says in a line what each is for; this page is the whole of it.
 
-**What the column is about follows the binder.** Click a chapter and To resolve and Brief are that chapter's. Click a Part and they gather that Part's chapters. Click the Book and they gather the whole book. Click an edition and they are that edition's. A quiet line at the top names what you are looking at: *Chapter Three*, *The Lighthouse*, *Spanish edition*. When the centre is the canvas or an edition's book, clicking a chapter in the binder turns the column to that chapter and leaves the centre where it is.
+**What the column is about follows the binder.** Click a chapter and To resolve and Brief are that chapter's. Click a Part and they gather that Part's chapters. Click the Book and they gather the whole book. Click an edition and they are that edition's. A quiet line at the top names what you are looking at: *Chapter Three*, *The Lighthouse*, *Spanish edition*. Over To resolve it's left out when the chapter is the one open in the middle, since you already have it selected; Brief always names whose it is. When the centre is the canvas or an edition's book, clicking a chapter in the binder turns the column to that chapter and leaves the centre where it is.
 
 ⌘⌥0 (View ▸ Hide Right Column) hides the whole column; every key below shows it again.
 
@@ -40,7 +40,7 @@ The keys open the list on one filter: ⌘⌥A for the rounds, ⌘⌥D for Checks
 
 A second control appears once you have marked any note **Do**, **Discuss** or **Decline**: it shows **All**, one mark, or **Untriaged**. Marking a note is a plan, not an answer — a declined note is still open until you settle it.
 
-The **…** at the end of the row holds **New To-Do** and **Select Notes**, so the row stays one line however narrow the column; while you select notes, **Done** stands in its place.
+**Select Notes** and **New To-Do** (the **+**) sit at the end of the row. Where the column is too narrow for both, they fold into one **…** menu so the row stays one line; while you select notes, **Done** stands in their place. Over an empty list there is no row at all: the **+** sits at the end of *Nothing to resolve*.
 
 ### How the list is laid out
 
@@ -58,7 +58,7 @@ A row on the chapter open in the centre offers its verbs: on a suggestion or a c
 
 **You act on a chapter you are looking at.** In a Part's or the Book's list, a chapter that isn't open reads but offers no verbs, and its group says *Open this chapter to answer its notes*. Click a row and that chapter opens on the paragraph, with the list staying where it was.
 
-**Several at once.** **Select Notes**, in the **…** menu beside the chips, selects notes for one batch: see [Working a batch](annotations-and-suggestions.md#working-a-batch).
+**Several at once.** **Select Notes**, at the end of the chips, selects notes for one batch: see [Working a batch](annotations-and-suggestions.md#working-a-batch).
 
 **Settled** sits at the foot, folded. Open it for notes you resolved (with **Reopen** and **Revert**), notes you deleted (**Restore**), and done and archived to-dos.
 
