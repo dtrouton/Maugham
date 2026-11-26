@@ -722,11 +722,16 @@ struct BinderTreeVerbs {
             // with its chapter, so going into one is never a surprise.
             moveTargets: { ids in
                 let homes = state.researchHomes(in: store.manifest)
+                // From a chapter's row, the book's targets say so too
+                // (closing round A3): filing out of a chapter is never by
+                // accident.
+                let fromAChapter = ids.contains { !homes.homes(of: $0).isEmpty }
                 return ResearchSelectionSync.moveTargets(forIds: ids, manifest: store.manifest)
-                    .map { Self.labelled($0, homes: homes) }
+                    .map { Self.labelled($0, homes: homes, fromAChapter: fromAChapter) }
             },
             move: { ids, target, fold in
-                requestMove(ids, to: target, landing: .end, sources: sources(of: ids, fold: fold))
+                requestMove(ids, to: target, landing: .end, sources: sources(of: ids, fold: fold),
+                            linkTo: nil, unlinks: nil)
             },
             deleteMany: { ids in requestDelete(ids) },
             // A drag out of a fold is an act in it (`TreeFoldAutoOpen`).
@@ -756,32 +761,65 @@ struct BinderTreeVerbs {
     // MARK: - A section row's Delete and Move (fix round 1, I2)
 
     /// A Move to ▸ target whose group a chapter holds, named with it:
-    /// "Ships — Chapter One".
-    static func labelled(_ target: ResearchMoveMenuTarget, homes: ResearchHomes) -> ResearchMoveMenuTarget {
-        guard case .group(let group) = target.target else { return target }
-        let chapters = homes.homes(of: group).filter(homes.takesLinks).map { homes.pieceTitles[$0] ?? $0 }
-        guard !chapters.isEmpty else { return target }
+    /// "Ships — Chapter One"; from a chapter's row, a target of the book's
+    /// says so: "Characters — whole book".
+    static func labelled(_ target: ResearchMoveMenuTarget, homes: ResearchHomes,
+                         fromAChapter: Bool) -> ResearchMoveMenuTarget {
+        let chapters: [String]
+        switch target.target {
+        case .group(let group):
+            chapters = homes.homes(of: group).filter(homes.takesLinks).map { homes.pieceTitles[$0] ?? $0 }
+        case .sharedRoot: chapters = []
+        case .piece: return target
+        }
+        guard !chapters.isEmpty else {
+            guard fromAChapter else { return target }
+            return ResearchMoveMenuTarget(id: target.id, title: "\(target.title) — whole book",
+                                          target: target.target)
+        }
         return ResearchMoveMenuTarget(id: target.id,
                                       title: "\(target.title) — \(chapters.joined(separator: ", "))",
                                       target: target.target)
     }
 
-    /// The question a group's verb asks first, when a piece holds something
-    /// beneath it; nil where the verb is the plain one.
-    func heldAct(_ verb: HeldResearchAct.Verb, ids: [String],
-                 sources: [String: String]) -> HeldResearchAct? {
-        Self.heldAct(verb, ids: ids, sources: sources, store: store, state: state)
+    /// **A Delete's question**, when a chapter holds something beneath the
+    /// rows; nil where the Delete is the plain one.
+    func deleteAct(_ ids: [String]) -> HeldResearchAct? {
+        Self.deleteAct(ids, store: store, state: state)
     }
 
     @MainActor
-    static func heldAct(_ verb: HeldResearchAct.Verb, ids: [String], sources: [String: String],
-                        store: ProjectStore, state: BinderTreeSectionsState) -> HeldResearchAct? {
-        HeldResearchAct.of(verb, ids: ids, homes: state.researchHomes(in: store.manifest),
-                           research: store.manifest.research,
-                           structure: store.manifest.structure,
-                           noun: ResolveGrouping.pieceNoun(isScript: false,
-                                                           projectType: store.manifest.type),
-                           sources: sources)
+    static func deleteAct(_ ids: [String], store: ProjectStore,
+                          state: BinderTreeSectionsState) -> HeldResearchAct? {
+        HeldResearchAct.ofDelete(ids: ids, homes: state.researchHomes(in: store.manifest),
+                                 research: store.manifest.research,
+                                 noun: ResolveGrouping.pieceNoun(isScript: false,
+                                                                 projectType: store.manifest.type))
+    }
+
+    /// **A move's plan on the manifest as it is** (`ResearchMovePlan`, the
+    /// one oracle of what a move takes from whom).
+    @MainActor
+    static func plan(_ ids: [String], to target: ResearchMoveTarget?, linkTo: String?,
+                     unlinks: [String: [String]]?, store: ProjectStore,
+                     state: BinderTreeSectionsState) -> ResearchMovePlan {
+        ResearchMovePlan.make(ids: ids, target: target, linkTo: linkTo, explicitUnlinks: unlinks,
+                              homes: state.researchHomes(in: store.manifest),
+                              structure: store.manifest.structure,
+                              research: store.manifest.research, projectType: store.manifest.type)
+    }
+
+    /// A move's question over `plan`, or nil where it asks nothing.
+    @MainActor
+    static func moveAct(_ plan: ResearchMovePlan, landing: HeldResearchAct.Landing,
+                        sources: [String: String], store: ProjectStore,
+                        state: BinderTreeSectionsState) -> HeldResearchAct? {
+        HeldResearchAct.ofMove(plan, landing: landing, sources: sources,
+                               homes: state.researchHomes(in: store.manifest),
+                               research: store.manifest.research,
+                               structure: store.manifest.structure,
+                               noun: ResolveGrouping.pieceNoun(isScript: false,
+                                                               projectType: store.manifest.type))
     }
 
     /// The fold each of `ids` was taken from: the menu's row's fold, else
@@ -817,7 +855,7 @@ struct BinderTreeVerbs {
     /// `test_everyTreeResearchDeleteGoesThroughTheHeldDoor`).
     func requestDelete(_ ids: [String]) {
         if let refusal = readThroughRefusal(ids) { state.pendingError = refusal; return }
-        if let act = heldAct(.delete, ids: ids, sources: [:]) {
+        if let act = deleteAct(ids) {
             state.pendingAlert = .confirmHeld(act)
             return
         }
@@ -830,119 +868,118 @@ struct BinderTreeVerbs {
         perform { try await store.updateResearchItem(id: id, title: title) }
     }
 
-    /// **Why a move of `ids` to `target` is refused, named, or nil** — asked
-    /// when the writer acts and again when they answer a question: a move
-    /// into the moving rows' own group; research a chapter in read-through
-    /// holds; a chapter whose hold the move would change that this Mac may
-    /// not change (the posture's link door).
+    /// **Why a move is refused, named, or nil** — asked when the writer acts
+    /// and again when they answer: a move into the moving rows' own group;
+    /// research a chapter in read-through holds (the rows themselves, branch
+    /// I2); and, from the plan's own diff, a losing chapter in read-through or
+    /// a losing or gaining chapter whose links this Mac may not change (the
+    /// posture's link door). No other work-out of who loses what.
     @MainActor
-    static func moveRefusal(_ ids: [String], to target: ResearchMoveTarget, store: ProjectStore,
+    static func moveRefusal(_ plan: ResearchMovePlan, store: ProjectStore,
                             state: BinderTreeSectionsState,
                             mayEditLinks: (String) -> Bool) -> String? {
         let research = store.manifest.research
-        if case .group(let groupId) = target, let mover = ids.compactMap({
+        func title(_ id: String) -> String { TreeWalk.find(id: id, in: research)?.title ?? id }
+        if case .group(let groupId)? = plan.target, let mover = plan.ids.compactMap({
             TreeWalk.find(id: $0, in: research)
         }).first(where: { $0.id == groupId || TreeWalk.contains(id: groupId, in: $0.children ?? []) }) {
-            let into = TreeWalk.find(id: groupId, in: research)?.title ?? groupId
-            return "Couldn’t move “\(mover.title)” into “\(into)”: a group can’t go inside itself."
+            return "Couldn’t move “\(mover.title)” into “\(title(groupId))”: a group can’t go inside itself."
         }
-        if let refusal = readThroughRefusal(ids, store: store, state: state) { return refusal }
+        if let refusal = readThroughRefusal(plan.ids, store: store, state: state) { return refusal }
         let homes = state.researchHomes(in: store.manifest)
-        let arriving = Set(homes.homes(at: target).filter(homes.takesLinks))
-        let unlinks = HeldResearchAct.unlinks(ids, to: target, homes: homes)
-        for id in ids {
-            let leaving = Set(homes.chaptersThroughGroup(of: id)).union(unlinks[id] ?? [])
-            for piece in leaving.symmetricDifference(arriving) where !mayEditLinks(piece) {
-                let title = TreeWalk.find(id: id, in: research)?.title ?? id
-                let name = homes.pieceTitles[piece] ?? piece
-                return "Couldn’t move “\(title)”: this Mac may not change “\(name)”’s research."
-            }
+        for piece in homes.pieceOrder where plan.losingChapters.contains(piece) {
+            guard let refusal = state.figureReadThrough.refusal(.piece(piece)) else { continue }
+            let item = plan.losses.first { $0.value.contains(piece) }?.key ?? plan.ids[0]
+            return refusal.because("\u{201C}\(title(item))\u{201D}")
+        }
+        for piece in homes.pieceOrder
+        where plan.losingChapters.union(plan.gainingChapters).contains(piece)
+            && homes.takesLinks(piece) && !mayEditLinks(piece) {
+            let name = homes.pieceTitles[piece] ?? piece
+            return "Couldn’t move “\(title(plan.ids[0]))”: this Mac may not change “\(name)”’s research."
         }
         return nil
     }
 
     /// **The one door a tree research move goes through** (fix rounds 2–3,
-    /// closing round A): the row menu's Move to ▸, a drag's reorder, a drag
-    /// into a group or across a scope. **Where a note is, is whose it is**:
-    /// the row goes where it is sent and takes that place's home — a
-    /// chapter's group makes it the chapter's, a whole-book group or the
-    /// Research root the book's — its own links kept. Refused, named, only by
-    /// `moveRefusal`. A Research-section group moving to another parent over
-    /// a chapter's note it hides asks first and lifts it (`HeldResearchAct`);
-    /// a fold row's move and a same-parent reorder are the plain move. The
-    /// landing is shown (`showMoveLanding`). Counted: no other tree site calls
-    /// the store's mover (`test_everyTreeResearchMoveGoesThroughTheHeldDoor`).
+    /// closing rounds A–A3): the row menu's Move to ▸, and every drop that
+    /// moves a row — a reorder, onto a group, onto Research, onto another
+    /// chapter (`linkTo`, out of its group then linked), between chapters by
+    /// their links (`unlinks`, no file move). The plan (`ResearchMovePlan`)
+    /// says what it does and what it takes from each chapter; refused, named,
+    /// only by `moveRefusal`; asked, in one sentence, when it takes anything
+    /// but the one note the writer took out of the fold they took it from
+    /// (`HeldResearchAct.ofMove`); else done, in one save, its landing shown.
+    /// Counted: no other tree site calls the store's mover
+    /// (`test_everyTreeResearchMoveGoesThroughTheHeldDoor`).
     @discardableResult
-    /// `sources`: the fold each row was taken from, where known (`sources(of:fold:)`).
-    func requestMove(_ ids: [String], to target: ResearchMoveTarget,
-                     landing: HeldResearchAct.Landing, sources: [String: String]) -> Bool {
-        if let refusal = Self.moveRefusal(ids, to: target, store: store, state: state,
+    func requestMove(_ ids: [String], to target: ResearchMoveTarget?,
+                     landing: HeldResearchAct.Landing, sources: [String: String],
+                     linkTo: String?, unlinks: [String: [String]]?) -> Bool {
+        let plan = Self.plan(ids, to: target, linkTo: linkTo, unlinks: unlinks, store: store, state: state)
+        if let refusal = Self.moveRefusal(plan, store: store, state: state,
                                           mayEditLinks: { mayEditResearchLinks(of: $0) }) {
             state.pendingError = refusal
             return false
         }
-        if let act = heldAct(.move(target, landing: landing), ids: ids, sources: sources) {
+        if let act = Self.moveAct(plan, landing: landing, sources: sources, store: store, state: state) {
             state.pendingAlert = .confirmHeld(act)
             return true
         }
-        let homes = state.researchHomes(in: store.manifest)
-        state.showMoveLanding(of: ids, to: target, structure: store.manifest.structure,
-                              research: store.manifest.research, homes: homes)
-        let unlinks = HeldResearchAct.unlinks(ids, to: target, homes: homes)
-        perform {
-            try await Self.performMove(ids, to: target, landing: landing, lifts: [], afterLift: "",
-                                       unlinks: unlinks, store: store)
-        }
+        state.showLanding(of: ids, inFoldOf: plan.landingPiece, to: target,
+                          structure: store.manifest.structure, research: store.manifest.research)
+        perform { try await Self.performPlan(plan, landing: landing, afterLift: "", store: store) }
         return true
     }
 
     /// **The question answered yes — over the manifest as it is now** (fix
-    /// round 3, c; closing round A): the act is worked out again, and a move
-    /// asks `moveRefusal` again; where what is held has changed since the
-    /// question, it is asked again with the new names; where nothing is held
-    /// any more, the verb is the plain one. Delete lifts what chapters hold
-    /// out to where the group stood, then trashes the rows; Move lifts them,
-    /// then moves the rows, its landing found again after the lift.
+    /// round 3, c; closing rounds A–A3): the plan is made again, and its
+    /// refusals asked again; where what it takes or keeps has changed since
+    /// the question, it is asked again; where it asks nothing any more, it is
+    /// the plain move. Delete lifts what chapters hold out to where the group
+    /// stood, then trashes the rows.
     @MainActor
     static func confirmHeld(_ act: HeldResearchAct, store: ProjectStore,
                             state: BinderTreeSectionsState) {
         state.dismissAlert(.confirmHeld(act))
         let ids = act.ids.filter { TreeWalk.contains(id: $0, in: store.manifest.research) }
         guard !ids.isEmpty else { return }
-        if case .move(let target, _) = act.verb {
+        switch act.verb {
+        case .delete:
+            let live = deleteAct(ids, store: store, state: state)
+            if let live, live.take.held != act.take.held {
+                state.pendingAlert = .confirmHeld(live)
+                return
+            }
+            Task { @MainActor in
+                do {
+                    if let live { try await performHeld(live, store: store) }
+                    else { try await performDelete(ids, store: store) }
+                } catch { state.pendingError = error.localizedDescription }
+            }
+        case .move(_, let landing):
+            guard let asked = act.plan else { return }
+            let plan = Self.plan(ids, to: asked.target, linkTo: asked.linkTo,
+                                 unlinks: asked.explicitUnlinks, store: store, state: state)
             let verbs = BinderTreeVerbs(store: store, state: state, subject: .constant(.book))
-            if let refusal = moveRefusal(ids, to: target, store: store, state: state,
+            if let refusal = moveRefusal(plan, store: store, state: state,
                                          mayEditLinks: { verbs.mayEditResearchLinks(of: $0) }) {
                 state.pendingError = refusal
                 return
             }
-        }
-        let live = heldAct(act.verb, ids: ids, sources: act.sources, store: store, state: state)
-        if let live, live.take.held != act.take.held || live.unlinks != act.unlinks {
-            state.pendingAlert = .confirmHeld(live)
-            return
-        }
-        if case .move(let target, _) = act.verb {
-            state.showMoveLanding(of: ids, to: target, structure: store.manifest.structure,
-                                  research: store.manifest.research,
-                                  homes: state.researchHomes(in: store.manifest))
-        }
-        Task { @MainActor in
-            do {
-                if let live {
-                    try await performHeld(live, store: store)
-                } else {
-                    switch act.verb {
-                    case .delete: try await performDelete(ids, store: store)
-                    case .move(let target, let landing):
-                        try await performMove(ids, to: target, landing: landing, lifts: [],
-                                              afterLift: "",
-                                              unlinks: HeldResearchAct.unlinks(
-                                                ids, to: target, homes: state.researchHomes(in: store.manifest)),
-                                              store: store)
-                    }
-                }
-            } catch { state.pendingError = error.localizedDescription }
+            let live = moveAct(plan, landing: landing, sources: act.sources, store: store, state: state)
+            if let live, live.asked != act.asked || live.take.held != act.take.held {
+                state.pendingAlert = .confirmHeld(live)
+                return
+            }
+            state.showLanding(of: ids, inFoldOf: plan.landingPiece, to: plan.target,
+                              structure: store.manifest.structure, research: store.manifest.research)
+            Task { @MainActor in
+                do {
+                    try await performPlan(plan, landing: landing, afterLift: live?.afterLift ?? "",
+                                          store: store)
+                } catch { state.pendingError = error.localizedDescription }
+            }
         }
     }
 
@@ -956,9 +993,9 @@ struct BinderTreeVerbs {
             // by id, then the rows go whole to the Trash.
             try await performLifts(act.lifts, store: store)
             try await performDelete(act.ids, store: store)
-        case .move(let target, let landing):
-            try await performMove(act.ids, to: target, landing: landing, lifts: act.lifts,
-                                  afterLift: act.afterLift, unlinks: act.unlinks, store: store)
+        case .move(_, let landing):
+            guard let plan = act.plan else { return }
+            try await performPlan(plan, landing: landing, afterLift: act.afterLift, store: store)
         }
     }
 
@@ -976,25 +1013,26 @@ struct BinderTreeVerbs {
         try await store.deleteResearchItems(ids: ids)
     }
 
-    /// The tree's one call of the store's research mover: the lifts first,
-    /// then the rows, at the landing as the tree stands after the lifts.
+    /// **A plan, done** — the lifts, then the move and its link edits in ONE
+    /// save (`moveResearchItems(…relinking:)`, closing round A3), at the
+    /// landing as the tree stands after the lifts; a plan with no file move
+    /// (a drop between chapters by their links) is one link save.
     @MainActor
-    static func performMove(_ ids: [String], to target: ResearchMoveTarget,
-                            landing: HeldResearchAct.Landing, lifts: [HeldResearchAct.Lift],
-                            afterLift: String, unlinks: [String: [String]],
-                            store: ProjectStore) async throws {
-        try await performLifts(lifts, store: store)
-        let index = landing.index(movingIds: ids, to: target, in: store.manifest.research)
+    static func performPlan(_ plan: ResearchMovePlan, landing: HeldResearchAct.Landing,
+                            afterLift: String, store: ProjectStore) async throws {
+        try await performLifts(plan.lifts, store: store)
+        guard let target = plan.target else {
+            let from = Array(Set(plan.unlinks.values.joined()))
+            try await performRelink(plan.ids, from: from, to: plan.linkTo, store: store)
+            return
+        }
+        let index = landing.index(movingIds: plan.ids, to: target, in: store.manifest.research)
         do {
-            try await store.moveResearchItems(ids: ids, to: target, atIndex: index)
-        } catch where !lifts.isEmpty {
+            try await store.moveResearchItems(ids: plan.ids, to: target, atIndex: index,
+                                              relinking: plan.linkEdit)
+        } catch where !plan.lifts.isEmpty {
             // The lift stands: say so, then why the rest did not happen.
             throw TreeLinkError(message: afterLift + error.localizedDescription)
-        }
-        // **To the book, whole-book** (closing round A2): its own links go,
-        // the refusals asked before (`moveRefusal`).
-        for (id, pieces) in unlinks.sorted(by: { $0.key < $1.key }) {
-            try await performRelink([id], from: pieces, to: nil, store: store)
         }
     }
 
@@ -1343,19 +1381,16 @@ final class BinderTreeSectionsState {
         land(ids, inFoldOf: piece, structure: structure)
     }
 
-    /// **Where a move lands, in sight** (closing round A): the destination's
-    /// home — a chapter's fold, opened for a while as a click opens one, or
-    /// the Research section — and the groups down to the destination opened.
-    func showMoveLanding(of ids: [String], to target: ResearchMoveTarget,
-                         structure: [StructureItem], research: [ResearchItem],
-                         homes: ResearchHomes) {
-        if case .group(let group) = target {
+    /// **Where a move lands, in sight** (closing rounds A–A3): the fold of
+    /// the chapter the plan leaves the row with (`landingPiece`), opened for a
+    /// while, or the Research section; the groups down to the destination
+    /// opened.
+    func showLanding(of ids: [String], inFoldOf piece: String?, to target: ResearchMoveTarget?,
+                     structure: [StructureItem], research: [ResearchItem]) {
+        if case .group(let group)? = target {
             expandedResearchGroups.insert(group)
             openAncestorGroups(of: group, in: research)
         }
-        // To the book the row's links go too (closing round A2): the section.
-        let arriving = homes.homes(at: target)
-        let piece = arriving.isEmpty ? nil : (ids.lazy.flatMap { homes.links(of: $0) }.first ?? arriving.first)
         land(ids, inFoldOf: piece, structure: structure)
     }
 

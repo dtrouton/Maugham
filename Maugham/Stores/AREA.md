@@ -46,7 +46,7 @@ Every file in `Maugham/Stores/` appears once.
 - `ProjectStore+ProductionRoles.swift` — the cast: translator, reader, collator per language; designer.
 - `ProjectStore+ManifestAdoption.swift` — `adoptExternalManifest`, `beginStructuralVerb()`/`endStructuralVerb()`.
 - `ProjectStore+RemovedElsewhere.swift` — `refreshRemovedElsewhere()`, `restoreRemovedElsewhere(id:)`.
-- `ResearchScope.swift` — where a new research item lands (typed seam, ADR 0010) and `pieceResearchPrefix`; `ResearchHomes.swift`, an item as the book's or a piece's.
+- `ResearchScope.swift` — where new research lands (ADR 0010), `pieceResearchPrefix`; `ResearchHomes.swift`, the book's or a piece's; `ResearchMovePlan.swift`, what a move takes.
 
 ### Small stores and helpers
 - `DebounceScheduler.swift` — cancel-and-restart task helper; the 750 ms autosave window.

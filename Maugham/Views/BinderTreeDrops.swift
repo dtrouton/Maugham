@@ -392,8 +392,11 @@ extension BinderTreeVerbs {
             return mayEditResearchLinks(of: from) && mayEditResearchLinks(of: to)
                 ? intent : .refuse(.linksNotPermitted)
         case .leaveGroup(let id, let to):
-            let leaving = state.researchHomes(in: store.manifest).chaptersThroughGroup(of: id)
-            return (leaving + [to]).allSatisfy { mayEditResearchLinks(of: $0) }
+            // Who loses and who gains is the move's own plan (one oracle).
+            let plan = Self.plan([id], to: .sharedRoot, linkTo: to, unlinks: nil, store: store, state: state)
+            let homes = state.researchHomes(in: store.manifest)
+            return plan.losingChapters.union(plan.gainingChapters)
+                .allSatisfy { !homes.takesLinks($0) || mayEditResearchLinks(of: $0) }
                 ? intent : .refuse(.linksNotPermitted)
         default:
             return intent
@@ -423,7 +426,8 @@ extension BinderTreeVerbs {
         state.researchDragSource = nil
         switch intent {
         case .rescope(let ids, let target):
-            return requestMove(batch.isEmpty ? ids : batch, to: target, landing: landing, sources: sources)
+            return requestMove(batch.isEmpty ? ids : batch, to: target, landing: landing, sources: sources,
+                               linkTo: nil, unlinks: nil)
         case .link(let researchId, let documentId):
             let batch = batch.isEmpty ? [researchId] : batch
             land(batch, inFoldOf: documentId)
@@ -435,21 +439,21 @@ extension BinderTreeVerbs {
             perform { try await relink(batch, from: [documentId], to: nil) }
             return true
         case .moveLink(let researchId, let from, let to):
+            // Between chapters by their links, through the same oracle: a
+            // single note out of its fold asks nothing; a batch, or a chapter
+            // it was not taken from losing it, asks (closing round A3).
             let batch = batch.isEmpty ? [researchId] : batch
-            land(batch, inFoldOf: to)
-            perform { try await relink(batch, from: [from], to: to) }
-            return true
+            var unlinks: [String: [String]] = [:]
+            for id in batch { unlinks[id] = [from] }
+            return requestMove(batch, to: nil, landing: .end, sources: sources,
+                               linkTo: to, unlinks: unlinks)
         case .leaveGroup(let researchId, let documentId):
             // Out of the chapter's group to the Research root, then linked:
             // the second chapter's (closing round A).
+            // One plan, one save, the oracle's question (closing round A3).
             let batch = batch.isEmpty ? [researchId] : batch
-            land(batch, inFoldOf: documentId)
-            perform {
-                try await Self.performMove(batch, to: .sharedRoot, landing: .end, lifts: [],
-                                           afterLift: "", unlinks: [:], store: store)
-                try await relink(batch, from: [], to: documentId)
-            }
-            return true
+            return requestMove(batch, to: .sharedRoot, landing: .end, sources: sources,
+                               linkTo: documentId, unlinks: nil)
         case .useInDocument(let researchId):
             return FigureSectionVerbs(store: store, state: state).dropToUse(researchId: researchId) != nil
         case .sendFigureToResearch(let figureId, let scope, let group):
@@ -521,7 +525,8 @@ extension BinderTreeVerbs {
             : TreeDropIntent.container(ofRow: target.id,
                                        structure: store.manifest.structure,
                                        research: store.manifest.research)
-        return requestMove(movingIds, to: destination, landing: landing, sources: sources)
+        return requestMove(movingIds, to: destination, landing: landing, sources: sources,
+                           linkTo: nil, unlinks: nil)
     }
 
     /// Where a cross-scope drop lands within its new container: beside the row

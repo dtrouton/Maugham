@@ -15,6 +15,48 @@ public enum ResearchMoveTarget: Equatable, Sendable {
     case piece(String)
 }
 
+/// **The link edits a research move makes in its own save** (closing round
+/// A3): each row's links to `unlink`'s pieces removed, then every row linked
+/// to `linkTo`.
+public struct ResearchLinkEdit: Equatable, Sendable {
+    public var unlink: [String: [String]]
+    public var linkTo: (ids: [String], piece: String)?
+
+    public static let none = ResearchLinkEdit(unlink: [:], linkTo: nil)
+
+    public init(unlink: [String: [String]], linkTo: (ids: [String], piece: String)?) {
+        self.unlink = unlink
+        self.linkTo = linkTo
+    }
+
+    public static func == (lhs: ResearchLinkEdit, rhs: ResearchLinkEdit) -> Bool {
+        lhs.unlink == rhs.unlink && lhs.linkTo?.ids == rhs.linkTo?.ids
+            && lhs.linkTo?.piece == rhs.linkTo?.piece
+    }
+
+    func apply(to structure: inout [StructureItem]) {
+        for (id, pieces) in unlink {
+            for piece in pieces {
+                structure = TreeWalk.mutate(id: piece, in: structure) { node in
+                    var node = node
+                    let links = (node.linkedResearchIds ?? []).filter { $0 != id }
+                    node.linkedResearchIds = links.isEmpty ? nil : links
+                    return node
+                }
+            }
+        }
+        if let linkTo {
+            structure = TreeWalk.mutate(id: linkTo.piece, in: structure) { node in
+                var node = node
+                var links = node.linkedResearchIds ?? []
+                for id in linkTo.ids where !links.contains(id) { links.append(id) }
+                node.linkedResearchIds = links.isEmpty ? nil : links
+                return node
+            }
+        }
+    }
+}
+
 extension ProjectStore {
 
     /// Path of the ROOT ancestor of `id` within `research` (the item's own
@@ -128,7 +170,8 @@ extension ProjectStore {
     /// destination sibling list (group children, or the top-level
     /// `manifest.research` array); nil appends.
     public func moveResearchItems(
-        ids: [String], to target: ResearchMoveTarget, atIndex destIndex: Int? = nil
+        ids: [String], to target: ResearchMoveTarget, atIndex destIndex: Int? = nil,
+        relinking: ResearchLinkEdit = .none
     ) async throws {
         beginStructuralVerb(); defer { endStructuralVerb() }
         let dest = try resolveResearchMoveTarget(target)
@@ -330,6 +373,11 @@ extension ProjectStore {
             guard let (oldStem, newStem) = pending.refRewrite else { continue }
             await rewriteMovedNoteAssetRefs(itemId: item.id, oldStem: oldStem, newStem: newStem)
         }
+
+        // **The move's link edits, in the same save** (shell p5a closing
+        // round A3): a move to the book drops the rows' links, a drop on a
+        // chapter links them — one write, never a moved row whose links lag.
+        relinking.apply(to: &manifest.structure)
 
         manifest.modified = Date()
         try await saveManifest()

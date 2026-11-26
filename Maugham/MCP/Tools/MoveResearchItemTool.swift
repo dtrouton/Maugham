@@ -19,7 +19,8 @@ public enum MoveResearchItemTool: MCPTool {
         "target_document_id (a loose piece). Whole groups move with their contents. " +
         "Where a note is, is whose it is: into a group a chapter holds makes it that " +
         "chapter's; to shared research or a whole-book group makes it whole-book, its own " +
-        "links to chapters removed (`left` names them). Each moved item's `home` says which."
+        "links to chapters removed. `left` names every chapter an item left, " +
+        "`home` whose it is now."
     public static let inputSchemaJSON =
         #"{"type":"object","properties":{"project_id":{"type":"string"},"research_ids":{"type":"array","items":{"type":"string"}},"target":{"type":"string","enum":["shared"]},"target_group_id":{"type":"string"},"target_document_id":{"type":"string"}},"required":["project_id","research_ids"]}"#
 
@@ -36,8 +37,8 @@ public enum MoveResearchItemTool: MCPTool {
         /// Whose it is now, in words: "whole-book", or "Chapter One's"
         /// (closing round A) — so a move out of a chapter is never unknowing.
         public let home: String
-        /// The chapters a move to the book took it from (its links removed),
-        /// by title; absent when none.
+        /// The chapters the move took it from — by its own link or through
+        /// the group it stood in — by title; absent when none.
         public let left: [String]?
     }
     public struct Result: Codable, Equatable {
@@ -76,16 +77,21 @@ public enum MoveResearchItemTool: MCPTool {
             throw MCPError.invalidArgument("research_ids must not be empty")
         }
 
-        // **Where a note is, is whose it is** (closing round A2): to the book,
-        // its own links go — the tree's rule, said in the answer.
+        // **The tree's one oracle** (closing round A3): the move's plan says
+        // what it does — to the book the rows' own links go — and what it
+        // takes from each chapter; the move and its link edits are one save,
+        // and the answer names every chapter each item left (`left`), even
+        // one in read-through (the assistant's writes ask it nothing, ADR 0039).
         let before = ResearchHomes.derive(structure: store.manifest.structure,
                                           research: store.manifest.research,
                                           projectType: store.manifest.type)
-        let unlinks = HeldResearchAct.unlinks(params.research_ids, to: targets[0], homes: before)
-        try await store.moveResearchItems(ids: params.research_ids, to: targets[0])
-        for (id, pieces) in unlinks.sorted(by: { $0.key < $1.key }) {
-            try await store.relinkResearch(ids: [id], from: pieces, to: nil)
-        }
+        let plan = ResearchMovePlan.make(ids: params.research_ids, target: targets[0], linkTo: nil,
+                                         explicitUnlinks: nil, homes: before,
+                                         structure: store.manifest.structure,
+                                         research: store.manifest.research,
+                                         projectType: store.manifest.type)
+        try await store.moveResearchItems(ids: params.research_ids, to: targets[0],
+                                          relinking: plan.linkEdit)
 
         let homes = ResearchHomes.derive(structure: store.manifest.structure,
                                          research: store.manifest.research,
@@ -94,7 +100,7 @@ public enum MoveResearchItemTool: MCPTool {
             MovedItem(id: id,
                       path: TreeWalk.find(id: id, in: store.manifest.research)?.path,
                       home: Self.home(of: id, in: homes),
-                      left: unlinks[id].map { $0.map { before.pieceTitles[$0] ?? $0 } })
+                      left: plan.losses[id].map { $0.map { before.pieceTitles[$0] ?? $0 } })
         }
         return try JSONEncoder().encode(Result(moved: moved))
     }

@@ -366,8 +366,9 @@ final class ReadThroughResearchSurfaceTests: XCTestCase {
         "Maugham/Stores/ProjectStore+FigureResearch.swift": 1, // the store's retarget (Move into Figures)
         "Maugham/Views/ProjectSearchView.swift": 1,         // Find's manuscript arm, from its one gate
         // The tree's research rows (shell p5a closing round A): the one
-        // question and the doors that ask it — rename, delete, move, unlink.
-        "Maugham/Views/BinderTreeSections.swift": 6,
+        // question and the doors that ask it — rename, delete, move, unlink —
+        // and a move's losing chapters (closing round A3).
+        "Maugham/Views/BinderTreeSections.swift": 7,
         "Maugham/Views/BinderTreeDrops.swift": 2,           // a drag out, its named refusal
     ]
 

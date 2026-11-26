@@ -54,6 +54,8 @@ final class MoveResearchItemToolTests: XCTestCase {
             paramsJSON: params(["project_id": projectId, "research_ids": [tides.id], "target": "shared"]),
             registry: registry))
         XCTAssertEqual(out.moved.map(\.home), ["whole-book"])
+        XCTAssertEqual(out.moved.first?.left, [chapter.title],
+                       "it left Chapter One, through the group it stood in (A3)")
         let back = try JSONDecoder().decode(MoveResearchItemTool.Result.self, from: try await MoveResearchItemTool.handle(
             paramsJSON: params(["project_id": projectId, "research_ids": [tides.id],
                                 "target_group_id": harbour.id]),
@@ -76,11 +78,13 @@ final class MoveResearchItemToolTests: XCTestCase {
         let registry = ProjectRegistry()
         registry.register(url: url, store: store)
         let projectId = ProjectIdentifier.id(for: url)
+        let saves = store.manifestSaveCount
         let out = try JSONDecoder().decode(MoveResearchItemTool.Result.self, from: try await MoveResearchItemTool.handle(
             paramsJSON: params(["project_id": projectId, "research_ids": [note.id], "target": "shared"]),
             registry: registry))
         XCTAssertEqual(out.moved.map(\.home), ["whole-book"])
         XCTAssertEqual(out.moved.first?.left, [chapter.title])
+        XCTAssertEqual(store.manifestSaveCount, saves + 1, "the move and its unlink, one save")
         XCTAssertEqual(store.linkedResearchIds(forDocumentId: chapter.id), [])
         await ds.close()
     }
