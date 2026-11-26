@@ -688,6 +688,7 @@ struct PieceInLanguageHeadView: View {
                 // Open, the head's own first line says it.
                 summary: headOpen.wrappedValue ? nil : ResolvePieceInLanguage.headerLine(language: language),
                 spokenSummary: ResolvePieceInLanguage.headerLine(language: language),
+                isHeading: !ResolveHeadFold.namesThePiece(docId: docId, openDocId: openDocId),
                 isOpen: headOpen.wrappedValue,
                 onToggle: { headOpen.wrappedValue.toggle() })
             if headOpen.wrappedValue {

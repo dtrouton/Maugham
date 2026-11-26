@@ -98,7 +98,7 @@ final class RightColumnAppraisalTests: XCTestCase {
         // pulled-up position.
         let lines = SourceScan.codeLines(of: try! SourceTree.read("Maugham/Views/RightColumn.swift"))
         XCTAssertEqual(lines.filter {
-            $0.trimmingCharacters(in: .whitespaces) == "if RightColumnSubjectLine.showsOverToResolve(subject) { subjectLine }"
+            $0.trimmingCharacters(in: .whitespaces) == "if RightColumnSubjectLine.showsOverToResolve(subject, structure: store.manifest.structure) { subjectLine }"
         }.count, 1, "To resolve leads with the line, except over the piece open in the centre")
         XCTAssertEqual(lines.filter { $0.trimmingCharacters(in: .whitespaces) == "subjectLine(brief: scope)" }.count, 1,
                        "and Brief with its own (closing review M5)")

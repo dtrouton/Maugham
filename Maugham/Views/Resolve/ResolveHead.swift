@@ -508,6 +508,9 @@ struct ResolveHeadView: View {
                 summary: isOpen ? nil : summary,
                 spokenSummary: summary,
                 status: statusInBar ? status : nil,
+                // The column's subject line is left out over the open piece;
+                // this row is its heading then (`showsOverToResolve`).
+                isHeading: !names,
                 isOpen: isOpen,
                 onToggle: { headOpen.wrappedValue.toggle() })
             if isOpen {

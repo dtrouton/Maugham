@@ -292,13 +292,77 @@ final class ResolveHeadFoldTests: XCTestCase {
     /// the faces always. Over the piece open in the centre it now goes;
     /// where the faces and the centre part, it stays. Pure.
     func test_theSubjectLineLeavesToResolveOverTheOpenPiece() {
-        XCTAssertFalse(RightColumnSubjectLine.showsOverToResolve(
-            WindowSubject(open: .item("ch-2"), faces: .item("ch-2"))))
-        XCTAssertTrue(RightColumnSubjectLine.showsOverToResolve(
-            WindowSubject(open: .canvas, faces: .item("ch-2"))))
-        XCTAssertTrue(RightColumnSubjectLine.showsOverToResolve(
-            WindowSubject(open: .item("ch-1"), faces: .item("ch-2"))))
-        XCTAssertTrue(RightColumnSubjectLine.showsOverToResolve(WindowSubject(open: .project, faces: .project)))
+        let structure = [
+            StructureItem(id: "ch-1", title: "Chapter 1", type: .document, path: "one.md"),
+            StructureItem(id: "ch-2", title: "Chapter 2", type: .document, path: "two.md"),
+            StructureItem(id: "part", title: "Part One", type: .group, children: []),
+        ]
+        func shows(_ open: BinderSubject, _ faces: BinderSubject) -> Bool {
+            RightColumnSubjectLine.showsOverToResolve(WindowSubject(open: open, faces: faces), structure: structure)
+        }
+        XCTAssertFalse(shows(.item("ch-2"), .item("ch-2")), "the piece open in the centre")
+        XCTAssertTrue(shows(.canvas, .item("ch-2")))
+        XCTAssertTrue(shows(.item("ch-1"), .item("ch-2")))
+        XCTAssertTrue(shows(.project, .project), "the Book keeps its line")
+        XCTAssertTrue(shows(.item("part"), .item("part")), "a Part keeps its line (M1)")
+    }
+
+    /// **A Part selected keeps the line** (M1): its head is a count that
+    /// names nothing, and its centre is its pieces' board.
+    func test_aPartSelectedKeepsTheSubjectLine() async throws {
+        let f = try await StatementMountFixture.novel(named: "PartLine")
+        try requireAssistiveClient()
+        let part = try await f.store.addStructureItem(parentId: nil, title: "Part Nine", kind: .group)
+        let probe = RightColumnFixture.Probe(position: .resolve,
+                                             subject: WindowSubject(open: .item(part.id), faces: .item(part.id)))
+        let window = TestWindow.mount(
+            RightColumnFixture.pane(store: f.store, documentStore: f.documentStore, probe: probe)
+                .environment(f.preferences),
+            size: CGSize(width: 320, height: 700))
+        windows.append(window)
+        let shown = await pumpUntil(deadline: 5) {
+            ((try? self.axTexts(in: window)) ?? []).contains("Part Nine")
+        }
+        XCTAssertTrue(shown, "the Part's To resolve says what it is about")
+        XCTAssertNotNil(try frame(of: "rightColumn.subject", in: window))
+    }
+
+    /// **One heading, naming the piece** (M2, M3): with the piece open and
+    /// selected the subject line is left out and the head's first row is
+    /// the column's heading — folded and open — and it names the piece and
+    /// where it stands.
+    func test_withThePieceOpenTheHeadsFirstRowIsTheOneHeading() async throws {
+        let f = try await StatementMountFixture.novel(named: "Heading")
+        try requireAssistiveClient()
+        let docId = f.documentItemId
+        let title = try XCTUnwrap(TreeWalk.find(id: docId, in: f.store.manifest.structure)?.title)
+        for open in [false, true] {
+            f.documentStore.setResolveHeadOpen(open)
+            let probe = RightColumnFixture.Probe(position: .resolve,
+                                                 subject: WindowSubject(open: .item(docId), faces: .item(docId)))
+            let window = TestWindow.mount(
+                RightColumnFixture.pane(store: f.store, documentStore: f.documentStore, probe: probe)
+                    .environment(f.preferences),
+                size: CGSize(width: 320, height: 700))
+            windows.append(window)
+            _ = await pumpUntil(deadline: 5) { ((try? self.headings(in: window)) ?? []).isEmpty == false }
+            let headings = try headings(in: window)
+            XCTAssertEqual(headings.count, 1, "\(open ? "open" : "folded"): one heading, got \(headings)")
+            XCTAssertTrue(headings.first?.hasPrefix("\(title): ") == true,
+                          "\(open ? "open" : "folded"): the heading names the piece and where it stands: \(headings)")
+            XCTAssertTrue(headings.first?.contains("Structural next") == true, "\(headings)")
+            window.contentView = NSView(frame: .zero)
+        }
+    }
+
+    private func headings(in window: NSWindow) throws -> [String] {
+        try axElements(in: window)
+            .filter { (axAttribute($0, "accessibilityRole") as? String) == "AXHeading" }
+            .compactMap { element -> String? in
+                (axAttribute(element, "accessibilityLabel") as? String)
+                    ?? (axAttribute(element, "accessibilityValue") as? String)
+                    ?? (axAttribute(element, "accessibilityTitle") as? String)
+            }
     }
 
     /// **A new, empty chapter selected in the binder**: the column as the
@@ -386,8 +450,10 @@ final class ResolveHeadFoldTests: XCTestCase {
         XCTAssertNil(summaryHelp(in: open),
                      "open on the open piece, the first row is the ladder's Status row, no words (B1, N4)")
         let openTexts = try axTexts(in: open)
-        XCTAssertEqual(openTexts.filter { $0 == "Status" }.count, 1,
-                       "the Status row is drawn once, beside the chevron: " + openTexts.joined(separator: " | "))
+        XCTAssertEqual(openTexts.filter { $0 == "Chapter 1: Draft, Structural next." }.count, 1,
+                       "the Status row beside the chevron is spoken as the folded row is (M3): "
+                       + openTexts.joined(separator: " | "))
+        XCTAssertFalse(openTexts.contains("Status"), "and the ladder draws no second Status row")
     }
 
     /// Folded on the open, never-checked piece: Run Round and Check Writing

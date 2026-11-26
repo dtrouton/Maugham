@@ -247,15 +247,25 @@ struct ResolveHeadFoldBar: View {
     /// The ladder's Status row, drawn here in place of the words when the
     /// open head has no name to show (the ladder then draws none).
     var status: ReviewStatus? = nil
+    /// Whether this row is the right column's heading — where the column's
+    /// subject line is left out over the open piece (it was the heading).
+    var isHeading = false
     let isOpen: Bool
     let onToggle: () -> Void
 
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: 6) {
             if let status, title == nil, summary == nil {
+                // Drawn as the ladder's row; spoken as the folded row is:
+                // which piece, and where it stands.
                 PassLadder.statusRow(status)
+                    .accessibilityElement(children: .ignore)
+                    .accessibilityLabel(ResolveHeadFold.sentence(title: spokenTitle, summary: spokenSummary))
+                    .accessibilityAddTraits(isHeading ? .isHeader : [])
+                    .accessibilityIdentifier("resolve.head.status")
             } else {
                 words
+                    .accessibilityAddTraits(isHeading ? .isHeader : [])
             }
             Spacer(minLength: 4)
             Button(action: onToggle) {
