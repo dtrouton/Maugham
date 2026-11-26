@@ -37,11 +37,28 @@ import XCTest
 /// - `ReadingLanguage.swift` × 1 — a piece is read in a language only while
 ///   it is both open and faced.
 /// - `ResolvePane.swift` × 2 — To resolve's scope and a filed line's target.
-/// - `RightColumn.swift` × 3 — the panes' doc id, item id and Brief scope.
+/// - `RightColumn.swift` × 1 — the Brief scope.
 /// - `RightColumnContent.swift` × 4 — which face the column shows, and the
 ///   strip-click that brings the faces back to the open piece.
 /// - `RightColumnControl.swift` × 2 — the column's scope and its Brief.
 /// - `SubjectValidationModifier.swift` × 1 — validation of every part.
+///
+/// **The faces behind a helper** are counted the same way, in
+/// `facesHelperReaders`: `WindowSubject.lastClicked` (the faces unless a
+/// pulled-up tree row was clicked after them; it lives in the excluded type
+/// file) and `RightColumnContent.facesPiece` (the faces' piece, else the
+/// open one). Their callers today:
+/// - `ClickRule.swift` × 1 — a click on the row already last clicked (route).
+/// - `BinderTreeSections.swift` × 2 — Paste's target row; the rows a key acts on.
+/// - `CentreColumn.swift` × 1 — the canvas lights the region of the row last
+///   clicked.
+/// - `RightColumnContent.swift` × 1 — the pulled-up History's piece.
+/// - `ProjectWindow.swift` × 1 — ⌘⌥E's fold piece (`foldPiece`).
+///
+/// **What neither list sees**: a line is counted, not each read on it; files
+/// are keyed by basename; and a read through any OTHER helper (a new one, or
+/// `ResolveScope.shown(faces:)`'s callers, which pass the faces explicitly and
+/// are counted at the call) — name a new helper here when one is written.
 ///
 /// A NEW reader is either right-column work (name it here, with its reason)
 /// or editor work reading the wrong part (read `subject.open` —
@@ -58,31 +75,51 @@ final class FacesReaderCensusTests: XCTestCase {
         "EditionWiring.swift": 3,
         "ReadingLanguage.swift": 1,
         "ResolvePane.swift": 2,
-        "RightColumn.swift": 3,
+        "RightColumn.swift": 1,
         "RightColumnContent.swift": 4,
         "RightColumnControl.swift": 2,
         "SubjectValidationModifier.swift": 1,
+    ]
+
+    static let facesHelperReaders: [String: Int] = [
+        "ClickRule.swift": 1,
+        "BinderTreeSections.swift": 2,
+        "CentreColumn.swift": 1,
+        "RightColumnContent.swift": 1,
+        "ProjectWindow.swift": 1,
     ]
 
     /// The type's own file: its stored property, codec and `didSet`.
     static let theTypeItself: Set<String> = ["WindowSubject.swift"]
 
     private static let read = try! NSRegularExpression(pattern: #"\.faces\b(?!\s*=[^=])"#)
+    /// A call of a helper that returns the faces; a declaration is not one.
+    private static let helperRead = try! NSRegularExpression(
+        pattern: #"(?<!func )\b(?:lastClicked\b|facesPiece\()"#)
 
-    /// Lines reading `.faces` per file under `root`, comments excluded.
+    static func facesHelperReads(under root: URL) throws -> [String: Int] {
+        try reads(under: root, matching: helperRead, marker: ["lastClicked", "facesPiece"])
+    }
+
     static func facesReads(under root: URL) throws -> [String: Int] {
+        try reads(under: root, matching: read, marker: [".faces"])
+    }
+
+    /// Lines matching `regex` per file under `root`, comments excluded.
+    private static func reads(under root: URL, matching regex: NSRegularExpression,
+                              marker: [String]) throws -> [String: Int] {
         var found: [String: Int] = [:]
         guard let walker = SourceTreeCache.enumerator(at: root) else { return found }
         for case let url as URL in walker where url.pathExtension == "swift" {
             let name = url.lastPathComponent
             if theTypeItself.contains(name) { continue }
             let text = try SourceTreeCache.text(url)
-            guard text.contains(".faces") else { continue }
+            guard marker.contains(where: text.contains) else { continue }
             for line in text.split(separator: "\n", omittingEmptySubsequences: false) {
                 let code = String(line)
                 if code.trimmingCharacters(in: .whitespaces).hasPrefix("//") { continue }
                 let range = NSRange(code.startIndex..., in: code)
-                if read.firstMatch(in: code, range: range) != nil { found[name, default: 0] += 1 }
+                if regex.firstMatch(in: code, range: range) != nil { found[name, default: 0] += 1 }
             }
         }
         return found
@@ -101,6 +138,31 @@ final class FacesReaderCensusTests: XCTestCase {
             + "the line above the prose, ⌘⌥C, ⌘/, ⌘R) reads `subject.open`. A new "
             + "right-column reader: name it in `facesReaders` with its reason in "
             + "the same commit. Found: \(found.sorted(by: { $0.key < $1.key }))")
+    }
+
+    func test_theFacesBehindAHelperAreReadOnlyByTheirNamedCallers() throws {
+        let found = try Self.facesHelperReads(under: sourceDir)
+        XCTAssertEqual(found, Self.facesHelperReaders,
+            "The callers of `lastClicked` / `facesPiece` moved. Each returns the "
+            + "faces (or the faces first): a centre or editor reader through one is "
+            + "the open/faces defect again. Name a right-column, binder or route "
+            + "caller in `facesHelperReaders` with its reason. Found: "
+            + "\(found.sorted(by: { $0.key < $1.key }))")
+    }
+
+    func test_theHelperCensusFindsACallAndNotTheDeclaration() throws {
+        let dir = TestTemp.root.appendingPathComponent("faces-helper-census-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        try """
+            enum Planted {
+                static func facesPiece(_ s: WindowSubject) -> String? { nil }
+                // subject.lastClicked in a comment
+                func centre() -> BinderSubject { subject.lastClicked }
+                func piece() -> String? { Planted.facesPiece(subject) }
+            }
+            """.write(to: dir.appendingPathComponent("Planted.swift"), atomically: true, encoding: .utf8)
+        XCTAssertEqual(try Self.facesHelperReads(under: dir), ["Planted.swift": 2])
     }
 
     /// **The planted offender and the control**: the third defect's shape — a

@@ -298,11 +298,21 @@ struct MaughamApp: App {
             SyntaxHelpSheet(format: HelpSheetRoute.windowlessSyntaxFormat)
         }
         .windowResizability(.contentMinSize)
+        // Never restored at launch (a stray window nobody asked for), and no
+        // Window-menu entry, which would open it around `HelpSheetRoute`
+        // with a project in front (closing re-review N1, N2).
+        .restorationBehavior(.disabled)
+        .commandsRemoved()
 
         Window("Set up Claude Desktop", id: HelpSheetRoute.Item.claudeDesktop.windowID) {
             HelpClaudeDesktopSheet()
         }
         .windowResizability(.contentMinSize)
+        // Never restored at launch (a stray window nobody asked for), and no
+        // Window-menu entry, which would open it around `HelpSheetRoute`
+        // with a project in front (closing re-review N1, N2).
+        .restorationBehavior(.disabled)
+        .commandsRemoved()
     }
 
     @MainActor

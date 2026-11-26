@@ -60,7 +60,7 @@ MCP `initialize` now sends `instructions` (`MCPInitializeHandler.instructions`, 
 
 **Help ▸ Syntax & Keyboard Shortcuts and Set up Claude Desktop… work with no project window** (`HelpSheetRoute`; changes approved row 57's "disabled with none in front"): with a project window in front each is that window's sheet, as before; with none, each opens a small window scene of its own, the syntax sheet on Markdown. `MenuBarCensusTests` reads every menu's item structs (File, Edit, View, Insert, Format ▸ Table, the `Focused*` structs, Help) and names these two as the window-free exceptions beside Run's four.
 
-**The Research section says where the rest went** (`ResearchHomes.underAPiece`, derived with the homes and cached on the manifest): one quiet line at its foot, "12 notes are with their chapters — open a chapter’s fold to see them." in the project's noun, after "No whole-book research." when the section is empty.
+**The Research section says where the rest went** (`ResearchHomes.underAPiece`, derived with the homes and cached on the manifest): one quiet line at its foot, "12 research items are with their chapters — open a chapter’s fold to see them." in the project's noun, after "No whole-book research." when the section is empty.
 
 ## Gone by design
 

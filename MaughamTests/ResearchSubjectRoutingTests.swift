@@ -138,16 +138,22 @@ final class ResearchSubjectRoutingTests: XCTestCase {
     /// the panes are about that piece; with the faces on the Book, about no
     /// document.
     func test_theFacesReadTheFacesSubjectNotTheOpenOne() {
+        // What production asks (`RightColumnContent.of`), at Brief.
+        func brief(_ subject: WindowSubject) -> RightColumnContent {
+            RightColumnContent.of(position: .brief, subject: subject,
+                                  structure: SubjectSamples.structure, projectType: .novel)
+        }
         let piece = SubjectSamples.pieceID
         for open in SubjectSamples.everyOpen {
             let subject = WindowSubject(open: open, faces: .item(piece))
-            XCTAssertEqual(RightColumn.panesDocId(of: subject), piece, "\(open) open")
-            XCTAssertEqual(RightColumn.panesItemID(of: subject), piece, "\(open) open")
+            XCTAssertEqual(brief(subject), brief(WindowSubject(open: .item(piece), faces: .item(piece))),
+                           "\(open) open: Brief is the faces' piece's")
         }
         let onTheBook = WindowSubject(open: .item(piece), faces: .project)
-        XCTAssertEqual(RightColumn.panesDocId(of: onTheBook), BinderSubject.noDocumentSubject,
-                       "an open piece with the faces on the Book is not the panes' document")
-        XCTAssertNil(RightColumn.panesItemID(of: onTheBook))
+        XCTAssertEqual(brief(onTheBook), brief(.book),
+                       "an open piece with the faces on the Book: Brief is the Book's")
+        XCTAssertNotEqual(brief(onTheBook), brief(WindowSubject(open: .item(piece), faces: .item(piece))),
+                          "control: the open piece's Brief is a different answer")
     }
 
     /// **A research item beside previews in the right column and never takes

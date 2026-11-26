@@ -185,18 +185,6 @@ struct RightColumn: View {
         }
     }
 
-    /// **The panes' document is the FACES', never what is open** — with the
-    /// canvas or an edition in the centre, the faces are on the piece the
-    /// writer last clicked, and that is what To resolve and Brief are about.
-    static func panesDocId(of subject: WindowSubject) -> String {
-        BinderSubject.activeDocId(for: subject.faces)
-    }
-
-    /// The structure item the panes follow — the faces', `nil` for the Book.
-    static func panesItemID(of subject: WindowSubject) -> String? {
-        subject.faces.itemID
-    }
-
     /// The resize handle's gutter. A pane gets the column's width less this,
     /// so the narrowest a pane is ever drawn is
     /// `UIState.detailColumnWidthRange.lowerBound - resizeHandleWidth`.

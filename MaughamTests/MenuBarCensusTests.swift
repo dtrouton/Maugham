@@ -312,6 +312,14 @@ final class MenuBarCensusTests: XCTestCase {
     /// why. The structs are found by name and shape, and the premise names
     /// the ones that must be found, so a struct renamed out of the walk fails
     /// rather than passing unread.
+    ///
+    /// **Outside the walk, and rightly ungated** (closing re-review N6): they
+    /// act with or without a project window, so none asks the focused one —
+    /// - `HelpCommands`' own items (Maugham Help, Welcome to Maugham, Sample
+    ///   Projects ▸, Acknowledgements): each opens an app window;
+    /// - the inline Find…, Find Next and Find Previous in `MaughamApp.body`'s
+    ///   `CommandGroup`: they go to the first responder, whatever window it is;
+    /// - `UpdateMenuCommand` (Check for Updates…): app-wide.
     func test_everyWindowItemAsksTheFocusedWindow() throws {
         let unasked: [String: String] = [
             "New Project…": "opens with or without a project",
@@ -413,6 +421,14 @@ final class MenuBarCensusTests: XCTestCase {
         let app = try SourceTree.read("Maugham/MaughamApp.swift")
         for item in ["HelpSheetRoute.Item.syntax.windowID", "HelpSheetRoute.Item.claudeDesktop.windowID"] {
             XCTAssertTrue(app.contains("id: \(item)) {"), "no Window scene for \(item)")
+        }
+        // Neither restores at launch nor lists itself in the Window menu
+        // (which would open it around the route with a project in front).
+        let flat = try Self.joinedCode("Maugham/MaughamApp.swift")
+        for id in ["HelpSheetRoute.Item.syntax.windowID", "HelpSheetRoute.Item.claudeDesktop.windowID"] {
+            let start = try XCTUnwrap(flat.range(of: "id: \(id)) {"))
+            let tail = flat[start.upperBound...].prefix(400)
+            XCTAssertTrue(tail.contains(".restorationBehavior(.disabled) .commandsRemoved()"), "\(id)")
         }
     }
 

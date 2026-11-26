@@ -2591,7 +2591,8 @@ struct ProjectWindow: View {
     // **No faces-keyed document id lives here** (shell closing A1–A4):
     // everything this window does about the text being typed reads
     // `subject.open` (`WindowSubject.openPiece`/`openDocId`); the right
-    // column takes the faces' id from `RightColumn.panesDocId`. The census is
+    // column reads the faces through `RightColumnContent.of` and
+    // `ResolveScope.shown(faces:)`. The census is
     // `FacesReaderCensusTests.test_theFacesAreReadOnlyByTheirNamedConsumers`.
 
     /// The window's subject; the Book until `load()` restores one.

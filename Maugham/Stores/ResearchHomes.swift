@@ -45,7 +45,7 @@ struct ResearchHomes {
     let pieceTitles: [String: String]
     /// How many structure and research nodes the derivation visited — one each.
     let visited: Int
-    /// **How many notes are drawn in a piece's fold rather than the Research
+    /// **How many research items are drawn in a piece's fold rather than the Research
     /// section** — every asset with a home, a container group's included
     /// (shell closing A8): the section's foot says so, so research that
     /// moved into the folds is never simply gone. Groups are not counted.

@@ -6,7 +6,7 @@ import MaughamCore
 /// milestone review's writer's-seat 2). Under either/or a note linked to a
 /// chapter is drawn in that chapter's fold, not the section — so an older
 /// project opens to an almost empty Research. The section's foot counts the
-/// notes in the folds (`ResearchHomes.underAPiece`, derived once with the
+/// research items in the folds (`ResearchHomes.underAPiece`, derived once with the
 /// homes and cached on the manifest — tripwire 4), in the project's noun.
 final class ResearchWhereItWentTests: XCTestCase {
 
@@ -25,12 +25,12 @@ final class ResearchWhereItWentTests: XCTestCase {
         XCTAssertNil(BinderTreeSections.researchElsewhereText(underAPiece: 0, noun: .chapter),
                      "none in a fold: no line")
         XCTAssertEqual(BinderTreeSections.researchElsewhereText(underAPiece: 1, noun: .chapter),
-                       "1 note is with its chapter \u{2014} open the chapter\u{2019}s fold to see it.")
+                       "1 research item is with its chapter \u{2014} open the chapter\u{2019}s fold to see it.")
         XCTAssertEqual(BinderTreeSections.researchElsewhereText(underAPiece: 12, noun: .chapter),
-                       "12 notes are with their chapters \u{2014} open a chapter\u{2019}s fold to see them.")
+                       "12 research items are with their chapters \u{2014} open a chapter\u{2019}s fold to see them.")
         XCTAssertEqual(BinderTreeSections.researchElsewhereText(
             underAPiece: 3, noun: PieceNoun.of(nil, in: PieceNoun.Book(type: .collection))),
-            "3 notes are with their pieces \u{2014} open a piece\u{2019}s fold to see them.")
+            "3 research items are with their pieces \u{2014} open a piece\u{2019}s fold to see them.")
     }
 
     /// The emptied section says both: none is the book's, and where they went.
@@ -38,7 +38,7 @@ final class ResearchWhereItWentTests: XCTestCase {
         XCTAssertEqual(BinderTreeSections.emptyResearchText(anyUnderAPiece: false, underAPiece: 0, noun: .chapter),
                        "No research yet.")
         XCTAssertEqual(BinderTreeSections.emptyResearchText(anyUnderAPiece: true, underAPiece: 2, noun: .chapter),
-                       "No whole-book research. 2 notes are with their chapters \u{2014} open a chapter\u{2019}s fold to see them.")
+                       "No whole-book research. 2 research items are with their chapters \u{2014} open a chapter\u{2019}s fold to see them.")
         XCTAssertEqual(BinderTreeSections.emptyResearchText(anyUnderAPiece: true, underAPiece: 0, noun: .chapter),
                        "No whole-book research.", "only an empty group in a fold: no count to give")
     }

@@ -511,7 +511,7 @@ struct BinderTreeSections: View {
             .joined(separator: " ")
     }
 
-    /// **The Research section's foot: how many notes are in the folds**
+    /// **The Research section's foot: how many research items are in the folds**
     /// (shell closing A8) — in an older project every note linked to a
     /// chapter left the section for that chapter's fold, and nothing on
     /// screen said so. Nil with none; the project's noun (`PieceNoun`).
@@ -519,9 +519,9 @@ struct BinderTreeSections: View {
         switch count {
         case ..<1: return nil
         case 1:
-            return "1 note is with its \(noun.singular) \u{2014} open the \(noun.singular)\u{2019}s fold to see it."
+            return "1 research item is with its \(noun.singular) \u{2014} open the \(noun.singular)\u{2019}s fold to see it."
         default:
-            return "\(count) notes are with their \(noun.plural) \u{2014} open a \(noun.singular)\u{2019}s fold to see them."
+            return "\(count) research items are with their \(noun.plural) \u{2014} open a \(noun.singular)\u{2019}s fold to see them."
         }
     }
 
