@@ -11,7 +11,7 @@ final class DocBudgetTests: XCTestCase {
 
     /// Repo-relative path → the most words it may hold.
     static let wordCeilings: [String: Int] = [
-        "CLAUDE.md": 3_081,  // hard cap 4,000 words
+        "CLAUDE.md": 3_080,  // hard cap 4,000 words
         "docs/tripwires.md": 7_931,
         "docs/testing/TROUBLESHOOTING.md": 4_506,
         "docs/INDEX.md": 466,

@@ -188,7 +188,7 @@
     },
     "warrant": "HIGH",
     "intent": "UNINTENDED at the emission (the anchor contract predates per-piece navigation; pre-existing); the reader's workaround INTENTIONAL — the agent's call, shell plan 4 (ADR 0038 §3), not Denver's",
-    "reachability": "LIVE — an edition's book in the centre, a chapter clicked in the tree (the page jump); the emission on every PDF compile",
+    "reachability": "LIVE — an edition's book in the centre, a chapter clicked in the binder (the page jump); the emission on every PDF compile",
     "evidence": {
       "property_test": null
     },

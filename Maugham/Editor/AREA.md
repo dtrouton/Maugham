@@ -46,7 +46,7 @@ Every source file in `Maugham/Editor/` appears once.
 - `ReferenceLabelOverlay.swift` — the faint resolved label beneath each marker (a tag on caret or hover when there is no room), and a figure line's caption number ("Table 2.", "Figure 3.") in the left margin, or the tag above the line when the inset is too narrow: the placement maths and the overlay. Tripwires 1, 4.
 - `ManuscriptChecks.swift` — this document's reference problems, painted as dotted underlines with tooltips.
 - `EditorCoordinator+ReviewRender.swift` — the review overlays: resolving marks, the margin cards, the toolbar's annotation authoring, card actions. Tripwire 4.
-- `EditorCoordinator+TranslationBadges.swift` — the translation-review badge overlay and the dimming of missing translations.
+- `EditorCoordinator+TranslationBadges.swift` — the reading-in-a-language badge overlay and the dimming of missing translations.
 - `EditorControl.swift` — the `@Observable` control-plane model (posture, appearance, review annotations, translation language and badges); never text (ADR 0017).
 - `EditorEditPolicy.swift` — the pure membrane decisions: `allowsTextMutation(isReviewMode:lockEditing:isReadingTranslation:isInReadThrough:)` and `allowsCheckboxToggle`.
 - `CoordinatorLeakProbe.swift` — a dev-build weak registry of coordinators, to check by hand that closed windows release them.

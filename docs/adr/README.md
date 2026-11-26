@@ -61,6 +61,7 @@ Keep them short. One to two pages is the right scale. If an ADR keeps growing, i
 | [0037](0037-brief-and-the-pulled-up-thing.md) | Brief, the pulled-up thing and the fold: the right column's three positions, what a piece is held to, and what hangs under it | Accepted | 2026-11-20 |
 | [0038](0038-status-editions-and-translation.md) | Status, editions and translation: Status views, an edition's own centre and To resolve, a piece read in a language, the tree's marks, the desk and the review pane deleted, the promotion door | Accepted | 2026-11-22 |
 | [0039](0039-read-through.md) | Read-through: a piece its writer reads as a reviewer would, by intent, remembered on this Mac, with a checkpoint on entry; the window's Lock goes (supersedes [0035](0035-the-subject-not-the-persona.md)'s Lock and decision 14) | Accepted | 2026-11-22 |
+| [0040](0040-the-words-and-the-menus.md) | The words and the menus: one noun for a piece, one vocabulary, a menu bar walked by its census, and help that describes the window that ships | Accepted | 2026-11-26 |
 
 ## How to write a new ADR
 

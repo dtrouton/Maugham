@@ -1,6 +1,6 @@
 # ADR 0035 — The subject, not the persona: the tree decides what the window shows
 
-**Date:** 2026-11-17 · **Status:** Accepted (plan 1 of a multi-plan milestone; see "Not yet built"; extended by [ADR 0036](0036-to-resolve.md), [ADR 0037](0037-brief-and-the-pulled-up-thing.md) and [ADR 0038](0038-status-editions-and-translation.md); its "Lock" section and decision 14 superseded by [ADR 0039](0039-read-through.md)) · **Milestone:** shell-p1-subject-takes-over (branch `claude/shell-without-personas`) · **Design:** `docs/superpowers/specs/2026-11-16-subject-resolve-brief-shell-design.md`
+**Date:** 2026-11-17 · **Status:** Accepted (plan 1 of a multi-plan milestone; see "Not yet built"; extended by [ADR 0036](0036-to-resolve.md), [ADR 0037](0037-brief-and-the-pulled-up-thing.md), [ADR 0038](0038-status-editions-and-translation.md) and [ADR 0040](0040-the-words-and-the-menus.md); its "Lock" section and decision 14 superseded by [ADR 0039](0039-read-through.md)) · **Milestone:** shell-p1-subject-takes-over (branch `claude/shell-without-personas`) · **Design:** `docs/superpowers/specs/2026-11-16-subject-resolve-brief-shell-design.md`
 
 ## Context
 
@@ -75,9 +75,9 @@ The right column has three positions in one order, To resolve (⌘1), Brief (⌘
 Later plans of the same milestone. None of these exist; nothing above depends on them.
 
 - Built since: To resolve ([ADR 0036](0036-to-resolve.md)) and its one dot on the tree's rows; Brief, the pulled-up thing, the fold, ⌘2 and ⌘3, the old inspector's dispersal, the faces' piece readable without the editor for History, and the Canvas centre's right column ([ADR 0037](0037-brief-and-the-pulled-up-thing.md)); and in [ADR 0038](0038-status-editions-and-translation.md): Status views beyond the board; each edition's own book in its language, scrolled to a piece clicked in the tree; round letters per piece; per-piece publishing settings in the edition's Status; the toolbar's view switch, language switch and running-round indicator; a piece read in a language (the faces' piece readable without the editor for Translation too), replacing the translation review mode; drop-target feedback on the tree; and a drop on the tree's Canvas row (`TreeCanvasRowDrop`, loose through the Send to Canvas route, with a dot until the canvas is next opened). The rest of this list is what remains.
-- The margin setting and the amendment to [ADR 0027](0027-the-compiler-and-the-editor-boundary.md) §1.
-- The rewrite of the guide, the welcome tour and Claude's help text. They still describe personas and ⌘1–4, and the branch does not ship before they are rewritten.
-- The spec's open decision on the Inbox at scale.
+- ~~The margin setting and the amendment to [ADR 0027](0027-the-compiler-and-the-editor-boundary.md) §1~~ — *built:* View ▸ Margin, and the amendment of 2026-11-22.
+- ~~The rewrite of the guide, the welcome tour and Claude's help text~~ — *built:* [ADR 0040](0040-the-words-and-the-menus.md), which also records the words and the menus.
+- The spec's open decision on the Inbox at scale: the owner's, still open.
 
 ## Decisions made during the build
 

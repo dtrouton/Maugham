@@ -78,7 +78,7 @@ A row with anything To resolve would list carries one small accent dot at its tr
 - Built in [ADR 0038](0038-status-editions-and-translation.md): the translator's letter at the head, edition scope and a piece read in a language; the translator's changes, glossary proposals, design proposals and compile problems as items; the Book's and the edition's Status views; the dot on edition rows and the "Proposed" mark.
 - Built in shell plan 5 Task 3: a figure whose source data changed, the last item kind ("A figure's changed source", above).
 - Built in [ADR 0027](0027-the-compiler-and-the-editor-boundary.md)'s amendment of 2026-11-22: the margin setting (View ▸ Margin), whose ticks follow this list's selection and whose click shows a paragraph's group here.
-- The rewrite of the guide, the welcome tour and Claude's help text (`docs/guide/annotations-and-suggestions.md` and others still describe the old panes), plan 5.
+- Built in [ADR 0040](0040-the-words-and-the-menus.md): the rewrite of the guide, the welcome tour and Claude's help text, held by a census.
 
 ## Consequences
 
