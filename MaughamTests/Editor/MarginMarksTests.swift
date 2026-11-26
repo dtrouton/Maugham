@@ -80,14 +80,31 @@ final class MarginMarksTests: XCTestCase {
         let palette = ReviewPalette()
         XCTAssertEqual(result.dots, [
             .init(paragraphId: "aa11", span: 4..<9, annotationId: "n1", name: "Denver",
-                  colour: palette.color(for: mine.author)),
+                  colour: palette.color(for: mine.author), person: ReviewPalette.person(mine.author)),
             .init(paragraphId: "bb22", span: nil, annotationId: "n2", name: "Ada",
-                  colour: palette.color(for: reviewers.author)),
+                  colour: palette.color(for: reviewers.author), person: ReviewPalette.person(reviewers.author)),
         ], "the writer's note tints its words; an admitted reviewer's is a person's too")
         // Each dot takes its person's pencil — the review card's colour —
         // never the assistant's reserved one (closing round B).
         XCTAssertFalse(result.dots.contains { $0.colour == ReviewPalette.claudeTerracotta })
         XCTAssertEqual(result.ticks, [], "My Notes draws no ticks")
+    }
+
+    /// **One mark of several people is grey, decided by who they are**
+    /// (closing round B2, M3): two people who share a pencil tone on one
+    /// line draw grey; one person's two notes draw their colour.
+    func test_severalPeopleOnOneMarkAreGreyEvenSharingATone() {
+        let shared = ReviewPalette.humanTones[0]
+        func place(_ id: String, _ person: String) -> MarginPlace {
+            MarginPlace(mark: .dot(annotationId: id, name: person, colour: shared, person: person),
+                        paragraphId: "aa11", anchor: 0, tint: nil)
+        }
+        let two = MarginOverlayView.Drawn(places: [place("n1", "ada"), place("n2", "bea")],
+                                          rect: .zero, hitRect: .zero, tintRects: [])
+        XCTAssertEqual(two.colour, MarginOverlayView.dotColor, "two people, one tone: grey")
+        let one = MarginOverlayView.Drawn(places: [place("n1", "ada"), place("n2", "ada")],
+                                          rect: .zero, hitRect: .zero, tintRects: [])
+        XCTAssertEqual(one.colour, shared, "one person's two notes: their pencil")
     }
 
     /// The disable experiment's test: let the assistant count as a person

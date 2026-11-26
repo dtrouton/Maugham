@@ -52,6 +52,9 @@ struct MarginMarks: Equatable {
         /// (`ReviewPalette`), so a dot and its card agree. A dot is only ever
         /// a person's (`drawnBesideTheText`); a model's note draws none.
         var colour: NSColor = MarginOverlayView.dotColor
+        /// Who it is (`ReviewPalette.person`): a mark is one person's or
+        /// several by this, never by colour — two people may share a tone.
+        var person: String = ""
     }
 
     let dots: [Dot]
@@ -87,7 +90,8 @@ struct MarginMarks: Equatable {
             guard let paragraphId = note.paragraphId else { return nil }
             return Dot(paragraphId: paragraphId, span: note.resolvedSpanRange,
                        annotationId: note.id, name: note.author?.displayName ?? "",
-                       colour: ReviewPalette().color(for: note.author))
+                       colour: ReviewPalette().color(for: note.author),
+                       person: ReviewPalette.person(note.author))
         }
         guard setting == .everythingFlagged else { return MarginMarks(dots: dots, ticks: []) }
         let personIds = Set(persons.map(\.id))

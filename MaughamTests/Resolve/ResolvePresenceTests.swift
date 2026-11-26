@@ -316,6 +316,9 @@ final class ResolvePresenceTests: XCTestCase {
          ".environment(\\.resolvePresence, state.presence)", "every tree's List hands its rows the marks"),
         ("Maugham/Views/ProjectWindow.swift",
          ".modifier(ResolvePresenceWiring(", "the window mounts the read (and Status's to-dos with it)"),
+        ("Maugham/Views/ProjectWindow.swift",
+         "script: WindowScript.live(windowScript, openDocId: subject.open.itemID),",
+         "the read gets the editor's parse only while it is live (closing round B2, M1)"),
         ("Maugham/Views/TreeEditionRows.swift",
          "ResolvePresenceMark(ResolvePresence.rowMark(.edition(row.language), in: presence))",
          "an edition (shell p4 Task 6)"),
@@ -342,7 +345,8 @@ final class ResolvePresenceTests: XCTestCase {
         XCTAssertEqual(Self.missing(in: planted), ["a chapter and a Part"])
         planted = sources
         planted["Maugham/Views/ProjectWindow.swift"] = Self.codeOnly("// .modifier(ResolvePresenceWiring(")
-        XCTAssertEqual(Self.missing(in: planted), ["the window mounts the read (and Status's to-dos with it)"])
+        XCTAssertEqual(Self.missing(in: planted), ["the window mounts the read (and Status's to-dos with it)",
+                                                   "the read gets the editor's parse only while it is live (closing round B2, M1)"])
     }
 
     private static let rowFiles = [

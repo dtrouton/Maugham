@@ -7,7 +7,8 @@ import MaughamCore
 /// draw only reads it (tripwire 4).
 struct MarginPlace: Equatable {
     enum Mark: Equatable {
-        case dot(annotationId: String, name: String, colour: NSColor = MarginOverlayView.dotColor)
+        case dot(annotationId: String, name: String, colour: NSColor = MarginOverlayView.dotColor,
+                 person: String = "")
         case tick
     }
     let mark: Mark
@@ -150,34 +151,35 @@ final class MarginOverlayView: NSView {
         var id: String {
             isTick ? "tick:\(paragraphId)"
                 : "dots:" + places.map { place -> String in
-                    if case .dot(let id, _, _) = place.mark { return id }
+                    if case .dot(let id, _, _, _) = place.mark { return id }
                     return ""
                 }.joined(separator: ",")
         }
         /// The note a one-note dot stands for (its click shows that note);
         /// nil for a tick or a dot of several notes.
         var soleNoteId: String? {
-            guard places.count == 1, case .dot(let id, _, _) = places[0].mark else { return nil }
+            guard places.count == 1, case .dot(let id, _, _, _) = places[0].mark else { return nil }
             return id
         }
         /// The dots' writers, for their one fixed label.
         var names: [String] {
             places.compactMap { place in
-                if case .dot(_, let name, _) = place.mark { return name }
+                if case .dot(_, let name, _, _) = place.mark { return name }
                 return nil
             }
         }
         /// The dot's fill: its person's colour, or the quiet grey where one
-        /// mark stands for several people.
+        /// mark stands for several people — decided by who they are, never
+        /// by colour (two people may share a tone; closing round B2).
         var colour: NSColor {
-            let colours = places.compactMap { place -> NSColor? in
-                if case .dot(_, _, let colour) = place.mark { return colour }
+            let dots = places.compactMap { place -> (colour: NSColor, person: String)? in
+                if case .dot(_, _, let colour, let person) = place.mark { return (colour, person) }
                 return nil
             }
-            guard let first = colours.first, colours.allSatisfy({ $0 == first }) else {
+            guard let first = dots.first, Set(dots.map(\.person)).count == 1 else {
                 return MarginOverlayView.dotColor
             }
-            return first
+            return first.colour
         }
     }
 
@@ -403,7 +405,7 @@ extension EditorCoordinator {
                     anchor = tint!.location
                 }
                 places.append(MarginPlace(mark: .dot(annotationId: dot.annotationId, name: dot.name,
-                                                     colour: dot.colour),
+                                                     colour: dot.colour, person: dot.person),
                                           paragraphId: dot.paragraphId, anchor: anchor, tint: tint))
             }
         }

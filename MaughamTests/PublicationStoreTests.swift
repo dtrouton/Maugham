@@ -31,12 +31,21 @@ final class PublicationStoreTests: XCTestCase {
     /// its first frame. The control: the read itself, run on main, says so.
     @MainActor
     func testLoad_readsTheFolderOffTheMainActor() async throws {
-        let store = PublicationStore(projectURL: tmp)
-        PublicationStore.lastReadWasOnMainForTesting = nil
+        final class Where: @unchecked Sendable {
+            private let lock = NSLock()
+            private var seen: [Bool] = []
+            func note(_ onMain: Bool) { lock.lock(); seen.append(onMain); lock.unlock() }
+            var all: [Bool] { lock.lock(); defer { lock.unlock() }; return seen }
+        }
+        let where_ = Where()
+        let store = PublicationStore(projectURL: tmp, presenter: nil, read: { url, presenter in
+            where_.note(Thread.isMainThread)
+            return try PublicationStore.catalogue(in: url, presenter: presenter)
+        })
         _ = try await store.load()
-        XCTAssertEqual(PublicationStore.lastReadWasOnMainForTesting, false, "the folder was read off main")
-        _ = try PublicationStore.catalogue(in: tmp, presenter: nil)
-        XCTAssertEqual(PublicationStore.lastReadWasOnMainForTesting, true, "control: the seam sees main")
+        XCTAssertEqual(where_.all, [false], "the folder was read off main")
+        where_.note(Thread.isMainThread)
+        XCTAssertEqual(where_.all, [false, true], "control: the check sees main")
     }
 
     /// **A superseded refresh applies nothing**: two reads overlap, the

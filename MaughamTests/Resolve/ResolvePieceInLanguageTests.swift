@@ -242,10 +242,12 @@ final class ResolvePieceInLanguageTests: XCTestCase {
             let listed = ResolvePane.scenes(
                 snapshot, scope: list,
                 groupsByScene: ResolvePane.groupsByScene(list, structure: scripts, openDocId: "doc-s"),
-                windowScript: ResolvePane.script(for: list, structure: scripts, openDocId: "doc-s", script: edge))
+                windowScript: WindowScript.live(edge, openDocId: "doc-s"))
+            // The window hands the presence read the editor's live parse.
             let marked = ResolvePresence.sceneIndex(
                 snapshot, scope: presence, structure: scripts,
-                windowScript: ResolvePane.script(for: presence, structure: scripts, openDocId: nil, script: edge))
+                windowScript: ResolvePane.script(for: presence, structure: scripts, openDocId: nil,
+                                                 script: WindowScript.live(edge, openDocId: "doc-s")))
             XCTAssertEqual(listed.titles.first, "INT. KITCHEN - DAY")
             XCTAssertEqual(listed.index, marked)
         }
@@ -262,6 +264,33 @@ final class ResolvePieceInLanguageTests: XCTestCase {
             _ = ResolvePane.scenes(snapshot, scope: read, groupsByScene: true, windowScript: edge)
         }
         XCTAssertEqual(SceneParseMemo.parseCount, parses + 1, "a piece read in a language parses its source once")
+    }
+
+    /// **Scenes follow the text, not a parse made at open** (closing round
+    /// B2, M1): a one-script project with no editor open holds the op-log
+    /// parse made when the window opened; another Mac's edit then adds a
+    /// scene. The Book's presence and the list group by the new text. The
+    /// control: the editor's live parse of the open script is reused.
+    func test_scenesFollowTheTextWhenNoEditorIsOpen() {
+        let scripts = [StructureItem(id: "doc-s", title: "Script", type: .document, path: "script.fountain")]
+        let atOpen = WindowScript(docId: "doc-s",
+                                  script: FountainTokenizer().parse("INT. KITCHEN - DAY\n\nShe pours."))
+        let arrived = ResolveSnapshot(
+            items: [], sequences: ["doc-s": ["aa11", "bb22", "cc33", "dd44"]],
+            paragraphText: ["aa11": "INT. KITCHEN - DAY", "bb22": "She pours.",
+                            "cc33": "EXT. GARDEN - DUSK", "dd44": "He waits."],
+            unreadableDocIds: [])
+        let book = ResolveScope.piece(docId: "doc-s", includesBookLevel: true)
+        let noEditor = WindowScript.live(atOpen, openDocId: nil)
+        XCTAssertNil(noEditor, "no editor open: the parse made at open is not live")
+        XCTAssertEqual(ResolvePresence.sceneIndex(arrived, scope: book, structure: scripts, windowScript: noEditor),
+                       ["aa11": 0, "bb22": 0, "cc33": 1, "dd44": 1], "the presence follows the arrived scene")
+        let list = ResolvePane.scenes(arrived, scope: .piece(docId: "doc-s", includesBookLevel: false),
+                                      groupsByScene: true, windowScript: noEditor)
+        XCTAssertEqual(list.titles, ["INT. KITCHEN - DAY", "EXT. GARDEN - DUSK"], "and so does the list")
+
+        XCTAssertNotNil(WindowScript.live(atOpen, openDocId: "doc-s"), "control: the open editor's parse is live")
+        XCTAssertNil(WindowScript.live(atOpen, openDocId: "doc-other"), "another piece open: not live")
     }
 
     /// **An edition open with a chapter faced is that chapter in that

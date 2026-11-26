@@ -723,7 +723,8 @@ struct ProjectWindow: View {
         // tree hidden too. Load-bearing: without it no row is ever marked.
         .modifier(ResolvePresenceWiring(
             store: store, documentStore: documentStore, url: url, window: window,
-            state: treeState, diagnostics: compiler.diagnostics, script: windowScript,
+            state: treeState, diagnostics: compiler.diagnostics,
+            script: WindowScript.live(windowScript, openDocId: subject.open.itemID),
             compileProblems: !ResolveEditionItems.stoppingProblems(publishCentre.compileRunner.state).isEmpty))
         // The compiled book the Publish centre draws, kept current by a compile
         // finishing, a window opening and an arrival into Publish. Load-bearing

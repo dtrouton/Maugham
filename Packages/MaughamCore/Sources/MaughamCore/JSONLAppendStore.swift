@@ -308,6 +308,9 @@ public final class JSONLAppendStore<Element: Codable & Sendable> {
     /// actor**: the coordinated read and the shared parser, so a reader may
     /// run them detached — a folder slow to answer (a consent prompt, an
     /// iCloud file not yet downloaded) then never holds the main actor.
+    /// **Never for a chained stream** (the op log, the inbox): those read
+    /// through their store's chain policy. Callers are counted
+    /// (`TripwireGrepTests.countedLists[".loadStrictPlain("]`).
     public nonisolated static func loadStrictPlain(fileURL: URL,
                                                    presenter: NSFilePresenter?) throws -> [Element] {
         parse(bytes: try readBytesStrict(fileURL: fileURL, presenter: presenter)).elements

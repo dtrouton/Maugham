@@ -152,8 +152,8 @@ final class MarginOverlayCensusTests: XCTestCase {
         XCTAssertTrue(type(of: MarginMarks.none.ticks) == Set<String>.self, "ticks are paragraph ids")
         XCTAssertEqual(Self.fields(MarginMarks.none), ["dots", "ticks"])
         XCTAssertEqual(Self.fields(MarginMarks.Dot(paragraphId: "aa11", span: nil, annotationId: "n", name: "")),
-                       ["paragraphId", "span", "annotationId", "name", "colour"],
-                       "a dot: where, whose, and their colour — no words")
+                       ["paragraphId", "span", "annotationId", "name", "colour", "person"],
+                       "a dot: where, whose (name and identity), and their colour — no words")
         XCTAssertEqual(Self.fields(MarginPlace(mark: .tick, paragraphId: "aa11", anchor: 0, tint: nil)),
                        ["mark", "paragraphId", "anchor", "tint"])
         let drawn = MarginOverlayView.Drawn(

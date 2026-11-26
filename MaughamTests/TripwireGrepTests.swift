@@ -12080,6 +12080,10 @@ final class TripwireGrepTests: XCTestCase {
             "type:DocumentStore": 4, "type:ProjectStore": 2,
             "EditorCoordinator+Typography.swift": 1,
         ],
+        // The plain strict read off any actor (shell p5a closing round B2):
+        // the publications catalogue alone. Never a chained stream — the op
+        // log and the inbox read through their store's chain policy.
+        ".loadStrictPlain(": ["type:PublicationStore": 1],
     ]
 
     /// Every line naming `pattern` under `roots`, comments excluded.
@@ -12146,6 +12150,40 @@ final class TripwireGrepTests: XCTestCase {
             of: ".wordCount(", keyedLike: ["type:DocumentStore": 1], in: [dir])
         XCTAssertEqual(unresolved, [])
         XCTAssertEqual(found, ["type:DocumentStore": 1])
+    }
+
+    /// The control for `countedLists[".loadStrictPlain("]`: the catalogue's
+    /// call is found under its type, and a planted read of a chained stream
+    /// (an op log) is found as an extra caller — the census fires on it; a
+    /// comment naming the door is not counted.
+    func test_thePlainStrictReadCensusFindsAPlantedChainedReader() throws {
+        let dir = TestTemp.root
+            .appendingPathComponent("plain-read-census-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        try """
+            extension PublicationStore {
+                func read(_ url: URL) throws -> [Publication] {
+                    try JSONLAppendStore<Publication>.loadStrictPlain(fileURL: url, presenter: nil)
+                }
+            }
+            """.write(to: dir.appendingPathComponent("PublicationStore+Planted.swift"),
+                      atomically: true, encoding: .utf8)
+        try """
+            extension OpLogStore {
+                // JSONLAppendStore<Op>.loadStrictPlain( in a comment is fine.
+                func skipTheChain(_ url: URL) throws -> [Op] {
+                    try JSONLAppendStore<Op>.loadStrictPlain(fileURL: url, presenter: nil)
+                }
+            }
+            """.write(to: dir.appendingPathComponent("OpLogStore+Planted.swift"),
+                      atomically: true, encoding: .utf8)
+        let (found, unresolved) = try countedListFound(
+            of: ".loadStrictPlain(", keyedLike: ["type:PublicationStore": 1], in: [dir])
+        XCTAssertEqual(unresolved, [])
+        XCTAssertEqual(found["type:PublicationStore"], 1, "control: the catalogue's call is counted")
+        XCTAssertNotEqual(found, ["type:PublicationStore": 1], "the chained reader is an extra caller: \(found)")
+        XCTAssertEqual(found.values.reduce(0, +), 2, "the comment is not counted: \(found)")
     }
 
     // MARK: - …and the planted offenders that prove they fire

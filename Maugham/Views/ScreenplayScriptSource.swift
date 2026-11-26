@@ -140,6 +140,17 @@ struct WindowScript: Equatable {
         docId.map { [docIdKey: $0] } ?? [:]
     }
 
+    /// **The parse, only where it is live** (closing round B2, M1): the
+    /// editor's parse of the piece open in it, kept current keystroke by
+    /// keystroke. Anything else — the op-log derivation made at open, which
+    /// never re-derives once it exists, or a parse of a piece no longer open
+    /// — can trail the text (another Mac's edit arriving), so To resolve
+    /// parses the text it holds instead (`SceneParseMemo`).
+    static func live(_ script: WindowScript?, openDocId: String?) -> WindowScript? {
+        guard let script, let openDocId, script.docId == openDocId else { return nil }
+        return script
+    }
+
     /// The window's value from a post: its object, and the piece it names.
     static func of(_ note: Notification) -> WindowScript? {
         guard let script = note.object as? FountainScript else { return nil }

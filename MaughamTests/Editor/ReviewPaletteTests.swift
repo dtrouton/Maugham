@@ -79,4 +79,47 @@ final class ReviewPaletteTests: XCTestCase {
         XCTAssertTrue(Set(ReviewPalette.humanTones).contains(c))
         XCTAssertNotEqual(c, ReviewPalette.claudeTerracotta)
     }
+
+    // MARK: - Contrast (shell p5a closing round B2, M2)
+
+    /// WCAG relative luminance of a colour, resolved in `appearance`.
+    private static func luminance(_ colour: NSColor, in appearance: NSAppearance.Name) -> Double {
+        var resolved = NSColor.black
+        NSAppearance(named: appearance)!.performAsCurrentDrawingAppearance {
+            resolved = colour.usingColorSpace(.sRGB) ?? colour
+        }
+        func lin(_ c: CGFloat) -> Double {
+            let c = Double(c)
+            return c <= 0.04045 ? c / 12.92 : pow((c + 0.055) / 1.055, 2.4)
+        }
+        return 0.2126 * lin(resolved.redComponent) + 0.7152 * lin(resolved.greenComponent)
+            + 0.0722 * lin(resolved.blueComponent)
+    }
+
+    private static func contrast(_ a: Double, _ b: Double) -> Double {
+        (max(a, b) + 0.05) / (min(a, b) + 0.05)
+    }
+
+    /// **Every person's tone stands at least 3:1 against the editor's page
+    /// in both appearances** — a dot is a 6 pt graphical object. The same
+    /// palette colours the cards and To resolve's author dots, so all three
+    /// agree. Control: the old blue pencil on the dark page fell short.
+    func test_everyPersonsToneIsLegibleOnTheEditorsPageInBothAppearances() {
+        let pages: [(NSAppearance.Name, NSColor, String)] = [
+            (.aqua, ThemePalette.light.background, "light"),
+            (.aqua, ThemePalette.sepia.background, "sepia"),
+            (.darkAqua, ThemePalette.dark.background, "dark"),
+        ]
+        for (index, tone) in ReviewPalette.humanTones.enumerated() {
+            for (appearance, page, name) in pages {
+                let ratio = Self.contrast(Self.luminance(tone, in: appearance),
+                                          Self.luminance(page, in: appearance))
+                XCTAssertGreaterThanOrEqual(ratio, 3, "tone \(index) on the \(name) page: \(ratio)")
+            }
+        }
+        let oldBlue = NSColor(srgbRed: 0.30, green: 0.40, blue: 0.62, alpha: 1)
+        XCTAssertLessThan(Self.contrast(Self.luminance(oldBlue, in: .darkAqua),
+                                        Self.luminance(ThemePalette.dark.background, in: .darkAqua)), 3,
+                          "control: the measure catches the old blue pencil")
+    }
 }

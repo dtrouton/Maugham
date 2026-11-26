@@ -24,9 +24,20 @@ public final class PublicationStore {
     /// `PartitionedJSONLFile` rather than restating it.
     public nonisolated static let stemPath = ".maugham/publications"
 
-    public init(projectURL: URL, presenter: NSFilePresenter? = nil) {
+    /// The catalogue's read, run detached by `load` — `catalogue` in
+    /// production; a test hands in one that also notes where it ran.
+    typealias Read = @Sendable (_ projectURL: URL, _ presenter: NSFilePresenter?) throws -> [Publication]
+    private let read: Read
+
+    public convenience init(projectURL: URL, presenter: NSFilePresenter? = nil) {
+        self.init(projectURL: projectURL, presenter: presenter,
+                  read: { try PublicationStore.catalogue(in: $0, presenter: $1) })
+    }
+
+    init(projectURL: URL, presenter: NSFilePresenter?, read: @escaping Read) {
         self.projectURL = projectURL
         self.presenter = presenter
+        self.read = read
     }
 
     /// RULING-54: an unreadable-yet-present publication device file THROWS,
@@ -56,19 +67,16 @@ public final class PublicationStore {
     public func load() async throws -> [Publication] {
         let projectURL = self.projectURL
         let presenter = self.presenter
+        let read = self.read
         return try await Task.detached(priority: .userInitiated) {
-            try Self.catalogue(in: projectURL, presenter: presenter)
+            try read(projectURL, presenter)
         }.value
     }
-
-    /// Test seam: whether the last catalogue read ran on the main thread.
-    nonisolated(unsafe) static var lastReadWasOnMainForTesting: Bool?
 
     /// The catalogue, read: every device file, merged. Never call it on the
     /// main actor (`load` runs it detached).
     nonisolated static func catalogue(in projectURL: URL,
                                       presenter: NSFilePresenter?) throws -> [Publication] {
-        lastReadWasOnMainForTesting = Thread.isMainThread
         var merged: [Publication] = []
         for url in Self.fileURLs(in: projectURL) {
             do {

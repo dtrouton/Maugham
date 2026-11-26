@@ -1147,7 +1147,7 @@ struct ResolvePane: View {
         let (index, titles) = Self.scenes(
             held, scope: scope,
             groupsByScene: Self.groupsByScene(scope, structure: structure, openDocId: openDocId),
-            windowScript: script)
+            windowScript: WindowScript.live(script, openDocId: openDocId))
         figureNames = names
         sceneIndex = index
         groups = ResolveGrouping.groups(held, scope: scope, structure: structure,
