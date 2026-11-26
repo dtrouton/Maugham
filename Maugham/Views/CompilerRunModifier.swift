@@ -66,18 +66,19 @@ struct CompilerRunModifier: ViewModifier {
         let freshEyes: Bool
     }
 
-    /// **The piece a run reads**: the faces' piece when they name one, else the
-    /// open piece, else none — and with none the run is a no-op, as it is with
-    /// no window in front. So a run with the Canvas, an edition or the Inbox
-    /// open reads the piece the right column faces, and never the open thing.
-    /// A Part is not a piece (`ClickRule.isPiece`): a Part on the faces falls
-    /// through to the open piece.
+    /// **The piece a run reads**: the OPEN piece when one is open — that is
+    /// where the writer types, so a Brief link or ⌘⌥K that moved the faces
+    /// elsewhere never turns ⌘R into "open the piece first" (shell closing A3,
+    /// ADR 0035) — else the faces' piece, else none, and with none the run is
+    /// a no-op, as it is with no window in front. So a run with the Canvas, an
+    /// edition or the Inbox open reads the piece the right column faces. A
+    /// Part is not a piece (`ClickRule.isPiece`): a Part falls through.
     static func runDocId(for subject: WindowSubject, structure: [StructureItem]) -> String? {
         func piece(_ s: BinderSubject) -> String? {
             guard let id = s.itemID, ClickRule.isPiece(id, in: structure) else { return nil }
             return id
         }
-        return piece(subject.faces) ?? piece(subject.open)
+        return piece(subject.open) ?? piece(subject.faces)
     }
 
     static func request(_ command: RunCommand, subject: WindowSubject,

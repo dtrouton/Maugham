@@ -116,7 +116,7 @@ final class LetterKeepTests: XCTestCase {
             letter, run: record, docId: "ch-1", editorName: "Le Guin", store: store)
         let expected = LetterMarkdown.render(
             letter, editorName: "Le Guin",
-            laneLine: LetterKeep.laneLine(for: record, store: store), at: record.at)
+            laneLine: LetterKeep.laneLine(for: record, docId: nil, store: store), at: record.at)
         XCTAssertEqual(try body(of: kept, in: store), expected.body)
         XCTAssertEqual(kept.title, expected.title)
     }
@@ -315,7 +315,7 @@ final class LetterKeepTests: XCTestCase {
     func test_aStagesRoundNamesItsLane() async throws {
         let (_, store) = try await makeNovel()
         XCTAssertEqual(
-            LetterKeep.laneLine(for: makeRun(passId: "line", round: 3), store: store),
+            LetterKeep.laneLine(for: makeRun(passId: "line", round: 3), docId: nil, store: store),
             ReviewRoundCockpit.laneLine(
                 pass: try XCTUnwrap(ReviewPass.pass(
                     id: "line", in: store.manifest.effectiveReviewPasses)),
@@ -329,7 +329,7 @@ final class LetterKeepTests: XCTestCase {
     func test_theCoachsRoundNamesHerAndNeverHerPass() async throws {
         let (_, store) = try await makeNovel()
         let line = LetterKeep.laneLine(
-            for: makeRun(passId: ReviewPass.coachPreset.id, round: 2), store: store)
+            for: makeRun(passId: ReviewPass.coachPreset.id, round: 2), docId: nil, store: store)
         XCTAssertEqual(line, "Le Guin \u{00b7} round 2")
         XCTAssertFalse(line.contains(ReviewPass.coachPreset.name), line)
     }
@@ -343,12 +343,12 @@ final class LetterKeepTests: XCTestCase {
         XCTAssertEqual(
             LetterKeep.laneLine(
                 for: makeRun(passId: ReviewPass.coachPreset.id, round: 2,
-                             stage: .drafting),
+                             stage: .drafting), docId: nil,
                 store: store),
             "Le Guin \u{00b7} round 2 \u{00b7} drafting")
         XCTAssertEqual(
             LetterKeep.laneLine(
-                for: makeRun(passId: "line", round: 3, stage: .revising),
+                for: makeRun(passId: "line", round: 3, stage: .revising), docId: nil,
                 store: store),
             "Line \u{00b7} Lish \u{00b7} round 3 \u{00b7} revising",
             "a stage's lane is the cockpit's own line with the word on the end")
@@ -362,12 +362,12 @@ final class LetterKeepTests: XCTestCase {
         let (_, store) = try await makeNovel()
         XCTAssertEqual(
             LetterKeep.laneLine(
-                passId: "line", round: 3, stage: nil, store: store),
+                passId: "line", round: 3, stage: nil, docId: nil, store: store),
             LetterKeep.laneLine(
-                for: makeRun(passId: "line", round: 3), store: store),
+                for: makeRun(passId: "line", round: 3), docId: nil, store: store),
             "no stage on either side, so the two lines agree exactly")
         XCTAssertEqual(
-            LetterKeep.laneLine(passId: "line", round: 3, stage: nil, store: store),
+            LetterKeep.laneLine(passId: "line", round: 3, stage: nil, docId: nil, store: store),
             "Line \u{00b7} Lish \u{00b7} round 3")
     }
 
@@ -375,7 +375,20 @@ final class LetterKeepTests: XCTestCase {
     /// naming one would invent a lane no round was filed in.
     func test_aPasslessRunHasNoLaneLine() async throws {
         let (_, store) = try await makeNovel()
-        XCTAssertEqual(LetterKeep.laneLine(for: makeRun(), store: store), "")
+        XCTAssertEqual(LetterKeep.laneLine(for: makeRun(), docId: nil, store: store), "")
+    }
+
+    /// **The coach's lane before any round names the piece by its own noun**
+    /// (shell closing A9): a script in a Collection reads "reads this script",
+    /// as the check head over it does — never the project's "piece".
+    func test_theCoachsLaneNamesThePieceByItsOwnNoun() async throws {
+        let (_, store, _) = try await makeCollection()
+        let script = try await store.addLoosePiece(title: "Scene", format: .fountain)
+        let coach = makeRun(passId: ReviewPass.coachPreset.id)
+        XCTAssertEqual(LetterKeep.laneLine(for: coach, docId: script.id, store: store),
+                       "Le Guin reads this script")
+        XCTAssertEqual(LetterKeep.laneLine(for: coach, docId: nil, store: store),
+                       "Le Guin reads this piece", "control: no piece named, the project's noun")
     }
 
     // MARK: - The confirmation

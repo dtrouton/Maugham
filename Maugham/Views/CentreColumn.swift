@@ -180,10 +180,9 @@ struct CentreColumn: View {
             manuscriptEditor(store: store, documentStore: documentStore,
                              altitude: altitude, cover: cover)
         case .inbox:
-            // The captures, as the centre. The fast "Promote to Research for
-            // [title]" path targets the piece the faces are on.
+            // The captures, as the centre. No fast "for this piece" target
+            // (shell closing A7): the faces there were a piece only glanced at.
             InboxPane(store: documentStore.inboxStore, projectStore: store,
-                      activeDocumentId: subject.faces.itemID,
                       canTranscribe: InboxPane.localTranscriptionAvailable,
                       retranscribe: { entry in Task { await documentStore.retranscribe(entry) } })
         }

@@ -260,7 +260,7 @@ final class BriefPaneTests: XCTestCase {
 
     func test_outsideAndElsewhereSayWhatBriefIsAbout() async throws {
         XCTAssertEqual(BriefPane.elsewhereLine,
-                       "This belongs to another project. Its brief is that project's.")
+                       "It belongs to another project. Its brief is that project's.")
         XCTAssertEqual(BriefPane.outsideLine,
                        "Brief holds what a piece, a Part, the Book or an edition is held to. Choose one in the binder.")
         let f = try await fixture("BriefOutside")

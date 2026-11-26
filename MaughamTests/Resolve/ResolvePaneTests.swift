@@ -959,7 +959,7 @@ final class ResolvePaneTests: XCTestCase {
         XCTAssertEqual(ResolvePane.emptyState(scope: .elsewhere(docId: "doc-x"), hasItems: false,
                                               hasVisible: false, offersColdStart: false), .elsewhere)
         XCTAssertEqual(ResolvePane.EmptyState.elsewhere.sentence,
-                       "This belongs to another project. Open that project to see what it raises.")
+                       "It belongs to another project. Open that project to see what it raises.")
         let piece = ResolveScope.piece(docId: "doc-a", includesBookLevel: false)
         XCTAssertEqual(ResolvePane.emptyState(scope: piece, hasItems: false, hasVisible: false, offersColdStart: true), .coldStart)
         XCTAssertEqual(ResolvePane.emptyState(scope: piece, hasItems: false, hasVisible: false, offersColdStart: false), .nothing)

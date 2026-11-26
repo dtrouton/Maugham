@@ -326,11 +326,12 @@ struct ProjectWindow: View {
                         onConfirm: { label in
                             showingCheckpointLabelSheet = false
                             Task { @MainActor in
-                                let activeDoc = activeDocument(in: store, documentStore: documentStore)
+                                let target = CheckpointTarget.of(subject, structure: store.manifest.structure)
+                                let activeDoc = target.document(in: documentStore)
                                 try? await activeDoc?.flushBurstNow()
                                 await CheckpointFlashDecision.labelled(
                                     label, projectURL: projectURL,
-                                    activeDocId: activeDocId, allDocIds: allDocIds,
+                                    activeDocId: target.docId, allDocIds: allDocIds,
                                     figureIds: figureIds, device: _checkpointDeviceId,
                                     session: _checkpointSessionId,
                                     activeDocument: activeDoc,
@@ -472,12 +473,13 @@ struct ProjectWindow: View {
             openProjectSettings()
         }
         // **Translator's note** (⌘⌥C): opens on the paragraph under the caret of
-        // the ACTIVE manuscript document; with no document it is a quiet no-op.
+        // the OPEN manuscript document (shell closing A1 — never the faces');
+        // with no document it is a quiet no-op.
         .onKeyWindowCommand(.maughamTranslatorsNote, window: window) { _ in
             guard let store, let documentStore,
-                  let document = activeDocument(in: store, documentStore: documentStore),
+                  let document = openDocument(in: store, documentStore: documentStore),
                   let target = TranslatorsNote.target(
-                      for: document, docId: activeDocId,
+                      for: document, docId: subject.openDocId,
                       manifest: store.manifest, projectURL: store.url)
             else { return }
             activeSheet = .translatorsNote(target)
@@ -636,8 +638,7 @@ struct ProjectWindow: View {
             store: store,
             window: window,
             url: url,
-            selectedItemId: activeItemID,
-            activeDocId: activeDocId,
+            subject: subject,
             showingCheckpointLabelSheet: $showingCheckpointLabelSheet,
             onSaveFlash: { showSaveFlash() }))
         // Load-bearing line: without it no route starts or resumes a
@@ -1496,10 +1497,15 @@ struct ProjectWindow: View {
     /// screenplay piece in a Collection opens on Fountain.
     private var currentSyntaxHelpFormat: DocumentFormat {
         guard let store else { return .markdown }
-        let activePath = activeItemID
-            .flatMap { TreeWalk.find(id: $0, in: store.manifest.structure) }?
-            .path
-        return Self.syntaxHelpFormat(type: store.manifest.type, activePath: activePath)
+        return Self.syntaxHelpFormat(subject: subject, type: store.manifest.type,
+                                     structure: store.manifest.structure)
+    }
+
+    /// **The OPEN piece's format** (shell closing A3), never the faces' — a
+    /// Brief link over a script in a Collection must not open on Markdown.
+    static func syntaxHelpFormat(subject: WindowSubject, type: ProjectType,
+                                 structure: [StructureItem]) -> DocumentFormat {
+        syntaxHelpFormat(type: type, activePath: subject.openPiece(in: structure)?.path)
     }
 
     /// The format of the document at `activePath`; with nothing open, the
@@ -1695,8 +1701,10 @@ struct ProjectWindow: View {
     /// statement's text comes from `@ObservationIgnored` `derivedCache` and
     /// lands on the next body pass. See `IntentStrip.line` for the boundary.
     ///
-    /// **`activeDocId`'s no-selection sentinel is correct here** — no document
-    /// means no document-scope intent, so the resolution falls to the project's.
+    /// **The OPEN piece's line, never the faces'** (shell closing A2): after a
+    /// Brief link or ⌘⌥K the faces sit elsewhere while the writer types here.
+    /// `openDocId`'s no-selection sentinel is correct — no document means no
+    /// document-scope intent, so the resolution falls to the project's.
     ///
     /// **Clicking the strip opens the open piece's Brief**
     /// (`showBriefOfTheOpenPiece`): the line is about `open`, so the faces go
@@ -1706,8 +1714,7 @@ struct ProjectWindow: View {
     private var intentStripLine: String? {
         guard let store else { return nil }
         return IntentStrip.line(
-            store: store, docId: activeDocId,
-            subject: subject, isNoChromeOn: isNoChromeOn)
+            store: store, subject: subject, isNoChromeOn: isNoChromeOn)
     }
 
     /// Whether the strip carries its quiet mark (M3-P3 §7).
@@ -1724,8 +1731,8 @@ struct ProjectWindow: View {
     private var intentStripMayTrailDraft: Bool {
         guard let store else { return false }
         return IntentDrift.mayTrailDraft(
-            store: store, docId: activeDocId,
-            lastRun: compiler.diagnostics?.lastRun(docId: activeDocId))
+            store: store, docId: IntentStrip.docId(of: subject),
+            lastRun: compiler.diagnostics?.lastRun(docId: IntentStrip.docId(of: subject)))
     }
 
     private var shouldShowStatusFooter: Bool {
@@ -2029,7 +2036,7 @@ struct ProjectWindow: View {
 
     private var paragraphIdForFooter: String? {
         guard let store, let documentStore else { return nil }
-        return activeDocument(in: store, documentStore: documentStore)
+        return openDocument(in: store, documentStore: documentStore)
             .flatMap { $0.paragraphId(at: $0.cursorLocation) }
     }
 
@@ -2037,13 +2044,11 @@ struct ProjectWindow: View {
         currentElement
     }
 
-    /// Helper: the currently-selected manuscript Document, if one is open
-    /// in the editor registry.
-    private func activeDocument(in store: ProjectStore, documentStore: DocumentStore) -> Document? {
-        guard let id = activeItemID,
-              let item = TreeWalk.find(id: id, in: store.manifest.structure),
-              let path = item.path else { return nil }
-        return documentStore.document(for: path)
+    /// Helper: the manuscript Document OPEN in the centre, if the editor
+    /// registry holds one — never the faces' (shell closing A1).
+    private func openDocument(in store: ProjectStore, documentStore: DocumentStore) -> Document? {
+        CheckpointTarget.of(subject, structure: store.manifest.structure)
+            .document(in: documentStore)
     }
 
     // MARK: - The three columns' arithmetic
@@ -2583,22 +2588,11 @@ struct ProjectWindow: View {
 
     // MARK: - The subject boundary
 
-    // **Two properties, one rule.** Everything below that wants a bare
-    // `String` takes one of these; nothing else in the window unwraps a
-    // `BinderSubject`, so which pane you look at cannot decide what "no
-    // document" means.
-
-    /// The structure item the tree names, when it names one. `nil` for the
-    /// project and for no selection alike: neither is an item, and every
-    /// consumer of this already had to handle a `nil`.
-    private var activeItemID: String? { subject.faces.itemID }
-
-    /// The same answer for the panes that require a non-optional document id
-    /// (History, Tasks, the annotations arm, the translation arm). They test it
-    /// against `BinderSubject.noDocumentSubject`; nothing re-substitutes.
-    private var activeDocId: String {
-        BinderSubject.activeDocId(for: subject.faces)
-    }
+    // **No faces-keyed document id lives here** (shell closing A1–A4):
+    // everything this window does about the text being typed reads
+    // `subject.open` (`WindowSubject.openPiece`/`openDocId`); the right
+    // column takes the faces' id from `RightColumn.panesDocId`. The census is
+    // `FacesReaderCensusTests.test_theFacesAreReadOnlyByTheirNamedConsumers`.
 
     /// The window's subject; the Book until `load()` restores one.
     private var subject: WindowSubject {
@@ -2856,9 +2850,7 @@ struct ProjectWindow: View {
     /// another piece's) while the Book was the faces over an open chapter.
     private var statusFooterPiece: StructureItem? {
         guard let store else { return nil }
-        return subject.open.itemID.flatMap {
-            TreeWalk.find(id: $0, in: store.manifest.structure)
-        }
+        return subject.openPiece(in: store.manifest.structure)
     }
 
     /// The status line's target menu (`PieceTargetMenu`), asked of the
@@ -3126,10 +3118,20 @@ struct ProjectWindow: View {
             TranslationRunStart.postureOfTheTranslator(forPiece: docId, in: documentStore).allows(.translate)
         }
         let open = TranslationReveal.openDocId(subject)
+        let key = translateOfferKey
         return TranslateMenuOffer.of(
-            scope: translateOfferKey.scope, isOpen: { $0 == open && documentStore.document(forDocId: $0) != nil },
+            scope: key.scope, isOpen: { $0 == open && documentStore.document(forDocId: $0) != nil },
             structure: structure, book: PieceNoun.Book(store.manifest), mayTranslate: mayTranslate,
-            mayTranslateAny: TreeWalk.first(in: structure, where: { $0.type == .document && mayTranslate($0.id) }) != nil)
+            // The edition head's own rule over its own pieces: the imprint's
+            // (`ResolveEditionItems.runScope`), never the whole structure.
+            mayTranslateBook: { docIds in
+                EditionHeadView.offersRun(
+                    docIds: ResolveEditionItems.runScope(
+                        docIds: docIds, persisted: key.imprint,
+                        config: (try? PublishConfigStore.read(in: store.url)) ?? nil).docIds,
+                    mayTranslate: mayTranslate)
+            },
+            running: key.pipeline)
     }
 
     /// **What the cached Translate offer is keyed on** (fix round 1, M3): the
@@ -3143,6 +3145,10 @@ struct ProjectWindow: View {
         let openIsRegistered: Bool
         let modified: Date?
         let postureEpoch: Int
+        /// The one pipeline's state: a round running greys the item (A6).
+        var pipeline: TranslationPipeline.Status = .idle
+        /// The imprint the edition head runs over (`ResolveEditionItems.runScope`).
+        var imprint: String? = nil
     }
 
     private var translateOfferKey: TranslateOfferKey {
@@ -3156,7 +3162,8 @@ struct ProjectWindow: View {
             // the offer stays grey over a chapter it should offer (fix round
             // 2, N1). `openDocuments` is observed, so reading it here keys on it.
             openIsRegistered: documentStore?.document(forDocId: open) != nil,
-            modified: store?.manifest.modified, postureEpoch: documentStore?.postureEpoch ?? 0)
+            modified: store?.manifest.modified, postureEpoch: documentStore?.postureEpoch ?? 0,
+            pipeline: roster.pipeline.status, imprint: documentStore?.uiState.publishImprint)
     }
 
     /// View ▸ Open in Centre's one receiver (`TreeRowKeys.centreOpening`).
@@ -3204,7 +3211,11 @@ struct ProjectWindow: View {
             opensInCentre: TreeRowKeys.centreOpening(
                 drawn: BinderTreeSelection.drawnTags(state: treeState, subject: subject, store: store),
                 beside: subject.beside) != nil,
-            translate: translateMenuOffer)
+            translate: translateMenuOffer,
+            translateGreyHelp: TranslateMenuOffer.greyHelp(
+                running: roster.pipeline.status, noun: PieceNoun.of(nil, in: store.manifest),
+                titleOf: { TreeWalk.find(id: $0, in: store.manifest.structure)?.title }),
+            pieceNoun: PieceNoun.of(nil, in: store.manifest))
     }
 
     /// Full-Screen Focus's check for a window, as it stands now.

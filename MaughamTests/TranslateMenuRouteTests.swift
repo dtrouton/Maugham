@@ -24,7 +24,7 @@ final class TranslateMenuRouteTests: XCTestCase {
         let scope = ResolveScope.of(faces, readIn: readIn, sourceLanguage: "en",
                                     structure: structure, projectType: .novel)
         return TranslateMenuOffer.of(scope: scope, isOpen: { $0 == open }, structure: structure, book: novel,
-                                     mayTranslate: { _ in may }, mayTranslateAny: any)
+                                     mayTranslate: { _ in may }, mayTranslateBook: { _ in any })
     }
 
     func test_theOfferIsTheScopesNeverTheCentres() {
@@ -93,8 +93,52 @@ final class TranslateMenuRouteTests: XCTestCase {
         let window = SourceScan.codeLines(of: try SourceTree.sourceOfType("ProjectWindow", under: ["Maugham"]))
             .map { $0.trimmingCharacters(in: .whitespaces) }.joined(separator: " ")
         XCTAssertTrue(window.contains("guard let offer = translateOffer else { return } ProjectWindow.selectPosition(.resolve, showInspector: $showInspector, position: $position) resolveRequest = .translate(offer)"))
-        XCTAssertTrue(window.contains("translate: translateMenuOffer)"), "the item's title reads the same cached offer")
+        XCTAssertTrue(window.contains("translate: translateMenuOffer,"), "the item’s title reads the same cached offer")
         XCTAssertTrue(window.contains("translateOffer: translateMenuOffer,"))
+    }
+
+    // MARK: - Shell closing A6
+
+    /// **A round already running greys the item and says so** — never the
+    /// head's false "nothing here it may translate". Both arms, and the
+    /// tooltip names the running round.
+    func test_aRunningRoundGreysTheOfferAndTheTooltipSaysWhichRound() {
+        let running = TranslationPipeline.Status.running(
+            docId: "c2", language: "es", leg: .translate,
+            book: TranslationPipeline.BookProgress(position: 2, count: 5))
+        for scope in [ResolveScope.pieceInLanguage(docId: "c1", language: "sr"),
+                      .edition(language: "sr", isSource: false, docIds: ["c1", "c2"])] {
+            XCTAssertNotNil(TranslateMenuOffer.of(scope: scope, isOpen: { _ in true }, structure: structure,
+                                                  book: novel, mayTranslate: { _ in true },
+                                                  mayTranslateBook: { _ in true }), "premise: idle offers \(scope)")
+            XCTAssertNil(TranslateMenuOffer.of(scope: scope, isOpen: { _ in true }, structure: structure,
+                                               book: novel, mayTranslate: { _ in true },
+                                               mayTranslateBook: { _ in true }, running: running),
+                         "a round running: grey at \(scope)")
+        }
+        let help = TranslateMenuOffer.greyHelp(running: running, noun: .chapter,
+                                               titleOf: { $0 == "c2" ? "Two" : nil })
+        XCTAssertEqual(help, "A round is running (\u{201C}Two\u{201D} into \(LanguageName.title("es")), 2 of 5); "
+                       + "Translate is offered again when it ends")
+        XCTAssertFalse(help.contains("nothing here"))
+        XCTAssertEqual(TranslateMenuOffer.greyHelp(running: .idle, noun: .chapter, titleOf: { _ in nil }),
+                       TranslateMenuOffer.elsewhereHelp, "control: idle keeps the elsewhere tooltip")
+    }
+
+    /// **The edition arm asks about the scope's own pieces**, the ones the
+    /// head runs — not the whole structure — and the window scopes them by
+    /// the head's imprint rule.
+    func test_theEditionArmAsksAboutTheScopesPieces() throws {
+        var asked: [String]?
+        _ = TranslateMenuOffer.of(scope: .edition(language: "sr", isSource: false, docIds: ["c2"]),
+                                  isOpen: { _ in false }, structure: structure, book: novel,
+                                  mayTranslate: { _ in true }, mayTranslateBook: { asked = $0; return false })
+        XCTAssertEqual(asked, ["c2"])
+        let window = SourceScan.codeLines(of: try SourceTree.sourceOfType("ProjectWindow", under: ["Maugham"]))
+            .map { $0.trimmingCharacters(in: .whitespaces) }.joined(separator: " ")
+        XCTAssertTrue(window.contains("EditionHeadView.offersRun( docIds: ResolveEditionItems.runScope( docIds: docIds, persisted: key.imprint,"),
+                      "the window asks the edition head’s own rule over the imprint’s pieces")
+        XCTAssertTrue(window.contains("running: key.pipeline)"), "the window greys on the pipeline")
     }
 
     // MARK: - Fix round 2
@@ -112,7 +156,7 @@ final class TranslateMenuRouteTests: XCTestCase {
         XCTAssertNotEqual(loading, loaded, "the load landing is a change of key")
         func offer(registered: Bool) -> TranslateMenuOffer? {
             TranslateMenuOffer.of(scope: scope, isOpen: { $0 == "c1" && registered }, structure: structure,
-                                  book: novel, mayTranslate: { _ in true }, mayTranslateAny: true)
+                                  book: novel, mayTranslate: { _ in true }, mayTranslateBook: { _ in true })
         }
         XCTAssertNil(offer(registered: false))
         XCTAssertNotNil(offer(registered: true), "so the re-read offers it")

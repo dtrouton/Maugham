@@ -1960,7 +1960,7 @@ public final class DocumentStore {
         through store: DocumentStore?
     ) async throws -> Document {
         if let store, store.isWithdrawnForPromotion(path: path) {
-            throw ManuscriptBeingPromoted(title: title)
+            throw ManuscriptBeingPromoted(title: title, path: path, manifest: store.projectStore?.manifest)
         }
         let returnsBefore = store?.promotionReturns
         let doc: Document
@@ -1975,7 +1975,7 @@ public final class DocumentStore {
         if store.isWithdrawnForPromotion(path: path)
             || (store.promotionReturns != returnsBefore && !store.pathNamesAManuscript(path)) {
             await doc.close()
-            throw ManuscriptBeingPromoted(title: title)
+            throw ManuscriptBeingPromoted(title: title, path: path, manifest: store.projectStore?.manifest)
         }
         return doc
     }
@@ -2551,11 +2551,21 @@ struct PromotionHoldState {
 /// a writer refuses and says this; a reader skips the piece.
 public struct ManuscriptBeingPromoted: LocalizedError, Equatable {
     public let title: String?
+    /// The piece's own noun (shell closing A9): a script in a Collection
+    /// says "script"; `.piece` with no project or no such piece.
+    let noun: PieceNoun
+    init(title: String?, path: String? = nil, manifest: ProjectManifest? = nil) {
+        self.title = title
+        self.noun = manifest.map { manifest in
+            PieceNoun.of(path.flatMap { path in TreeWalk.first(in: manifest.structure, where: { $0.path == path }) },
+                         in: manifest)
+        } ?? .piece
+    }
     public var errorDescription: String? {
         if let title {
             return "\u{201C}\(title)\u{201D} is being promoted to its own project \u{2014} try again in a moment."
         }
-        return "This \(PieceNoun.piece.singular) is being promoted to its own project \u{2014} try again in a moment."
+        return "This \(noun.singular) is being promoted to its own project \u{2014} try again in a moment."
     }
 }
 

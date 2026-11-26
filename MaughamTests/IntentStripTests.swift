@@ -285,7 +285,7 @@ final class IntentStripTests: XCTestCase {
         try await write("The chapter's own.", intentFor: .document(chapter.id), in: store)
 
         XCTAssertEqual(
-            IntentStrip.line(store: store, docId: chapter.id,
+            IntentStrip.line(store: store,
                              subject: SubjectSamples.opened(.item(chapter.id)), isNoChromeOn: false),
             "The chapter's own.")
     }
@@ -295,14 +295,14 @@ final class IntentStripTests: XCTestCase {
         try await write("The project's own.", intentFor: .project, in: store)
 
         XCTAssertEqual(
-            IntentStrip.line(store: store, docId: chapter.id,
+            IntentStrip.line(store: store,
                              subject: SubjectSamples.opened(.item(chapter.id)), isNoChromeOn: false),
             "The project's own.")
     }
 
     func test_neitherScopeHasOneAndThereIsNoStrip() async throws {
         let (_, store, chapter) = try await novelWithChapter(named: "StripNeither")
-        XCTAssertNil(IntentStrip.line(store: store, docId: chapter.id,
+        XCTAssertNil(IntentStrip.line(store: store,
                                       subject: SubjectSamples.opened(.item(chapter.id)), isNoChromeOn: false))
     }
 
@@ -358,13 +358,13 @@ final class IntentStripTests: XCTestCase {
 
         document.setFullText("First thought.")
         XCTAssertEqual(
-            IntentStrip.line(store: store, docId: chapter.id,
+            IntentStrip.line(store: store,
                              subject: SubjectSamples.opened(.item(chapter.id)), isNoChromeOn: false),
             "First thought.")
 
         document.setFullText("Second thought, typed over the first.")
         XCTAssertEqual(
-            IntentStrip.line(store: store, docId: chapter.id,
+            IntentStrip.line(store: store,
                              subject: SubjectSamples.opened(.item(chapter.id)), isNoChromeOn: false),
             "Second thought, typed over the first.",
             "the strip is showing stale text — it is not reading the live "
@@ -412,7 +412,7 @@ final class IntentStripTests: XCTestCase {
         try await write("The project's own.", intentFor: .project, in: store)
 
         XCTAssertEqual(
-            IntentStrip.line(store: store, docId: chapter.id,
+            IntentStrip.line(store: store,
                              subject: SubjectSamples.opened(.item(chapter.id)), isNoChromeOn: false),
             "The project's own.",
             "the strip stopped falling back to the project")

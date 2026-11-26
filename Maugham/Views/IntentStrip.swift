@@ -151,6 +151,10 @@ struct IntentStrip: View {
         return line(from: statementText)
     }
 
+    /// **The piece the strip and its drift mark are about: the open one**
+    /// (shell closing A2) — `WindowSubject.openDocId`, whatever the faces are on.
+    static func docId(of subject: WindowSubject) -> String { subject.openDocId }
+
     /// Whether the window shows a strip at all: its `open` is a piece — a
     /// document the editor is showing, never the Book, a Part, the canvas or
     /// an edition, whatever the faces are on.
@@ -185,12 +189,19 @@ struct IntentStrip: View {
     ///
     /// The gates are checked first so a window with no strip reads no
     /// statement at all.
+    ///
+    /// **The piece is the OPEN one, read here and never handed in** (shell
+    /// closing A2): the strip sits over the text being typed, so a Brief link
+    /// or ⌘⌥K that moved the faces must not move the line. The caller used to
+    /// pass the faces' id, and the strip quoted another piece's line — or,
+    /// with the faces on an edition, the Book's.
     @MainActor
     static func line(
-        store: ProjectStore, docId: String, subject: WindowSubject, isNoChromeOn: Bool
+        store: ProjectStore, subject: WindowSubject, isNoChromeOn: Bool
     ) -> String? {
         guard shows(subject: subject, structure: store.manifest.structure),
               !isNoChromeOn else { return nil }
+        let docId = self.docId(of: subject)
         // **The Brief in a sentence** (shell plan 3): the piece's stored line
         // (`StructureItem.synopsis`) wins, and the intent's opening is the
         // fallback — `BriefLine.display`, the one rule the corkboard, the

@@ -218,7 +218,10 @@ struct CollectionPiecesPane: View {
                 // Tags…, Link to Another Piece…, Publishing… (shell p3 Task 8).
                 PieceRowMenuButtons(item: piece, verbs: verbs, state: treeState,
                                     offersTarget: PieceRowMenus.target(for: piece, store: store) != nil,
-                                    noun: PieceNoun.of(piece, in: store.manifest))
+                                    // The project's noun, not the row's: the
+                                    // link may go to any piece, prose or script
+                                    // (shell closing A9).
+                                    noun: PieceNoun.of(nil, in: store.manifest))
                 if verbs.delete {
                     Divider()
                     Button("Delete", role: .destructive) {

@@ -184,7 +184,7 @@ final class ResolveVerbGateTests: XCTestCase {
             createdBySession: nil, status: .accepted, userResponse: nil,
             resolvedAt: nil, isStale: false)
 
-        await noteVerbs(store, documentStore).keepAsLesson(note, heading: "Vary the opening.").value
+        await noteVerbs(store, documentStore).keepAsLesson(note, docId: "ch-1", heading: "Vary the opening.").value
 
         XCTAssertEqual(LessonsLedger.open(in: LessonLedgerVerbs.ledgerText(store: store) ?? ""),
                        ["Vary the opening."], "the lesson is in the ledger")

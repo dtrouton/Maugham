@@ -638,7 +638,7 @@ final class ResearchSubjectRoutingTests: XCTestCase {
     /// always be cleared and the refusal has nothing left to protect. What is
     /// asserted instead is the pair that matters: **the region inspector is
     /// there with no research subject in force, and the preview is what takes
-    /// the column when one arrives** — which is `besideTheCanvas`'s whole
+    /// the column when one arrives** — which is `pulledUp`'s whole
     /// contract, and the reason it is not a regression is
     /// `ProjectSubjectReachabilityTests`, which drives the tree row that gives
     /// the column back.
@@ -685,7 +685,7 @@ final class ResearchSubjectRoutingTests: XCTestCase {
         XCTAssertFalse(
             textFields(in: mount.window).contains { $0.stringValue == Self.regionLabel },
             "and a research subject takes the right column — that is what "
-            + "`besideTheCanvas` means, and a tree row is what gives it back")
+            + "`pulledUp` means, and a tree row is what gives it back")
     }
 
     /// **A palette card previewed beside the canvas is a CARD** (finding I3).

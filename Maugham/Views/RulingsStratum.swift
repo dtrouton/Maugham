@@ -641,6 +641,7 @@ struct RulingOrigin {
     let title: String
     let open: (() -> Void)?
 
-    /// "Open “Arrival”’s Brief" — the origin by its own title.
-    var openHelp: String { "Open \u{201C}\(title)\u{201D}\u{2019}s Brief" }
+    /// "Open the Brief of “Arrival”" — the origin by its own title (shell
+    /// closing A9: a possessive after a closing quote reads badly).
+    var openHelp: String { "Open the Brief of \u{201C}\(title)\u{201D}" }
 }

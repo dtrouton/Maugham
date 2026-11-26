@@ -19,7 +19,7 @@ final class FigureSubjectPlacementTests: XCTestCase {
             subject: SubjectSamples.opened(.figure("f1"))), .takesTheCentre("f1"))
         XCTAssertEqual(ProjectWindow.figureSubjectPlacement(
             subject: WindowSubject(open: .canvas, faces: .canvas, beside: .figure("f1"))),
-                       .besideTheCanvas("f1"))
+                       .pulledUp("f1"))
         // Only a figure moves anything: every other kind, in either place.
         for open in SubjectSamples.everyOpen where open.figureID == nil {
             XCTAssertEqual(ProjectWindow.figureSubjectPlacement(

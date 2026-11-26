@@ -305,7 +305,7 @@ final class PeopleAndDevicesOneWriterTests: XCTestCase {
         let older = try XCTUnwrap(model.olderHistory)
         XCTAssertEqual(older.sources.count, 5, "\(older.sources)")
         XCTAssertTrue(older.sources.contains("edits made through MCP"))
-        XCTAssertTrue(older.sources.contains("the task rebalance"))
+        XCTAssertTrue(older.sources.contains("the to-do rebalance"))
         XCTAssertTrue(older.sources.contains {
             $0.contains("denvers-macbook-air-loca") }, "\(older.sources)")
         XCTAssertTrue(older.sources.contains { $0.contains("phone") })

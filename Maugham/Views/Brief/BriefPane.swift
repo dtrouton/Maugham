@@ -94,7 +94,7 @@ struct BriefPane: View {
         _contents = State(initialValue: .empty(scope))
     }
 
-    static let elsewhereLine = "This belongs to another project. Its brief is that project's."
+    static let elsewhereLine = "It belongs to another project. Its brief is that project's."
     static let outsideLine = "Brief holds what a piece, a Part, the Book or an edition is held to. Choose one in the binder."
 
     var body: some View {

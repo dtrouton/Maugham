@@ -598,7 +598,7 @@ public final class JSONLAppendStore<Element: Codable & Sendable> {
             case .translator:
                 return "written by the translation pipeline, which writes only translations"
             case .maugham:
-                return "written by this app's own housekeeping, which writes only task order"
+                return "written by this app's own housekeeping, which writes only to-do order"
             case .author:
                 break
             }
@@ -609,7 +609,7 @@ public final class JSONLAppendStore<Element: Codable & Sendable> {
         case .disposition: clause = "a decision on a note"
         case .passState: clause = "a review pass set"
         case .statement: clause = "written into this book's own statements"
-        case .task: clause = "a task written"
+        case .task: clause = "a to-do written"
         case .translation: clause = "a translation written"
         case .figure: clause = "a table or figure changed"
         case .other: clause = "written"

@@ -423,7 +423,7 @@ extension LessonOffer {
     /// not read under the first one's refusal.
     @MainActor
     static func handlers(
-        letter: Letter, run: CompilerRun?,
+        letter: Letter, run: CompilerRun?, docId: String?,
         store: ProjectStore?, world: DeclaredWorldStore?,
         voice: String,
         postureOf: (Statement.Kind, Statement.Scope) -> Posture,
@@ -445,7 +445,7 @@ extension LessonOffer {
                 onAllChoices: nil, onRetire: nil)
         }
         let provenance = LessonLedgerVerbs.provenance(
-            voice: voice, lane: LetterKeep.laneLine(for: run, store: store))
+            voice: voice, lane: LetterKeep.laneLine(for: run, docId: docId, store: store))
         // One wrapper for all three, so the refusal channel, the log line and
         // the re-read cannot be wired differently for one verb than another.
         // `write` hands back where it filed, nil for a verb that files

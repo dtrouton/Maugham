@@ -142,7 +142,7 @@ struct PieceRowMenuButtons: View {
     var offersTarget: Bool = false
     /// False for a screenplay's one script.
     var offersLinks: Bool = true
-    /// The project's word for this piece (`PieceNoun`), for "Link to Another …".
+    /// The project's word for what a link goes to (`PieceNoun`), for "Link to Another …".
     var noun: PieceNoun = .piece
 
     var body: some View {

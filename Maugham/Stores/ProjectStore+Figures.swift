@@ -791,6 +791,9 @@ extension ProjectStore {
             throw ProjectStoreError.fileSystemError("Piece not found: \(pieceId)")
         }
         let refs = FigureCarry.references(inText: try figureReadingText(docId: pieceId, path: path))
+        // The piece's own noun in the refusals (shell closing A9): a script
+        // in a Collection says "script".
+        let noun = PieceNoun.of(TreeWalk.find(id: pieceId, in: manifest.structure), in: manifest)
 
         let trust = try TrustResolution.resolve(
             projectURL: url, identities: Document.loadIdentities, cache: Document.loadRegistryCache)
@@ -850,7 +853,7 @@ extension ProjectStore {
         guard newer.isEmpty else {
             throw FigureEditInvalid(reason: "A newer Maugham made "
                 + newer.map(\.name).joined(separator: ", ")
-                + ", so this \(PieceNoun.piece.singular) can't be promoted until this Mac is updated.")
+                + ", so this \(noun.singular) can't be promoted until this Mac is updated.")
         }
         // A figure that stays in the Collection — not carried, or carried as
         // a copy — parked on a working copy the promotion carries would be
@@ -863,7 +866,7 @@ extension ProjectStore {
         }
         if let first = strandable.first {
             throw FigureEditInvalid(
-                reason: "\(first.name) is parked in this \(PieceNoun.piece.singular)\u{2019}s Research; bring it back before promoting.")
+                reason: "\(first.name) is parked in this \(noun.singular)\u{2019}s Research; bring it back before promoting.")
         }
         // The piece's own figure — moved, or copied because something
         // staying reads it — parked on a working copy that does not go with
@@ -873,7 +876,7 @@ extension ProjectStore {
             states[record.id]?.parked.map { !carriedResearch.contains($0.itemId ?? "") } == true
         }) {
             throw FigureEditInvalid(
-                reason: "\(first.name) is in Research outside this \(PieceNoun.piece.singular); bring it back before promoting.")
+                reason: "\(first.name) is in Research outside this \(noun.singular); bring it back before promoting.")
         }
         let skipped = carry.copied.filter { !FigureCarry.canRecreate($0, state: states[$0.id]) }
         let copied = carry.copied.filter { FigureCarry.canRecreate($0, state: states[$0.id]) }

@@ -104,9 +104,11 @@ struct BinderTreeSections: View {
                 // derivation per manifest, cached (tripwire 4).
                 let homes = state.researchHomes(in: store.manifest)
                 let roots = homes.wholeBook
+                let noun = PieceNoun.of(nil, in: store.manifest)
                 if roots.isEmpty {
                     placeholder(Self.emptyResearchText(
-                        anyUnderAPiece: !homes.pieceOrder.allSatisfy { homes.foldRoots(of: $0).isEmpty }),
+                        anyUnderAPiece: !homes.pieceOrder.allSatisfy { homes.foldRoots(of: $0).isEmpty },
+                        underAPiece: homes.underAPiece, noun: noun),
                                 onDrop: { ids in
                         sharedSectionDrop(ids)
                     }, onExternalDrop: { providers in
@@ -142,6 +144,17 @@ struct BinderTreeSections: View {
                             // cards are; on the node, so a group's own
                             // children move with it.
                             .padding(.leading, ProjectRowLabel.childIndent)
+                    }
+                    // **Where the rest went** (shell closing A8): one quiet
+                    // line at the foot, from the cached homes' count.
+                    if let elsewhere = Self.researchElsewhereText(underAPiece: homes.underAPiece,
+                                                                  noun: noun) {
+                        placeholder(elsewhere, onDrop: { ids in
+                            sharedSectionDrop(ids)
+                        }, onExternalDrop: { providers in
+                            sharedSectionExternalDrop(providers)
+                        }, answers: { verbs.dropAnswers(on: .sharedSection) })
+                        .padding(.leading, ProjectRowLabel.childIndent)
                     }
                 }
             }
@@ -489,9 +502,27 @@ struct BinderTreeSections: View {
     /// `BinderView`'s old empty-state row, macOS 26.5 — which would blank the
     /// centre column every time a writer clicked "No research yet."
     /// The empty Research section's line: none yet, or — every item being
-    /// some piece's (shell p5 Task 4a) — none that is the whole book's.
-    static func emptyResearchText(anyUnderAPiece: Bool) -> String {
-        anyUnderAPiece ? "No whole-book research." : "No research yet."
+    /// some piece's (shell p5 Task 4a) — none that is the whole book's, and
+    /// where the notes went (shell closing A8).
+    static func emptyResearchText(anyUnderAPiece: Bool, underAPiece: Int, noun: PieceNoun) -> String {
+        guard anyUnderAPiece else { return "No research yet." }
+        return (["No whole-book research."]
+                + [researchElsewhereText(underAPiece: underAPiece, noun: noun)].compactMap { $0 })
+            .joined(separator: " ")
+    }
+
+    /// **The Research section's foot: how many notes are in the folds**
+    /// (shell closing A8) — in an older project every note linked to a
+    /// chapter left the section for that chapter's fold, and nothing on
+    /// screen said so. Nil with none; the project's noun (`PieceNoun`).
+    static func researchElsewhereText(underAPiece count: Int, noun: PieceNoun) -> String? {
+        switch count {
+        case ..<1: return nil
+        case 1:
+            return "1 note is with its \(noun.singular) \u{2014} open the \(noun.singular)\u{2019}s fold to see it."
+        default:
+            return "\(count) notes are with their \(noun.plural) \u{2014} open a \(noun.singular)\u{2019}s fold to see them."
+        }
     }
 
     private func placeholder(

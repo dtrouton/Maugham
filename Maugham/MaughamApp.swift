@@ -289,6 +289,20 @@ struct MaughamApp: App {
             AcknowledgementsWindow()
         }
         .windowResizability(.contentMinSize)
+
+        // Help's two sheets with no project window in front (shell closing
+        // A5): first run has only the Welcome window, and the guide's first
+        // setup step is Help ▸ Set up Claude Desktop…. With a project window
+        // in front they stay that window's sheets (`HelpSheetRoute`).
+        Window(SyntaxHelpSheet.title, id: HelpSheetRoute.Item.syntax.windowID) {
+            SyntaxHelpSheet(format: HelpSheetRoute.windowlessSyntaxFormat)
+        }
+        .windowResizability(.contentMinSize)
+
+        Window("Set up Claude Desktop", id: HelpSheetRoute.Item.claudeDesktop.windowID) {
+            HelpClaudeDesktopSheet()
+        }
+        .windowResizability(.contentMinSize)
     }
 
     @MainActor
@@ -448,6 +462,9 @@ struct FigureTableMenuModifier: ViewModifier {
 /// has the keys (R7d-1, `FigureGridView.performKeyEquivalent`).
 private struct FigureTableMenuButtons: View {
     @FocusedValue(\.figureTableMenu) private var menu
+    /// The front window's project noun: Send to Research's title with no
+    /// grid in front (shell closing A9), never a generic "Piece".
+    @FocusedValue(\.windowChrome) private var chrome
     var body: some View {
         ForEach(Array(FigureTableMenu.sections.enumerated()), id: \.offset) { index, section in
             if index > 0 { Divider() }
@@ -495,7 +512,9 @@ private struct FigureTableMenuButtons: View {
     }
 
     private func button(_ command: FigureTableCommand) -> some View {
-        Button(command.title(menu?.noun ?? .piece)) { MaughamEvent.postFigureTableCommand(command) }
+        Button(command.title(menu?.noun ?? chrome?.pieceNoun ?? .piece)) {
+            MaughamEvent.postFigureTableCommand(command)
+        }
             .disabled(menu?.isEnabled(command) != true)
     }
 
@@ -678,7 +697,7 @@ private struct FileMenuItems: View {
             MaughamEvent.post(.maughamTranslateFromMenu, to: .keyWindow)
         }
         .disabled(!enabled(chrome?.translate != nil))
-        .help(chrome?.translate == nil ? TranslateMenuOffer.elsewhereHelp : "")
+        .help(chrome?.translate == nil ? (chrome?.translateGreyHelp ?? TranslateMenuOffer.elsewhereHelp) : "")
         Divider()
         // New things (rows 10, 11, 14, 16).
         Button("Add Research File…") {
@@ -1090,6 +1109,11 @@ struct WindowChrome: Equatable {
     var opensInCentre = false
     /// Row 7: the translator's round the window offers, nil with none.
     var translate: TranslateMenuOffer? = nil
+    /// Row 7's tooltip while grey: why (`TranslateMenuOffer.greyHelp`).
+    var translateGreyHelp: String = TranslateMenuOffer.elsewhereHelp
+    /// The project's noun (`PieceNoun.of(nil, in:)`), for a menu title with
+    /// no piece of its own in front (Format ▸ Table ▸ Send to Research).
+    var pieceNoun: PieceNoun? = nil
 }
 
 /// **File ▸ Translate This Chapter into Serbian / Translate Whole Book into
@@ -1110,6 +1134,17 @@ enum TranslateMenuOffer: Equatable {
     /// What the grey item says about itself (fix round 1, M6).
     static let elsewhereHelp = "Read a piece in a language, or face a translated edition, to translate it"
 
+    /// **What the grey item says while a round runs** (shell closing A6):
+    /// which round, so the writer knows the item is waiting, not refusing.
+    static func greyHelp(running: TranslationPipeline.Status, noun: PieceNoun,
+                         titleOf: (String) -> String?) -> String {
+        guard case .running(let docId, let language, _, let book) = running else { return elsewhereHelp }
+        let title = titleOf(docId).map { "\u{201C}\($0)\u{201D}" } ?? "another \(noun.singular)"
+        let progress = book.map { ", \($0.position) of \($0.count)" } ?? ""
+        return "A round is running (\(title) into \(LanguageName.title(language))\(progress)); "
+            + "Translate is offered again when it ends"
+    }
+
     var title: String {
         switch self {
         case .piece(_, let noun, let language):
@@ -1122,17 +1157,23 @@ enum TranslateMenuOffer: Equatable {
     /// The offer at `scope`: a piece read in a language, open in the centre
     /// (the head's Run needs it open) and this Mac's translator's to
     /// translate; a translated edition where the translator may translate
-    /// any of it. Nothing anywhere else.
+    /// the pieces its head would run (`mayTranslateBook` over the scope's
+    /// documents — the head's own imprint-scoped rule, shell closing A6).
+    /// Nothing anywhere else, and nothing while the one pipeline runs a round
+    /// (`running`): the head refuses then, and the menu says why instead
+    /// (`greyHelp`), never "nothing here it may translate".
     static func of(scope: ResolveScope, isOpen: (String) -> Bool, structure: [StructureItem],
                    book: PieceNoun.Book, mayTranslate: (String) -> Bool,
-                   mayTranslateAny: @autoclosure () -> Bool) -> TranslateMenuOffer? {
+                   mayTranslateBook: ([String]) -> Bool,
+                   running: TranslationPipeline.Status = .idle) -> TranslateMenuOffer? {
+        if case .running = running { return nil }
         switch scope {
         case .pieceInLanguage(let docId, let language):
             guard isOpen(docId), mayTranslate(docId) else { return nil }
             return .piece(docId: docId, noun: PieceNoun.of(TreeWalk.find(id: docId, in: structure), in: book),
                           language: language)
-        case .edition(let language, let isSource, _):
-            return !isSource && mayTranslateAny() ? .book(language: language) : nil
+        case .edition(let language, let isSource, let docIds):
+            return !isSource && mayTranslateBook(docIds) ? .book(language: language) : nil
         case .piece, .pieces, .figure, .outside, .elsewhere:
             return nil
         }
@@ -1209,7 +1250,7 @@ private struct HelpCommands: Commands {
             }
             Divider()
             // Row 56: the sheet has a Keyboard tab, and reference.md sends
-            // readers there for keys. Both sheets open on a project window.
+            // readers there for keys. Both open with or without a project.
             HelpWindowItems()
             Divider()
             Button("Acknowledgements") { openWindow(id: "acknowledgements") }
@@ -1217,23 +1258,66 @@ private struct HelpCommands: Commands {
     }
 }
 
-/// Help's two items that open a sheet on the project window in front —
-/// disabled with none (row 57).
+/// **Where Help's two sheets open** (shell closing A5, amending row 57's
+/// "disabled with none in front"): on the project window in front, as its
+/// sheet, exactly as before; with none — first run's Welcome window, Help,
+/// Statistics — in a small window of their own, so the guide's first setup
+/// step works before any project exists. Pure, and pinned by
+/// `MenuBarCensusTests.test_helpsTwoSheetsOpenWithNoProjectWindow`.
+enum HelpSheetRoute: Equatable {
+    case projectWindowSheet
+    case ownWindow(id: String)
+
+    enum Item: CaseIterable {
+        case syntax, claudeDesktop
+
+        var title: String {
+            switch self {
+            case .syntax: return SyntaxHelpSheet.title
+            case .claudeDesktop: return "Set up Claude Desktop…"
+            }
+        }
+
+        /// The scene id of the item's own window.
+        var windowID: String {
+            switch self {
+            case .syntax: return "syntax-help"
+            case .claudeDesktop: return "claude-desktop-setup"
+            }
+        }
+    }
+
+    /// With no project there is no open piece: the syntax sheet opens on
+    /// Markdown.
+    static let windowlessSyntaxFormat: DocumentFormat = .markdown
+
+    static func of(_ item: Item, projectWindowInFront: Bool) -> HelpSheetRoute {
+        projectWindowInFront ? .projectWindowSheet : .ownWindow(id: item.windowID)
+    }
+
+    /// Both act anywhere, so neither is ever greyed.
+    static let scope = MenuBarAvailability.Scope.anywhere
+}
+
+/// Help's two sheet items — enabled with or without a project window
+/// (`HelpSheetRoute`); with one in front they post to it.
 private struct HelpWindowItems: View {
     @FocusedValue(\.projectURL) private var projectURL
-    private var enabled: Bool {
-        MenuBarAvailability.isEnabled(.projectWindow, projectWindowInFront: projectURL != nil)
+    @Environment(\.openWindow) private var openWindow
+
+    private func open(_ item: HelpSheetRoute.Item, posting name: Notification.Name) {
+        switch HelpSheetRoute.of(item, projectWindowInFront: projectURL != nil) {
+        case .projectWindowSheet: MaughamEvent.post(name, to: .keyWindow)
+        case .ownWindow(let id): openWindow(id: id)
+        }
     }
+
     var body: some View {
-        Button(SyntaxHelpSheet.title) {
-            MaughamEvent.post(.maughamShowSyntaxHelp, to: .keyWindow)
+        Button(SyntaxHelpSheet.title) { open(.syntax, posting: .maughamShowSyntaxHelp) }
+            .keyboardShortcut("/", modifiers: .command)
+        Button(HelpSheetRoute.Item.claudeDesktop.title) {
+            open(.claudeDesktop, posting: .maughamShowClaudeDesktopHelp)
         }
-        .keyboardShortcut("/", modifiers: .command)
-        .disabled(!enabled)
-        Button("Set up Claude Desktop…") {
-            MaughamEvent.post(.maughamShowClaudeDesktopHelp, to: .keyWindow)
-        }
-        .disabled(!enabled)
     }
 }
 

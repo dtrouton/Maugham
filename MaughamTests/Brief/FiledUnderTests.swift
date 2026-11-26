@@ -313,7 +313,7 @@ final class FiledUnderTests: XCTestCase {
         var filed: [FiledDestination] = []
         for _ in 0..<2 {
             let refusal = await QueueLedgerVerbs.keepAsLesson(
-                "Cut the adverbs.", from: note, store: store, world: nil,
+                "Cut the adverbs.", from: note, docId: nil, store: store, world: nil,
                 filedUnder: { filed.append($0) })
             XCTAssertNil(refusal)
         }

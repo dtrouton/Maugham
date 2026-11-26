@@ -226,7 +226,7 @@ enum QueueLedgerVerbs {
     /// The lane resolution is `LetterKeep.laneLine`'s, called rather than
     /// respelled: a lesson filed from the queue and a lesson filed from the
     /// letter must say the same thing about the same round.
-    static func provenance(for annotation: Annotation, store: ProjectStore) -> String {
+    static func provenance(for annotation: Annotation, docId: String?, store: ProjectStore) -> String {
         LessonLedgerVerbs.provenance(
             voice: AnnotationAuthorPresentation.label(for: annotation.author),
             lane: LetterKeep.laneLine(
@@ -237,7 +237,7 @@ enum QueueLedgerVerbs {
                 // delta, and putting it on a row filed from the queue would
                 // attribute one reading of the delta to whatever round
                 // happened to raise this note (global constraint 28).
-                stage: nil, store: store))
+                stage: nil, docId: docId, store: store))
     }
 
     // MARK: - The acts
@@ -261,7 +261,7 @@ enum QueueLedgerVerbs {
         let destination: FiledDestination
         do {
             destination = try await LessonLedgerVerbs.makeChoice(
-                heading, provenance: provenance(for: annotation, store: store),
+                heading, provenance: provenance(for: annotation, docId: document.docId, store: store),
                 store: store, world: world)
         } catch {
             return error.localizedDescription
@@ -289,7 +289,7 @@ enum QueueLedgerVerbs {
     /// is the writer-facing refusal, and this is what stops a caller filing an
     /// entry that reads as the writer's commitment to nothing.
     static func keepAsLesson(
-        _ heading: String, from annotation: Annotation,
+        _ heading: String, from annotation: Annotation, docId: String?,
         store: ProjectStore, world: DeclaredWorldStore?,
         filedUnder: (FiledDestination) -> Void = { _ in }
     ) async -> String? {
@@ -299,7 +299,7 @@ enum QueueLedgerVerbs {
         }
         do {
             filedUnder(try await LessonLedgerVerbs.keepAsLesson(
-                words, provenance: provenance(for: annotation, store: store),
+                words, provenance: provenance(for: annotation, docId: docId, store: store),
                 store: store, world: world))
         } catch {
             return error.localizedDescription

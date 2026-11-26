@@ -144,7 +144,7 @@ struct ResolveDialogs: ViewModifier {
         }
         .sheet(item: $keepLessonSheet) { target in
             LessonHeadingSheet(annotation: target.annotation) { heading in
-                verbs.keepAsLesson(target.annotation, heading: heading)
+                verbs.keepAsLesson(target.annotation, docId: target.docId, heading: heading)
                 keepLessonSheet = nil
             } onCancel: { keepLessonSheet = nil }
         }

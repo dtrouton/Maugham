@@ -164,7 +164,7 @@ public enum HeldLines {
         }
         switch head {
         case "mcp": return .beforeSigning("edits made through MCP")
-        case "rebalance": return .beforeSigning("the task rebalance")
+        case "rebalance": return .beforeSigning("the to-do rebalance")
         case "wiki-rename": return .beforeSigning("wiki-link renames")
         case "find-replace": return .beforeSigning("find and replace")
         default:

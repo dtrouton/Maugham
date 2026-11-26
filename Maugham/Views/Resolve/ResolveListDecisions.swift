@@ -617,7 +617,7 @@ extension ResolvePane {
                 return "To resolve gathers what has been raised about a piece, a Part or the Book: "
                     + "notes, checks, to-dos and questions. Choose one in the binder."
             case .elsewhere:
-                return "This belongs to another project. Open that project to see what it raises."
+                return "It belongs to another project. Open that project to see what it raises."
             case .coldStart:
                 // Never drawn: a cold start draws `DiagnosticsColdStartOffer`,
                 // which says the piece's own word.

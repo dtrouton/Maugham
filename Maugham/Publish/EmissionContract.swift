@@ -502,8 +502,7 @@ public enum EmissionContract {
     top level to restyle a piece's headings. Put the renewal **inside the \
     `\\pieceheading` hook** (or the piece environment's own body) so it is \
     scoped to where it fires — e.g. `\\renewcommand{\\pieceheading}[1]{{\\bfseries\\Large #1}\\addcontentsline{toc}{section}{#1}}`. \
-    This is a **MUST**, not a preference, and it is what tested multi-piece templates \
-    use. Reason: a real six-piece field compile once had a piece-2 style file \
+    This is a **MUST**, not a preference. Reason: a real six-piece field compile once had a piece-2 style file \
     renew `\\textbf` to a `\\marginpar{...}` at style-file top level and the \
     restyle bled into a piece **two sections later** (a fountain title block and \
     its scene headings), even though a solo compile was correct and \

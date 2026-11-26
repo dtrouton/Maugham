@@ -36,7 +36,10 @@ enum SampleProjectBuilder {
         // of user content; a copy is fine).
         try fm.copyItem(at: seed, to: dest)
         await PublishStarter.installIfMissing(into: dest)
-        try openOnFirstPiece(dest)
+        // Best-effort, as every UI-state write is: a failed seed opens the
+        // sample on the Book, and never leaves a copied sample orphaned on
+        // disk behind a thrown build (shell closing A10).
+        try? openOnFirstPiece(dest)
         return dest
     }
 

@@ -39,6 +39,20 @@ public struct WindowSubject: Equatable, Codable, Sendable {
 
     public static let book = WindowSubject(open: .project, faces: .project, beside: nil)
 
+    /// **The piece open in the centre — where the writer types** (shell p3
+    /// Task 8's status-line resolution, now the one resolution every
+    /// editor act reads: ⌘S, ⇧⌘S, ⌘⌥C, the line above the prose, ⌘/).
+    /// After a Brief link or ⌘⌥K the faces sit elsewhere; the typing does
+    /// not. `nil` when no structure item is open.
+    public func openPiece(in structure: [StructureItem]) -> StructureItem? {
+        open.itemID.flatMap { TreeWalk.find(id: $0, in: structure) }
+    }
+
+    /// The open piece's stream id, `BinderSubject.noDocumentSubject` when
+    /// nothing in the structure is open — the same conversion the faces' id
+    /// takes, over `open`.
+    public var openDocId: String { BinderSubject.activeDocId(for: open) }
+
     /// The row the writer last clicked: what is opened beside when it was
     /// written after the faces AND is a tree row, else what the faces are on.
     /// The tree draws it outlined when it is not what is open; the canvas

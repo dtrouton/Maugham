@@ -936,7 +936,7 @@ struct RunLetterSection: View {
     private func ledgerHandlers() -> LessonLedgerHandlers {
         _ = ledgerRevision
         return LessonOffer.handlers(
-            letter: letter, run: run, store: store, world: world,
+            letter: letter, run: run, docId: docId, store: store, world: world,
             voice: voice,
             postureOf: postureOf,
             onFiled: { ledgerRevision += 1 },

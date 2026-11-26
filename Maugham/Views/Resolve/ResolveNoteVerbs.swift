@@ -319,10 +319,10 @@ struct ResolveNoteVerbs {
     /// annotation op: the note is already accepted, and this is a second,
     /// independent act (`QueueLedgerVerbs.keepAsLesson`).
     @discardableResult
-    func keepAsLesson(_ ann: Annotation, heading: String) -> Task<Void, Never> {
+    func keepAsLesson(_ ann: Annotation, docId: String, heading: String) -> Task<Void, Never> {
         Task {
             ledgerNotice = await QueueLedgerVerbs.keepAsLesson(
-                heading, from: ann, store: store, world: world,
+                heading, from: ann, docId: docId, store: store, world: world,
                 filedUnder: onFiledUnder)
             letterLedgerRevision += 1
         }

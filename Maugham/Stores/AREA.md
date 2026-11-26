@@ -89,7 +89,7 @@ Everything derived lives under `.maugham/` (two exceptions below), and each path
 | `.maugham/conflicts/quarantined-ops/` | `OpLogQuarantine` (OpLog) | set-aside op-log history: a moved unreadable file (`.file`, offered back by Retry) or a copy of a run of lines this device did not write (`.lines`, content-deduped, never returned: `ReturnOutcome.setAsideByProvenance`), each with a `<name>.quarantine.json` |
 | `.maugham/conflicts/quarantine/` | `IntegrityQuarantine` (Core) | op-log lines that failed to decode, content-deduped |
 | .maugham/sessions.json | `SessionLog`, written by `DocumentStore.appendSessionEvent` | session events |
-| .maugham/ui-state.json | `UIState`, read and written by `DocumentStore` | window and pane state |
+| .maugham/ui-state.json | `UIState` (`DocumentStore`, a sample's first subject) | window and pane state |
 | `.maugham/scratch/` | `DocumentStore` (rename scratch) | transient; safe to nuke |
 | `.maugham/let-go/let-go.<slug>.jsonl` | `LetGoRecord` (written by `TrashStore.permanentlyDelete`/`sweep`) | per device: ids this device emptied, deleted or swept from Trash |
 | `.maugham/inbox/` | `InboxStore` | `inbox.<slug>.jsonl` per device, plus `text/`, `images/`, `audio/` |

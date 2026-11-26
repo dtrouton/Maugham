@@ -305,30 +305,115 @@ final class MenuBarCensusTests: XCTestCase {
     }
 
     /// **Run's four are never greyed** (`RunButtons`' standing ruling), and
-    /// every other File, Edit and View item the app adds asks the focused
-    /// window: read from the item structs' source, each `Button`/`Toggle`
-    /// followed by its own `.disabled(`, or named here with why.
+    /// every other item the app adds to a menu asks the focused window: read
+    /// from EVERY menu's item structs' source (File, Edit, View, Insert,
+    /// Format ▸ Table, the `Focused*` structs, Help — 5b M4), each
+    /// `Button`/`Toggle` followed by its own `.disabled(`, or named here with
+    /// why. The structs are found by name and shape, and the premise names
+    /// the ones that must be found, so a struct renamed out of the walk fails
+    /// rather than passing unread.
     func test_everyWindowItemAsksTheFocusedWindow() throws {
-        let app = SourceScan.codeLines(of: try SourceTree.read("Maugham/MaughamApp.swift"))
-            .map { $0.trimmingCharacters(in: .whitespaces) }.joined(separator: " ")
         let unasked: [String: String] = [
             "New Project…": "opens with or without a project",
             "Open Project…": "opens with or without a project",
             "Dump Coordinator Leak Probe (dev)": "a dev build's instrument, about every window",
+            // Help's two sheets: with no project window each opens its own
+            // window (`HelpSheetRoute`, shell closing A5).
+            "SyntaxHelpSheet.title": "opens its own window with no project (A5)",
+            "HelpSheetRoute.Item.claudeDesktop.title": "opens its own window with no project (A5)",
+            // Read In ▸ Source: gated by its enclosing `Menu`'s `.disabled`.
+            "LanguageSwitch.sourceTitle": "inside View ▸ Read In, which is disabled with no offer",
         ]
-        func items(of type: String) throws -> [String] {
-            let start = try XCTUnwrap(app.range(of: "private struct \(type): View {"))
-            let rest = app[start.upperBound...]
-            let end = rest.range(of: "private struct ")?.lowerBound ?? rest.endIndex
-            return Self.ungatedItems(in: String(rest[..<end]))
+        let structs = try Self.menuItemStructs()
+        for name in Self.menuItemStructNames {
+            XCTAssertNotNil(structs[name], "premise: the census reads \(name)")
         }
-        for type in ["FileMenuItems", "EditMenuItems", "ViewMenuItems"] {
-            XCTAssertEqual(try items(of: type).filter { unasked[$0] == nil }, [], "\(type): an item no window gates")
+        for (name, body) in structs {
+            XCTAssertEqual(Self.ungatedItems(in: body).filter { unasked[$0] == nil }, [],
+                           "\(name): an item no window gates")
         }
+        let app = try Self.joinedCode("Maugham/MaughamApp.swift")
         let runs = try XCTUnwrap(app.range(of: "private struct RunButtons: View {"))
         let runEnd = try XCTUnwrap(app.range(of: "private struct EditMenuItems", range: runs.upperBound..<app.endIndex))
         let runBody = app[runs.upperBound..<runEnd.lowerBound]
         XCTAssertFalse(runBody.contains(".disabled("), "Run's four are never greyed")
+    }
+
+    /// The item structs every menu mounts — the premise list; the walk below
+    /// finds them, and any further struct of the same shape, by name.
+    static let menuItemStructNames: Set<String> = [
+        "FileMenuItems", "EditMenuItems", "ViewMenuItems", "InsertMenuButtons",
+        "FigureTableMenuButtons", "FocusedPullUpPreviousButton", "FocusedEditionResolveButton",
+        "FocusedPieceFoldButton", "FocusedReadThroughItem", "HelpWindowItems",
+        "FocusedReadingItems", "FocusedMarginItems", "FocusedCentreViewItems",
+    ]
+
+    /// The files the menus' item structs live in.
+    static let menuItemSources = [
+        "Maugham/MaughamApp.swift", "Maugham/Views/LanguageSwitch.swift",
+        "Maugham/Views/EditorControlMirror.swift", "Maugham/Views/CentreViewSwitch.swift",
+    ]
+
+    static func joinedCode(_ path: String) throws -> String {
+        SourceScan.codeLines(of: try SourceTree.read(path))
+            .map { $0.trimmingCharacters(in: .whitespaces) }.joined(separator: " ")
+    }
+
+    /// Every `struct <Name>: View {` in `menuItemSources` whose name is a menu
+    /// item struct's shape (`Focused…`, `…MenuItems`, `…MenuButtons`,
+    /// `HelpWindowItems`), sliced to the next struct declaration.
+    static func menuItemStructs() throws -> [String: String] {
+        menuItemStructs(in: try menuItemSources.map(joinedCode))
+    }
+
+    static func menuItemStructs(in codes: [String]) -> [String: String] {
+        let decl = try! NSRegularExpression(
+            pattern: #"(?:(?:private|fileprivate) )?struct (Focused\w+|\w+MenuItems|\w+MenuButtons|HelpWindowItems): View \{"#)
+        let anyStruct = try! NSRegularExpression(pattern: #"(?:(?:private|fileprivate) )?struct \w+"#)
+        var out: [String: String] = [:]
+        for code in codes {
+            let ns = code as NSString
+            for match in decl.matches(in: code, range: NSRange(location: 0, length: ns.length)) {
+                let start = match.range.location + match.range.length
+                let next = anyStruct.firstMatch(in: code, range: NSRange(location: start, length: ns.length - start))
+                let end = next?.range.location ?? ns.length
+                out[ns.substring(with: match.range(at: 1))] = ns.substring(with: NSRange(location: start, length: end - start))
+            }
+        }
+        return out
+    }
+
+    /// The control for the walk over every menu's structs (5b M4): an ungated
+    /// item planted in a `Focused*` struct is found under that struct, and a
+    /// struct of another shape is not read.
+    func test_theStructWalkFindsAnUngatedItemInAFocusedStruct() {
+        let planted = #"struct FocusedPlantedItems: View { var body: some View { Button("Planted") { x() } } } private struct Unrelated: View { var body: some View { Button("Elsewhere") { } } }"#
+        let structs = Self.menuItemStructs(in: [planted])
+        XCTAssertEqual(Set(structs.keys), ["FocusedPlantedItems"])
+        XCTAssertEqual(Self.ungatedItems(in: structs["FocusedPlantedItems"] ?? ""), ["Planted"])
+    }
+
+    /// **Help's two sheets open with no project window** (shell closing A5):
+    /// with one in front they are its sheets, as before; with none each opens
+    /// its own window scene, and neither is ever greyed. The syntax sheet with
+    /// no project opens on Markdown.
+    func test_helpsTwoSheetsOpenWithNoProjectWindow() {
+        for item in HelpSheetRoute.Item.allCases {
+            XCTAssertEqual(HelpSheetRoute.of(item, projectWindowInFront: true), .projectWindowSheet)
+            XCTAssertEqual(HelpSheetRoute.of(item, projectWindowInFront: false), .ownWindow(id: item.windowID))
+        }
+        XCTAssertTrue(MenuBarAvailability.isEnabled(HelpSheetRoute.scope, projectWindowInFront: false))
+        XCTAssertEqual(HelpSheetRoute.windowlessSyntaxFormat, .markdown)
+        XCTAssertNotEqual(HelpSheetRoute.Item.syntax.windowID, HelpSheetRoute.Item.claudeDesktop.windowID)
+    }
+
+    /// The scenes exist: each item's window id is a `Window` scene the app
+    /// declares, so `openWindow(id:)` reaches a window and not nothing.
+    func test_eachHelpSheetsWindowIsAScene() throws {
+        let app = try SourceTree.read("Maugham/MaughamApp.swift")
+        for item in ["HelpSheetRoute.Item.syntax.windowID", "HelpSheetRoute.Item.claudeDesktop.windowID"] {
+            XCTAssertTrue(app.contains("id: \(item)) {"), "no Window scene for \(item)")
+        }
     }
 
     /// The `Button(`/`Toggle(` items in `body` — whatever their title, a
@@ -489,7 +574,7 @@ final class MenuBarCensusTests: XCTestCase {
         XCTAssertEqual(TranslateMenuOffer.elsewhereTitle, "Translate\u{2026}")
         let app = SourceScan.codeLines(of: try SourceTree.read("Maugham/MaughamApp.swift"))
             .map { $0.trimmingCharacters(in: .whitespaces) }.joined(separator: " ")
-        XCTAssertTrue(app.contains("MaughamEvent.post(.maughamTranslateFromMenu, to: .keyWindow) } .disabled(!enabled(chrome?.translate != nil)) .help(chrome?.translate == nil ? TranslateMenuOffer.elsewhereHelp : \"\")"))
+        XCTAssertTrue(app.contains("MaughamEvent.post(.maughamTranslateFromMenu, to: .keyWindow) } .disabled(!enabled(chrome?.translate != nil)) .help(chrome?.translate == nil ? (chrome?.translateGreyHelp ?? TranslateMenuOffer.elsewhereHelp) : \"\")"))
         XCTAssertEqual(ResolvePane.apply(.translate(.book(language: "sr")), groups: [], sceneIndex: nil, chips: [],
                                          activePassId: nil, dense: false, selection: [.mine], choices: [:]).selection,
                        [.mine], "the list's selection is not the translate ask's")

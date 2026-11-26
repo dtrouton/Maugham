@@ -278,7 +278,7 @@ final class WiringCensusTests: XCTestCase {
               ["verbs.reject(target.document, target.annotation, reason: reason)",
                "verbs.replyToQuery(target.document, target.annotation, reply: reply)",
                "verbs.answerAsRuling(target.document, target.annotation, answer: answer)",
-               "verbs.keepAsLesson(target.annotation, heading: heading)",
+               "verbs.keepAsLesson(target.annotation, docId: target.docId, heading: heading)",
                "Task { await verbs.performAccept(target.document, target.annotation) }",
                "verbs.performRevert(target.document, target.annotation)",
                "verbs.editOwn(target.document, target.annotation,",

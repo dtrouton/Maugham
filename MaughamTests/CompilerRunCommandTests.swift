@@ -681,12 +681,27 @@ final class CompilerRunCommandTests: XCTestCase {
                        .init(docId: docId, kind: .check, freshEyes: false))
         XCTAssertEqual(CompilerRunModifier.request(.runRound, subject: subject, structure: []),
                        .init(docId: docId, kind: .round, freshEyes: false))
-        // The faces win over an open piece; an open piece answers when the
-        // faces name none.
-        XCTAssertEqual(CompilerRunModifier.runDocId(
-            for: WindowSubject(open: .item("OPEN"), faces: .item(docId)), structure: []), docId)
+        // An open piece answers when the faces name none.
         XCTAssertEqual(CompilerRunModifier.runDocId(
             for: WindowSubject(open: .item(docId), faces: .project), structure: []), docId)
+    }
+
+    /// **⌘R checks the piece being typed in** (shell closing A3): after a
+    /// Brief link or ⌘⌥K the faces sit on another piece or an edition while
+    /// the writer types in the open one — the open piece wins, so ⌘R never
+    /// says "open the piece first" inside the piece the writer is typing in.
+    func test_anOpenPieceWinsOverTheFaces() {
+        for faces in [BinderSubject.item("OTHER"), .edition(language: "sr"), .project] {
+            let subject = WindowSubject(open: .item(docId), faces: faces)
+            XCTAssertEqual(CompilerRunModifier.runDocId(for: subject, structure: []), docId,
+                           "open piece, faces on \(faces)")
+            for command in RunCommand.allCases {
+                XCTAssertEqual(CompilerRunModifier.decision(
+                    command, subject: subject, structure: [], isDocumentOpen: { $0 == self.docId }),
+                    .run(.init(docId: docId, kind: command.kind, freshEyes: command.isFreshEyes)),
+                    "\(command) in the open piece, faces on \(faces)")
+            }
+        }
     }
 
     /// **A run whose piece is not open says so** (shell p1 final fix, I2):

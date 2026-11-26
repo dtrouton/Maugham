@@ -44,10 +44,10 @@ final class PlanBinderTabTests: XCTestCase {
     /// rename.
     func test_tabGoesToTheCanvasOnlyBesideOneAndNeverDuringARename() {
         for open in SubjectSamples.everyOpen {
-            let besideTheCanvas = open == .canvas
-            let keyboard = TreeCanvasKeyboard(tabReachesTheCanvas: besideTheCanvas)
+            let pulledUp = open == .canvas
+            let keyboard = TreeCanvasKeyboard(tabReachesTheCanvas: pulledUp)
             XCTAssertEqual(keyboard.tabGoesToTheCanvas(modifiers: [], renamingRow: nil, renamingInSections: nil),
-                           besideTheCanvas, "\(open)")
+                           pulledUp, "\(open)")
             XCTAssertFalse(keyboard.tabGoesToTheCanvas(modifiers: [], renamingRow: "d1", renamingInSections: nil),
                            "\(open): Tab left a chapter's rename")
             XCTAssertFalse(keyboard.tabGoesToTheCanvas(modifiers: [], renamingRow: nil, renamingInSections: "r1"),

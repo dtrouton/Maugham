@@ -1203,7 +1203,7 @@ final class StatementPaneStrataTests: XCTestCase {
         try await RulingPerformer.rule("Kelly never lies", provenance: "from a run",
                                        kind: .intent, forScope: scope, store: fixture.store, world: nil)
         XCTAssertNil(
-            IntentStrip.line(store: fixture.store, docId: fixture.documentItemId,
+            IntentStrip.line(store: fixture.store,
                              subject: SubjectSamples.opened(.item(fixture.documentItemId)),
                              isNoChromeOn: false),
             "the running head quoted a ruling")
@@ -1214,7 +1214,7 @@ final class StatementPaneStrataTests: XCTestCase {
                                       into: markdown)
         }
         XCTAssertEqual(
-            IntentStrip.line(store: fixture.store, docId: fixture.documentItemId,
+            IntentStrip.line(store: fixture.store,
                              subject: SubjectSamples.opened(.item(fixture.documentItemId)),
                              isNoChromeOn: false),
             "A woman who hears everything.")

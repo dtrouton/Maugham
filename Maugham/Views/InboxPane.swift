@@ -14,9 +14,6 @@ import MaughamCore
 struct InboxPane: View {
     @Bindable var store: InboxStore
     let projectStore: ProjectStore
-    /// Active manuscript document — target of the fast "Promote to Research
-    /// for [title]" path. Nil (or an invalid target) hides that menu item.
-    let activeDocumentId: String?
     /// True when local transcription is available (Apple Silicon). Gates the
     /// "Transcribe Again" affordance — there's no transcriber on Intel.
     let canTranscribe: Bool
@@ -549,11 +546,6 @@ struct InboxPane: View {
         }
         .contextMenu {
             Button("Promote to \(FigureResearchDestination.wholeBookTitle)") { promote(entry, scope: .shared) }
-            if let target = activePromoteTarget {
-                Button("Promote to Research for “\(target.title)”") {
-                    promote(entry, scope: .document(target.id))
-                }
-            }
             Button("Promote to Research for…") { promotePicking = entry }
             Divider()
             if let card = matchingPaletteCard(for: entry) {
@@ -668,13 +660,6 @@ struct InboxPane: View {
         return projectStore.paletteCardItems().first {
             $0.title.caseInsensitiveCompare(subject) == .orderedSame
         }
-    }
-
-    private var activePromoteTarget: StructureItem? {
-        guard let id = activeDocumentId,
-              projectStore.isResearchScopeTarget(id) else { return nil }
-        return TreeWalk.collect(
-            in: projectStore.manifest.structure, where: { $0.id == id }).first
     }
 
     // MARK: - Row presentation

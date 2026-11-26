@@ -73,9 +73,9 @@ enum LetterKeep {
     /// **The stage comes off the letter's own stamp** (P3 Task 5), never
     /// re-derived: a note kept six months later names the stage the run
     /// derived, not whatever the document has become since.
-    static func laneLine(for run: CompilerRun, store: ProjectStore) -> String {
+    static func laneLine(for run: CompilerRun, docId: String?, store: ProjectStore) -> String {
         laneLine(passId: run.passId, round: run.round,
-                 stage: run.letter?.draftStage, store: store)
+                 stage: run.letter?.draftStage, docId: docId, store: store)
     }
 
     /// The same lane, for a caller holding a NOTE rather than a run — the
@@ -91,8 +91,13 @@ enum LetterKeep {
     /// run has a letter and the letter has a stamp; an ANNOTATION has a pass
     /// and a round and nothing about the writer's delta, so the queue's door
     /// passes `nil` and the row it files names no stage (global constraint 28).
+    ///
+    /// **`docId` names the piece, so the noun is the piece's own** (shell
+    /// closing A9): a script in a Collection reads "reads this script" here
+    /// as the check head does (`DiagnosticsPaneHeader.noun`); nil is a piece
+    /// in general.
     static func laneLine(
-        passId: String?, round: Int?, stage: DraftStage?, store: ProjectStore
+        passId: String?, round: Int?, stage: DraftStage?, docId: String?, store: ProjectStore
     ) -> String {
         guard let passId,
               let pass = ReviewPass.pass(
@@ -106,7 +111,8 @@ enum LetterKeep {
         // one — and her PASS name never, on either.
         let name = pass.effectiveEditorName
         guard let round else {
-            return CheckNarrative.readerCopy(for: .coach(pass), noun: PieceNoun.of(nil, in: store.manifest))
+            let piece = docId.flatMap { TreeWalk.find(id: $0, in: store.manifest.structure) }
+            return CheckNarrative.readerCopy(for: .coach(pass), noun: PieceNoun.of(piece, in: store.manifest))
         }
         return "\(name) \u{00b7} round \(round)\(word)"
     }
@@ -142,7 +148,7 @@ enum LetterKeep {
     ) async throws -> ResearchItem {
         let rendered = LetterMarkdown.render(
             letter, editorName: editorName,
-            laneLine: laneLine(for: run, store: store), at: run.at)
+            laneLine: laneLine(for: run, docId: docId, store: store), at: run.at)
         let created = try await store.createResearchNote(
             scope: .document(docId), title: rendered.title)
         guard let path = created.path else {

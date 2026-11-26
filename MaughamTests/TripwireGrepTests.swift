@@ -14680,7 +14680,7 @@ extension TripwireGrepTests {
             "let encoder = JSONEncoder()",
             "try encoder.encode(linkFile).write(to: linkURL, options: .atomic)",
         ]),
-        "DocumentStore.swift": ("the sessions log and ui-state.json, never the manifest", [
+        "DocumentStore.swift": ("the sessions log, never the manifest (ui-state.json is `UIState.write`'s)", [
             "let encoder = JSONEncoder()",
             "let data = try encoder.encode(next)",
         ]),

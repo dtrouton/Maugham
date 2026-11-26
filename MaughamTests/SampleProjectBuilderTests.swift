@@ -100,6 +100,14 @@ final class SampleProjectBuilderTests: XCTestCase {
             let store = try await DocumentStore.open(url: url)
             XCTAssertEqual(store.uiState.windowSubject.open, .item("doc-001"), "\(kind)")
             XCTAssertEqual(store.uiState.windowSubject.faces, .item("doc-001"), "\(kind)")
+            // …and the window's own restore sweep keeps it (shell closing
+            // A10, N4): a sweep that demoted an item subject on first open
+            // would land the sample on the Book again.
+            let manifest = try await ProjectStore.load(from: url).manifest
+            XCTAssertEqual(ProjectWindow.validatedSubject(
+                store.uiState.windowSubject, structure: manifest.structure, research: manifest.research,
+                figures: manifest.figures ?? [], parked: [], editionLanguages: []),
+                WindowSubject(open: .item("doc-001"), faces: .item("doc-001")), "\(kind): restored as built")
         }
         XCTAssertEqual(UIState().windowSubject, .book, "the default for every other project is unchanged")
         XCTAssertEqual(UIState().bookView, .outline)

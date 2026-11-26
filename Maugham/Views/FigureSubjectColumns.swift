@@ -13,13 +13,13 @@ extension ProjectWindow {
     ///
     /// - `takesTheCentre` — the figure is the subject's `open`: the centre
     ///   column shows it.
-    /// - `besideTheCanvas` — the figure is the subject's `beside`: the right
+    /// - `pulledUp` — the figure is the subject's `beside`: the right
     ///   column shows it, revealed by `revealResearchColumn`, and the centre
     ///   (the canvas's one mount included) is left alone.
     /// - `nothingMoves` — no figure in either place.
     enum FigureSubjectPlacement: Equatable {
         case takesTheCentre(String)
-        case besideTheCanvas(String)
+        case pulledUp(String)
         case nothingMoves
 
         /// The figure the CENTRE column shows, or `nil`.
@@ -30,7 +30,7 @@ extension ProjectWindow {
 
         /// The figure the RIGHT column shows (beside the canvas), or `nil`.
         var besideFigureID: String? {
-            if case .besideTheCanvas(let id) = self { return id }
+            if case .pulledUp(let id) = self { return id }
             return nil
         }
     }
@@ -41,7 +41,7 @@ extension ProjectWindow {
     /// column.
     static func figureSubjectPlacement(subject: WindowSubject) -> FigureSubjectPlacement {
         if let id = subject.open.figureID { return .takesTheCentre(id) }
-        if let id = subject.beside?.figureID { return .besideTheCanvas(id) }
+        if let id = subject.beside?.figureID { return .pulledUp(id) }
         return .nothingMoves
     }
 }

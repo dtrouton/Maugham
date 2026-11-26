@@ -222,7 +222,7 @@ internal enum MaughamSidecarPath: Equatable {
             return .sessionLog(relativePath: relativePath)
         }
 
-        if relativePath == ".maugham/ui-state.json"
+        if relativePath == UIState.relativePath
             || relativePath.hasPrefix(".maugham/ui-state/") {
             return .uiState(relativePath: relativePath)
         }

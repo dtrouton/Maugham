@@ -228,8 +228,15 @@ final class WordingCensusTests: XCTestCase {
     /// so `Maugham/MCP/` is outside this census.
     static let taskPattern = try! NSRegularExpression(pattern: #"\b[Tt]asks?\b"#)
 
+    /// The Mac's sources and MaughamCore's (shell closing A9, 5b M3): Core's
+    /// sentences reach People & Devices' older-history list and the
+    /// set-aside reasons, on both devices. The phone's own strings wait for
+    /// the next paired release (the owner's ruling), so it is not read here.
+    static let toDoRoots = ["Maugham", "Packages/MaughamCore/Sources"]
+
     func test_noAppStringCallsAToDoATask() throws {
-        let offenders = try Self.offenders(pattern: Self.taskPattern, allowed: [:], excluding: ["Maugham/MCP/"])
+        let offenders = try Self.offenders(pattern: Self.taskPattern, allowed: [:], excluding: ["Maugham/MCP/"],
+                                           roots: Self.toDoRoots)
         XCTAssertEqual(offenders, [], "say \u{201C}to-do\u{201D}:\n" + offenders.joined(separator: "\n"))
     }
 
@@ -248,10 +255,13 @@ final class WordingCensusTests: XCTestCase {
             let e = "Chapter breaks and a chapter-numbered class"
             """#,
             "Maugham/MCP/Tools/Rogue.swift": #"let f = "List tasks; `chapter` is a field""#,
+            "Packages/MaughamCore/Sources/MaughamCore/Rogue.swift": #"let g = "a task written""#,
         ])
         XCTAssertEqual(try Self.offenders(pattern: Self.taskPattern, allowed: [:], excluding: ["Maugham/MCP/"],
-                                          base: base),
-                       ["Maugham/Views/Rogue.swift:1: Accept as task"])
+                                          roots: Self.toDoRoots, base: base),
+                       ["Maugham/Views/Rogue.swift:1: Accept as task",
+                        "Packages/MaughamCore/Sources/MaughamCore/Rogue.swift:1: a task written"],
+                       "a Core sentence is read too")
         XCTAssertEqual(try Self.offenders(pattern: Self.chapterPattern,
                                           allowed: ["Maugham/Views/Rogue.swift": ["chapter-numbered class": "x"]],
                                           base: base),
@@ -451,10 +461,10 @@ final class WordingCensusTests: XCTestCase {
     /// Every string literal under `Maugham/` matching `pattern`, minus the
     /// allowed ones, as `path:line: text`.
     static func offenders(pattern: NSRegularExpression, allowed: [String: [String: String]],
-                          excluding: [String] = [],
+                          excluding: [String] = [], roots: [String] = ["Maugham"],
                           base: URL = SourceTree.repoRoot) throws -> [String] {
         var offenders: [String] = []
-        for path in try SourceTree.swiftFiles(under: "Maugham", base: base) {
+        for path in try roots.flatMap({ try SourceTree.swiftFiles(under: $0, base: base) }) {
             let allowedHere = allowed[path] ?? [:]
             guard allowedHere[allFile] == nil else { continue }
             guard !excluding.contains(where: path.hasPrefix) else { continue }

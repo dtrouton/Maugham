@@ -45,6 +45,11 @@ struct ResearchHomes {
     let pieceTitles: [String: String]
     /// How many structure and research nodes the derivation visited — one each.
     let visited: Int
+    /// **How many notes are drawn in a piece's fold rather than the Research
+    /// section** — every asset with a home, a container group's included
+    /// (shell closing A8): the section's foot says so, so research that
+    /// moved into the folds is never simply gone. Groups are not counted.
+    let underAPiece: Int
 
     private let homesById: [String: [String]]
     private let linksById: [String: [String]]
@@ -62,13 +67,13 @@ struct ResearchHomes {
     private let partsByPiece: [String: [StructureItem]]
 
     static let empty = ResearchHomes(
-        wholeBook: [], pieceOrder: [], pieceTitles: [:], visited: 0, homesById: [:],
+        wholeBook: [], pieceOrder: [], pieceTitles: [:], visited: 0, underAPiece: 0, homesById: [:],
         linksById: [:], ownerById: [:], rootsByPiece: [:], placeById: [:],
         wholeBookIds: [], pieceRank: [:], linkingPieces: [], containerIds: [], inheritedById: [:],
         partsByPiece: [:])
 
     private init(wholeBook: [ResearchItem], pieceOrder: [String], pieceTitles: [String: String],
-                 visited: Int, homesById: [String: [String]], linksById: [String: [String]],
+                 visited: Int, underAPiece: Int, homesById: [String: [String]], linksById: [String: [String]],
                  ownerById: [String: String], rootsByPiece: [String: [ResearchItem]],
                  placeById: [String: String], wholeBookIds: Set<String>, pieceRank: [String: Int],
                  linkingPieces: Set<String>, containerIds: Set<String>, inheritedById: [String: [String]],
@@ -81,6 +86,7 @@ struct ResearchHomes {
         self.pieceOrder = pieceOrder
         self.pieceTitles = pieceTitles
         self.visited = visited
+        self.underAPiece = underAPiece
         self.homesById = homesById
         self.linksById = linksById
         self.ownerById = ownerById
@@ -262,6 +268,7 @@ struct ResearchHomes {
         var wholeBookIds = Set<String>()
         var containerIds = Set<String>()
         var inheritedById: [String: [String]] = [:]
+        var underAPiece = 0
 
         func ranked(_ pieces: Set<String>) -> [String] {
             pieces.sorted { (pieceRank[$0] ?? .max) < (pieceRank[$1] ?? .max) }
@@ -282,6 +289,7 @@ struct ResearchHomes {
                 visit($0, inherited: homes, owner: owner, groups: groups + [item.title])
             }
             guard homes.isEmpty else {
+                if item.type != .group { underAPiece += 1 }
                 let ordered = ranked(homes)
                 homesById[item.id] = ordered
                 for piece in ordered where !inherited.contains(piece) {
@@ -324,7 +332,7 @@ struct ResearchHomes {
         }
         return ResearchHomes(
             wholeBook: wholeBook, pieceOrder: pieceOrder, pieceTitles: pieceTitles,
-            visited: visited, homesById: homesById, linksById: linksById,
+            visited: visited, underAPiece: underAPiece, homesById: homesById, linksById: linksById,
             ownerById: ownerById, rootsByPiece: rootsByPiece, placeById: placeById,
             wholeBookIds: wholeBookIds, pieceRank: pieceRank, linkingPieces: linkingPieces,
             containerIds: containerIds, inheritedById: inheritedById, partsByPiece: partsByPiece)

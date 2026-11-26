@@ -384,10 +384,15 @@ public struct UIState: Codable, Equatable, Sendable {
         // position in any production code path.
     }
 
-    /// The project's UI-state file, `.maugham/ui-state.json`: one spelling for
-    /// the store's load and save and for a sample's first subject.
+    /// The project-relative path of the UI-state file — the one spelling:
+    /// `fileURL` and `MaughamSidecarPath`'s classifier both read it (shell
+    /// closing A10).
+    public static let relativePath = ".maugham/ui-state.json"
+
+    /// The project's UI-state file: one spelling for the store's load and
+    /// save, a sample's first subject and the sidecar classifier.
     public static func fileURL(inProject projectURL: URL) -> URL {
-        projectURL.appendingPathComponent(".maugham").appendingPathComponent("ui-state.json")
+        projectURL.appendingPathComponent(relativePath) // local-path: this build's own constant, never a synced name
     }
 
     /// Write this state to `projectURL`'s UI-state file, making `.maugham/`
