@@ -495,11 +495,12 @@ final class ReviewPassEditorTests: XCTestCase {
     func test_thePaneSelectionActHasOneSpelling() throws {
         // What the act does, and that the receiver calls it:
         // `WiringCensusTests`.
-        XCTAssertEqual(try Self.sites(of: "selectPosition("), 4,
-                       "the declaration plus its three callers — the key-window "
-                       + "receiver, the strip's hand-off and `EditionWiring`'s "
-                       + "To resolve (⌘⌥K, a new edition) — counted across every "
-                       + "view, so a copy in a sibling is a fifth")
+        XCTAssertEqual(try Self.sites(of: "selectPosition("), 5,
+                       "the declaration plus its callers — the key-window "
+                       + "receiver, the strip's hand-off, `EditionWiring`'s "
+                       + "To resolve (⌘⌥K, a new edition) and File ▸ Translate…'s "
+                       + "receiver (shell p5 Task 7) — counted across every "
+                       + "view, so a copy in a sibling is one more")
         XCTAssertEqual(try Self.sites(of: "ProjectWindow.pullUp(") + Self.sites(of: "Self.pullUp(")
                        + Self.sites(of: "static func pullUp("), 7,
                        "the two declarations (a request's, and the one act it "

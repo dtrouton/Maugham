@@ -388,7 +388,10 @@ final class ResolveFilterTests: XCTestCase {
         let noChecks: [ResolveSource] = [.mine, .others]
         for dense in [false, true] {
             XCTAssertNil(ResolveFilter.selection(for: .checks, chips: noChecks, activePassId: nil, dense: dense))
-            XCTAssertNil(ResolveFilter.selection(for: .questions, chips: noChecks, activePassId: nil, dense: dense))
+            // Questions is the exception (shell p5 Task 7, row 34): asked for
+            // with none here, the list lands on it and says so.
+            XCTAssertEqual(ResolveFilter.selection(for: .questions, chips: noChecks, activePassId: nil, dense: dense),
+                           [.questions])
             XCTAssertNil(ResolveFilter.selection(for: .rounds, chips: noChecks, activePassId: "line", dense: dense))
             XCTAssertEqual(ResolveFilter.selection(for: .mine, chips: noChecks, activePassId: nil, dense: dense),
                            [.mine])
@@ -398,6 +401,36 @@ final class ResolveFilterTests: XCTestCase {
         XCTAssertTrue(ResolveFilter.canRequest(.mine, chips: noChecks))
         XCTAssertTrue(ResolveFilter.canRequest(.rounds, chips: [.pass("line"), .mine]))
         XCTAssertFalse(ResolveFilter.canRequest(.mine, chips: []))
+    }
+
+    /// **Row 34**: ⌘⌥L where a scope has no questions lands on Questions —
+    /// its chip drawn while it is chosen, so it can be pressed away — and
+    /// the list says there are none, never the old filter's rows.
+    @MainActor func test_questionsWithNoneHereLandOnTheirOwnEmptyLine() {
+        let chips: [ResolveSource] = [.pass("line"), .mine, .checks, .others]
+        XCTAssertEqual(ResolveFilter.shownChips(chips, selection: [.questions]),
+                       [.pass("line"), .mine, .checks, .questions, .others], "in the column's place")
+        XCTAssertEqual(ResolveFilter.shownChips(chips, selection: [.mine]), chips, "only while it is chosen")
+        for dense in [false, true] {
+            XCTAssertEqual(ResolveFilter.normalized(
+                [.questions], chips: ResolveFilter.shownChips(chips, selection: [.questions]), dense: dense),
+                [.questions], "the choice stands (dense \(dense))")
+        }
+        XCTAssertEqual(ResolvePane.emptyState(scope: .pieces(docIds: ["d"], includesBookLevel: false),
+                                              hasItems: true, hasVisible: false, offersColdStart: false,
+                                              showsOnlyQuestions: true), .noQuestions)
+        XCTAssertEqual(ResolvePane.EmptyState.noQuestions.sentence, "No questions from the translator here.")
+        XCTAssertEqual(ResolvePane.emptyState(scope: .pieces(docIds: ["d"], includesBookLevel: false),
+                                              hasItems: true, hasVisible: false, offersColdStart: false),
+                       .filteredOut, "control: another filter with nothing under it says what it said")
+        XCTAssertEqual(ResolvePane.emptyState(scope: .outside, hasItems: false, hasVisible: false,
+                                              offersColdStart: false, showsOnlyQuestions: true), .outside)
+        // The pane draws the chips and the line from these.
+        let pane = SourceScan.codeLines(of: (try? SourceTree.read("Maugham/Views/Resolve/ResolvePane.swift")) ?? "")
+            .map { $0.trimmingCharacters(in: .whitespaces) }.joined(separator: " ")
+        XCTAssertTrue(pane.contains("ResolveFilter.normalized(selection, chips: shownChips, dense: dense)"))
+        XCTAssertTrue(pane.contains("ResolveFilterBar( chips: shownChips, selection: shownSelection,"))
+        XCTAssertTrue(pane.contains("showsOnlyQuestions: shownSelection == [.questions])"))
     }
 
     func test_unreadChecksClearOnlyWhenChecksAreShown() {

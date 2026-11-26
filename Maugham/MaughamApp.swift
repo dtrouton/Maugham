@@ -672,6 +672,12 @@ private struct FileMenuItems: View {
         // The compiler's four commands (spec §3.1; shell p1 Task 5), beside
         // Save because a run acknowledges in Save's register.
         RunButtons(editorName: chrome?.roundEditorName)
+        // Row 7: the translator's round, no key; "Translate…" elsewhere.
+        Button(projectURL == nil ? TranslateMenuOffer.elsewhereTitle
+               : (chrome?.translate?.title ?? TranslateMenuOffer.elsewhereTitle)) {
+            MaughamEvent.post(.maughamTranslateFromMenu, to: .keyWindow)
+        }
+        .disabled(!enabled(chrome?.translate != nil))
         Divider()
         // New things (rows 10, 11, 14, 16).
         Button("Add Research File…") {
@@ -1079,6 +1085,45 @@ struct WindowChrome: Equatable {
     var foldNoun: String? = nil
     /// Row 41: whether Open in Centre has something to open.
     var opensInCentre = false
+    /// Row 7: the translator's round the window offers, nil with none.
+    var translate: TranslateMenuOffer? = nil
+}
+
+/// **File ▸ Translate This Chapter into Serbian / Translate Whole Book into
+/// Serbian** (row 7, ★ approved): the round To resolve's head runs — a piece
+/// read in a language, or an edition faced — titled for what it translates;
+/// "Translate…" and disabled elsewhere. No key. Pure.
+enum TranslateMenuOffer: Equatable {
+    case piece(noun: PieceNoun, language: String)
+    case book(language: String)
+
+    static let elsewhereTitle = "Translate\u{2026}"
+
+    var title: String {
+        switch self {
+        case .piece(let noun, let language):
+            return "\(TranslationRunState.runTitle(noun)) into \(LanguageName.title(language))"
+        case .book(let language):
+            return "\(TranslationRunState.runBookTitle) into \(LanguageName.title(language))"
+        }
+    }
+
+    /// What the window offers: the piece the editor reads in a language,
+    /// else a translated edition on the faces — each where this Mac's
+    /// translator may translate it (`mayTranslate`).
+    static func of(readingLanguage: String?, openPiece: StructureItem?, faces: BinderSubject,
+                   sourceLanguage: String?, book: PieceNoun.Book,
+                   mayTranslate: (String) -> Bool,
+                   mayTranslateAny: @autoclosure () -> Bool) -> TranslateMenuOffer? {
+        if let language = readingLanguage, let piece = openPiece {
+            return mayTranslate(piece.id) ? .piece(noun: PieceNoun.of(piece, in: book), language: language) : nil
+        }
+        if case .edition(let language) = faces,
+           language.caseInsensitiveCompare(sourceLanguage ?? "") != .orderedSame {
+            return mayTranslateAny() ? .book(language: language) : nil
+        }
+        return nil
+    }
 }
 
 struct FocusedWindowChromeKey: FocusedValueKey { typealias Value = WindowChrome }

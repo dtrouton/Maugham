@@ -283,6 +283,10 @@ extension Notification.Name {
     /// selected row, else what is pulled up, in the centre — ⌘↓'s act
     /// (`TreeRowKeys.centreOpening`). Scope: .keyWindow.
     public static let maughamOpenInCentre = Notification.Name("maugham.open.inCentre")
+    /// Posted by File ▸ Translate This Chapter into … / Translate Whole Book
+    /// into … (shell p5 Task 7): To resolve shows, and its head runs its own
+    /// Run (`ResolveRequest.translate`). Scope: .keyWindow.
+    public static let maughamTranslateFromMenu = Notification.Name("maugham.translate.fromMenu")
     /// Posted by File ▸ New Chapter / New Part and the binder's own root
     /// verbs (shell p5 Task 7): add a piece or a group at the binder's root,
     /// `userInfo["binder_item"]` naming which (`MaughamEvent.postAddBinderItem`).

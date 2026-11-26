@@ -417,6 +417,8 @@ struct ResolveHeadView: View {
     /// `.maughamTranslationDidUpdate`s heard: a piece read in a language
     /// re-reads its translation.
     var translationHeard = 0
+    /// File ▸ Translate…'s ask (row 7), handed to the language heads.
+    var translateAsk: Binding<Bool> = .constant(false)
 
     @Environment(\.undoManager) private var undoManager
 
@@ -441,7 +443,8 @@ struct ResolveHeadView: View {
             EditionHeadView(language: language, isSource: isSource,
                             store: store, documentStore: documentStore,
                             editionRead: editionRead, mayDecideDesign: mayDecideDesign,
-                            onShowRound: onShowRound, onShowProposal: onShowProposal)
+                            onShowRound: onShowRound, onShowProposal: onShowProposal,
+                            translateAsk: translateAsk)
         case .pieceInLanguage(let docId, let language):
             PieceInLanguageHeadView(
                 docId: docId, language: language, store: store, documentStore: documentStore,
@@ -455,7 +458,8 @@ struct ResolveHeadView: View {
                 model: compilerModel.claudeModel, world: world,
                 onShowRound: onShowRound, translationHeard: translationHeard,
                 isOpening: openDocId == docId && documentStore.document(forDocId: docId) == nil,
-                hasItemsToAnswer: ResolveHead.hasItemsToAnswer(snapshot.items, docId: docId))
+                hasItemsToAnswer: ResolveHead.hasItemsToAnswer(snapshot.items, docId: docId),
+                translateAsk: translateAsk)
         case .nothing:
             EmptyView()
         }

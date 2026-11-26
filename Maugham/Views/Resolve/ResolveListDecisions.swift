@@ -384,6 +384,9 @@ extension ResolvePane {
             return focusFinding(docId: docId, itemId: itemId, groups: groups, chips: chips,
                                 activePassId: activePassId, dense: dense, selection: selection,
                                 choices: choices, figureOwners: figureOwners, localName: localName)
+        case .translate:
+            // The head's, never the list's (`ResolvePane.applyPendingRequest`).
+            return ResolveRequestOutcome(selection: selection, choices: choices, scrollTo: nil)
         case .showParagraph(let docId, let paragraphId, let annotationId):
             return showParagraph(docId: docId, paragraphId: paragraphId, annotationId: annotationId,
                                  groups: groups,
@@ -601,6 +604,9 @@ extension ResolvePane {
         case nothing
         /// There are items, and the filter hides every one.
         case filteredOut
+        /// ⌘⌥L asked for a translator's questions and there are none here
+        /// (row 34): Questions' own line (`ResolveFilter.noQuestionsLine`).
+        case noQuestions
         /// An edition, or a piece read in a language, with nothing waiting
         /// (`ResolveEditionItems.clearLine`, `ResolvePieceInLanguage.clearLine`).
         case editionClear(String)
@@ -618,6 +624,8 @@ extension ResolvePane {
                 return "Nothing to resolve."
             case .filteredOut:
                 return "Nothing under this filter."
+            case .noQuestions:
+                return ResolveFilter.noQuestionsLine
             case .editionClear(let sentence):
                 return sentence
             }
@@ -627,10 +635,12 @@ extension ResolvePane {
     /// `editionClear` is what an edition with nothing in it says
     /// (`ResolveEditionItems.clearLine`); nil anywhere else.
     static func emptyState(scope: ResolveScope, hasItems: Bool, hasVisible: Bool,
-                           offersColdStart: Bool, editionClear: String? = nil) -> EmptyState? {
+                           offersColdStart: Bool, editionClear: String? = nil,
+                           showsOnlyQuestions: Bool = false) -> EmptyState? {
         switch scope {
         case .outside: return .outside
         case .elsewhere: return .elsewhere
+        case _ where showsOnlyQuestions && !hasVisible: return .noQuestions
         case .edition, .pieceInLanguage:
             guard !hasItems else { return hasVisible ? nil : .filteredOut }
             return editionClear.map(EmptyState.editionClear) ?? .nothing

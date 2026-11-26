@@ -1229,6 +1229,12 @@ struct ProjectWindow: View {
                         }
                     }
                 }
+                // File ▸ Translate… (row 7): To resolve shows, and its head
+                // presses its own Run (`ResolveRequest.translate`).
+                .onKeyWindowCommand(.maughamTranslateFromMenu, window: window) { _ in
+                    ProjectWindow.selectPosition(.resolve, showInspector: $showInspector, position: $position)
+                    resolveRequest = .translate
+                }
                 .onKeyWindowCommand(.maughamToggleResearchPreview, window: window) { _ in
                     researchPreviewVisible.toggle()
                     documentStore?.updateUIState {
@@ -3095,6 +3101,22 @@ struct ProjectWindow: View {
     /// **The piece ⌘⌥E opens the fold of**: the faces' piece, else the open
     /// one (`RightColumnContent.facesPiece`, History's rule); nil where
     /// neither is a piece — the menu item is then disabled.
+    /// File ▸ Translate…'s offer (`TranslateMenuOffer.of`), from what the
+    /// head asks: the translator's posture over the piece or the book.
+    private func translateOffer(store: ProjectStore) -> TranslateMenuOffer? {
+        guard let documentStore else { return nil }
+        let structure = store.manifest.structure
+        let mayTranslate = { (docId: String) in
+            TranslationRunStart.postureOfTheTranslator(forPiece: docId, in: documentStore).allows(.translate)
+        }
+        return TranslateMenuOffer.of(
+            readingLanguage: editorControl.translationLanguage,
+            openPiece: TreeWalk.find(id: TranslationReveal.openDocId(subject), in: structure),
+            faces: subject.faces, sourceLanguage: publishCentre.sourceLanguage,
+            book: PieceNoun.Book(store.manifest), mayTranslate: mayTranslate,
+            mayTranslateAny: TreeWalk.first(in: structure, where: { $0.type == .document && mayTranslate($0.id) }) != nil)
+    }
+
     /// View ▸ Open in Centre's one receiver (`TreeRowKeys.centreOpening`).
     private func openTheSelectionInCentre() {
         guard let store else { return }
@@ -3139,7 +3161,8 @@ struct ProjectWindow: View {
             foldNoun: fold.map { PieceNoun.of($0, in: store.manifest).capitalised },
             opensInCentre: TreeRowKeys.centreOpening(
                 drawn: BinderTreeSelection.drawnTags(state: treeState, subject: subject, store: store),
-                beside: subject.beside) != nil)
+                beside: subject.beside) != nil,
+            translate: translateOffer(store: store))
     }
 
     static func foldPiece(subject: WindowSubject, structure: [StructureItem]) -> String? {

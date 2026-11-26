@@ -400,4 +400,48 @@ final class MenuBarCensusTests: XCTestCase {
         let item = try XCTUnwrap(menuBar.first { $0.path == "View ▸ Open in Centre" }, "the item is in the walk")
         XCTAssertNil(item.token, "⌘↓ stays the binder's: no key on the item")
     }
+
+    // MARK: - File ▸ Translate… (row 7)
+
+    func test_translateIsTitledForWhatItTranslatesAndOfferedWhereTheHeadRunsIt() throws {
+        let chapter = StructureItem(id: "c1", title: "One", type: .document, path: "one.md")
+        let novel = PieceNoun.Book(type: .novel)
+        func offer(reading: String?, faces: BinderSubject, may: Bool = true, any: Bool = true) -> TranslateMenuOffer? {
+            TranslateMenuOffer.of(readingLanguage: reading, openPiece: chapter, faces: faces,
+                                  sourceLanguage: "en", book: novel, mayTranslate: { _ in may },
+                                  mayTranslateAny: any)
+        }
+        XCTAssertEqual(offer(reading: "sr", faces: .item("c1"))?.title,
+                       "Translate This Chapter into \(LanguageName.title("sr"))")
+        XCTAssertEqual(offer(reading: nil, faces: .edition(language: "sr"))?.title,
+                       "Translate Whole Book into \(LanguageName.title("sr"))")
+        XCTAssertNil(offer(reading: nil, faces: .edition(language: "en")), "the Source edition translates nothing")
+        XCTAssertNil(offer(reading: nil, faces: .item("c1")), "a piece read in Source")
+        XCTAssertNil(offer(reading: "sr", faces: .item("c1"), may: false), "the translator may not")
+        XCTAssertNil(offer(reading: nil, faces: .edition(language: "sr"), any: false))
+        XCTAssertEqual(TranslateMenuOffer.elsewhereTitle, "Translate\u{2026}")
+
+        // The menu posts; the window shows To resolve and asks its head; the
+        // pane hands the ask to the head, which presses its own Run.
+        func flat(_ text: String) -> String {
+            SourceScan.codeLines(of: text).map { $0.trimmingCharacters(in: .whitespaces) }.joined(separator: " ")
+        }
+        let app = flat(try SourceTree.read("Maugham/MaughamApp.swift"))
+        XCTAssertTrue(app.contains("MaughamEvent.post(.maughamTranslateFromMenu, to: .keyWindow) } .disabled(!enabled(chrome?.translate != nil))"))
+        let window = flat(try SourceTree.sourceOfType("ProjectWindow", under: ["Maugham"]))
+        XCTAssertTrue(window.contains(
+            ".onKeyWindowCommand(.maughamTranslateFromMenu, window: window) { _ in ProjectWindow.selectPosition(.resolve, showInspector: $showInspector, position: $position) resolveRequest = .translate }"))
+        let pane = flat(try SourceTree.read("Maugham/Views/Resolve/ResolvePane.swift"))
+        XCTAssertTrue(pane.contains("if case .translate = pending { translateAsk = true return }"))
+        XCTAssertTrue(pane.contains("translateAsk = false"), "a new scope spends the ask: it never fires minutes later")
+        let piece = flat(try SourceTree.read("Maugham/Views/Resolve/ResolvePieceInLanguage.swift"))
+        XCTAssertTrue(piece.contains("if runState.canRun { runThisPiece() } else { notice = runState.refusal }"))
+        let edition = flat(try SourceTree.read("Maugham/Views/Resolve/ResolveEditionItems.swift"))
+        XCTAssertTrue(edition.contains("if runState.canRunBook { runBook() } else { notice = runState.bookRefusal }"))
+        XCTAssertEqual(ResolvePane.apply(.translate, groups: [], sceneIndex: nil, chips: [], activePassId: nil,
+                                         dense: false, selection: [.mine], choices: [:]).selection, [.mine],
+                       "the list's selection is not the translate ask's")
+        let item = try XCTUnwrap(menuBar.first { $0.path == "File ▸ Translate…" })
+        XCTAssertNil(item.token, "no key")
+    }
 }

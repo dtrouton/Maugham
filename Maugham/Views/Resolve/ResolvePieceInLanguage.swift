@@ -573,6 +573,9 @@ struct PieceInLanguageHeadView: View {
     /// The list holds a question whose Reply needs the piece open
     /// (`ResolveHead.hasItemsToAnswer`, fix round 1, I1).
     var hasItemsToAnswer: Bool = false
+    /// File ▸ Translate This Chapter into …'s ask (shell p5 Task 7, row 7):
+    /// Run, pressed for the menu where Run is offered; spent either way.
+    var translateAsk: Binding<Bool> = .constant(false)
 
     @Environment(AgentRoster.self) private var roster: AgentRoster?
     @State private var notice: String?
@@ -644,6 +647,18 @@ struct PieceInLanguageHeadView: View {
     }
 
     var body: some View {
+        content.onChange(of: translateAsk.wrappedValue, initial: true) { _, asked in
+            guard asked else { return }
+            translateAsk.wrappedValue = false
+            guard ResolvePieceInLanguage.offersRun(docId: docId, isOpen: isOpen, mayTranslate: {
+                TranslationRunStart.postureOfTheTranslator(forPiece: $0, in: documentStore).allows(.translate)
+            }, relation: relation) else { return }
+            if runState.canRun { runThisPiece() } else { notice = runState.refusal }
+        }
+    }
+
+    @ViewBuilder
+    private var content: some View {
         VStack(alignment: .leading, spacing: 6) {
             Text(ResolvePieceInLanguage.headerLine(language: language))
                 .font(.caption.smallCaps())

@@ -942,7 +942,7 @@ final class ResolvePieceInLanguageTests: XCTestCase {
             ("a Clear signs as the author, behind the door", head,
              "documentId: docId, actor: .author, identities: identities,"),
             ("⌘⌥L opens the translator's questions", resolve + "ResolveFilter.swift",
-             "case .questions: requested = chips.contains(.questions) ? [.questions] : []"),
+             "case .questions: requested = [.questions]"),
         ]
         let gone: [String: String] = [
             "\"Not in translation review\"":

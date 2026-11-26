@@ -20,6 +20,9 @@ enum ResolveRequest: Equatable {
     /// `annotationId`: the note whose dot was clicked, when the mark is one
     /// note's (closing round B, M5) — the row the click shows and marks.
     case showParagraph(docId: String, paragraphId: String, annotationId: String? = nil)
+    /// File ▸ Translate This Chapter into … / Translate Whole Book into …
+    /// (shell p5 Task 7, row 7): the head's own Run, pressed for the menu.
+    case translate
 }
 
 /// What one refresh does (`ResolvePane.refreshStep`).
@@ -225,6 +228,8 @@ struct ResolvePane: View {
     @State private var groups: [ResolveGroup] = []
     @State private var sceneIndex: [String: Int]?
     @State private var chips: [ResolveSource] = []
+    /// File ▸ Translate…'s ask, for the head's Run (row 7); spent by the head.
+    @State private var translateAsk = false
     @State private var dense = false
     @State private var incomplete: String?
     @State private var figureCells: [String: SuggestionDisplay.FigureCells] = [:]
@@ -475,7 +480,12 @@ struct ResolvePane: View {
     }
 
     private var shownSelection: Set<ResolveSource> {
-        ResolveFilter.normalized(selection, chips: chips, dense: dense)
+        ResolveFilter.normalized(selection, chips: shownChips, dense: dense)
+    }
+
+    /// The chips drawn: a Questions chip stays while it is asked for (row 34).
+    private var shownChips: [ResolveSource] {
+        ResolveFilter.shownChips(chips, selection: selection)
     }
 
     private var hasList: Bool {
@@ -508,7 +518,8 @@ struct ResolvePane: View {
                 onShowProposal: { publishCentre?.show(proposal: $0) },
                 mayDecideDesign: editionVerbs?.mayDecideDesign ?? false,
                 editorControl: editorControl,
-                translationHeard: translationHeard)
+                translationHeard: translationHeard,
+                translateAsk: $translateAsk)
             if filedNotice != nil {
                 FiledNotice(filing: $filedNotice, onOpenBrief: onOpenBrief, lingers: false)
                     .padding(.horizontal, 12).padding(.vertical, 4)
@@ -594,6 +605,7 @@ struct ResolvePane: View {
             if let diagnostics { ResolveReader.loadFindings(scope: scope, diagnostics: diagnostics) }
         }
         .onChange(of: scope) { _, _ in
+            translateAsk = false
             selection = []
             choices = [:]
             caretGroup = nil
@@ -691,7 +703,7 @@ struct ResolvePane: View {
 
     private var filterBar: some View {
         ResolveFilterBar(
-            chips: chips, selection: shownSelection, passes: passes,
+            chips: shownChips, selection: shownSelection, passes: passes,
             showsSelectionMode: showsSelectionMode,
             selectionModeOn: selectionModeOn,
             // An edition lists no to-dos, so it makes none.
@@ -728,7 +740,8 @@ struct ResolvePane: View {
         let empty = Self.emptyState(scope: scope, hasItems: !held.items.isEmpty,
                                     hasVisible: !shown.isEmpty,
                                     offersColdStart: offersColdStart,
-                                    editionClear: editionClear)
+                                    editionClear: editionClear,
+                                    showsOnlyQuestions: shownSelection == [.questions])
         let opensItsPiece = openThePieceLines(shown)
         return VStack(spacing: 0) {
             ScrollViewReader { proxy in
@@ -841,7 +854,7 @@ struct ResolvePane: View {
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 16)
             }
-        case .nothing?, .filteredOut?, .editionClear?:
+        case .nothing?, .filteredOut?, .editionClear?, .noQuestions?:
             Text((empty ?? .nothing).sentence)
                 .font(.callout)
                 .foregroundStyle(.secondary)
@@ -1190,6 +1203,12 @@ struct ResolvePane: View {
     private func applyPendingRequest() {
         guard let pending = pendingRequest, lastKey?.regroup.read.scope == scope else { return }
         pendingRequest = nil
+        // The menu's Translate is the head's Run (row 7): the head runs it
+        // where it offers Run, and the ask is spent either way.
+        if case .translate = pending {
+            translateAsk = true
+            return
+        }
         let activePass = pieceDocId.flatMap {
             documentStore.uiState.activePassMemory.validatedActivePass(forPiece: $0, in: passes)
         }

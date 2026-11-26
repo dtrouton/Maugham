@@ -1053,6 +1053,9 @@ struct EditionHeadView: View {
     let mayDecideDesign: Bool
     let onShowRound: (TranslationRound) -> Void
     let onShowProposal: (DesignProposalStore.Proposal) -> Void
+    /// File ▸ Translate Whole Book into …'s ask (shell p5 Task 7, row 7):
+    /// Run Whole Book, pressed for the menu where it is offered.
+    var translateAsk: Binding<Bool> = .constant(false)
 
     @Environment(AgentRoster.self) private var roster: AgentRoster?
     @State private var notice: String?
@@ -1074,6 +1077,19 @@ struct EditionHeadView: View {
     }
 
     var body: some View {
+        content.onChange(of: translateAsk.wrappedValue, initial: true) { _, asked in
+            guard asked else { return }
+            translateAsk.wrappedValue = false
+            guard !isSource, editionRead.language != nil,
+                  Self.offersRun(docIds: editionRead.runBook, mayTranslate: {
+                      TranslationRunStart.postureOfTheTranslator(forPiece: $0, in: documentStore)
+                          .allows(.translate) }) else { return }
+            if runState.canRunBook { runBook() } else { notice = runState.bookRefusal }
+        }
+    }
+
+    @ViewBuilder
+    private var content: some View {
         VStack(alignment: .leading, spacing: 6) {
             if isSource { designHead } else { translatorHead }
             if let notice {

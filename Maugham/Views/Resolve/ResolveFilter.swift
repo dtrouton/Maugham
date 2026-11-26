@@ -83,6 +83,23 @@ enum ResolveFilter {
         return order.filter { present.contains($0) }
     }
 
+    /// **The chips drawn** (shell p5 Task 7, row 34): `chips`, plus a
+    /// Questions chip while ⌘⌥L asked for questions where there are none —
+    /// so the list lands on Questions with its own empty line, and the chip
+    /// that says so can be pressed away. In the column's place for it.
+    static func shownChips(_ chips: [ResolveSource], selection: Set<ResolveSource>) -> [ResolveSource] {
+        guard selection.contains(.questions), !chips.contains(.questions) else { return chips }
+        let after: Set<ResolveSource> = [.changes, .design, .compile, .others]
+        let at = chips.firstIndex(where: after.contains) ?? chips.endIndex
+        var shown = chips
+        shown.insert(.questions, at: at)
+        return shown
+    }
+
+    /// The empty line under Questions with none (row 34): silence there read
+    /// as broken.
+    static let noQuestionsLine = "No questions from the translator here."
+
     // MARK: - Density and selection
 
     /// Counted over the items it is given: `ResolveTriage.isDense` passes
@@ -137,7 +154,9 @@ enum ResolveFilter {
             }
         case .checks: requested = chips.contains(.checks) ? [.checks] : []
         case .mine: requested = chips.contains(.mine) ? [.mine] : []
-        case .questions: requested = chips.contains(.questions) ? [.questions] : []
+        // Questions is asked for whether or not there are any (row 34): the
+        // list lands on it and says there are none (`shownChips`).
+        case .questions: requested = [.questions]
         }
         guard !requested.isEmpty else { return nil }
         return Set(requested)
