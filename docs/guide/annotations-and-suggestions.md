@@ -88,7 +88,7 @@ Choose **Select Notes** from the **…** menu at the top of To resolve. Each not
 - **Accept** — answers the notes at once.
 - **Stet** — *"Read, considered — and the words stand. Resolves these without applying or refusing anything."*
 
-Tick the notes you mean. If you tick none, the verbs act on everything the list is showing, so your filters choose the batch. **Select All** ticks every row, and becomes **Deselect All** once something is ticked. Choose **Done Selecting** from the same menu to leave.
+Tick the notes you mean. If you tick none, the verbs act on everything the list is showing, so your filters choose the batch. **Select All** ticks every row, and becomes **Deselect All** once something is ticked. Press **Done**, which takes the menu's place at the end of the row while you select, to leave.
 
 **Each button says how many notes it will reach** before you press it: *Accept all 6*, *Accept 4 selected*, or *Accept 4 of 6* when some are out of its reach. A bulk verb reaches exactly the notes the same button on each row would reach:
 

@@ -40,7 +40,7 @@ The keys open the list on one filter: ⌘⌥A for the rounds, ⌘⌥D for Checks
 
 A second control appears once you have marked any note **Do**, **Discuss** or **Decline**: it shows **All**, one mark, or **Untriaged**. Marking a note is a plan, not an answer — a declined note is still open until you settle it.
 
-The **…** at the end of the row holds **New To-Do** and **Select Notes**, so the row stays one line however narrow the column.
+The **…** at the end of the row holds **New To-Do** and **Select Notes**, so the row stays one line however narrow the column; while you select notes, **Done** stands in its place.
 
 ### How the list is laid out
 
