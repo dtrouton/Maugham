@@ -70,7 +70,7 @@ reader](compiler.md#your-own-first-reader)).
 **Run**, at the head of the chapter's To resolve (open the head with its
 chevron; folded, **Run Round** is on its second row), is where you meet a round:
 the chapter's lane — *Copyedit · Gould · round 2* — what changed since the
-last one, and two buttons, **Run Gould's Round** and **Fresh Eyes**. **The lane
+last one, and two buttons, **Run Round** and **Fresh Eyes** (the File menu names the editor: *Run Gould's Round*). **The lane
 line is itself the pass picker**: click it to read the chapter through a
 different pass, with the current one checked. No pass active yet? The line
 reads *Set a pass to run a round*, and both buttons are off with a tooltip
