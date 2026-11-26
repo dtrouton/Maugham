@@ -14,7 +14,7 @@ On the left is the binder, where you choose what the window is about. At the top
 
 The centre is where the writing is. Right now it is this chapter.
 
-On the right is a column with places you can turn to, one at a time. Press ⌘1 for To resolve: everything raised about this chapter that is waiting on you, a note from a reader, a to-do, a question. A chapter as new as this one has nothing yet, and says so. Press ⌘2 for Brief: what this chapter is meant to do, in your own words. This one already has its line, the sentence at the top of Brief.
+On the right is a column with places you can turn to, one at a time. Press ⌘1 for To resolve: everything about this chapter that's waiting on you, whether a reader's note, a to-do or a question. A chapter as new as this one has nothing yet, and says so. Press ⌘2 for Brief: what this chapter is meant to do, in your own words. This one already has its line, the sentence at the top of Brief.
 
 The right column follows the binder. Click a chapter, and it is about that chapter. Click the Book, and it is about the whole book.
 

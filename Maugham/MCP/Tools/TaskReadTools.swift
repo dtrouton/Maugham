@@ -81,7 +81,7 @@ public enum ListTasksTool: MCPTool {
         "\"project\" (every open doc + the project's own to-dos). " +
         "`statuses` defaults to [\"open\"]; pass [\"open\",\"done\",\"archived\"] " +
         "to see everything. Read-only — only the writer makes, ticks or archives a to-do, " +
-        "in To resolve (Mine, ⌘⌥T)."
+        "in the text or in To resolve (Mine, ⌘⌥T)."
     public static let inputSchemaJSON =
         #"{"type":"object","properties":{"project_id":{"type":"string"},"scope":{"type":"string","enum":["document","project"]},"document_id":{"type":"string"},"statuses":{"type":"array","items":{"type":"string","enum":["open","done","archived"]}}},"required":["project_id","scope"]}"#
 

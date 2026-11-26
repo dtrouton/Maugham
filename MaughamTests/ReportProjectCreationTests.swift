@@ -238,7 +238,7 @@ final class ReportProjectCreationTests: XCTestCase {
         let golden: [String: String] = [
             "backmatter.tex": "f9e196a3871432d8e28dd1079a432d4474f6494c76b5089588df289892128e89",
             "config.json": "85dfc7c2b44b1457704bb965e0ebb682723ab7c1be132daaa3539f8caccb1c6a",
-            "EMISSION.md": "c61ea2679bfbae020342af9ff6dc9ee65a4fb3f276b61ca86e920950ba81936a",  // shell p5 Task 9: the EPUB loop's example is "the writer", no owner's name
+            "EMISSION.md": "9f486086e1de8cf033a8ee33cd920a3777cd6645b0b4f18f7321b134208fd4d0",  // shell p5 Task 9 fix round 1: no owner's name or book ("the writer"; "tested multi-piece templates")
             "frontmatter.tex": "0537b0bf87fd28119e7c55134f786e95ed0ea5a6bdf972210f5b62521312390b",
             "preamble.tex": "6d6e044b7729318a1c25b75f0793e70124c9c1521f6faf2b6f27f31bb75525cc",
             "prose.tex": "233eea1e200b03d427a0bfc236138790d4b46b2be3d26654559ee6013e4f239d",

@@ -89,4 +89,19 @@ final class SampleProjectBuilderTests: XCTestCase {
             XCTAssertTrue(FileManager.default.fileExists(atPath: seed.appendingPathComponent(path).path), path)
         }
     }
+
+    /// **A sample opens on its first piece** (fix round 1, I1): the novel on
+    /// "Welcome", the screenplay on its script, read back through the store's
+    /// own load. An ordinary project keeps the Book's Outline.
+    func test_aSampleOpensOnItsFirstPieceAndAnOrdinaryProjectOnTheBook() async throws {
+        for kind in [SampleProjectBuilder.Kind.novel, .screenplay] {
+            let url = try await SampleProjectBuilder.build(kind, seedsRoot: seedRoot(),
+                                                           destinationParent: try tempParent())
+            let store = try await DocumentStore.open(url: url)
+            XCTAssertEqual(store.uiState.windowSubject.open, .item("doc-001"), "\(kind)")
+            XCTAssertEqual(store.uiState.windowSubject.faces, .item("doc-001"), "\(kind)")
+        }
+        XCTAssertEqual(UIState().windowSubject, .book, "the default for every other project is unchanged")
+        XCTAssertEqual(UIState().bookView, .outline)
+    }
 }

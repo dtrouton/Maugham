@@ -14683,7 +14683,6 @@ extension TripwireGrepTests {
         "DocumentStore.swift": ("the sessions log and ui-state.json, never the manifest", [
             "let encoder = JSONEncoder()",
             "let data = try encoder.encode(next)",
-            "let data = try JSONEncoder().encode(state)",
         ]),
         "ProjectStore+Structure.swift": ("a trashed structure item's metadata", [
             "let metadata = try JSONEncoder().encode(item)",
@@ -14696,7 +14695,7 @@ extension TripwireGrepTests {
         "FirstReaderTools.swift": ("MCP first-reader response", nil),
         "TestProjectTools.swift": ("MCP test-tool response", nil),
         // Codable `encode(to:)` bodies: container writes, not bytes.
-        "UIState.swift": ("UIState.encode(to:) containers", nil),
+        "UIState.swift": ("UIState.encode(to:) containers, and write(toProject:), the ui-state.json door", nil),
         "ActivePassMemory.swift": ("ActivePassMemory.encode(to:) container", nil),
         "ProjectProfile.swift": ("ProjectProfile.encode(to:) single-value container",
                                  ["try c.encode(rawValue)"]),
@@ -14794,7 +14793,7 @@ extension TripwireGrepTests {
         // A line allowance admits its own line and nothing else.
         try """
         // ProjectManifest
-        let data = try JSONEncoder().encode(state)
+        let data = try encoder.encode(next)
         let raw = try JSONEncoder().encode(manifest)
         """.write(to: tmp.appendingPathComponent("DocumentStore.swift"), atomically: true, encoding: .utf8)
         XCTAssertEqual(try manifestEncoderOffenders(in: [tmp]),
@@ -15841,6 +15840,7 @@ extension TripwireGrepTests {
         "ResearchPasteImporter.swift": 2,          // a pasted image's and text's temporary file, outside the project
         "ResearchTableHost.swift": 4,              // the table door's own writes (×3) and a table's sidecar
         "ResearchTableSidecar.swift": 1,           // a table's sidecar (MaughamCore)
+        "UIState.swift": 1,                        // the ui-state.json door (`write(toProject:)`)
     ]
 
     /// Code that names one of these handles Research items.

@@ -14,7 +14,7 @@ Click a chapter in any of them to go back to writing it.
 
 With the Book clicked, the right column is the whole book's too. To resolve (⌘1) lists what is waiting in every chapter, and Brief (⌘2) is where you say what the book itself is going for.
 
-This chapter has a fold too. Look under its row in the binder: its fold shows that "Try It" links here.
+This chapter has a fold too. Click its row in the binder (or its chevron, if it stays shut) and the fold shows that "Try It" links here.
 
 ## The canvas
 

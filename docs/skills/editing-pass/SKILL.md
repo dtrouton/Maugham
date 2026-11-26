@@ -120,4 +120,5 @@ phrase); `add_suggested_change` for rewordings safe to accept as-is;
 `add_query` for questions of intent, continuity, or fact;
 `list_annotations` for what's already been decided — its `review_pass_id`
 says which pass a note was written under, and a null one was written under
-no pass (a check's, the writer's own, or another person's).
+no pass: a check's, the writer's own or another person's, or yours from a
+session while the piece had no pass active.

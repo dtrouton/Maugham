@@ -12,7 +12,7 @@ What a chapter is going for is yours alone to say. When Claude reads your draft,
 
 ## The fold
 
-Look at this chapter's row in the binder. It has opened to show what the chapter draws on: a research note of its own, "The Rain and the Room", and a link to the last chapter. That is the chapter's fold.
+Look at this chapter's row in the binder. Clicking it opened its fold, which shows what the chapter draws on: a research note of its own, "The Rain and the Room", and a link to the last chapter. That is the chapter's fold.
 
 Click the note. It opens on the right, in Pulled up, so you can read it and write in it while this chapter stays where it is. Click its row again to put it away.
 
@@ -24,7 +24,7 @@ Wrap a chapter's title in double brackets to link to it, like this: [[Going Furt
 
 ## Focus
 
-Press ⌘\ for Focus Mode. The toolbar and the status line go, and the page is what's left. Press it again to bring them back.
+Press ⌘\ for Focus Mode. The toolbar, the status line and the line above the page go, and the binder and the right column stay, so you can still turn to them. Press it again to bring the rest back.
 
 ## To-dos
 

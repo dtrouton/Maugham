@@ -384,6 +384,22 @@ public struct UIState: Codable, Equatable, Sendable {
         // position in any production code path.
     }
 
+    /// The project's UI-state file, `.maugham/ui-state.json`: one spelling for
+    /// the store's load and save and for a sample's first subject.
+    public static func fileURL(inProject projectURL: URL) -> URL {
+        projectURL.appendingPathComponent(".maugham").appendingPathComponent("ui-state.json")
+    }
+
+    /// Write this state to `projectURL`'s UI-state file, making `.maugham/`
+    /// if needed. The store's debounced save and `SampleProjectBuilder` both
+    /// come through here.
+    public func write(toProject projectURL: URL) throws {
+        let url = Self.fileURL(inProject: projectURL)
+        try FileManager.default.createDirectory(
+            at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try JSONEncoder().encode(self).write(to: url, options: [.atomic])
+    }
+
     /// Load from disk; return `.empty` if file is missing, malformed, or has
     /// a schemaVersion newer than this build understands. v1 JSONs upgrade
     /// to v2 transparently — missing fields default.

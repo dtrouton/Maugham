@@ -38,7 +38,8 @@ public enum UnlinkResearchTool: MCPTool {
     public static let method = "unlink_research"
     public static let description =
         "Remove a research-to-document link. Idempotent (no-op if the link doesn't exist). " +
-        "In a novel, a note no piece links any more is the whole book's again, back in the " +
+        "In a novel, a note no piece links any more, itself or through its group, is the whole " +
+        "book's again, back in the " +
         "binder's Research section."
     public static let inputSchemaJSON =
         #"{"type":"object","properties":{"project_id":{"type":"string"},"research_id":{"type":"string"},"document_id":{"type":"string"}},"required":["project_id","research_id","document_id"]}"#

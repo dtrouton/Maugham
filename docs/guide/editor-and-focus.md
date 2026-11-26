@@ -15,7 +15,7 @@ Open **Settings** (⌘,):
 
 Maugham is built for focused writing sessions. The chrome gets out of your way.
 
-- **⌘\\ — View ▸ Focus Mode.** Hides the title bar, the toolbar, the line above the prose, the status line and [the margin](#the-margin): just text and gutters. On the planning canvas it collapses both side columns too, giving the canvas the whole window; press it again and both come back as they were.
+- **⌘\\ — View ▸ Focus Mode.** Hides the title bar, the toolbar, the line above the prose, the status line and [the margin](#the-margin); the binder and the right column stay, so you can still turn to them. On the planning canvas it collapses both side columns too, giving the canvas the whole window; press it again and both come back as they were.
 - **⌘⇧F — View ▸ Full-Screen Focus.** Full screen with no chrome; it turns Focus Mode on.
 - **⌘⌥⇧R — View ▸ Start Read-through.** Not a focus feature, but the other way to sit with a chapter: typing stops, and you read it as a reviewer would, leaving notes for yourself. See [Read-through](annotations-and-suggestions.md#read-through).
 - **Typewriter scrolling** (Settings → Editor → Focus) — keeps the active line at the vertical center of the viewport as you type.

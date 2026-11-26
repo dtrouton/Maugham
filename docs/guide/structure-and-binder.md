@@ -48,7 +48,7 @@ The Book row is there even when the manuscript is empty, so deleting your last c
 
 ### A chapter's fold
 
-A chapter's row opens to a **fold** holding what the chapter draws on: its research, the canvas cards and regions bound to it, its palette cards, its figures, and its links, both the ones it makes and the ones made to it (marked **Linked from**). Past about six things the fold shows them in groups with counts: Research, Cards, Palette, Figures.
+A chapter's row opens to a **fold** holding what the chapter draws on: its research, the canvas cards and regions bound to it, its palette cards, its figures, and its links, both the ones it makes and the ones made to it (a link made to it carries a return arrow, and its tooltip says which chapter links here). Past about six things the fold shows them in groups with counts: Research, Cards, Palette, Figures.
 
 **Clicking a chapter opens its fold** when it holds anything, for a while: the next chapter you click closes it again, unless you opened it yourself or did something in it. A fold you closed stays closed. ⌘⌥E (View ▸ Show the Chapter's Fold) opens the fold of the chapter the right column is about, with the Parts above it.
 

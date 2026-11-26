@@ -545,10 +545,7 @@ public final class DocumentStore {
     }
 
     public static func open(url: URL) async throws -> DocumentStore {
-        let uiStateURL = url
-            .appendingPathComponent(".maugham")
-            .appendingPathComponent("ui-state.json")
-        let uiState = UIState.loadOrEmpty(from: uiStateURL)
+        let uiState = UIState.loadOrEmpty(from: UIState.fileURL(inProject: url))
 
         let store = DocumentStore(projectURL: url, uiState: uiState)
         store.uiStateScheduler = DebounceScheduler<UIState>(
@@ -2049,13 +2046,8 @@ public final class DocumentStore {
     }
 
     private func persistUIState(_ state: UIState) async {
-        let dotDir = projectURL.appendingPathComponent(".maugham")
-        let url = dotDir.appendingPathComponent("ui-state.json")
         do {
-            try FileManager.default.createDirectory(
-                at: dotDir, withIntermediateDirectories: true)
-            let data = try JSONEncoder().encode(state)
-            try data.write(to: url, options: [.atomic])
+            try state.write(toProject: projectURL)
         } catch {
             // UI state is best-effort; log but don't surface to user.
         }

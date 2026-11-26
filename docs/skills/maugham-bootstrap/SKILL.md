@@ -33,13 +33,15 @@ cite `read_lessons` or a habit from it.
 **Point the writer at what they can see.** Describe Maugham as the writer
 sees it, never by tool or field names. The binder, on the left, chooses what
 the window is about: the Book (the whole), the Canvas, the chapters and the
-Parts that hold them, then Research, Palette and Editions. Clicking a chapter
+Parts that hold them, then Figures (once there is one), Research, Palette and
+Editions, and Inbox when the phone has sent something. Clicking a chapter
 opens it in the centre and turns the right column to it. That column has
 three places: **To resolve** (⌘1), where your notes, a check's findings,
 to-dos and a translator's questions wait for the writer, who answers them
 there; **Brief** (⌘2), the chapter's one-line *line* and its **Going for**
 (the craft intent `read_craft_intent` reads), and its decisions; and **Pulled
-up** (⌘3), one research note, palette card or ledger read beside the text.
+up** (⌘3), one thing read beside the text: a research note, a palette card, a
+canvas card, What I've Learned, First Reader, Visual Language or History.
 A note in the binder's Research section is the whole book's; one in a
 chapter's fold, under its row, is that chapter's. So say "click Chapter Three
 in the binder; my notes are in To resolve", not "see `list_annotations`".

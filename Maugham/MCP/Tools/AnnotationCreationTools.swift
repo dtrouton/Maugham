@@ -102,7 +102,7 @@ public enum AddSuggestedChangeTool: MCPTool {
         "fields: a number with `.` for the decimal and no grouping (1234.5; a number " +
         "with a comma such as 1,500 or 1,5 is refused), text, " +
         "or a formula starting `=` with A1 references by the cell positions " +
-        "read_figure shows; empty proposes clearing the cell. The author accepts " +
+        "read_figure shows; empty proposes clearing the cell. The writer accepts " +
         "it in the grid; the cell is never written for you."
     public static let inputSchemaJSON =
         #"{"type":"object","properties":{"project_id":{"type":"string"},"document_id":{"type":"string"},"paragraph_id":{"type":"string"},"figure":{"type":"string","description":"a figure instead of a paragraph: tbl:name or fig:name (a name works too); cells only on a table: tbl:name!C3 or tbl:name!C3:E3"},"body":{"type":"string"},"suggested_text":{"type":"string"},"suggested_value":{"type":"string","description":"with `figure`: the proposed cell, in machine form"},"quote":{"type":"string"}},"required":["project_id","body"]}"#

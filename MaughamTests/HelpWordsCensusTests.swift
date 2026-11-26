@@ -206,8 +206,7 @@ final class HelpWordsCensusTests: XCTestCase {
     /// The texts read as values, not files: the welcome tour's cards and
     /// every MCP tool's description and input schema, straight from
     /// `MCPToolCatalog.all`, so a description assembled from pieces is read
-    /// whole. (The `initialize` response carries no server instructions; the
-    /// bootstrap skill is in the file corpus.)
+    /// whole; and the server's `initialize` instructions.
     static func valueCorpus() -> [(source: String, text: String)] {
         var values: [(source: String, text: String)] = []
         for slide in WelcomeSlide.all {
@@ -218,6 +217,7 @@ final class HelpWordsCensusTests: XCTestCase {
             values.append(("\(tool.method).description", tool.description))
             values.append(("\(tool.method).inputSchema", tool.inputSchemaJSON))
         }
+        values.append(("initialize.instructions", MCPInitializeHandler.instructions))
         return values
     }
 
@@ -235,7 +235,7 @@ final class HelpWordsCensusTests: XCTestCase {
 
     func test_noTourCardOrMCPDescriptionUsesARetiredWord() {
         let values = Self.valueCorpus()
-        XCTAssertEqual(values.count, 2 * WelcomeSlide.all.count + 2 * MCPToolCatalog.all.count)
+        XCTAssertEqual(values.count, 2 * WelcomeSlide.all.count + 2 * MCPToolCatalog.all.count + 1)
         XCTAssertGreaterThan(MCPToolCatalog.all.count, 40, "premise: the catalog is read")
         let found = Self.valueOffenders(values)
         XCTAssertEqual(found, [], "a tour card or an MCP description names a surface the window no longer has "
@@ -303,9 +303,12 @@ final class HelpWordsCensusTests: XCTestCase {
                        ["planted.md: ⌘⌥⇧9"])
     }
 
-    // MARK: - The owner's name ships nowhere (shell p5 Task 9)
+    // MARK: - The owner's name and his books ship nowhere (shell p5 Task 9)
 
-    static let ownerName = try! NSRegularExpression(pattern: #"(?i)denver|trouton"#)
+    /// His name, and the books an example once borrowed (fix round 1: the
+    /// emission contract still said "the Playlist templates").
+    static let ownerName = try! NSRegularExpression(
+        pattern: #"(?i)denver|trouton|\bplaylist\b|good luck babe|special-glb"#)
 
     /// file → phrase → why it may hold the owner's name. Only his GitHub
     /// handle, which is where releases are published: the updater's own
@@ -367,7 +370,7 @@ final class HelpWordsCensusTests: XCTestCase {
             "Maugham/Resources/bin/tool": "no name here",
             "Maugham/Views/Rogue.swift": "let a = \"Ask TROUTON\"\n// Denver's ruling, in a comment\nlet b = \"github.com/dtrouton\"",
             "Maugham/Updates/GitHubReleasesAPI.swift": "let owner = \"dtrouton\"",
-            "MaughamPhone/Rogue.swift": "let c = \"denver's iPhone\"",
+            "MaughamPhone/Rogue.swift": "let c = \"denver's iPhone\"\nlet f = \"what the Playlist templates use\"",
             "Packages/MaughamCore/Sources/MaughamCore/Rogue.swift": "let d = \"Alex Moreno\"\nlet e = \"Denver\"",
         ])
         XCTAssertEqual(try Self.ownerNameOffenders(base: base), [
@@ -375,6 +378,7 @@ final class HelpWordsCensusTests: XCTestCase {
             "Maugham/Views/Rogue.swift:1: Ask TROUTON",
             "Maugham/Views/Rogue.swift:3: github.com/dtrouton",
             "MaughamPhone/Rogue.swift:1: denver's iPhone",
+            "MaughamPhone/Rogue.swift:2: what the Playlist templates use",
             "Packages/MaughamCore/Sources/MaughamCore/Rogue.swift:2: Denver",
         ])
     }
