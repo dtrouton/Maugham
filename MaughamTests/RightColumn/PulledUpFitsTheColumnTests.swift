@@ -73,23 +73,42 @@ final class PulledUpFitsTheColumnTests: XCTestCase {
         }
     }
 
-    private func mount(_ column: some View, width: Double) -> NSWindow {
-        let window = TestWindow.mount(column, size: CGSize(width: width, height: 900))
+    /// **Both scales a writer's display can have.** This Mac's own, and 1x
+    /// (`OneXTestWindow`): a layout a hair wider than the column rounds to
+    /// half a point past it on a Retina display, inside `slack`, and to a
+    /// whole point on a 1x one — CI's display, which is how the cast
+    /// edition's Adopt and the control's floating-point row were found.
+    private enum Scale: CaseIterable { case native, oneX }
+
+    private func mount(_ column: some View, width: Double, scale: Scale = .native) -> NSWindow {
+        let size = CGSize(width: width, height: 900)
+        let window: NSWindow = switch scale {
+        case .native: TestWindow.mount(column, size: size)
+        case .oneX: TestWindow.mount(column, size: size, as: OneXTestWindow.self)
+        }
         windows.append(window)
         return window
     }
 
-    /// Mount `column`, wait for `ready` (the arm's loaded state), let any
-    /// trailing `.task` settle, and return what overflows.
+    /// Mount `column` at each scale, wait for `ready` (the arm's loaded
+    /// state), let any trailing `.task` settle, and return what overflows,
+    /// a 1x overflow named "1x:".
     private func overflowOnceSettled(_ column: some View, width: Double,
                                      ready: @escaping (NSView) -> Bool = { _ in true }) async throws
         -> (overflow: [String], ready: Bool) {
-        let window = mount(column, width: width)
-        let host = try XCTUnwrap(window.contentView)
-        let wasReady = await pumpUntil(deadline: 5) { ready(host) }
-        await waitOut(0.4)
-        host.layoutSubtreeIfNeeded()
-        return (Self.overflow(in: host, width: CGFloat(width)), wasReady)
+        var overflow: [String] = []
+        var allReady = true
+        for scale in Scale.allCases {
+            let window = mount(column, width: width, scale: scale)
+            let host = try XCTUnwrap(window.contentView)
+            let wasReady = await pumpUntil(deadline: 5) { ready(host) }
+            await waitOut(0.4)
+            host.layoutSubtreeIfNeeded()
+            overflow += Self.overflow(in: host, width: CGFloat(width)).map { scale == .oneX ? "1x: \($0)" : $0 }
+            allReady = allReady && wasReady
+            window.contentView = NSView(frame: .zero)
+        }
+        return (overflow, allReady)
     }
 
     private static func showsText(_ text: String, in host: NSView) -> Bool {
@@ -108,8 +127,29 @@ final class PulledUpFitsTheColumnTests: XCTestCase {
         .frame(width: width, alignment: .leading)
         .clipped()
         let (overflow, _) = try await overflowOnceSettled(overWide, width: width)
-        XCTAssertFalse(overflow.isEmpty,
+        XCTAssertFalse(overflow.filter { !$0.hasPrefix("1x: ") }.isEmpty,
                        "a \(width + 80)pt text field in a \(width)pt column was not seen")
+        XCTAssertFalse(overflow.filter { $0.hasPrefix("1x: ") }.isEmpty, "nor at 1x")
+    }
+
+    /// The 1x mount is a 1x layout, and it sees a field 0.6pt too wide — a
+    /// point at 1x — that a Retina mount rounds to half a point, inside the
+    /// slack: the overhang CI's display showed and this Mac's did not.
+    func test_theOneXMountSeesASubPointOverhang() async throws {
+        let width = Self.narrowest
+        let window = mount(Color.clear, width: width, scale: .oneX)
+        XCTAssertEqual(window.backingScaleFactor, 1, "premise: the 1x window lays out at 1x")
+        let hair = HStack(spacing: 0) {
+            TextField("", text: .constant("hair")).frame(width: width + 0.6)
+        }
+        .frame(width: width, alignment: .leading)
+        .clipped()
+        let (overflow, _) = try await overflowOnceSettled(hair, width: width)
+        XCTAssertTrue(overflow.contains { $0.hasPrefix("1x: ") }, "the 1x mount missed a 0.6pt overhang")
+        if NSScreen.main?.backingScaleFactor == 2 {
+            XCTAssertFalse(overflow.contains { !$0.hasPrefix("1x: ") },
+                           "on Retina the half point is inside the slack — why the 1x mount exists")
+        }
     }
 
     // MARK: - The palette card, the owner's case

@@ -59,9 +59,15 @@ struct StatementProposalBanner: View {
     var body: some View {
         let model = model
         VStack(alignment: .leading, spacing: 6) {
+            // **Who and when stack**, so the verbs share their line with one
+            // text: side by side, at the right column's floor on a 1x display,
+            // the row's widths rounded to whole points summed two points past
+            // the pane and ran Adopt off the column (`PulledUpFitsTheColumnTests`).
             HStack(alignment: .firstTextBaseline, spacing: 6) {
-                Text(model.title).font(.callout.weight(.medium))
-                Text(model.when).font(.caption).foregroundStyle(.secondary)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(model.title).font(.callout.weight(.medium))
+                    Text(model.when).font(.caption).foregroundStyle(.secondary)
+                }
                 Spacer(minLength: 6)
                 if StatementSurfaceVerbs.offered(under: posture) { verbs }
             }

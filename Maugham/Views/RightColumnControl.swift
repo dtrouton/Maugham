@@ -179,15 +179,19 @@ struct RightColumnControl: View {
         let drawsNames = Self.showsNames(
             paneWidth: width, segmentCount: offered.count,
             pulledUpTitleDrawn: drawsTitle && offered.contains(.pulledUp))
-        HStack(spacing: 4) {
-            ForEach(offered, id: \.self) { segment in
-                self.segment(segment, title: title,
-                             drawsTitle: drawsTitle && segment == .pulledUp,
-                             drawsName: drawsNames && segment != .pulledUp,
-                             // With a title drawn, the two leading segments
-                             // keep their icon's width and the title takes
-                             // the rest; otherwise the row is shared evenly.
-                             flexible: !drawsTitle || segment == .pulledUp)
+        // The shares of an evenly shared row sum a hair past the row's width
+        // (`ProposalExactWidth`), which would widen the whole column's stack.
+        ProposalExactWidth {
+            HStack(spacing: 4) {
+                ForEach(offered, id: \.self) { segment in
+                    self.segment(segment, title: title,
+                                 drawsTitle: drawsTitle && segment == .pulledUp,
+                                 drawsName: drawsNames && segment != .pulledUp,
+                                 // With a title drawn, the two leading segments
+                                 // keep their icon's width and the title takes
+                                 // the rest; otherwise the row is shared evenly.
+                                 flexible: !drawsTitle || segment == .pulledUp)
+                }
             }
         }
         .padding(.horizontal, 8)
