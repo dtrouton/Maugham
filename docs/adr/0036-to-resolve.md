@@ -125,3 +125,12 @@ Each was a ruling taken in the build ledger on the agent's authority unless it s
 32. Compare… is offered only where a pin moved: a changed snapshot (a figure made from a Research file that moved on) has no pinned cells to compare, and is listed with Open alone.
 33. The sentence names the figure by its number, as the tree's row leads with it; an unused figure, numbered "—", by its caption or name.
 34. Fix round 1: Compare…'s Refresh, refused only because no grid holds the figure in this window, offers Open the Table (the row's Open) in the sheet rather than leaving the writer at a dead end.
+
+## Addendum, 2026-11-26: the head folds
+
+*The owner, with a screenshot: "i can barely see the items needing to be resolved because of the settings, I think this needs to be expandable or something."* At the column's height the piece's head (the ladder, the round cockpit, the check's header, two Ask fields) took about two thirds; the list, which is what the face is for, the bottom third.
+
+The head folds (`ResolveHeadFold`), and **folded is the default**. Folded, a piece's head is at most three short rows: its name with the derived Status and a ladder phrase (*Revising · Line in progress*); one action row (Run Round, Reread, and Cancel while a run holds the session), offered and refused by the same rules as open; and one line only when there is something to say. Open is the head as it was, under the same first row and its chevron. One setting per window (`UIState.resolveHeadOpen`, an optional key), across pieces and languages.
+
+**Folding hides controls, never state.** The third row is, first of: this piece's round or check running (a clock, never hidden while it runs), a failure, a run elsewhere holding the session, the pass-order nudge, the latest letter. A newly arrived letter does not open the head; it shows as that line, which opens the head on a click. File ▸ Translate… opens the head before the head answers it; the keys run through the window, folded or not. An open head the window cannot afford scrolls within itself, its first row pinned, so the list keeps at least 120pt (`ResolveHeadRoomLayout`). A translated edition's head and a piece read in a language fold the same way; the Source edition's design head, five short rows, does not.
+

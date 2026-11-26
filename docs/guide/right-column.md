@@ -14,13 +14,17 @@ A new chapter's list is empty, and says *Nothing to resolve*. Nothing appears on
 
 ### The head
 
-Above the list, for a chapter:
+**The head is folded until you open it**, so the list has the room. Folded, it is three short rows: the chapter's name and where it stands (*Revising · Line in progress*, *Final · all four passes done*); **Run Round** and **Reread** (and **Cancel** while something runs), offered and refused exactly as in the open head; and one line only when there is something to say — a run in progress (always shown while it runs), a failure, the pass-order nudge, or the latest letter (*Letter from Lish · 2 hours ago*). A new letter shows as that line rather than springing the head open; click the line to open it. ⌘R, ⌃⌘R and ⇧⌘R work folded or open.
+
+The chevron at the end of the first row opens the head and folds it again; the window remembers which, for every chapter and language. **File ▸ Translate…** opens it, since the head answers it. When the window is short, the open head scrolls within itself and the list keeps its room.
+
+Open, above the list, for a chapter:
 
 - **Where it stands** — the chapter's [review passes](review-passes.md#passes-and-the-ladder) as a ladder, with the status they add up to, and a quiet nudge when you work a later pass while an earlier one is still open.
 - **The latest letter** — the newer of the last check's letter and the last round's. **Earlier letters** reaches the ones before it.
 - **Run** — the round, with the pass picker, **Run Gould's Round** and **Fresh Eyes**, and below it the check's own line: who reads this chapter, **Reread**, and **Ask about…**. See [Checking Your Writing](compiler.md) and [Review Passes](review-passes.md#rounds-and-fresh-eyes).
 
-For a Part or the Book, the head is one line counting what is open across it.
+For a Part or the Book, the head is one line counting what is open across it. A translated edition's head and a chapter read in a language fold the same way: folded, the edition or chapter, its Translate button, and one line for a round running or stopped, a notice, or the translator's latest letter. The Source edition's head is short and does not fold.
 
 ### Filters
 
