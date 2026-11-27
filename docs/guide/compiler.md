@@ -42,7 +42,7 @@ Name her in **Project Settings…**, in the **First reader** row beneath the coa
 
 ### Choosing between them
 
-The line *"Le Guin reads this chapter"* (in the project's word for a piece) in To resolve's head is a **picker**. Open it to hand your checks to the coach, to your own first reader, or to nobody in particular. Only readers the project has are offered; if you have not named a first reader, the menu ends with **Define a first reader…**.
+The line *"Le Guin reads this chapter"* (in the project's word for a piece) in To resolve's open head is a **picker**. Open it to hand your checks to the coach, to your own first reader, or to nobody in particular. Only readers the project has are offered; if you have not named a first reader, the menu ends with **Define a first reader…**.
 
 The choice is remembered on this Mac and applies to the whole project. If you later take away what it rests on — vacate the seat, clear the name — checks fall back to the default rather than to a reader who isn't there. A chapter you have never checked says who will read it before you press anything: *"Press ⌘R and Nadia reads what you've written."*
 
@@ -59,7 +59,7 @@ The head tells you when it last ran and how much it looked at ("3 new, 2 revised
 
 ## Asking for something in particular
 
-**Ask about…** is a one-line field, and To resolve's head has two: one in the check's line, for the reader who checks, and one under Run, for the editor who runs the round. Type what you want this run to look at — *I'm worried the middle sags*, *is her voice distinct from his?* — and press Return. Clicking away saves it too, and so does pressing ⌘R: whatever is in the field when you ask is what the run is briefed with. The ✕ withdraws it.
+**Ask about…** is a one-line field, and To resolve's head has two (open the head with its chevron): one in the check's line, for the reader who checks, and one under Run, for the editor who runs the round. Type what you want this run to look at — *I'm worried the middle sags*, *is her voice distinct from his?* — and press Return. Clicking away saves it too, and so does pressing ⌘R: whatever is in the field when you ask is what the run is briefed with. The ✕ withdraws it.
 
 It's kept per chapter until you clear it, because a worry outlasts one run. The letter answers it **first**, in the same voice and never as a rewrite. **It never starts a run** — the key is still the only trigger. Keep it to a sentence or two: over 400 characters is turned away, your words left in the field to shorten.
 
@@ -67,7 +67,7 @@ It's kept per chapter until you clear it, because a worry outlasts one run. The 
 
 ### The letter
 
-**The letter comes first**, at the head of To resolve, because it's what you read first. It's a letter about the draft, signed — *— Le Guin · drafting*: a check carries no round number, so the signature names the **stage** it read your draft at. A letter written while you're drafting says so under its title, naming Reread as the way to ask for the whole thing. **Earlier letters** reaches the ones before.
+**The letter comes first**, at the head of To resolve, because it's what you read first; with the head folded it is one line — *Letter from Le Guin · 5 minutes ago* — unless a run is going or has just failed, and clicking it opens the head. It's a letter about the draft, signed — *— Le Guin · drafting*: a check carries no round number, so the signature names the **stage** it read your draft at. A letter written while you're drafting says so under its title, naming Reread as the way to ask for the whole thing. **Earlier letters** reaches the ones before.
 
 If you asked something, it **answers that first**. Then: what the chapter seems to be **about** as read — one sentence to compare with your own intent; **the one thing** to fix if you fix only one; **What's working**, and why, so the strength is repeatable; **Habits**, a pattern across what was read, with what it costs the reader; **Questions** the draft raised; a **Scenes** table; a line for any lesson in your ledger it looked for and didn't find; and, under *From Maugham's numbers*, one sentence about **your own process** — how you've been coming back to this chapter, what you keep reworking — off numbers Maugham counted. A part with nothing in it draws nothing.
 

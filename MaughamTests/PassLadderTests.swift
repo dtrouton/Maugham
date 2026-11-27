@@ -51,7 +51,9 @@ final class PassLadderTests: XCTestCase {
     /// The right column on To resolve over `piece`.
     private func column(_ store: ProjectStore, _ documentStore: DocumentStore,
                         piece: String) -> RightColumn {
-        RightColumnFixture.column(
+        // The ladder is in To resolve's head, which folds: open it.
+        documentStore.setResolveHeadOpen(true)
+        return RightColumnFixture.column(
             store: store, documentStore: documentStore,
             probe: RightColumnFixture.Probe(
                 position: .resolve,

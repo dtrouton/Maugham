@@ -123,7 +123,7 @@ struct DiagnosticsPaneHeader: View {
                         // too (#77 F7): Reread stays refused exactly as it was
                         // while the header read `.running` over that round, and
                         // now says whose run it is waiting for.
-                        .disabled(isRunningState || otherLoopLine != nil)
+                        .disabled(CheckNarrative.rereadRefuses(state: state, otherLoopLine: otherLoopLine))
                         .help(otherLoopLine ?? CheckNarrative.rereadHelp)
                 }
                 if offersModelMenu { gearMenu }
@@ -182,14 +182,6 @@ struct DiagnosticsPaneHeader: View {
 
     private var isFailureState: Bool {
         if case .failed = state { return true }
-        return false
-    }
-
-    /// The one state Reread refuses in — the same predicate Cancel's presence
-    /// turns on, read off `state` rather than the orchestrator so both
-    /// controls in this row answer to one description of the run.
-    private var isRunningState: Bool {
-        if case .running = state { return true }
         return false
     }
 
@@ -292,6 +284,14 @@ extension CheckNarrative {
     /// and the help text names the keystroke because the button IS the
     /// keystroke's second delivery site.
     static let rereadTitle = "Reread"
+
+    /// **When Reread refuses**: a run in flight here, or another loop's run
+    /// holding the session. One rule for the header and To resolve's folded
+    /// head (`ResolveHeadFold`).
+    static func rereadRefuses(state: HeaderState, otherLoopLine: String?) -> Bool {
+        if case .running = state { return true }
+        return otherLoopLine != nil
+    }
     static let rereadHelp = "Read the whole piece cold (\u{2318}\u{21e7}R)"
 
     /// **"Le Guin reads this piece", "Claude reads this piece"** — who reads

@@ -422,6 +422,13 @@ struct ResolveHeadView: View {
 
     @Environment(\.undoManager) private var undoManager
 
+    /// **Whether the head is open** — the window's one setting
+    /// (`UIState.resolveHeadOpen`), through `DocumentStore`.
+    private var headOpen: Binding<Bool> {
+        Binding(get: { documentStore.uiState.resolveHeadOpen },
+                set: { documentStore.setResolveHeadOpen($0) })
+    }
+
     var body: some View {
         switch ResolveHead.shape(scope) {
         case .piece(let docId):
@@ -444,7 +451,7 @@ struct ResolveHeadView: View {
                             store: store, documentStore: documentStore,
                             editionRead: editionRead, mayDecideDesign: mayDecideDesign,
                             onShowRound: onShowRound, onShowProposal: onShowProposal,
-                            translateAsk: translateAsk)
+                            translateAsk: translateAsk, headOpen: headOpen)
         case .pieceInLanguage(let docId, let language):
             PieceInLanguageHeadView(
                 docId: docId, language: language, store: store, documentStore: documentStore,
@@ -459,7 +466,7 @@ struct ResolveHeadView: View {
                 onShowRound: onShowRound, translationHeard: translationHeard,
                 isOpening: openDocId == docId && documentStore.document(forDocId: docId) == nil,
                 hasItemsToAnswer: ResolveHead.hasItemsToAnswer(snapshot.items, docId: docId),
-                translateAsk: translateAsk)
+                translateAsk: translateAsk, headOpen: headOpen, openDocId: openDocId)
         case .nothing:
             EmptyView()
         }
@@ -476,36 +483,195 @@ struct ResolveHeadView: View {
                 onDocId: docId, openDocId: openDocId,
                 isRegistered: { documentStore.document(forDocId: $0) != nil }),
             posture: documentStore.posture(forDocId: docId))
+        let item = TreeWalk.find(id: docId, in: store.manifest.structure)
+        let isOpen = headOpen.wrappedValue
         VStack(alignment: .leading, spacing: 0) {
-            standing(docId, offers: offers)
-            if let diagnostics {
-                latestLetter(docId, offers: offers, diagnostics: diagnostics)
+            // **The head folds** (`ResolveHeadFold`): where it stands and
+            // the chevron; the name only where it is information.
+            let summary = item.map {
+                ResolveHeadFold.summary(
+                    status: ReviewStatus.derived(passStates: $0.passStates, passes: passes,
+                                                 legacyStatus: $0.status),
+                    passes: passes, passStates: $0.passStates)
             }
-            if offers.opensThePiece {
-                ResolveOpenThePieceButton(
-                    line: ResolveHead.openThePieceLine(
-                        noun: PieceNoun.of(TreeWalk.find(id: docId, in: store.manifest.structure), in: store.manifest).singular,
-                        hasItemsToAnswer: ResolveHead.hasItemsToAnswer(snapshot.items, docId: docId)),
-                    open: { ResolveNavigation.go(toDocId: docId) })
-                .padding(.horizontal, 12).padding(.vertical, 6)
+            let names = ResolveHeadFold.namesThePiece(docId: docId, openDocId: openDocId)
+            let status = item.map {
+                ReviewStatus.derived(passStates: $0.passStates, passes: passes, legacyStatus: $0.status)
             }
-            if let orchestrator, let diagnostics {
-                run(docId, offers: offers, orchestrator: orchestrator, diagnostics: diagnostics)
+            // Open with no name to show, the ladder's Status row is the first
+            // row and carries the chevron — never a row of a chevron alone.
+            let statusInBar = isOpen && !names && status != nil
+            ResolveHeadFoldBar(
+                title: names ? item?.title : nil,
+                spokenTitle: item?.title ?? "",
+                // Open, the ladder says it (its own Status row).
+                summary: isOpen ? nil : summary,
+                spokenSummary: summary,
+                status: statusInBar ? status : nil,
+                // The column's subject line is left out over the open piece;
+                // this row is its heading then (`showsOverToResolve`).
+                isHeading: !names,
+                isOpen: isOpen,
+                onToggle: { headOpen.wrappedValue.toggle() })
+            if isOpen {
+                ResolveHeadOpenBody {
+                    standing(docId, offers: offers, ladderShowsStatus: !statusInBar)
+                    if let diagnostics {
+                        latestLetter(docId, offers: offers, diagnostics: diagnostics)
+                    }
+                    if offers.opensThePiece { openThePiece(docId) }
+                    if let orchestrator, let diagnostics {
+                        run(docId, offers: offers, orchestrator: orchestrator, diagnostics: diagnostics)
+                    }
+                }
+            } else {
+                folded(docId, item: item, offers: offers)
+                Divider()
             }
         }
+    }
+
+    private func openThePiece(_ docId: String) -> some View {
+        ResolveOpenThePieceButton(
+            line: ResolveHead.openThePieceLine(
+                noun: PieceNoun.of(TreeWalk.find(id: docId, in: store.manifest.structure), in: store.manifest).singular,
+                hasItemsToAnswer: ResolveHead.hasItemsToAnswer(snapshot.items, docId: docId)),
+            open: { ResolveNavigation.go(toDocId: docId) })
+        .padding(.horizontal, 12).padding(.vertical, 6)
+    }
+
+    // MARK: Folded
+
+    /// **The folded head's rows two and three** — the same offers, refusals
+    /// and tooltips the open head draws, over the same values. On a piece
+    /// that is not open, row 2 is the line that opens it (and Cancel while a
+    /// run holds the session), and row 3 still says what stands (fix round
+    /// 1, A3).
+    @ViewBuilder
+    private func folded(_ docId: String, item: StructureItem?, offers: ResolveHeadOffers) -> some View {
+        if let orchestrator, let diagnostics {
+            let _ = diagnostics.version
+            let phase = ReviewRoundCockpit.phase(
+                runState: orchestrator.runState, docId: docId,
+                titleOf: { RoundNarrative.pieceTitle(of: $0, in: store.manifest.structure) })
+            let checkState = CheckNarrative.headerState(
+                runState: orchestrator.runState, lastRun: diagnostics.lastCheck(docId: docId),
+                noteCount: 0, docId: docId, runStartedAt: orchestrator.runStartedAt,
+                runProgress: orchestrator.runProgress)
+            let checkOtherLoop = CheckNarrative.otherLoopLine(
+                runState: orchestrator.runState, docId: docId,
+                titleOf: { RoundNarrative.pieceTitle(of: $0, in: store.manifest.structure) })
+            let pass = activePass(docId)
+            let roundAsk = diagnostics.askThatWouldBrief(docId: docId, kind: .round)
+            let checkAsk = diagnostics.askThatWouldBrief(docId: docId, kind: .check)
+            let offersCancel = ReviewRoundCockpit.offersCancel(phase: phase)
+                || CheckNarrative.offersCancel(state: checkState, otherLoopLine: checkOtherLoop)
+            if offers.opensThePiece {
+                openThePiece(docId)
+                if offersCancel { cancelRow(orchestrator) }
+            } else {
+                let check = ResolveHeadFold.checkCommand(checkState)
+                HStack(spacing: 6) {
+                    if offers.runRound {
+                        Button(ReviewRoundCockpit.runTitle) { MaughamEvent.postRun(.runRound) }
+                            .buttonStyle(.borderedProminent)
+                            .disabled(ReviewRoundCockpit.runButtonRefuses(phase: phase, hasPass: pass != nil))
+                            .help(ResolveHeadFold.help(ReviewRoundCockpit.runButtonHelp(
+                                phase: phase, hasPass: pass != nil,
+                                offer: ReviewRoundCockpit.runHelp(
+                                    pass: pass,
+                                    round: diagnostics.latestRound(forPass: pass?.id, docId: docId))),
+                                ask: roundAsk))
+                    }
+                    if offers.runCheck {
+                        Button(check.title) { MaughamEvent.postRun(check) }
+                            .buttonStyle(.bordered)
+                            .disabled(CheckNarrative.rereadRefuses(state: checkState, otherLoopLine: checkOtherLoop))
+                            .help(ResolveHeadFold.help(
+                                checkOtherLoop ?? (check == .reread
+                                    ? CheckNarrative.rereadHelp
+                                    : "\(check.title) (\(check.keyLabel))"),
+                                ask: checkAsk))
+                    }
+                    // Not the posture's, as open: a run in flight is the
+                    // writer's to stop, folded or not.
+                    if offersCancel {
+                        Button(ReviewRoundCockpit.cancelTitle) { orchestrator.cancel() }
+                            .buttonStyle(.bordered)
+                    }
+                    Spacer(minLength: 0)
+                }
+                .controlSize(.small)
+                .padding(.horizontal, 12).padding(.bottom, 6)
+            }
+            let latest = ResolveHead.latestLetter(check: diagnostics.lastCheck(docId: docId),
+                                                  round: diagnostics.lastRound(docId: docId))
+            if let line = ResolveHeadFold.pieceLine(
+                roundPhase: phase, checkState: checkState,
+                nudge: nudgeCaption(docId, item: item),
+                letter: latest.map {
+                    ResolveHeadFold.LetterMark(
+                        voice: ResolveHead.letterVoice(run: $0, reader: reader, passes: passes), at: $0.at)
+                },
+                ask: roundAsk ?? checkAsk) {
+                ResolveHeadFoldedLine(
+                    line: line,
+                    runningText: { now in
+                        switch line {
+                        case .checkRunning:
+                            return CheckNarrative.headerCopy(for: checkState, now: now,
+                                                             annotations: [], passes: [])
+                        default:
+                            return ReviewRoundCockpit.statusLine(
+                                phase: phase, reportLine: nil, runSince: orchestrator.runStartedAt,
+                                runProgress: orchestrator.runProgress, now: now) ?? ""
+                        }
+                    },
+                    onOpen: { headOpen.wrappedValue = true })
+            }
+        } else {
+            if offers.opensThePiece { openThePiece(docId) }
+            if let line = nudgeCaption(docId, item: item).map(ResolveHeadFold.Line.nudge) {
+                ResolveHeadFoldedLine(line: line, onOpen: { headOpen.wrappedValue = true })
+            }
+        }
+    }
+
+    /// Cancel alone, under the line that opens a piece not open.
+    private func cancelRow(_ orchestrator: CompilerOrchestrator) -> some View {
+        HStack {
+            Button(ReviewRoundCockpit.cancelTitle) { orchestrator.cancel() }
+                .buttonStyle(.bordered)
+            Spacer(minLength: 0)
+        }
+        .controlSize(.small)
+        .padding(.horizontal, 12).padding(.bottom, 6)
+    }
+
+    /// The pass-order nudge's caption, as the open head decides it.
+    private func nudgeCaption(_ docId: String, item: StructureItem?) -> String? {
+        guard let item, let nudge = ResolveHead.passOrderNudgeDecision(
+            isProjectScope: false, docId: docId,
+            memory: documentStore.uiState.activePassMemory, passes: passes,
+            passStates: item.passStates,
+            posture: { documentStore.posture(forDocId: $0) },
+            onSetPassState: onSetPassState) else { return nil }
+        return PassOrderAdvice.caption(for: nudge.pass, noun: PieceNoun.of(item, in: store.manifest))
     }
 
     // MARK: Where it stands
 
     @ViewBuilder
-    private func standing(_ docId: String, offers: ResolveHeadOffers) -> some View {
+    private func standing(_ docId: String, offers: ResolveHeadOffers,
+                          ladderShowsStatus: Bool = true) -> some View {
         if let item = TreeWalk.find(id: docId, in: store.manifest.structure) {
             VStack(alignment: .leading, spacing: 4) {
                 PassLadder(
                     item: item, passes: passes,
                     onSet: offers.rulesOnPasses
                         ? { passId, state in onSetPassState(docId, passId, state) }
-                        : nil)
+                        : nil,
+                    showsStatus: ladderShowsStatus)
                 // **Whose piece this is**, under the ladder (shell p3 Task 8,
                 // from the old Inspector) — only where `PieceWriters` draws a
                 // sentence: a book whose permits name pieces.

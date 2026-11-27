@@ -504,60 +504,77 @@ struct ResolvePane: View {
     // MARK: - Body
 
     var body: some View {
-        VStack(spacing: 0) {
-            ResolveHeadView(
-                scope: scope, snapshot: held, openDocId: openDocId,
-                store: store, documentStore: documentStore,
-                orchestrator: orchestrator, diagnostics: diagnostics, world: world,
-                reader: store.manifest.authorReader(
-                    choice: documentStore.uiState.authorReaderChoice,
-                    statementText: { _ in nil }),
-                compilerModel: compilerModel,
-                onCompilerModelChange: onCompilerModelChange,
-                onChooseReader: { documentStore.setAuthorReaderChoice($0) },
-                onOpenProjectSettings: onOpenProjectSettings,
-                onSetActivePass: onSetActivePass,
-                onSetPassState: onSetPassState,
-                onFiledUnder: { filed($0) },
-                editionRead: editionReadIsCurrent ? editionRead : .empty,
-                onShowRound: { publishCentre?.show(round: $0) },
-                onShowProposal: { publishCentre?.show(proposal: $0) },
-                mayDecideDesign: editionVerbs?.mayDecideDesign ?? false,
-                editorControl: editorControl,
-                translationHeard: translationHeard,
-                translateAsk: $translateAsk)
-            if filedNotice != nil {
-                FiledNotice(filing: $filedNotice, onOpenBrief: onOpenBrief, lingers: false)
-                    .padding(.horizontal, 12).padding(.vertical, 4)
+        // **The list keeps its room** (`ResolveHeadRoomLayout`): an open head
+        // past what the pane affords scrolls within itself.
+        ResolveHeadRoomLayout {
+            // ONE subview, whatever the head's body is (fix round 1, A1): an
+            // edition's head is two views, a figure's none.
+            VStack(spacing: 0) {
+                ResolveHeadView(
+                    scope: scope, snapshot: held, openDocId: openDocId,
+                    store: store, documentStore: documentStore,
+                    orchestrator: orchestrator, diagnostics: diagnostics, world: world,
+                    reader: store.manifest.authorReader(
+                        choice: documentStore.uiState.authorReaderChoice,
+                        statementText: { _ in nil }),
+                    compilerModel: compilerModel,
+                    onCompilerModelChange: onCompilerModelChange,
+                    onChooseReader: { documentStore.setAuthorReaderChoice($0) },
+                    onOpenProjectSettings: onOpenProjectSettings,
+                    onSetActivePass: onSetActivePass,
+                    onSetPassState: onSetPassState,
+                    onFiledUnder: { filed($0) },
+                    editionRead: editionReadIsCurrent ? editionRead : .empty,
+                    onShowRound: { publishCentre?.show(round: $0) },
+                    onShowProposal: { publishCentre?.show(proposal: $0) },
+                    mayDecideDesign: editionVerbs?.mayDecideDesign ?? false,
+                    editorControl: editorControl,
+                    translationHeard: translationHeard,
+                    translateAsk: $translateAsk)
             }
-            if hasList {
-                VStack(spacing: 0) {
-                    filterBar
-                    Divider()
-                    list
+            .accessibilityElement(children: .contain)
+            .accessibilityIdentifier(Self.headIdentifier)
+            VStack(spacing: 0) {
+                if filedNotice != nil {
+                    FiledNotice(filing: $filedNotice, onOpenBrief: onOpenBrief, lingers: false)
+                        .padding(.horizontal, 12).padding(.vertical, 4)
                 }
-                // The filed line stands until the writer's next act here —
-                // never a timer (Task 6a). Simultaneous: every control in
-                // the list still takes its own press.
-                .simultaneousGesture(DragGesture(minimumDistance: 0)
-                    .onChanged { _ in
-                        if filedLineAtPress == nil { filedLineAtPress = .some(filedNotice?.id) }
+                if hasList {
+                    VStack(spacing: 0) {
+                        // Nothing to filter, nothing listed: no bar row — New
+                        // To-Do sits on the empty line (owner, 2026-11-26).
+                        if !barFoldsIntoTheEmptyLine {
+                            filterBar
+                            Divider()
+                        }
+                        list
                     }
-                    .onEnded { _ in
-                        filedNotice = FiledNotice.after(
-                            .listPressed(over: filedLineAtPress ?? nil), current: filedNotice)
-                        filedLineAtPress = nil
-                    })
-            } else {
-                ContentUnavailableView {
-                    Label("To resolve", systemImage: "checklist")
-                } description: {
-                    Text((Self.emptyState(scope: scope, hasItems: false, hasVisible: false,
-                                          offersColdStart: false, editionClear: editionClear)
-                          ?? .outside).sentence)
+                    // The filed line stands until the writer's next act here —
+                    // never a timer (Task 6a). Simultaneous: every control in
+                    // the list still takes its own press.
+                    .simultaneousGesture(DragGesture(minimumDistance: 0)
+                        .onChanged { _ in
+                            if filedLineAtPress == nil { filedLineAtPress = .some(filedNotice?.id) }
+                        }
+                        .onEnded { _ in
+                            filedNotice = FiledNotice.after(
+                                .listPressed(over: filedLineAtPress ?? nil), current: filedNotice)
+                            filedLineAtPress = nil
+                        })
+                } else {
+                    ContentUnavailableView {
+                        Label("To resolve", systemImage: "checklist")
+                    } description: {
+                        Text((Self.emptyState(scope: scope, hasItems: false, hasVisible: false,
+                                              offersColdStart: false, editionClear: editionClear)
+                              ?? .outside).sentence)
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+            .accessibilityElement(children: .contain)
+            .accessibilityIdentifier(Self.restIdentifier)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .task(id: listKey) { refresh(listKey) }
@@ -709,6 +726,11 @@ struct ResolvePane: View {
         .doesNotRaiseTheWindowFloor()
     }
 
+    /// The head's and the rest's accessibility identifiers — what a mounted
+    /// test reads their frames by.
+    static let headIdentifier = "resolve.head"
+    static let restIdentifier = "resolve.rest"
+
     // MARK: - The filter bar
 
     private var filterBar: some View {
@@ -727,6 +749,25 @@ struct ResolvePane: View {
                 if !selectionModeOn { selectedIds.removeAll() }
             },
             onNewTodo: presentCreateSheet)
+    }
+
+    /// **Whether the bar's row goes back to the list**: nothing to filter
+    /// (no chips, no triage) and nothing listed, so the bar would hold New
+    /// To-Do alone — it moves to the empty line's trailing edge.
+    private var barFoldsIntoTheEmptyLine: Bool {
+        Self.barFoldsIntoTheEmptyLine(
+            chips: shownChips, triageOffered: triageOffered, hasItems: !held.items.isEmpty,
+            empty: Self.emptyState(scope: scope, hasItems: !held.items.isEmpty, hasVisible: !shown.isEmpty,
+                                   offersColdStart: offersColdStart, editionClear: editionClear,
+                                   showsOnlyQuestions: shownSelection == [.questions]))
+    }
+
+    /// The pure half. Only over the "Nothing to resolve." line: every other
+    /// empty state keeps the bar. Pure.
+    static func barFoldsIntoTheEmptyLine(chips: [ResolveSource], triageOffered: Bool, hasItems: Bool,
+                                         empty: EmptyState?) -> Bool {
+        guard chips.isEmpty, !triageOffered, !hasItems, case .nothing? = empty else { return false }
+        return true
     }
 
     /// Selection mode's door: the open piece's notes — at its own scope or
@@ -753,11 +794,17 @@ struct ResolvePane: View {
                                     editionClear: editionClear,
                                     showsOnlyQuestions: shownSelection == [.questions])
         let opensItsPiece = openThePieceLines(shown)
+        let headers = Self.drawsGroupHeaders(shown)
+        let placement = Self.incompletePlacement(groups: shown.count, headers: headers)
+        let caretMarked = Self.caretMarkedItems(shown, caretGroup: caretGroup, headers: headers)
         return VStack(spacing: 0) {
             ScrollViewReader { proxy in
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 0) {
-                        if let incomplete {
+                        // The may-be-incomplete notice rides the first
+                        // group's line (fix round 1, B4); its own row only
+                        // over a list with no group to carry it.
+                        if let incomplete, placement == .ownRow {
                             Text(incomplete)
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
@@ -767,21 +814,44 @@ struct ResolvePane: View {
                         }
                         emptyLine(empty)
                         ForEach(shown) { group in
-                            groupHeader(group, isOpen: open.contains(group.key))
-                                .id(group.key)
-                            // A piece not open: why its rows have no verbs,
-                            // and the way to them (appraisal 1).
-                            if let (docId, line) = opensItsPiece[group.key] {
-                                ResolveOpenThePieceButton(
-                                    line: line,
-                                    open: { ResolveNavigation.goInsideTheFaces(toDocId: docId, paragraphId: nil) })
-                                .padding(.leading, 26).padding(.trailing, 12).padding(.bottom, 6)
-                            }
-                            if open.contains(group.key) {
-                                ForEach(group.items) { item in
-                                    row(item, acting: acting, bulk: bulk, wiring: wiring, reorders: reorders)
-                                    Divider()
+                            let notice = group.id == shown.first?.id && placement != .ownRow ? incomplete : nil
+                            if headers {
+                                groupHeader(group, isOpen: open.contains(group.key), notice: notice)
+                                    .id(group.key)
+                                // A piece not open: why its rows have no verbs,
+                                // and the way to them (appraisal 1).
+                                if let (docId, line) = opensItsPiece[group.key] {
+                                    ResolveOpenThePieceButton(
+                                        line: line,
+                                        open: { ResolveNavigation.goInsideTheFaces(toDocId: docId, paragraphId: nil) })
+                                    .padding(.leading, 26).padding(.trailing, 12).padding(.bottom, 6)
                                 }
+                                if open.contains(group.key) {
+                                    ForEach(group.items) { item in
+                                        row(item, acting: acting, bulk: bulk, wiring: wiring, reorders: reorders)
+                                        Divider()
+                                    }
+                                }
+                            } else {
+                                // **A short list draws no headers** (fix round
+                                // 1, B3): every group is open, and each row
+                                // says what its header would have.
+                                VStack(alignment: .leading, spacing: 0) {
+                                    if let (docId, line) = opensItsPiece[group.key] {
+                                        ResolveOpenThePieceButton(
+                                            line: line,
+                                            open: { ResolveNavigation.goInsideTheFaces(toDocId: docId, paragraphId: nil) })
+                                        .padding(.horizontal, 12).padding(.top, 6)
+                                    }
+                                    ForEach(group.items) { item in
+                                        row(item, acting: acting, bulk: bulk, wiring: wiring, reorders: reorders,
+                                            groupCaption: group.title,
+                                            captionNotice: item.id == group.items.first?.id ? notice : nil,
+                                            atCaret: caretMarked.contains(item.id))
+                                        Divider()
+                                    }
+                                }
+                                .id(group.key)
                             }
                         }
                         if ResolveSettled.offered(scope: scope, mayAct: mayActOnFaces),
@@ -867,11 +937,17 @@ struct ResolvePane: View {
                     .padding(.vertical, 16)
             }
         case .nothing?, .filteredOut?, .editionClear?, .noQuestions?:
-            Text((empty ?? .nothing).sentence)
-                .font(.callout)
-                .foregroundStyle(.secondary)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, 12).padding(.vertical, 10)
+            HStack(alignment: .firstTextBaseline, spacing: 6) {
+                Text((empty ?? .nothing).sentence)
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                // The bar's one action, where the bar has gone.
+                if barFoldsIntoTheEmptyLine, scope.translationLanguage == nil, creationVerbs.creation.offersAny {
+                    ResolveFilterBar.newTodoButton(presentCreateSheet)
+                }
+            }
+            .padding(.horizontal, 12).padding(.vertical, 10)
             // The source's items are one switch away: the line's own button
             // reads the piece in Source and shows them (closing review I2).
             if case .editionClear? = empty, let docId = sourceToShow {
@@ -904,45 +980,112 @@ struct ResolvePane: View {
         return lines
     }
 
-    private func groupHeader(_ group: ResolveGroup, isOpen: Bool) -> some View {
+    private func groupHeader(_ group: ResolveGroup, isOpen: Bool, notice: String? = nil) -> some View {
         let atCaret = group.key == caretGroup
-        return Button {
-            choices[group.key] = !isOpen
-        } label: {
-            HStack(alignment: .firstTextBaseline, spacing: 6) {
-                Image(systemName: isOpen ? "chevron.down" : "chevron.right")
+        return VStack(alignment: .leading, spacing: 0) {
+            Button {
+                choices[group.key] = !isOpen
+            } label: {
+                HStack(alignment: .firstTextBaseline, spacing: 6) {
+                    Image(systemName: isOpen ? "chevron.down" : "chevron.right")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                    Text(group.title)
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(atCaret ? Color.primary : Color.secondary)
+                        .lineLimit(2)
+                        .multilineTextAlignment(.leading)
+                    Spacer(minLength: 4)
+                    Text("\(group.items.count)")
+                        .font(.caption2.monospacedDigit())
+                        .foregroundStyle(.secondary)
+                }
+                .padding(.horizontal, 12).padding(.vertical, 6)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(alignment: .leading) {
+                    if atCaret {
+                        Rectangle().fill(Color.accentColor).frame(width: 3)
+                    }
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("\(group.title), \(group.items.count)")
+            .accessibilityAddTraits(atCaret ? .isSelected : [])
+            // The may-be-incomplete notice, under the first group's header — a
+            // sibling of its button, so VoiceOver reads it and a click on it
+            // folds nothing (B4, re-review N2).
+            if let notice {
+                Text(notice)
                     .font(.caption2)
                     .foregroundStyle(.secondary)
-                Text(group.title)
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(atCaret ? Color.primary : Color.secondary)
-                    .lineLimit(2)
-                    .multilineTextAlignment(.leading)
-                Spacer(minLength: 4)
-                Text("\(group.items.count)")
-                    .font(.caption2.monospacedDigit())
-                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.leading, 26).padding(.trailing, 12).padding(.bottom, 4)
+                    .accessibilityIdentifier("resolve.incomplete")
             }
-            .padding(.horizontal, 12).padding(.vertical, 6)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(alignment: .leading) {
-                if atCaret {
-                    Rectangle().fill(Color.accentColor).frame(width: 3)
-                }
-            }
-            .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
-        .accessibilityLabel("\(group.title), \(group.items.count)")
-        .accessibilityAddTraits(atCaret ? .isSelected : [])
     }
 
     // MARK: - A row
 
+    /// **Fewer items than this, and the list draws no group headers**
+    /// (fix round 1, B3): each row is captioned with its group's title.
+    static let groupHeadersFrom = 5
+
+    /// Whether `shown` draws its group headers. Pure.
+    static func drawsGroupHeaders(_ shown: [ResolveGroup]) -> Bool {
+        shown.reduce(0) { $0 + $1.items.count } >= groupHeadersFrom
+    }
+
+    /// Where the may-be-incomplete notice is drawn (B4): under the first
+    /// group's header, under the first row's caption without headers, or a
+    /// row of its own over a list with no group. Pure.
+    enum IncompletePlacement: Equatable { case ownRow, firstHeader, firstRow }
+
+    static func incompletePlacement(groups: Int, headers: Bool) -> IncompletePlacement {
+        guard groups > 0 else { return .ownRow }
+        return headers ? .firstHeader : .firstRow
+    }
+
+    /// **The rows that carry the caret's mark** — below the header
+    /// threshold, the caret group's rows (with headers, its header carries
+    /// it). Once per list render, never per row. Pure.
+    static func caretMarkedItems(_ shown: [ResolveGroup], caretGroup: ResolveGroup.Key?,
+                                 headers: Bool) -> Set<ResolveItem.ID> {
+        guard !headers, let caretGroup, let group = shown.first(where: { $0.key == caretGroup }) else { return [] }
+        return Set(group.items.map(\.id))
+    }
+
     @ViewBuilder
     private func row(_ item: ResolveItem, acting: Document?, bulk: String?,
-                     wiring: AnnotationRowWiring, reorders: Bool) -> some View {
+                     wiring: AnnotationRowWiring, reorders: Bool, groupCaption: String? = nil,
+                     captionNotice: String? = nil, atCaret: Bool = false) -> some View {
         VStack(alignment: .leading, spacing: 0) {
+            // A headerless row's caption (B3): its group's title, one line;
+            // on the first row, the may-be-incomplete notice under it (B4).
+            // The caret's group's rows carry the header's accent beside it.
+            if let groupCaption {
+                Text(groupCaption)
+                    .font(.caption2)
+                    .foregroundStyle(atCaret ? Color.primary : Color.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .padding(.horizontal, 12).padding(.top, 6)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(alignment: .leading) {
+                        if atCaret { Rectangle().fill(Color.accentColor).frame(width: 3) }
+                    }
+                    .accessibilityIdentifier("resolve.row.groupCaption")
+                    .accessibilityAddTraits(atCaret ? .isSelected : [])
+            }
+            if let captionNotice {
+                Text(captionNotice)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.horizontal, 12)
+            }
             if let caption = Self.caption(for: item, localName: localName) {
                 Text(caption)
                     .font(.caption2)

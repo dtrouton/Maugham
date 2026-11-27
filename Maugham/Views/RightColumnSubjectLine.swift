@@ -46,6 +46,24 @@ struct RightColumnSubjectLine: View {
 
     static let sourceBriefWord = "Source brief"
 
+    /// **Whether To resolve carries the line**: not where the faces are a
+    /// PIECE open in the centre — even an empty one, even one still opening
+    /// (`open` is the binder's pick, set before its `Document` registers) —
+    /// for there the name is what the writer already has selected, and the
+    /// head's first row is the column's heading instead. A Part, the Book
+    /// and everything else keep it: their heads (a count line) name nothing,
+    /// and a Part's centre is its pieces' board, not the Part. Anywhere the
+    /// faces and the centre part (the canvas, an edition's book, a Brief
+    /// link, ⌘⌥K) it stays too. Brief keeps its line always: a writer typing
+    /// into it must see whose it is. Pure.
+    static func showsOverToResolve(_ subject: WindowSubject, structure: [StructureItem]) -> Bool {
+        // A reference piece has no head of its own (`ResolveScope.elsewhere`).
+        guard case .item(let id) = subject.faces,
+              let item = TreeWalk.find(id: id, in: structure),
+              item.type == .document, item.pieceKind != .reference else { return true }
+        return subject.open != subject.faces
+    }
+
     private static func named(_ title: String, else fallback: String) -> String {
         let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? fallback : trimmed

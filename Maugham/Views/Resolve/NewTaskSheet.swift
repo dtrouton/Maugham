@@ -29,24 +29,28 @@ struct NewTaskSheet: View {
                 .font(.headline)
             TextField("To-do", text: $taskBody)
                 .textFieldStyle(.roundedBorder)
-            HStack {
-                Picker("Scope", selection: $scope) {
-                    if canPickDocumentScope {
-                        Text(Self.pieceScopeTitle(noun))
-                            .tag(ResolveTaskScope.document)
-                    }
-                    if canPickProjectScope {
-                        Text(Self.bookScopeTitle).tag(ResolveTaskScope.project)
-                    }
+            // The scope on its own row and the buttons on theirs (fix round
+            // 1, B5): beside a segmented control, Cancel was cut to "Ca…".
+            Picker("Scope", selection: $scope) {
+                if canPickDocumentScope {
+                    Text(Self.pieceScopeTitle(noun))
+                        .tag(ResolveTaskScope.document)
                 }
-                .pickerStyle(.segmented)
-                .fixedSize()
-                .disabled(!(canPickDocumentScope && canPickProjectScope))
+                if canPickProjectScope {
+                    Text(Self.bookScopeTitle).tag(ResolveTaskScope.project)
+                }
+            }
+            .pickerStyle(.segmented)
+            .fixedSize()
+            .disabled(!(canPickDocumentScope && canPickProjectScope))
+            HStack {
                 Spacer()
                 Button("Cancel", role: .cancel, action: onCancel)
+                    .fixedSize()
                 Button("Add", action: onCommit)
                     .keyboardShortcut(.return)
                     .buttonStyle(.borderedProminent)
+                    .fixedSize()
                     .disabled(taskBody.trimmingCharacters(
                         in: .whitespacesAndNewlines).isEmpty)
             }

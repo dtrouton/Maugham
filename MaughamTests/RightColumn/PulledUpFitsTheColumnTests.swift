@@ -234,6 +234,206 @@ final class PulledUpFitsTheColumnTests: XCTestCase {
             + offenders.joined(separator: "\n"))
     }
 
+    // MARK: - To resolve's head, folded and open (2026-11-26)
+
+    /// **To resolve fits the narrowest column with its head folded and
+    /// open** — every To resolve arm, and a piece's head with a compiler
+    /// behind it (the round cockpit, the check's header, both Ask fields),
+    /// at both scales.
+    func test_toResolvesHeadFitsTheNarrowestColumnFoldedAndOpen() async throws {
+        let f = try await makeFixture()
+        let width = Self.narrowest
+        let arms = RightColumnFixture.arms(docId: f.docId, partId: f.partId, noteId: f.noteId)
+            .filter { $0.position == .resolve }
+        let root = f.store.url
+        var offenders: [String] = []
+        for open in [false, true] {
+            f.documentStore.setResolveHeadOpen(open)
+            let state = open ? "open" : "folded"
+            for arm in arms {
+                let control = EditorControl()
+                control.translationLanguage = arm.translationLanguage
+                let probe = RightColumnFixture.Probe(position: arm.position, subject: arm.subject)
+                let (overflow, _) = try await overflowOnceSettled(
+                    RightColumnFixture.column(store: f.store, documentStore: f.documentStore,
+                                              probe: probe, editorControl: control, width: width)
+                        .environment(f.preferences),
+                    width: width)
+                if !overflow.isEmpty {
+                    offenders.append("\(arm.name), \(state): " + overflow.prefix(3).joined(separator: "; "))
+                }
+                for window in windows { window.contentView = NSView(frame: .zero) }
+                windows.removeAll()
+            }
+            let head = ResolveHeadView(
+                scope: .piece(docId: f.docId, includesBookLevel: false), snapshot: .empty,
+                openDocId: f.docId, store: f.store, documentStore: f.documentStore,
+                orchestrator: CompilerOrchestrator(),
+                diagnostics: DiagnosticsStore(projectRoot: root, device: DeviceSlug.make(from: "fit-mac")),
+                world: nil, reader: .nobody, compilerModel: .standard,
+                onCompilerModelChange: { _ in }, onChooseReader: { _ in }, onOpenProjectSettings: {},
+                onSetActivePass: { _, _ in }, onSetPassState: { _, _, _ in })
+                .frame(width: width, alignment: .top)
+                .environment(f.preferences)
+            let (overflow, _) = try await overflowOnceSettled(head, width: width)
+            if !overflow.isEmpty {
+                offenders.append("a piece's head with a compiler, \(state): "
+                                 + overflow.prefix(3).joined(separator: "; "))
+            }
+            for window in windows { window.contentView = NSView(frame: .zero) }
+            windows.removeAll()
+        }
+        XCTAssertEqual(offenders, [],
+            "To resolve runs past the \(width)pt column:\n" + offenders.joined(separator: "\n"))
+    }
+
+    // MARK: - The filter bar, one row (fix round 1, B2)
+
+    /// **To resolve's filter bar is one row at the narrowest column**, with
+    /// every chip, the triage control in each state and the overflow menu,
+    /// at both scales: its height is the bare chips row's.
+    func test_theFilterBarIsOneRowAtTheNarrowestColumnWithTriage() async throws {
+        let width = Self.narrowest
+        let chips: [ResolveSource] = [.pass("structural"), .pass("line"), .mine, .checks, .others, .questions]
+        func bar(triage: ResolveTriageChoice?, actions: Bool, selecting: Bool = false) -> some View {
+            ResolveFilterBar(
+                chips: chips, selection: [], passes: ReviewPass.presets,
+                showsSelectionMode: actions, selectionModeOn: selecting, showsNewTodo: actions,
+                triage: triage, onToggle: { _ in }, onToggleSelectionMode: {}, onNewTodo: {})
+                .frame(width: width)
+        }
+        for scale in Scale.allCases {
+            let bare = mount(bar(triage: nil, actions: false), width: width, scale: scale)
+            await waitOut(0.2)
+            let oneRow = try XCTUnwrap(bare.contentView).fittingSize.height
+            for choice in ResolveTriageChoice.allCases {
+                for selecting in [false, true] {
+                    let window = mount(bar(triage: choice, actions: true, selecting: selecting),
+                                       width: width, scale: scale)
+                    await waitOut(0.2)
+                    let height = try XCTUnwrap(window.contentView).fittingSize.height
+                    XCTAssertEqual(height, oneRow, accuracy: 0.5,
+                                   "\(scale) with triage \(choice)\(selecting ? ", selecting" : ""): "
+                                   + "the bar is \(height)pt, one row is \(oneRow)pt")
+                    if selecting {
+                        try requireAssistiveClient()
+                        XCTAssertEqual(try axButtons(labelled: ResolveFilterBar.doneSelectingTitle, in: window).count, 1,
+                                       "while selecting, Done is on the bar itself")
+                    }
+                    window.contentView = NSView(frame: .zero)
+                }
+            }
+            bare.contentView = NSView(frame: .zero)
+        }
+    }
+
+    /// **Plain buttons where they fit; the menu only where they would wrap;
+    /// one action is always a button** (round 3), at both scales.
+    func test_theBarsActionsArePlainWhereTheyFitAndAMenuOnlyWhereTheyWouldWrap() async throws {
+        let chips: [ResolveSource] = [.pass("structural"), .mine, .checks]
+        func bar(width: Double, triage: ResolveTriageChoice?, selection: Bool, newTodo: Bool) -> some View {
+            ResolveFilterBar(
+                chips: chips, selection: [], passes: ReviewPass.presets,
+                showsSelectionMode: selection, selectionModeOn: false, showsNewTodo: newTodo,
+                triage: triage, onToggle: { _ in }, onToggleSelectionMode: {}, onNewTodo: {})
+                .frame(width: width)
+        }
+        func hasMenu(_ window: NSWindow) throws -> Bool {
+            try axElements(in: window).contains {
+                (axAttribute($0, "accessibilityIdentifier") as? String) == "resolve.filterBar.actions"
+            }
+        }
+        try requireAssistiveClient()
+        for scale in Scale.allCases {
+            // A wide column: plain buttons, one row.
+            let wide = mount(bar(width: 480, triage: .discuss, selection: true, newTodo: true), width: 480, scale: scale)
+            await waitOut(0.2)
+            XCTAssertFalse(try hasMenu(wide), "\(scale): a wide column draws the plain buttons")
+            XCTAssertEqual(try axButtons(labelled: NewTaskSheet.title, in: wide).count, 1)
+            XCTAssertEqual(try axButtons(labelled: ResolveFilterBar.selectNotesTitle, in: wide).count, 1)
+            wide.contentView = NSView(frame: .zero)
+            // One action: a button, never a menu, however narrow.
+            let one = mount(bar(width: Self.narrowest, triage: .untriaged, selection: false, newTodo: true),
+                            width: Self.narrowest, scale: scale)
+            await waitOut(0.2)
+            XCTAssertFalse(try hasMenu(one), "\(scale): one action is never a menu")
+            XCTAssertEqual(try axButtons(labelled: NewTaskSheet.title, in: one).count, 1)
+            one.contentView = NSView(frame: .zero)
+            // The narrowest column with the widest triage word and both
+            // actions: measured, the plain row still fits there — one row,
+            // the plain buttons.
+            let bare = mount(bar(width: Self.narrowest, triage: nil, selection: false, newTodo: false),
+                             width: Self.narrowest, scale: scale)
+            await waitOut(0.2)
+            let oneRow = try XCTUnwrap(bare.contentView).fittingSize.height
+            bare.contentView = NSView(frame: .zero)
+            let narrow = mount(bar(width: Self.narrowest, triage: .untriaged, selection: true, newTodo: true),
+                               width: Self.narrowest, scale: scale)
+            await waitOut(0.2)
+            XCTAssertEqual(try XCTUnwrap(narrow.contentView).fittingSize.height, oneRow, accuracy: 0.5,
+                           "\(scale): one row at the narrowest column")
+            XCTAssertFalse(try hasMenu(narrow), "\(scale): the plain buttons fit the narrowest column")
+            narrow.contentView = NSView(frame: .zero)
+            // Narrower than the plain row fits, the menu keeps it one row:
+            // walking down from the floor, the first width that drops the
+            // plain buttons draws the menu on one row.
+            var menuOnOneRow: Double?
+            var width = Self.narrowest - 2
+            while width > 150, menuOnOneRow == nil {
+                let squeezed = mount(bar(width: width, triage: .untriaged, selection: true, newTodo: true),
+                                     width: width, scale: scale)
+                await waitOut(0.1)
+                let plain = try axButtons(labelled: ResolveFilterBar.selectNotesTitle, in: squeezed).count == 1
+                if !plain {
+                    XCTAssertTrue(try hasMenu(squeezed), "\(scale) at \(width)pt: without the buttons, the menu")
+                    if try XCTUnwrap(squeezed.contentView).fittingSize.height <= oneRow + 0.5 { menuOnOneRow = width }
+                    squeezed.contentView = NSView(frame: .zero)
+                    break
+                }
+                squeezed.contentView = NSView(frame: .zero)
+                width -= 2
+            }
+            XCTAssertNotNil(menuOnOneRow, "\(scale): where the plain buttons would wrap, the menu keeps one row")
+        }
+    }
+
+    // MARK: - New To-Do's sheet (fix round 1, B5)
+
+    /// **New To-Do's buttons show their whole titles** — a novel's and a
+    /// Collection's noun, both scopes offered, at both scales: no button is
+    /// laid out narrower than its title asks.
+    func test_newToDosButtonsShowTheirWholeTitles() async throws {
+        var offenders: [String] = []
+        for noun in [PieceNoun.chapter, PieceNoun.piece] {
+            for scale in Scale.allCases {
+                let sheet = NewTaskSheet(taskBody: .constant("Fix the fog"), scope: .constant(.document),
+                                         canPickDocumentScope: true, canPickProjectScope: true,
+                                         noun: noun, onCommit: {}, onCancel: {})
+                let window = mount(sheet, width: 380, scale: scale)
+                await waitOut(0.3)
+                try requireAssistiveClient()
+                // Each button's own width, alone and unconstrained, in the
+                // sheet's styles: what its whole title asks.
+                let wants: [String: CGFloat] = [
+                    "Cancel": NSHostingView(rootView: Button("Cancel", role: .cancel) {}.fixedSize()).fittingSize.width,
+                    "Add": NSHostingView(rootView: Button("Add") {}.buttonStyle(.borderedProminent)
+                        .fixedSize()).fittingSize.width,
+                ]
+                for (title, want) in wants {
+                    let found = try axButtons(labelled: title, in: window)
+                    XCTAssertEqual(found.count, 1, "premise: one \(title) (\(scale), \(noun.singular))")
+                    guard let rect = found.first.flatMap({ (axAttribute($0, "accessibilityFrame") as? NSValue)?.rectValue })
+                    else { continue }
+                    if rect.width + 1 < want {
+                        offenders.append("\(noun.singular), \(scale): \(title) is \(rect.width)pt of \(want)pt")
+                    }
+                }
+                window.contentView = NSView(frame: .zero)
+            }
+        }
+        XCTAssertEqual(offenders, [], offenders.joined(separator: "\n"))
+    }
+
     // MARK: - An edition's Brief, in every state (shell p4 Task 7)
 
     /// **An edition's Brief fits the narrowest column in every state**: a

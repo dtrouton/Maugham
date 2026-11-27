@@ -80,6 +80,8 @@ final class AnnotationsPassOrderNudgeVerbsTests: XCTestCase {
     /// production caller would still go undetected. It doesn't: this is the
     /// production wiring, mounted directly.
     private func mountPane(_ fx: Harness) -> NSWindow {
+        // The nudge's verbs are in To resolve's open head.
+        fx.documentStore.setResolveHeadOpen(true)
         let view = ResolvePane(
             store: fx.store,
             documentStore: fx.documentStore,

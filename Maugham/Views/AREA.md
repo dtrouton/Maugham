@@ -131,7 +131,7 @@ Every file in `Maugham/Views/` appears once, plus the `Maugham/Models/` files CL
 - `Maugham/Views/Resolve/ResolveVerbGate.swift`, `ResolveNavigation.swift` — act only on the open piece; a row's click goes to its piece and paragraph.
 - `Maugham/Views/Resolve/ResolveNoteVerbs.swift`, `ResolveNoteStatics.swift`, `ResolveDialogs.swift`, `AnnotationRowHost.swift`, `ResolveTaskVerbs.swift`, `NewTaskSheet.swift` — note verbs and sheets, one note row, to-do verbs and sheet.
 - `Maugham/Views/Resolve/AnnotationRowWiring.swift`, `FigureRowGate.swift`, `AnnotationsBulkBar.swift` — a row's closures, a figure note's gate, the multiselect bar.
-- `Maugham/Views/Resolve/ResolveHead.swift`, `ResolveHeadStatics.swift` — the head; the shared letter host, cockpit mount and nudge row.
+- `Maugham/Views/Resolve/ResolveHead.swift`, `ResolveHeadStatics.swift`, `ResolveHeadFold.swift` — the head, its fold; letter host, cockpit mount, nudge row.
 - `Maugham/Views/Resolve/ResolvePane.swift`, `ResolveListDecisions.swift`, `ResolveFilterBar.swift`, `ResolveSettledSection.swift` — the list (⌘1), decisions, chips, Settled section.
 - `Maugham/Views/Resolve/ResolveEditionItems.swift` — an edition's list: changes, glossary, design, compile; rows, verbs, head.
 - `Maugham/Views/Resolve/ResolvePieceInLanguage.swift`, `PieceInLanguageCaretSection.swift` — a piece read in a language: head, caret paragraph.

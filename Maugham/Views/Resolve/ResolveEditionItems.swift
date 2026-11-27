@@ -192,6 +192,11 @@ enum ResolveEditionItems {
 
     static let openTheReportTitle = "Open the report"
 
+    /// A translated edition's folded head's name: "Spanish edition".
+    static func foldTitle(language: String) -> String {
+        "\(LanguageName.title(language)) edition"
+    }
+
     /// The head with no letter yet: who would write one.
     static func noLetterLine(translator: String, hasRounds: Bool) -> String {
         hasRounds
@@ -1061,6 +1066,10 @@ struct EditionHeadView: View {
     /// File ▸ Translate Whole Book into …'s ask (shell p5 Task 7, row 7):
     /// Run Whole Book, pressed for the menu where it is offered.
     var translateAsk: Binding<TranslateMenuOffer?> = .constant(nil)
+    /// Whether To resolve's head is open (`UIState.resolveHeadOpen`). A
+    /// translated edition's head folds (`ResolveHeadFold`); the Source's,
+    /// five short rows at most, does not.
+    var headOpen: Binding<Bool> = .constant(true)
 
     @Environment(AgentRoster.self) private var roster: AgentRoster?
     @State private var notice: String?
@@ -1106,19 +1115,23 @@ struct EditionHeadView: View {
 
     @ViewBuilder
     private var content: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            if isSource { designHead } else { translatorHead }
-            if let notice {
-                Text(notice)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .accessibilityIdentifier("resolve.edition.notice")
+        VStack(alignment: .leading, spacing: 0) {
+            if isSource {
+                openContent
+            } else {
+                ResolveHeadFoldBar(
+                    title: ResolveEditionItems.foldTitle(language: language),
+                    spokenTitle: ResolveEditionItems.foldTitle(language: language),
+                    summary: translatorName,
+                    isOpen: headOpen.wrappedValue,
+                    onToggle: { headOpen.wrappedValue.toggle() })
+                if headOpen.wrappedValue {
+                    ResolveHeadOpenBody { openContent }
+                } else {
+                    foldedTranslator
+                }
             }
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.horizontal, 12).padding(.vertical, 6)
         // Run Whole Book's cost (fix round I2): one edition's figure over the
         // run's pieces, read off the main actor and cached per book; taken
         // only while no round runs — the last idle figure stands mid-round.
@@ -1147,6 +1160,83 @@ struct EditionHeadView: View {
                                 })
         }
         Divider()
+    }
+
+    /// The head as it reads open — every row.
+    private var openContent: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            if isSource { designHead } else { translatorHead }
+            if let notice {
+                Text(notice)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .accessibilityIdentifier("resolve.edition.notice")
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 12).padding(.vertical, 6)
+    }
+
+    /// **Folded** (`ResolveHeadFold`): Run Whole Book and Cancel as offered
+    /// open, then one line — the round running, a stopped round, the head's
+    /// notice, or the latest letter.
+    @ViewBuilder
+    private var foldedTranslator: some View {
+        let run = runState
+        let head = ResolveEditionItems.headRounds(
+            newest: editionRead.newestRound, rounds: editionRead.rounds,
+            running: roster?.pipeline.status != .idle && roster?.pipeline.status != nil, now: Date())
+        if offersRunHere {
+            runButtons(run)
+                .padding(.horizontal, 12).padding(.bottom, 6)
+        }
+        if let line = ResolveHeadFold.translationLine(
+            running: run.isRunning ? run.statusLine.map {
+                ResolveEditionItems.runningLine(
+                    $0, pipeline: roster?.pipeline.status ?? .idle,
+                    titleOf: { TreeWalk.find(id: $0, in: store.manifest.structure)?.title })
+            } : nil,
+            elsewhere: nil, failure: nil,
+            stopped: head.stopped.flatMap { stopped in head.stoppedLine.map { ($0, stopped.failed) } },
+            notice: notice,
+            letter: head.letter.flatMap { round in
+                ResolveEditionItems.letter(of: round).map { _ in
+                    ResolveHeadFold.LetterMark(voice: round.signedBy(liveName: translatorName),
+                                               at: round.startedAt)
+                }
+            }) {
+            ResolveHeadFoldedLine(line: line, onOpen: { headOpen.wrappedValue = true })
+        }
+    }
+
+    /// Whether Run Whole Book is offered here — open and folded alike.
+    private var offersRunHere: Bool {
+        editionRead.language != nil && Self.offersRun(docIds: editionRead.runBook, mayTranslate: {
+            TranslationRunStart.postureOfTheTranslator(forPiece: $0, in: documentStore).allows(.translate)
+        })
+    }
+
+    /// Run Whole Book, and Cancel while a round runs.
+    private func runButtons(_ run: TranslationRunState) -> some View {
+        FlowLayout(spacing: 6) {
+            Button(TranslationRunState.runBookTitle) { runBook() }
+                .controlSize(.small)
+                .fixedSize()
+                .disabled(!run.canRunBook)
+                .accessibilityLabel(TranslationRunState.runBookAccessibilityLabel(language: language))
+                .help(run.bookRefusal
+                      ?? TranslationRunState.runBookHelp(language: language, count: editionRead.runBook.count,
+                                                        noun: PieceNoun.of(nil, in: store.manifest),
+                                                        preflight: preflight))
+            if run.isRunning {
+                Button(TranslationRunState.cancelTitle) { verbs.cancelRound() }
+                    .controlSize(.small)
+                    .fixedSize()
+                    .help(TranslationRunState.cancelHelp)
+            }
+        }
     }
 
     // MARK: A translated edition
@@ -1222,26 +1312,8 @@ struct EditionHeadView: View {
     private var translationRun: some View {
         let run = runState
         let book = editionRead.runBook
-        if editionRead.language != nil, Self.offersRun(docIds: book, mayTranslate: {
-            TranslationRunStart.postureOfTheTranslator(forPiece: $0, in: documentStore).allows(.translate)
-        }) {
-            FlowLayout(spacing: 6) {
-                Button(TranslationRunState.runBookTitle) { runBook() }
-                    .controlSize(.small)
-                    .fixedSize()
-                    .disabled(!run.canRunBook)
-                    .accessibilityLabel(TranslationRunState.runBookAccessibilityLabel(language: language))
-                    .help(run.bookRefusal
-                          ?? TranslationRunState.runBookHelp(language: language, count: book.count,
-                                                            noun: PieceNoun.of(nil, in: store.manifest),
-                                                            preflight: preflight))
-                if run.isRunning {
-                    Button(TranslationRunState.cancelTitle) { verbs.cancelRound() }
-                        .controlSize(.small)
-                        .fixedSize()
-                        .help(TranslationRunState.cancelHelp)
-                }
-            }
+        if offersRunHere {
+            runButtons(run)
             Text(ResolveEditionItems.runScopeLine(count: book.count, noun: PieceNoun.of(nil, in: store.manifest),
                                                   imprint: editionRead.imprint,
                                                   preflight: preflight))

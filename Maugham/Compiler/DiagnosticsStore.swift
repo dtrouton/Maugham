@@ -920,6 +920,22 @@ final class DiagnosticsStore {
         return true
     }
 
+    /// **The ask the next run of this kind would be briefed with**: what is
+    /// typed and not yet committed when there is a draft (an emptied field
+    /// withdraws it), else the stored ask. Read by To resolve's folded head,
+    /// which hides the field but must still say the ask stands.
+    func askThatWouldBrief(docId: String, kind: RunKind) -> String? {
+        let key = Self.askKey(docId: docId, kind: kind)
+        if let pending = pendingAsks[key] {
+            let trimmed = pending.trimmingCharacters(in: .whitespacesAndNewlines)
+            // Over the limit `setAsk` refuses it, and the stored ask is what
+            // the run is briefed with — so that is what is said.
+            if trimmed.count > Self.askLimit { return asks[key] }
+            return trimmed.isEmpty ? nil : trimmed
+        }
+        return asks[key]
+    }
+
     /// **Note what the writer is typing, without writing anything.** Called on
     /// every keystroke; see ``pendingAsks`` for why that is cheap and why it is
     /// not a commit.

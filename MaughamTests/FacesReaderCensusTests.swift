@@ -78,6 +78,9 @@ final class FacesReaderCensusTests: XCTestCase {
         "RightColumn.swift": 1,
         "RightColumnContent.swift": 4,
         "RightColumnControl.swift": 2,
+        // Right-column work: whether To resolve's subject line is the piece
+        // open in the centre (`showsOverToResolve`, owner 2026-11-26).
+        "RightColumnSubjectLine.swift": 2,
         "SubjectValidationModifier.swift": 1,
     ]
 

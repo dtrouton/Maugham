@@ -26,7 +26,9 @@ Because she isn't a pass, her name is reserved: adding a pass called
 coach.
 
 Where you rule on a pass is the **ladder** at the head of the chapter's
-[To resolve](right-column.md#to-resolve-1) (⌘1). Each pass has a rung —
+[To resolve](right-column.md#to-resolve-1) (⌘1); open the head with its
+chevron to reach it. Folded, the head's first row still says where the
+chapter stands — *Revising · Line in progress*. Each pass has a rung —
 **Untouched**, **In Progress**, **Done**, or **Skip** — and beside them one
 derived **status**: **Draft** while nothing's touched, **Revising** while any
 pass is in progress or the chapter is partway up the ladder, **Final** once
@@ -65,9 +67,10 @@ A note of your first reader's carries **Answer as ruling…**, which files your
 answer as a standing instruction in her statement (see [Your own first
 reader](compiler.md#your-own-first-reader)).
 
-**Run**, at the head of the chapter's To resolve, is where you meet a round:
+**Run**, at the head of the chapter's To resolve (open the head with its
+chevron; folded, **Run Round** is on its second row), is where you meet a round:
 the chapter's lane — *Copyedit · Gould · round 2* — what changed since the
-last one, and two buttons, **Run Gould's Round** and **Fresh Eyes**. **The lane
+last one, and two buttons, **Run Round** and **Fresh Eyes** (the File menu names the editor: *Run Gould's Round*). **The lane
 line is itself the pass picker**: click it to read the chapter through a
 different pass, with the current one checked. No pass active yet? The line
 reads *Set a pass to run a round*, and both buttons are off with a tooltip

@@ -53,7 +53,7 @@ A chapter with translations can be read in one: the **language switch** in the t
 
 While you read a translation you can't type in it, and Undo waits: **Edit ▸ Undo** reads *Undo — Returns in Source*. Back in Source, your undo is where you left it. The language carries to the next chapter you open, if it has that translation. Read-through can't start while you're reading a translation.
 
-**Its To resolve** is that language's, for that chapter: headed *Spanish translation*, the chapter's latest round letter (with **Earlier letters**), and **Translate This Chapter into Spanish** with what it will cost. Below: the translator's questions and what the round left to look at, by paragraph, and glossary proposals under *Whole chapter*.
+**Its To resolve** is that language's, for that chapter: headed *Spanish translation*, the chapter's latest round letter (with **Earlier letters**), and **Translate This Chapter into Spanish** with what it will cost. The head is folded until you open it with its chevron: folded, it keeps the Translate button and one line for a round running or stopped, a notice, or the latest letter. Below: the translator's questions and what the round left to look at, by paragraph, and glossary proposals under *Whole chapter*.
 
 - **The counts** — *3 paragraphs out of date · 2 not translated yet* — open to links that take you to each one.
 - **Left-over translations**, of paragraphs you have since deleted, are shown with their text and **Clear**, which asks first. Undo the deletion instead and the paragraph's translation is a translation again.

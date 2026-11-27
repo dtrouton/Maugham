@@ -97,6 +97,15 @@ public struct UIState: Codable, Equatable, Sendable {
     /// default rule instead of being swept here.
     public var authorReaderChoice: AuthorReaderChoice?
 
+    /// **Whether To resolve's head is open** (2026-11-26): one setting for
+    /// the window, whatever piece or language the faces show. Folded is the
+    /// default, so the list has the room (`ResolveHeadFold`).
+    ///
+    /// **No schema bump**, for `authorReaderChoice`'s reason: one additive
+    /// key, written only while the head is open, so a folded window's file is
+    /// the file it always was and an older build drops the key.
+    public var resolveHeadOpen: Bool
+
     /// **Which set-aside records this device has already told the writer
     /// about** (signed op log P2a, D2) — archive filenames, the key
     /// `SetAsideAcknowledgement` resolves and the History pane's disclosure
@@ -226,6 +235,7 @@ public struct UIState: Codable, Equatable, Sendable {
         detailColumnWidth: Double = UIState.defaultDetailColumnWidth,
         publishImprint: String? = nil,
         authorReaderChoice: AuthorReaderChoice? = nil,
+        resolveHeadOpen: Bool = false,
         acknowledgedSetAsideRecords: Set<String> = [],
         sentRecoveredOpIds: [String: Set<String>] = [:]
     ) {
@@ -244,6 +254,7 @@ public struct UIState: Codable, Equatable, Sendable {
             UIState.clampedDetailColumnWidth(detailColumnWidth)
         self.publishImprint = publishImprint
         self.authorReaderChoice = authorReaderChoice
+        self.resolveHeadOpen = resolveHeadOpen
         self.acknowledgedSetAsideRecords = acknowledgedSetAsideRecords
         self.sentRecoveredOpIds = sentRecoveredOpIds
     }
@@ -257,7 +268,7 @@ public struct UIState: Codable, Equatable, Sendable {
              isNoChromeOn,
              researchPreviewVisible, rightColumnPosition, outlineLayout,
              compilerModel, activePassMemory,
-             detailColumnWidth, publishImprint, authorReaderChoice,
+             detailColumnWidth, publishImprint, authorReaderChoice, resolveHeadOpen,
              acknowledgedSetAsideRecords, sentRecoveredOpIds
     }
 
@@ -280,6 +291,7 @@ public struct UIState: Codable, Equatable, Sendable {
         try c.encode(detailColumnWidth, forKey: .detailColumnWidth)
         try c.encodeIfPresent(publishImprint, forKey: .publishImprint)
         try c.encodeIfPresent(authorReaderChoice, forKey: .authorReaderChoice)
+        if resolveHeadOpen { try c.encode(true, forKey: .resolveHeadOpen) }
         // Written only once there IS one, so a `ui-state.json` on a project
         // where nothing was ever set aside stays exactly the file it was.
         if !acknowledgedSetAsideRecords.isEmpty {
@@ -357,6 +369,8 @@ public struct UIState: Codable, Equatable, Sendable {
         // throwing the rest of the file away with it.
         self.authorReaderChoice =
             (try? c.decodeIfPresent(AuthorReaderChoice.self, forKey: .authorReaderChoice)) ?? nil
+        // Absent is folded, the default.
+        self.resolveHeadOpen = (try? c.decodeIfPresent(Bool.self, forKey: .resolveHeadOpen)) ?? false
         // Absent is the state every project starts in and every file written
         // before P2a is in: nothing acknowledged, so every set-aside record
         // still has its say.

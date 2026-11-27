@@ -1466,6 +1466,7 @@ final class RightColumnMountingTests: XCTestCase {
             structure: f.store.manifest.structure, projectType: f.store.manifest.type),
             .resolve)
 
+        f.documentStore.setResolveHeadOpen(true)   // the header line is the open head's
         let probe = RightColumnFixture.Probe(position: .resolve, subject: piece)
         let window = TestWindow.mount(
             RightColumnFixture.pane(store: f.store, documentStore: f.documentStore, probe: probe,

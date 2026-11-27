@@ -42,27 +42,42 @@ struct ResolveFilterBar: View {
         // decides it: the chips ask only `chipsIdealWidth` of the row, and the
         // bare All flag (or a short choice) stays at the row's end however
         // wide the chip set is (review minor).
+        // **Plain buttons where they fit, the … menu only where they would
+        // wrap the row** (owner, 2026-11-26), measured, never a width
+        // constant; the triage control wraps beneath only as a last resort.
         ViewThatFits(in: .horizontal) {
-            row(includesTriage: true)
+            row(includesTriage: true, actions: .plain)
+            row(includesTriage: true, actions: .menu)
             wrapped
         }
         .padding(.horizontal, 10).padding(.vertical, 5)
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier(Self.identifier)
     }
 
-    /// What the chips' scroller asks of the row when the bar is sized: room
-    /// for about one chip. They take whatever the row offers past that.
+    static let identifier = "resolve.filterBar"
+
+    /// How the bar's actions are drawn: plain buttons, or one menu.
+    enum ActionsStyle: Equatable { case plain, menu }
+
+    /// **Whether the actions are a menu**: only in the menu layout, and
+    /// only with two of them — a menu never holds one item. Pure.
+    static func actionsUseAMenu(_ style: ActionsStyle, showsNewTodo: Bool, showsSelectionMode: Bool) -> Bool {
+        style == .menu && showsNewTodo && showsSelectionMode
+    }
+
     static let chipsIdealWidth: CGFloat = 72
 
     /// The wrapped arm: the chips' row, then the triage control beneath.
     /// Internal so a test measures it on its own.
     var wrapped: some View {
         VStack(alignment: .leading, spacing: 4) {
-            row(includesTriage: false)
+            row(includesTriage: false, actions: .menu)
             if let triage { triageMenu(triage) }
         }
     }
 
-    private func row(includesTriage: Bool) -> some View {
+    private func row(includesTriage: Bool, actions style: ActionsStyle) -> some View {
         HStack(spacing: 6) {
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 4) {
@@ -77,24 +92,86 @@ struct ResolveFilterBar: View {
             if includesTriage, let triage {
                 triageMenu(triage)
             }
-            if showsSelectionMode {
-                Button(action: onToggleSelectionMode) {
-                    Image(systemName: selectionModeOn
-                          ? "checkmark.circle.fill" : "checkmark.circle")
-                }
-                .buttonStyle(.borderless)
-                .help(selectionModeOn ? "Done selecting" : "Select notes")
-                .accessibilityLabel(selectionModeOn ? "Done selecting" : "Select notes")
-            }
-            if showsNewTodo {
-                Button(action: onNewTodo) {
-                    Image(systemName: "plus")
-                }
-                .buttonStyle(.borderless)
-                .help(NewTaskSheet.title)
-                .accessibilityLabel(NewTaskSheet.title)
-            }
+            actions(style)
         }
+    }
+
+    /// The bar's actions. Plain: the selection toggle (Done while
+    /// selecting) and New To-Do's +. Menu, with both offered: one … menu,
+    /// and Done in its place while selecting (round 2, N6).
+    @ViewBuilder
+    private func actions(_ style: ActionsStyle) -> some View {
+        if Self.actionsUseAMenu(style, showsNewTodo: showsNewTodo, showsSelectionMode: showsSelectionMode) {
+            if selectionModeOn { doneButton } else { actionsMenu }
+        } else {
+            if showsSelectionMode {
+                if selectionModeOn {
+                    doneButton
+                } else {
+                    Button(action: onToggleSelectionMode) {
+                        Image(systemName: "checkmark.circle")
+                    }
+                    .buttonStyle(.borderless)
+                    .help(Self.selectNotesTitle)
+                    .accessibilityLabel(Self.selectNotesTitle)
+                }
+            }
+            if showsNewTodo { Self.newTodoButton(onNewTodo) }
+        }
+    }
+
+    /// New To-Do's + — on the bar, or on the empty list's line.
+    static func newTodoButton(_ action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: "plus")
+        }
+        .buttonStyle(.borderless)
+        .help(NewTaskSheet.title)
+        .accessibilityLabel(NewTaskSheet.title)
+    }
+
+    private var doneButton: some View {
+        Button(Self.doneTitle, action: onToggleSelectionMode)
+            .buttonStyle(.borderless)
+            .font(.caption)
+            .fixedSize()
+            .help(Self.doneSelectingTitle)
+            .accessibilityLabel(Self.doneSelectingTitle)
+    }
+
+    /// The overflow menu's items, in order — its VoiceOver label names them.
+    static func actionTitles(showsNewTodo: Bool, showsSelectionMode: Bool, selectionModeOn: Bool) -> [String] {
+        var titles: [String] = []
+        if showsNewTodo { titles.append(NewTaskSheet.title) }
+        if showsSelectionMode { titles.append(selectionModeOn ? doneSelectingTitle : selectNotesTitle) }
+        return titles
+    }
+
+    static let selectNotesTitle = "Select Notes"
+    static let doneSelectingTitle = "Done Selecting"
+    /// The bar's own way out of selection mode.
+    static let doneTitle = "Done"
+
+    private var actionsMenu: some View {
+        let label = Self.actionTitles(showsNewTodo: showsNewTodo, showsSelectionMode: showsSelectionMode,
+                                      selectionModeOn: selectionModeOn).joined(separator: ", ")
+        return Menu {
+            if showsNewTodo {
+                Button(NewTaskSheet.title, action: onNewTodo)
+            }
+            if showsSelectionMode {
+                Button(selectionModeOn ? Self.doneSelectingTitle : Self.selectNotesTitle,
+                       action: onToggleSelectionMode)
+            }
+        } label: {
+            Image(systemName: selectionModeOn ? "ellipsis.circle.fill" : "ellipsis.circle")
+        }
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .fixedSize()
+        .help(label)
+        .accessibilityLabel(label)
+        .accessibilityIdentifier("resolve.filterBar.actions")
     }
 
     private func chipButton(_ chip: ResolveSource) -> some View {

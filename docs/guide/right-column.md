@@ -2,7 +2,7 @@
 
 The right column shows one of three places at a time — **To resolve** (⌘1), **Brief** (⌘2) and **Pulled up** (⌘3) — chosen with the three buttons at its top or the keys. [Getting Started](getting-started.md) says in a line what each is for; this page is the whole of it.
 
-**What the column is about follows the binder.** Click a chapter and To resolve and Brief are that chapter's. Click a Part and they gather that Part's chapters. Click the Book and they gather the whole book. Click an edition and they are that edition's. A quiet line at the top names what you are looking at: *Chapter Three*, *The Lighthouse*, *Spanish edition*. When the centre is the canvas or an edition's book, clicking a chapter in the binder turns the column to that chapter and leaves the centre where it is.
+**What the column is about follows the binder.** Click a chapter and To resolve and Brief are that chapter's. Click a Part and they gather that Part's chapters. Click the Book and they gather the whole book. Click an edition and they are that edition's. A quiet line at the top names what you are looking at: *Chapter Three*, *The Lighthouse*, *Spanish edition*. Over To resolve it's left out when a chapter is the one open in the middle, since you already have it selected and To resolve's first row says where it stands; a Part, the Book and everything else keep it, and Brief always names whose it is. When the centre is the canvas or an edition's book, clicking a chapter in the binder turns the column to that chapter and leaves the centre where it is.
 
 ⌘⌥0 (View ▸ Hide Right Column) hides the whole column; every key below shows it again.
 
@@ -14,13 +14,23 @@ A new chapter's list is empty, and says *Nothing to resolve*. Nothing appears on
 
 ### The head
 
-Above the list, for a chapter:
+**The head is folded until you open it**, so the list has the room. Folded, it is three short rows:
+
+- **Where the chapter stands** — *Revising · Line in progress*, *Final · all four passes done*. The chapter's name leads the line only when it isn't the chapter open in the middle (a Brief link, or a chapter you haven't opened); otherwise you know which it is.
+- **Run Round**, and **Check Writing** on a chapter never checked or **Reread** once it has been (and **Cancel** while something runs), offered and refused exactly as in the open head. On a chapter that isn't open, the line that opens it stands here instead.
+- **One line, only when there is something to say**: a run in progress (always shown while it runs), a failure, a run on another chapter holding the session, a check that found nothing new, the latest letter (*Letter from Lish · 2 hours ago*), the pass-order nudge when there's no letter, or what you've asked about (*Asking about: the middle sags*), since **Ask about…** still briefs the next run with the head folded. A new letter shows as that line rather than springing the head open; click the line to open it.
+
+⌘R, ⌃⌘R, ⇧⌘R and ⌃⇧⌘R (**Fresh Eyes**, which has no folded button) work folded or open, and **File ▸ Translate…** is answered folded, in that line.
+
+The chevron at the end of the first row opens the head and folds it again; the window remembers which, for every chapter and language. Open, the first row is just the chevron (and the name, by the same rule): the ladder below says where the chapter stands. When the window is short, the open head scrolls within itself and the list keeps its room.
+
+Open, above the list, for a chapter:
 
 - **Where it stands** — the chapter's [review passes](review-passes.md#passes-and-the-ladder) as a ladder, with the status they add up to, and a quiet nudge when you work a later pass while an earlier one is still open.
 - **The latest letter** — the newer of the last check's letter and the last round's. **Earlier letters** reaches the ones before it.
-- **Run** — the round, with the pass picker, **Run Gould's Round** and **Fresh Eyes**, and below it the check's own line: who reads this chapter, **Reread**, and **Ask about…**. See [Checking Your Writing](compiler.md) and [Review Passes](review-passes.md#rounds-and-fresh-eyes).
+- **Run** — the round, with the pass picker, **Run Round** and **Fresh Eyes**, and below it the check's own line: who reads this chapter, **Reread**, and **Ask about…**. See [Checking Your Writing](compiler.md) and [Review Passes](review-passes.md#rounds-and-fresh-eyes).
 
-For a Part or the Book, the head is one line counting what is open across it.
+For a Part or the Book, the head is one line counting what is open across it. A translated edition's head and a chapter read in a language fold the same way: folded, *Spanish edition · Cortázar* or *Spanish translation* (with the chapter's name by the same rule), the Translate button, and one line for a round running or stopped, a notice, or the translator's latest letter. The Source edition's head is short and does not fold.
 
 ### Filters
 
@@ -30,9 +40,13 @@ The keys open the list on one filter: ⌘⌥A for the rounds, ⌘⌥D for Checks
 
 A second control appears once you have marked any note **Do**, **Discuss** or **Decline**: it shows **All**, one mark, or **Untriaged**. Marking a note is a plan, not an answer — a declined note is still open until you settle it.
 
+**Select Notes** and **New To-Do** (the **+**) sit at the end of the row. Where the column is too narrow for both, they fold into one **…** menu so the row stays one line; while you select notes, **Done** takes Select Notes' place (and the menu's, when they're folded). Over an empty list there is no row at all: the **+** sits at the end of *Nothing to resolve*.
+
 ### How the list is laid out
 
 For a chapter: **Whole chapter** first, for items about the chapter as a whole, then one group per paragraph, in the order of your text. A screenplay groups by scene. An item whose paragraph you have since deleted sits under **No longer in the text**, last. For a Part or the Book: the Book's own to-dos first, then one group per chapter, in binder order.
+
+**A short list has no group headers.** With fewer than five items, every item shows, each with a small caption saying where it sits (*Whole chapter*, or the paragraph's opening). Five or more, and the groups come back with their headers, counts and folds.
 
 **Two lifetimes, and they look different.** A check's findings are replaced by your next check. Everything else stays until you settle it.
 
@@ -44,7 +58,7 @@ A row on the chapter open in the centre offers its verbs: on a suggestion or a c
 
 **You act on a chapter you are looking at.** In a Part's or the Book's list, a chapter that isn't open reads but offers no verbs, and its group says *Open this chapter to answer its notes*. Click a row and that chapter opens on the paragraph, with the list staying where it was.
 
-**Several at once.** The checklist button selects notes for one batch: see [Working a batch](annotations-and-suggestions.md#working-a-batch).
+**Several at once.** **Select Notes**, at the end of the chips, selects notes for one batch: see [Working a batch](annotations-and-suggestions.md#working-a-batch).
 
 **Settled** sits at the foot, folded. Open it for notes you resolved (with **Reopen** and **Revert**), notes you deleted (**Restore**), and done and archived to-dos.
 

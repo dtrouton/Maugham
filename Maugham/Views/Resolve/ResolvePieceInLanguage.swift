@@ -580,6 +580,12 @@ struct PieceInLanguageHeadView: View {
     /// File ▸ Translate This Chapter into …'s ask (shell p5 Task 7, row 7):
     /// Run, pressed for the menu where Run is offered; spent either way.
     var translateAsk: Binding<TranslateMenuOffer?> = .constant(nil)
+    /// Whether To resolve's head is open (`UIState.resolveHeadOpen`): this
+    /// head folds (`ResolveHeadFold`).
+    var headOpen: Binding<Bool> = .constant(true)
+    /// The piece open in the window's centre — the name rule's one input,
+    /// as the piece head's (`ResolveHeadFold.namesThePiece`).
+    var openDocId: String? = nil
 
     @Environment(AgentRoster.self) private var roster: AgentRoster?
     @State private var notice: String?
@@ -672,6 +678,62 @@ struct PieceInLanguageHeadView: View {
 
     @ViewBuilder
     private var content: some View {
+        reads(VStack(alignment: .leading, spacing: 0) {
+            ResolveHeadFoldBar(
+                // The name only where it is information: the piece is not
+                // the one open in the centre (owner, 2026-11-26).
+                title: ResolveHeadFold.namesThePiece(docId: docId, openDocId: openDocId)
+                    ? TreeWalk.find(id: docId, in: store.manifest.structure)?.title : nil,
+                spokenTitle: TreeWalk.find(id: docId, in: store.manifest.structure)?.title ?? "",
+                // Open, the head's own first line says it.
+                summary: headOpen.wrappedValue ? nil : ResolvePieceInLanguage.headerLine(language: language),
+                spokenSummary: ResolvePieceInLanguage.headerLine(language: language),
+                isHeading: !ResolveHeadFold.namesThePiece(docId: docId, openDocId: openDocId),
+                isOpen: headOpen.wrappedValue,
+                onToggle: { headOpen.wrappedValue.toggle() })
+            if headOpen.wrappedValue {
+                ResolveHeadOpenBody { openContent }
+            } else {
+                folded
+            }
+        })
+        Divider()
+    }
+
+    /// **Folded** (`ResolveHeadFold`): Run and Cancel as offered open (or
+    /// the line that opens the piece), then one line — this piece's round
+    /// running, a round elsewhere, a failure, a stopped round, the head's
+    /// notice, or the latest letter.
+    @ViewBuilder
+    private var folded: some View {
+        let run = runState
+        let head = ResolvePieceInLanguage.headRounds(read, docId: docId, running: isRunning, now: Date())
+        runRow(run)
+            .padding(.horizontal, 12).padding(.bottom, 6)
+        if let line = ResolveHeadFold.translationLine(
+            running: run.isRunning ? run.statusLine : nil,
+            elsewhere: elsewhereLine,
+            failure: run.isFailure ? run.statusLine : nil,
+            stopped: head.stopped.flatMap { stopped in head.stoppedLine.map { ($0, stopped.failed) } },
+            notice: notice,
+            letter: head.letter.flatMap { round in
+                ResolveEditionItems.letter(of: round).map { _ in
+                    ResolveHeadFold.LetterMark(voice: round.signedBy(liveName: translatorName),
+                                               at: round.startedAt)
+                }
+            }) {
+            ResolveHeadFoldedLine(line: line, onOpen: { headOpen.wrappedValue = true })
+        }
+    }
+
+    private var elsewhereLine: String? {
+        ResolvePieceInLanguage.elsewhereLine(relation, noun: noun, titleOf: {
+            TreeWalk.find(id: $0, in: store.manifest.structure)?.title
+        })
+    }
+
+    /// The head as it reads open — every row.
+    private var openContent: some View {
         VStack(alignment: .leading, spacing: 6) {
             Text(ResolvePieceInLanguage.headerLine(language: language))
                 .font(.caption.smallCaps())
@@ -705,6 +767,12 @@ struct PieceInLanguageHeadView: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, 12).padding(.vertical, 6)
+    }
+
+    /// The head's reads, sheets and dialogs — on the head whether it is open
+    /// or folded, so a fold never drops a read or a sheet.
+    private func reads(_ content: some View) -> some View {
+        content
         // The piece's translation, off the main actor — only where the
         // editor is not already showing it in this language.
         .task(id: DeriveKey(docId: docId, language: language, fromTheEditor: editorTranslation != nil,
@@ -761,7 +829,6 @@ struct PieceInLanguageHeadView: View {
                                  notice = EditionCastCopy.cancelledLine(language: language)
                              })
         }
-        Divider()
     }
 
     // MARK: The letter
@@ -848,14 +915,9 @@ struct PieceInLanguageHeadView: View {
     @ViewBuilder
     private var runSection: some View {
         let run = runState
-        let relation = relation
-        let slot = ResolvePieceInLanguage.openSlot(isOpen: isOpen, isOpening: isOpening,
-                                                   hasItemsToAnswer: hasItemsToAnswer, noun: noun)
         // Another chapter's round: said quietly, no Cancel and no Run here
         // (the toolbar's indicator reaches it) — fix round 1, I2.
-        if let elsewhere = ResolvePieceInLanguage.elsewhereLine(relation, noun: noun, titleOf: {
-            TreeWalk.find(id: $0, in: store.manifest.structure)?.title
-        }) {
+        if let elsewhere = elsewhereLine {
             Text(elsewhere)
                 .font(.caption)
                 .foregroundStyle(.secondary)
@@ -863,43 +925,13 @@ struct PieceInLanguageHeadView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .accessibilityIdentifier("resolve.pieceInLanguage.elsewhere")
         }
-        if ResolvePieceInLanguage.offersRun(docId: docId, isOpen: isOpen, mayTranslate: {
-            TranslationRunStart.postureOfTheTranslator(forPiece: $0, in: documentStore).allows(.translate)
-        }, relation: relation) {
-            FlowLayout(spacing: 6) {
-                Button(TranslationRunState.runTitle(pieceWord)) { runThisPiece() }
-                    .controlSize(.small)
-                    .fixedSize()
-                    .disabled(!run.canRun)
-                    .accessibilityLabel(ResolvePieceInLanguage.runAccessibilityLabel(language: language, noun: pieceWord))
-                    .help(run.refusal ?? ResolvePieceInLanguage.runHelp(
-                        language: language,
-                        title: TreeWalk.find(id: docId, in: store.manifest.structure)?.title ?? ""))
-                if run.isRunning {
-                    Button(TranslationRunState.cancelTitle) { verbs.cancel() }
-                        .controlSize(.small)
-                        .fixedSize()
-                        .help(TranslationRunState.cancelHelp)
-                }
-            }
+        runRow(run)
+        if offersRunHere {
             Text(ResolvePieceInLanguage.runScopeLine(noun: noun, language: language, preflight: preflight))
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
                 .frame(maxWidth: .infinity, alignment: .leading)
-        } else if case .opening = slot {
-            Text(ResolvePieceInLanguage.openingLine)
-                .font(.caption)
-                .foregroundStyle(.secondary)
-        } else if case .open(let line) = slot {
-            ResolveOpenThePieceButton(line: line) {
-                if let firstParagraph {
-                    TranslationReveal.post(ResolvePieceInLanguage.reveal(
-                        docId: docId, language: language, paragraphId: firstParagraph))
-                } else {
-                    ResolveNavigation.go(toDocId: docId)
-                }
-            }
         }
         // While it runs, its leg; idle, the last run's report and the trend.
         if let status = run.statusLine, run.isRunning || run.isFailure || run.report != nil {
@@ -916,6 +948,52 @@ struct PieceInLanguageHeadView: View {
                 .foregroundStyle(.tertiary)
                 .fixedSize(horizontal: false, vertical: true)
                 .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+
+    /// Whether Run is offered on this piece here — open and folded alike.
+    private var offersRunHere: Bool {
+        ResolvePieceInLanguage.offersRun(docId: docId, isOpen: isOpen, mayTranslate: {
+            TranslationRunStart.postureOfTheTranslator(forPiece: $0, in: documentStore).allows(.translate)
+        }, relation: relation)
+    }
+
+    /// Run and Cancel where Run is offered; else the piece is opening, or
+    /// the line that opens it. Open and folded alike.
+    @ViewBuilder
+    private func runRow(_ run: TranslationRunState) -> some View {
+        let slot = ResolvePieceInLanguage.openSlot(isOpen: isOpen, isOpening: isOpening,
+                                                   hasItemsToAnswer: hasItemsToAnswer, noun: noun)
+        if offersRunHere {
+            FlowLayout(spacing: 6) {
+                Button(TranslationRunState.runTitle(pieceWord)) { runThisPiece() }
+                    .controlSize(.small)
+                    .fixedSize()
+                    .disabled(!run.canRun)
+                    .accessibilityLabel(ResolvePieceInLanguage.runAccessibilityLabel(language: language, noun: pieceWord))
+                    .help(run.refusal ?? ResolvePieceInLanguage.runHelp(
+                        language: language,
+                        title: TreeWalk.find(id: docId, in: store.manifest.structure)?.title ?? ""))
+                if run.isRunning {
+                    Button(TranslationRunState.cancelTitle) { verbs.cancel() }
+                        .controlSize(.small)
+                        .fixedSize()
+                        .help(TranslationRunState.cancelHelp)
+                }
+            }
+        } else if case .opening = slot {
+            Text(ResolvePieceInLanguage.openingLine)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        } else if case .open(let line) = slot {
+            ResolveOpenThePieceButton(line: line) {
+                if let firstParagraph {
+                    TranslationReveal.post(ResolvePieceInLanguage.reveal(
+                        docId: docId, language: language, paragraphId: firstParagraph))
+                } else {
+                    ResolveNavigation.go(toDocId: docId)
+                }
+            }
         }
     }
 

@@ -300,7 +300,10 @@ struct RightColumn: View {
     private var content: some View {
         switch shown {
         case .resolve:
-            subjectLine
+            // Over the piece open in the centre the line names what the
+            // writer already has selected; To resolve's head says where it
+            // stands instead (owner, 2026-11-26).
+            if RightColumnSubjectLine.showsOverToResolve(subject, structure: store.manifest.structure) { subjectLine }
             resolvePane
         case .brief(let scope):
             subjectLine(brief: scope)

@@ -893,6 +893,13 @@ public final class DocumentStore {
         updateUIState { $0.authorReaderChoice = choice }
     }
 
+    /// Open or fold To resolve's head — one setting for the window
+    /// (`UIState.resolveHeadOpen`, `ResolveHeadFold`).
+    public func setResolveHeadOpen(_ open: Bool) {
+        guard uiState.resolveHeadOpen != open else { return }
+        updateUIState { $0.resolveHeadOpen = open }
+    }
+
     /// Record that the writer has seen these set-aside records — the archive
     /// filenames `SetAsideAcknowledgement.name(for:in:)` resolves (signed op
     /// log P2a, D2).
